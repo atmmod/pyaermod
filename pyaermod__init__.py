@@ -1,0 +1,210 @@
+"""
+PyAERMOD - Python wrapper for EPA's AERMOD atmospheric dispersion model
+
+A complete Python toolkit for AERMOD air dispersion modeling that automates
+input generation, execution, output parsing, and visualization.
+
+Example:
+    >>> from pyaermod import *
+    >>>
+    >>> # Generate input
+    >>> project = AERMODProject(control, sources, receptors, met, output)
+    >>> project.write("facility.inp")
+    >>>
+    >>> # Run AERMOD
+    >>> result = run_aermod("facility.inp")
+    >>>
+    >>> # Parse results
+    >>> results = parse_aermod_output(result.output_file)
+    >>> df = results.get_concentrations('ANNUAL')
+    >>>
+    >>> # Visualize
+    >>> viz = AERMODVisualizer(results)
+    >>> viz.plot_contours(save_path="plot.png")
+
+Website: https://github.com/atmmod/pyaermod
+Documentation: https://github.com/atmmod/pyaermod/blob/main/docs/QUICKSTART.md
+"""
+
+__version__ = "0.1.0"
+__author__ = "Shannon Capps"
+__email__ = "shannon.capps@gmail.com"
+__license__ = "MIT"
+__url__ = "https://github.com/atmmod/pyaermod"
+
+# Import main components for easy access
+from .input_generator import (
+    # Main project class
+    AERMODProject,
+
+    # Pathway classes
+    ControlPathway,
+    SourcePathway,
+    ReceptorPathway,
+    MeteorologyPathway,
+    OutputPathway,
+
+    # Source types
+    PointSource,
+
+    # Receptor types
+    CartesianGrid,
+    PolarGrid,
+    DiscreteReceptor,
+
+    # Enums
+    PollutantType,
+    TerrainType,
+    SourceType,
+)
+
+from .runner import (
+    # Runner classes
+    AERMODRunner,
+    AERMODRunResult,
+    BatchRunner,
+
+    # Convenience functions
+    run_aermod,
+)
+
+from .output_parser import (
+    # Result classes
+    AERMODResults,
+    ModelRunInfo,
+    SourceSummary,
+    ReceptorInfo,
+    ConcentrationResult,
+
+    # Parser classes
+    AERMODOutputParser,
+
+    # Convenience functions
+    parse_aermod_output,
+    quick_summary,
+)
+
+from .visualization import (
+    # Visualizer class
+    AERMODVisualizer,
+
+    # Convenience functions
+    quick_plot,
+    quick_map,
+)
+
+# Define public API
+__all__ = [
+    # Version info
+    '__version__',
+    '__author__',
+    '__email__',
+
+    # Input generation
+    'AERMODProject',
+    'ControlPathway',
+    'SourcePathway',
+    'ReceptorPathway',
+    'MeteorologyPathway',
+    'OutputPathway',
+    'PointSource',
+    'CartesianGrid',
+    'PolarGrid',
+    'DiscreteReceptor',
+    'PollutantType',
+    'TerrainType',
+    'SourceType',
+
+    # Runner
+    'AERMODRunner',
+    'AERMODRunResult',
+    'BatchRunner',
+    'run_aermod',
+
+    # Output parser
+    'AERMODResults',
+    'ModelRunInfo',
+    'SourceSummary',
+    'ReceptorInfo',
+    'ConcentrationResult',
+    'AERMODOutputParser',
+    'parse_aermod_output',
+    'quick_summary',
+
+    # Visualization
+    'AERMODVisualizer',
+    'quick_plot',
+    'quick_map',
+]
+
+
+def get_version():
+    """Get PyAERMOD version"""
+    return __version__
+
+
+def print_info():
+    """Print package information"""
+    print(f"""
+PyAERMOD v{__version__}
+======================
+
+Python wrapper for EPA's AERMOD atmospheric dispersion model
+
+Author: {__author__} <{__email__}>
+License: {__license__}
+Repository: {__url__}
+
+Features:
+  • Generate AERMOD input files from Python
+  • Execute AERMOD automatically
+  • Parse outputs to pandas DataFrames
+  • Create visualizations (plots and maps)
+  • Batch processing and parameter sweeps
+
+Quick Start:
+  >>> from pyaermod import *
+  >>> project = AERMODProject(...)
+  >>> project.write("facility.inp")
+  >>> result = run_aermod("facility.inp")
+  >>> results = parse_aermod_output(result.output_file)
+
+Documentation: {__url__}/blob/main/docs/QUICKSTART.md
+    """)
+
+
+# Optional: Check for dependencies on import
+def _check_dependencies():
+    """Check if optional dependencies are available"""
+    import warnings
+
+    try:
+        import matplotlib
+    except ImportError:
+        warnings.warn(
+            "matplotlib not installed. Static plotting will be unavailable. "
+            "Install with: pip install matplotlib",
+            ImportWarning
+        )
+
+    try:
+        import folium
+    except ImportError:
+        warnings.warn(
+            "folium not installed. Interactive maps will be unavailable. "
+            "Install with: pip install folium",
+            ImportWarning
+        )
+
+    try:
+        import scipy
+    except ImportError:
+        warnings.warn(
+            "scipy not installed. Contour interpolation will be limited. "
+            "Install with: pip install scipy",
+            ImportWarning
+        )
+
+
+# Run dependency check on import (optional, can be disabled)
+# _check_dependencies()

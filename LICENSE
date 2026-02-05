@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Atmospheric Modeling @ Drexel
+Copyright (c) 2026 Shannon Capps
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+AERMOD Disclaimer:
+This software is a wrapper around the EPA's AERMOD atmospheric dispersion model.
+AERMOD is public domain software developed by the U.S. Environmental Protection Agency.
+This wrapper does not modify AERMOD's calculations and maintains regulatory compliance.
+Users must obtain the AERMOD executable separately from EPA's SCRAM website.
