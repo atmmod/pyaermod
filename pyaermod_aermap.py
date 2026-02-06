@@ -122,8 +122,11 @@ class AERMAPProject:
             lines.append(f"   TITLETWO  {self.title_two}")
         lines.append(f"   DATATYPE  {self.dem_format}")
         lines.append(f"   TERRHGTS  {self.terrain_type}")
-        lines.append(f"   DOMAINXY  {self.anchor_x:.2f} {self.anchor_y:.2f} " +
-                    f"{self.utm_zone} {self.datum}")
+        if self.anchor_x is not None and self.anchor_y is not None:
+            lines.append(f"   DOMAINXY  {self.anchor_x:.2f} {self.anchor_y:.2f} " +
+                        f"{self.utm_zone} {self.datum}")
+        else:
+            raise ValueError("anchor_x and anchor_y must be provided for AERMAP domain definition")
         lines.append("")
 
         # DEM files

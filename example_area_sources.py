@@ -5,7 +5,8 @@ Demonstrates usage of AREA, AREACIRC, and AREAPOLY source types.
 """
 
 import sys
-sys.path.insert(0, '/sessions/sweet-focused-newton/mnt/outputs')
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pyaermod_input_generator import (
     AERMODProject,
@@ -336,7 +337,6 @@ def main():
         print(f"\n{i}. {name}")
 
     print("\n" + "-"*70)
-    input("Press Enter to continue...")
 
     for name, func in examples:
         try:

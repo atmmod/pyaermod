@@ -240,12 +240,19 @@ class TestReceptorPathway:
         """Test polar grid"""
         grid = PolarGrid(
             x_origin=0, y_origin=0,
-            distances=[100, 500, 1000],
-            angles=[0, 90, 180, 270]
+            dist_init=100.0,
+            dist_num=3,
+            dist_delta=400.0,
+            dir_init=0.0,
+            dir_num=4,
+            dir_delta=90.0
         )
 
         output = grid.to_aermod_input()
         assert "GRIDPOLR" in output
+        assert "ORIG" in output
+        assert "DIST" in output
+        assert "GDIR" in output
 
 
 class TestAERMODProject:
