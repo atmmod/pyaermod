@@ -1,0 +1,34 @@
+** AERMAP Input File
+** Discrete Receptor Terrain Processing
+**
+
+CO STARTING
+   TITLEONE  Discrete Receptor Terrain Processing
+   DATATYPE  NED
+   TERRHGTS  ELEVATED
+   DOMAINXY  400000.00 4650000.00 16 NAD83
+
+   DATAFILE  n41w088.dem
+   DATAFILE  n41w089.dem
+
+CO FINISHED
+
+RE STARTING
+   DISCCART  R001        401000.00   4651000.00
+   DISCCART  R002        402000.00   4651000.00
+   DISCCART  R003        403000.00   4651000.00
+
+   RECOUTPUT aermap_receptors.out
+
+RE FINISHED
+
+SO STARTING
+   LOCATION  STACK1   POINT      401500.00   4651500.00
+
+   SRCOUTPUT aermap_sources.out
+
+SO FINISHED
+
+OU STARTING
+   MSGOUTPUT aermap.msg
+OU FINISHED

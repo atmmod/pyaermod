@@ -223,11 +223,384 @@ class PointSource:
 
 
 @dataclass
+class AreaSource:
+    """
+    AERMOD area source (rectangular)
+
+    Represents a rectangular area source with uniform emissions.
+    """
+    source_id: str
+    x_coord: float
+    y_coord: float
+    base_elevation: float = 0.0
+
+    # Area parameters
+    release_height: float = 0.0  # meters above ground
+    initial_lateral_dimension: float = 10.0  # meters (half-width in y-direction)
+    initial_vertical_dimension: float = 10.0  # meters (half-width in x-direction)
+
+    # Emission parameters
+    emission_rate: float = 1.0  # g/s/m^2
+
+    # Orientation
+    angle: float = 0.0  # degrees from north (optional)
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} AREA    "
+            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
+        )
+
+        # Optional angle
+        if self.angle != 0.0:
+            lines.append(f"   AREAVERT  {self.source_id:<8}  {self.angle:8.2f}")
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class AreaCircSource:
+    """
+    AERMOD circular area source
+
+    Represents a circular area source with uniform emissions.
+    """
+    source_id: str
+    x_coord: float
+    y_coord: float
+    base_elevation: float = 0.0
+
+    # Area parameters
+    release_height: float = 0.0  # meters above ground
+    radius: float = 100.0  # meters
+
+    # Emission parameters
+    emission_rate: float = 1.0  # g/s/m^2
+
+    # Discretization
+    num_vertices: int = 20  # Number of vertices for approximation
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} AREACIRC "
+            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{self.radius:8.2f} {self.num_vertices:3d}"
+        )
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class AreaPolySource:
+    """
+    AERMOD polygonal area source
+
+    Represents an irregular polygonal area source defined by vertices.
+    """
+    source_id: str
+    vertices: List[Tuple[float, float]]  # List of (x, y) coordinates
+    base_elevation: float = 0.0
+
+    # Area parameters
+    release_height: float = 0.0  # meters above ground
+
+    # Emission parameters
+    emission_rate: float = 1.0  # g/s/m^2
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # Calculate center point (approximate)
+        x_center = sum(v[0] for v in self.vertices) / len(self.vertices)
+        y_center = sum(v[1] for v in self.vertices) / len(self.vertices)
+
+        # LOCATION keyword
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} AREAPOLY "
+            f"{x_center:12.4f} {y_center:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f}"
+        )
+
+        # AREAVERT keyword - vertices
+        # Format: 6 coordinate pairs per line maximum
+        coords_per_line = 6
+        for i in range(0, len(self.vertices), coords_per_line):
+            chunk = self.vertices[i:i+coords_per_line]
+            coord_str = "  ".join(f"{x:12.4f} {y:12.4f}" for x, y in chunk)
+            lines.append(f"   AREAVERT  {self.source_id:<8} {coord_str}")
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class VolumeSource:
+    """
+    AERMOD volume source
+
+    Represents a three-dimensional volume with initial dispersion.
+    Useful for modeling emissions from buildings, structures, or areas
+    with significant initial mixing.
+    """
+    source_id: str
+    x_coord: float
+    y_coord: float
+    base_elevation: float = 0.0
+
+    # Volume parameters
+    release_height: float = 0.0  # meters above ground (centroid height)
+    initial_lateral_dimension: float = 10.0  # meters (initial sigma_y)
+    initial_vertical_dimension: float = 10.0  # meters (initial sigma_z)
+
+    # Emission parameters
+    emission_rate: float = 1.0  # g/s
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} VOLUME  "
+            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
+        )
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class LineSource:
+    """
+    AERMOD line source
+
+    Represents a linear source with uniform emissions per unit length.
+    Useful for modeling roads, conveyor belts, pipelines, or any
+    linear emission feature.
+    """
+    source_id: str
+    x_start: float
+    y_start: float
+    x_end: float
+    y_end: float
+    base_elevation: float = 0.0
+
+    # Line parameters
+    release_height: float = 0.0  # meters above ground
+    initial_lateral_dimension: float = 1.0  # meters (initial sigma_y perpendicular to line)
+
+    # Emission parameters
+    emission_rate: float = 1.0  # g/s/m (per unit length)
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword - LINE sources need two coordinate pairs
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} LINE    "
+            f"{self.x_start:12.4f} {self.y_start:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # Second coordinate pair for end point
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} LINE    "
+            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{self.initial_lateral_dimension:8.2f}"
+        )
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class RLineSource:
+    """
+    AERMOD RLINE source (roadway source)
+
+    Specialized source for modeling mobile emissions on roadways.
+    More sophisticated than basic LINE source with road-specific parameters.
+    """
+    source_id: str
+    x_start: float
+    y_start: float
+    x_end: float
+    y_end: float
+    base_elevation: float = 0.0
+
+    # Roadway parameters
+    release_height: float = 0.0  # meters above ground (typically vehicle exhaust height)
+    initial_lateral_dimension: float = 3.0  # meters (lane width / 2)
+    initial_vertical_dimension: float = 1.5  # meters (initial mixing height)
+
+    # Emission parameters
+    emission_rate: float = 1.0  # g/s/m (per unit length)
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword - RLINE sources need two coordinate pairs
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} RLINE   "
+            f"{self.x_start:12.4f} {self.y_start:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # Second coordinate pair for end point
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} RLINE   "
+            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword - RLINE has different parameters than LINE
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
+        )
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
 class SourcePathway:
     """Collection of sources"""
-    sources: List[PointSource] = field(default_factory=list)
+    sources: List[Union[PointSource, AreaSource, AreaCircSource, AreaPolySource, VolumeSource, LineSource, RLineSource]] = field(default_factory=list)
 
-    def add_source(self, source: PointSource):
+    def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource, VolumeSource, LineSource, RLineSource]):
         """Add a source to the pathway"""
         self.sources.append(source)
 

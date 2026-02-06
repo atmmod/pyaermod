@@ -1,6 +1,6 @@
 # PyAERMOD - Python Wrapper for AERMOD
 
-**Status:** 🚀 MVP 40% Complete - Core functionality operational
+**Status:** 🚀 v0.2.0 Development - 75% Complete - Major features operational
 
 A Python wrapper for the EPA's AERMOD atmospheric dispersion model that eliminates manual input file creation and enables automated result analysis.
 
@@ -33,14 +33,19 @@ PyAERMOD is a Python toolkit that makes AERMOD (the EPA's regulatory air dispers
 ## What's Implemented
 
 ### ✅ Input File Generator
-- Control pathway (CO) - averaging periods, pollutants, terrain
-- Point sources with full stack parameters
-- Building downwash (PRIME)
-- Cartesian and polar receptor grids
-- Discrete receptors
-- Meteorology file specification
-- Output options
-- Source grouping
+- **Control pathway (CO)** - averaging periods, pollutants, terrain
+- **Source Types:**
+  - **POINT** - Stacks and elevated releases with momentum/buoyancy
+  - **AREA** - Rectangular area sources (storage piles, parking lots)
+  - **AREACIRC** - Circular area sources (tank farms)
+  - **AREAPOLY** - Irregular polygonal areas (facility boundaries)
+  - **VOLUME** - 3D emission volumes (buildings, structures)
+  - **LINE** - Linear sources (conveyors, pipelines)
+  - **RLINE** - Roadway sources (highways, mobile emissions)
+- **Building downwash** (PRIME)
+- **Receptor grids:** Cartesian, polar, and discrete
+- **Meteorology** file specification
+- **Output options** and source grouping
 
 ### ✅ Output Parser
 - Parse AERMOD `.out` files
@@ -52,6 +57,23 @@ PyAERMOD is a Python toolkit that makes AERMOD (the EPA's regulatory air dispers
 - Statistical analysis
 - Compliance checking
 - Export to CSV
+
+### ✅ Preprocessor Support
+- **AERMET** - Meteorological data preprocessor
+  - Stage 1, 2, and 3 input generation
+  - Surface and upper air data processing
+  - Boundary layer parameter calculations
+- **AERMAP** - Terrain data preprocessor
+  - DEM file processing (NED, SRTM, GTOPO30)
+  - Receptor elevation extraction
+  - Hill height calculations for complex terrain
+
+### ✅ Tutorial Notebooks
+- **Getting Started** - Complete workflow walkthrough
+- **Point Source Modeling** - Stack optimization and sensitivity
+- **Area Source Modeling** - Storage piles, tank farms, facilities
+- **Parameter Sweeps** - Batch processing and optimization
+- **Visualization** - Contours, maps, and publication graphics
 
 ## Quick Start
 

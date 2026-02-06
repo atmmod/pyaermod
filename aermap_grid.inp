@@ -1,0 +1,31 @@
+** AERMAP Input File
+** Grid Receptor Terrain Processing
+**
+
+CO STARTING
+   TITLEONE  Grid Receptor Terrain Processing
+   DATATYPE  NED
+   TERRHGTS  ELEVATED
+   DOMAINXY  400000.00 4650000.00 16 NAD83
+
+   DATAFILE  n41w088.dem
+
+CO FINISHED
+
+RE STARTING
+   GRIDCART  GRID     XYINC   400000.00    41   100.00  4650000.00    41   100.00
+
+   RECOUTPUT aermap_receptors.out
+
+RE FINISHED
+
+SO STARTING
+   LOCATION  STACK1   POINT      402000.00   4652000.00
+
+   SRCOUTPUT aermap_sources.out
+
+SO FINISHED
+
+OU STARTING
+   MSGOUTPUT aermap.msg
+OU FINISHED
