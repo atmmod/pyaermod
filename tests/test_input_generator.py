@@ -255,6 +255,34 @@ class TestReceptorPathway:
         assert "GDIR" in output
 
 
+class TestPointSourceBuildingBackwardCompat:
+    """Test backward compatibility of scalar building params"""
+
+    def test_building_downwash_scalar(self):
+        """Scalar building params produce correct AERMOD keywords"""
+        source = PointSource(
+            source_id="STACK1",
+            x_coord=0.0, y_coord=0.0,
+            stack_height=50.0,
+            emission_rate=1.5,
+            building_height=25.0,
+            building_width=40.0,
+            building_length=30.0,
+            building_x_offset=5.0,
+            building_y_offset=-3.0,
+        )
+        output = source.to_aermod_input()
+
+        assert "BUILDHGT" in output
+        assert "BUILDWID" in output
+        assert "BUILDLEN" in output
+        assert "XBADJ" in output
+        assert "YBADJ" in output
+        assert "25.00" in output
+        assert "40.00" in output
+        assert "30.00" in output
+
+
 class TestAERMODProject:
     """Test complete project generation"""
 

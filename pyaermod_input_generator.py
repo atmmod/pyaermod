@@ -164,11 +164,13 @@ class PointSource:
     emission_rate: float = 1.0  # g/s
 
     # Building downwash (optional)
-    building_height: Optional[float] = None
-    building_width: Optional[float] = None
-    building_length: Optional[float] = None
-    building_x_offset: Optional[float] = None
-    building_y_offset: Optional[float] = None
+    # Accepts either a single float (scalar, same for all directions) or
+    # a list of 36 floats (one per 10-degree wind sector, BPIP output).
+    building_height: Optional[Union[float, List[float]]] = None
+    building_width: Optional[Union[float, List[float]]] = None
+    building_length: Optional[Union[float, List[float]]] = None
+    building_x_offset: Optional[Union[float, List[float]]] = None
+    building_y_offset: Optional[Union[float, List[float]]] = None
 
     # Source groups
     source_groups: List[str] = field(default_factory=list)
@@ -176,6 +178,74 @@ class PointSource:
     # Urban source
     is_urban: bool = False
     urban_area_name: Optional[str] = None
+
+    def _format_building_keyword(
+        self, keyword: str, values: Union[float, List[float]]
+    ) -> List[str]:
+        """
+        Format a building downwash keyword for AERMOD input.
+
+        Parameters
+        ----------
+        keyword : str
+            AERMOD keyword (BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ).
+        values : float or list of float
+            Scalar (single value for all directions) or 36-value list
+            (one per 10-degree wind sector).
+
+        Returns
+        -------
+        list of str
+            Formatted AERMOD input lines.
+
+        Raises
+        ------
+        ValueError
+            If values is a list with length other than 36.
+        """
+        # Pad keyword to align with AERMOD formatting
+        kw = f"{keyword:<9}"
+
+        if isinstance(values, (int, float)):
+            return [f"   {kw} {self.source_id:<8} {values:8.2f}"]
+
+        # List of values — must be exactly 36
+        if len(values) != 36:
+            raise ValueError(
+                f"{keyword} requires exactly 36 values for direction-dependent "
+                f"downwash, got {len(values)}"
+            )
+
+        lines = []
+        # AERMOD format: 10 values per continuation line
+        for row_start in range(0, 36, 10):
+            chunk = values[row_start : row_start + 10]
+            val_str = " ".join(f"{v:8.2f}" for v in chunk)
+            lines.append(f"   {kw} {self.source_id:<8} {val_str}")
+        return lines
+
+    def set_building_from_bpip(self, building) -> None:
+        """
+        Populate building downwash fields from a Building object.
+
+        Runs BPIPCalculator to compute 36 direction-dependent values
+        and stores them in the building_* fields.
+
+        Parameters
+        ----------
+        building : pyaermod_bpip.Building
+            Building geometry to use for downwash calculations.
+        """
+        from pyaermod_bpip import BPIPCalculator
+
+        calc = BPIPCalculator(building, self.x_coord, self.y_coord)
+        result = calc.calculate_all()
+
+        self.building_height = result.buildhgt
+        self.building_width = result.buildwid
+        self.building_length = result.buildlen
+        self.building_x_offset = result.xbadj
+        self.building_y_offset = result.ybadj
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -194,21 +264,21 @@ class PointSource:
             f"{self.stack_temp:8.2f} {self.exit_velocity:8.2f} {self.stack_diameter:8.2f}"
         )
 
-        # Building downwash parameters
+        # Building downwash parameters (scalar or 36-value direction-dependent)
         if self.building_height is not None:
-            lines.append(f"   BUILDHGT  {self.source_id:<8} {self.building_height:8.2f}")
+            lines.extend(self._format_building_keyword("BUILDHGT", self.building_height))
 
         if self.building_width is not None:
-            lines.append(f"   BUILDWID  {self.source_id:<8} {self.building_width:8.2f}")
+            lines.extend(self._format_building_keyword("BUILDWID", self.building_width))
 
         if self.building_length is not None:
-            lines.append(f"   BUILDLEN  {self.source_id:<8} {self.building_length:8.2f}")
+            lines.extend(self._format_building_keyword("BUILDLEN", self.building_length))
 
         if self.building_x_offset is not None:
-            lines.append(f"   XBADJ     {self.source_id:<8} {self.building_x_offset:8.2f}")
+            lines.extend(self._format_building_keyword("XBADJ", self.building_x_offset))
 
         if self.building_y_offset is not None:
-            lines.append(f"   YBADJ     {self.source_id:<8} {self.building_y_offset:8.2f}")
+            lines.extend(self._format_building_keyword("YBADJ", self.building_y_offset))
 
         # Source groups
         if self.source_groups:
