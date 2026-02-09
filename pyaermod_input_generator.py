@@ -968,8 +968,25 @@ class AERMODProject:
     meteorology: MeteorologyPathway
     output: OutputPathway
 
-    def to_aermod_input(self) -> str:
-        """Generate complete AERMOD input file"""
+    def to_aermod_input(self, validate: bool = False, check_files: bool = False) -> str:
+        """
+        Generate complete AERMOD input file.
+
+        Parameters
+        ----------
+        validate : bool
+            If True, run the configuration validator before generating output.
+            Raises ValueError on validation errors (warnings are allowed).
+        check_files : bool
+            If True (and validate is True), also verify that meteorology
+            files exist on disk.
+        """
+        if validate:
+            from pyaermod_validator import Validator
+            result = Validator.validate(self, check_files=check_files)
+            if not result.is_valid:
+                raise ValueError(str(result))
+
         sections = [
             self.control.to_aermod_input(),
             "",
