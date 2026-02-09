@@ -27,6 +27,14 @@ class AERMETStation:
     elevation: Optional[float] = None  # meters
     anemometer_height: float = 10.0  # meters
 
+    def __post_init__(self):
+        if not (-90 <= self.latitude <= 90):
+            raise ValueError(f"latitude must be between -90 and 90, got {self.latitude}")
+        if not (-180 <= self.longitude <= 180):
+            raise ValueError(f"longitude must be between -180 and 180, got {self.longitude}")
+        if self.anemometer_height <= 0:
+            raise ValueError(f"anemometer_height must be > 0, got {self.anemometer_height}")
+
 
 @dataclass
 class UpperAirStation:
@@ -35,6 +43,12 @@ class UpperAirStation:
     station_name: str
     latitude: float
     longitude: float
+
+    def __post_init__(self):
+        if not (-90 <= self.latitude <= 90):
+            raise ValueError(f"latitude must be between -90 and 90, got {self.latitude}")
+        if not (-180 <= self.longitude <= 180):
+            raise ValueError(f"longitude must be between -180 and 180, got {self.longitude}")
 
 
 @dataclass
@@ -98,16 +112,23 @@ class AERMETStage1:
             lines.append(f"   XDATES     {self.start_date} TO {self.end_date}")
 
             # Station parameters
-            if self.surface_station.anemometer_height:
+            if self.surface_station.anemometer_height is not None:
                 lines.append(f"   ANEMHGT    {self.surface_station.anemometer_height:.1f}")
 
             lines.append(f"   LOCATION   {self.surface_station.station_id} " +
                         f"{self.surface_station.latitude:.4f} " +
                         f"{self.surface_station.longitude:.4f} {self.surface_station.time_zone}")
 
-            if self.surface_station.elevation:
+            if self.surface_station.elevation is not None:
                 lines.append(f"   ELEVATION  {self.surface_station.elevation:.1f}")
 
+            lines.append("")
+
+        # QA pathway
+        if self.surface_station and self.surface_data_file:
+            lines.append("QA")
+            lines.append(f"   EXTRACT    {self.qa_file}")
+            lines.append(f"   XDATES     {self.start_date} TO {self.end_date}")
             lines.append("")
 
         return "\n".join(lines)
@@ -211,6 +232,24 @@ class AERMETStage3:
     surface_file: str = "aermod.sfc"
     profile_file: str = "aermod.pfl"
 
+    def __post_init__(self):
+        # Validate partial location parameters (when station is not provided)
+        if self.station is None:
+            loc_params = [self.latitude, self.longitude, self.time_zone]
+            provided = [p is not None for p in loc_params]
+            if any(provided) and not all(provided):
+                raise ValueError(
+                    "latitude, longitude, and time_zone must all be provided or all be None"
+                )
+
+        # Validate array lengths
+        if len(self.albedo) != 12:
+            raise ValueError(f"albedo must have exactly 12 elements, got {len(self.albedo)}")
+        if len(self.bowen) != 12:
+            raise ValueError(f"bowen must have exactly 12 elements, got {len(self.bowen)}")
+        if len(self.roughness) != 12:
+            raise ValueError(f"roughness must have exactly 12 elements, got {len(self.roughness)}")
+
     def to_aermet_input(self) -> str:
         """Generate AERMET Stage 3 input file"""
         lines = []
@@ -242,7 +281,7 @@ class AERMETStage3:
             lines.append(f"   LOCATION   {self.station.station_id} " +
                         f"{self.station.latitude:.4f} " +
                         f"{self.station.longitude:.4f} {self.station.time_zone}")
-        elif self.latitude and self.longitude and self.time_zone:
+        elif self.latitude is not None and self.longitude is not None and self.time_zone is not None:
             lines.append(f"   LOCATION   SITE {self.latitude:.4f} " +
                         f"{self.longitude:.4f} {self.time_zone}")
 

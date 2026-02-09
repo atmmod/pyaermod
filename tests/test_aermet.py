@@ -9,6 +9,7 @@ from pyaermod_aermet import (
     AERMETStage1,
     AERMETStage2,
     AERMETStage3,
+    write_aermet_runfile,
 )
 
 
@@ -287,3 +288,158 @@ class TestAERMETStage3:
         assert all(a == 0.15 for a in stage3.albedo)
         assert all(b == 1.0 for b in stage3.bowen)
         assert all(r == 0.1 for r in stage3.roughness)
+
+
+class TestWriteAERMETRunfile:
+    """Test write_aermet_runfile function"""
+
+    def test_creates_file(self, tmp_path):
+        """Test that write_aermet_runfile creates a file"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = write_aermet_runfile(1, "stage1.inp")
+            assert os.path.exists(result)
+        finally:
+            os.chdir(original_cwd)
+
+    def test_content_includes_stage_number(self, tmp_path):
+        """Test that the script content includes the correct stage number"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            write_aermet_runfile(2, "stage2.inp")
+            with open("run_aermet_stage2.sh") as f:
+                content = f.read()
+            assert "Stage 2" in content
+        finally:
+            os.chdir(original_cwd)
+
+    def test_file_is_executable(self, tmp_path):
+        """Test that the created script file is executable"""
+        import os
+        import stat
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = write_aermet_runfile(3, "stage3.inp")
+            file_stat = os.stat(result)
+            assert file_stat.st_mode & stat.S_IXUSR
+        finally:
+            os.chdir(original_cwd)
+
+
+class TestAERMETEdgeCases:
+    """Test edge cases and validation"""
+
+    def test_station_invalid_latitude(self):
+        """Test that invalid latitude raises ValueError"""
+        with pytest.raises(ValueError, match="latitude"):
+            AERMETStation(
+                station_id="TEST",
+                station_name="Test",
+                latitude=91.0,
+                longitude=0.0,
+                time_zone=0,
+            )
+
+    def test_station_invalid_longitude(self):
+        """Test that invalid longitude raises ValueError"""
+        with pytest.raises(ValueError, match="longitude"):
+            AERMETStation(
+                station_id="TEST",
+                station_name="Test",
+                latitude=0.0,
+                longitude=181.0,
+                time_zone=0,
+            )
+
+    def test_station_zero_anemometer_height(self):
+        """Test that zero anemometer height raises ValueError"""
+        with pytest.raises(ValueError, match="anemometer_height"):
+            AERMETStation(
+                station_id="TEST",
+                station_name="Test",
+                latitude=0.0,
+                longitude=0.0,
+                time_zone=0,
+                anemometer_height=0.0,
+            )
+
+    def test_upper_air_invalid_latitude(self):
+        """Test that invalid upper air latitude raises ValueError"""
+        with pytest.raises(ValueError, match="latitude"):
+            UpperAirStation(
+                station_id="99999",
+                station_name="Bad",
+                latitude=-91.0,
+                longitude=0.0,
+            )
+
+    def test_stage3_falsy_time_zone(self):
+        """Test that time_zone=0 (UTC) generates LOCATION line"""
+        stage3 = AERMETStage3(
+            latitude=51.5,
+            longitude=0.0,
+            time_zone=0,
+        )
+        output = stage3.to_aermet_input()
+        assert "LOCATION   SITE 51.5000 0.0000 0" in output
+
+    def test_stage3_partial_location(self):
+        """Test that partial location parameters raise ValueError"""
+        with pytest.raises(ValueError, match="latitude, longitude, and time_zone"):
+            AERMETStage3(
+                latitude=33.64,
+            )
+
+    def test_stage3_invalid_albedo_length(self):
+        """Test that non-12-element albedo raises ValueError"""
+        with pytest.raises(ValueError, match="albedo"):
+            AERMETStage3(albedo=[0.15, 0.15, 0.15])
+
+    def test_stage3_invalid_bowen_length(self):
+        """Test that non-12-element bowen raises ValueError"""
+        with pytest.raises(ValueError, match="bowen"):
+            AERMETStage3(bowen=[1.0] * 6)
+
+    def test_stage3_invalid_roughness_length(self):
+        """Test that non-12-element roughness raises ValueError"""
+        with pytest.raises(ValueError, match="roughness"):
+            AERMETStage3(roughness=[0.1])
+
+    def test_stage1_qa_pathway(self):
+        """Test that QA section appears in Stage 1 output"""
+        station = AERMETStation(
+            station_id="KORD",
+            station_name="Chicago",
+            latitude=41.98,
+            longitude=-87.90,
+            time_zone=-6,
+        )
+        stage1 = AERMETStage1(
+            surface_station=station,
+            surface_data_file="kord_2020.ish",
+        )
+        output = stage1.to_aermet_input()
+        assert "QA" in output
+        assert "EXTRACT    stage1.qa" in output
+
+    def test_stage1_zero_elevation(self):
+        """Test that elevation=0.0 still generates ELEVATION line"""
+        station = AERMETStation(
+            station_id="KORD",
+            station_name="Chicago",
+            latitude=41.98,
+            longitude=-87.90,
+            time_zone=-6,
+            elevation=0.0,
+        )
+        stage1 = AERMETStage1(
+            surface_station=station,
+            surface_data_file="kord_2020.ish",
+        )
+        output = stage1.to_aermet_input()
+        assert "ELEVATION  0.0" in output

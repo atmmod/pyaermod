@@ -919,6 +919,12 @@ class OutputPathway:
     max_file: Optional[str] = None
     plot_file: Optional[str] = None
 
+    # POSTFILE outputs
+    postfile: Optional[str] = None  # Output file path
+    postfile_averaging: Optional[str] = None  # e.g. "1" for 1-HR, "ANNUAL", etc.
+    postfile_source_group: str = "ALL"
+    postfile_format: str = "PLOT"  # PLOT (formatted) or UNFORM (unformatted/binary)
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD OU pathway text"""
         lines = ["OU STARTING"]
@@ -946,6 +952,14 @@ class OutputPathway:
         # Plot file
         if self.plot_file:
             lines.append(f"   PLOTFILE  ANNUAL  ALL  FIRST  {self.plot_file}")
+
+        # Postfile
+        if self.postfile:
+            ave = self.postfile_averaging or "ANNUAL"
+            lines.append(
+                f"   POSTFILE  {ave}  {self.postfile_source_group}  "
+                f"{self.postfile_format}  {self.postfile}"
+            )
 
         lines.append("OU FINISHED")
         return "\n".join(lines)
