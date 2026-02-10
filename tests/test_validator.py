@@ -5,7 +5,7 @@ Tests validation logic for all pathways and cross-field checks.
 """
 
 import pytest
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     ControlPathway,
     SourcePathway,
     PointSource,
@@ -29,7 +29,7 @@ from pyaermod_input_generator import (
     PollutantType,
     TerrainType,
 )
-from pyaermod_validator import Validator, ValidationResult, ValidationError
+from pyaermod.validator import Validator, ValidationResult, ValidationError
 
 
 # ---------------------------------------------------------------------------

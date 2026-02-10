@@ -3,7 +3,7 @@ Unit tests for PyAERMOD AERMAP input generator
 """
 
 import pytest
-from pyaermod_aermap import (
+from pyaermod.aermap import (
     AERMAPDomain,
     AERMAPReceptor,
     AERMAPSource,

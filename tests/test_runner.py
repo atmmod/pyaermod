@@ -9,7 +9,7 @@ import tempfile
 import os
 from pathlib import Path
 from datetime import datetime
-from pyaermod_runner import (
+from pyaermod.runner import (
     AERMODRunResult,
     AERMODRunner,
     BatchRunner,

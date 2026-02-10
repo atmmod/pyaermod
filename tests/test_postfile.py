@@ -10,13 +10,13 @@ import pytest
 import pandas as pd
 from pathlib import Path
 
-from pyaermod_postfile import (
+from pyaermod.postfile import (
     PostfileHeader,
     PostfileParser,
     PostfileResult,
     read_postfile,
 )
-from pyaermod_input_generator import OutputPathway
+from pyaermod.input_generator import OutputPathway
 
 
 # ---------------------------------------------------------------------------

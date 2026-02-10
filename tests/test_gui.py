@@ -15,7 +15,7 @@ import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch
 
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     AERMODProject,
     AreaSource,
     BuoyLineSegment,
@@ -51,8 +51,8 @@ if "streamlit_folium" not in sys.modules:
     sys.modules["streamlit_folium"] = MagicMock()
 
 # Now import the GUI module (it will use our mock if streamlit isn't installed)
-import pyaermod_gui
-from pyaermod_gui import SessionStateManager, MapEditor, SourceFormFactory
+import pyaermod.gui as pyaermod_gui
+from pyaermod.gui import SessionStateManager, MapEditor, SourceFormFactory
 
 
 def _fresh_session_state():
@@ -313,7 +313,7 @@ class TestMapEditorHelpers:
 
     def test_map_editor_with_transformer(self):
         pyproj = pytest.importorskip("pyproj")
-        from pyaermod_geospatial import CoordinateTransformer
+        from pyaermod.geospatial import CoordinateTransformer
 
         t = CoordinateTransformer(utm_zone=16, hemisphere="N")
         editor = MapEditor(transformer=t)

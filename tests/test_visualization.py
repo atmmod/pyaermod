@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 # We need to construct a mock AERMODResults for the visualizer
-from pyaermod_output_parser import (
+from pyaermod.output_parser import (
     ModelRunInfo,
     SourceSummary,
     ConcentrationResult,
@@ -23,8 +23,8 @@ from pyaermod_output_parser import (
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend for testing
 
-from pyaermod_visualization import AERMODVisualizer, quick_plot, quick_map
-from pyaermod_advanced_viz import AdvancedVisualizer
+from pyaermod.visualization import AERMODVisualizer, quick_plot, quick_map
+from pyaermod.advanced_viz import AdvancedVisualizer
 
 
 # ---------------------------------------------------------------------------

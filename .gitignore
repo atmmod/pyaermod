@@ -28,3 +28,13 @@ Thumbs.db
 *.sfc
 *.pfl
 *.msg
+
+# Fortran source directories (download separately)
+aermod/
+aermap/
+aermet/
+aermod_results/
+
+# Archives
+*.tar.gz
+*.zip

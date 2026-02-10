@@ -16,7 +16,7 @@ pyproj = pytest.importorskip("pyproj")
 gpd = pytest.importorskip("geopandas")
 shapely = pytest.importorskip("shapely")
 
-from pyaermod_geospatial import (
+from pyaermod.geospatial import (
     CoordinateTransformer,
     ContourGenerator,
     GeoDataFrameFactory,
@@ -27,7 +27,7 @@ from pyaermod_geospatial import (
     latlon_to_utm,
     utm_to_latlon,
 )
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     AreaCircSource,
     AreaPolySource,
     AreaSource,
@@ -185,7 +185,7 @@ class TestCoordinateTransformer:
 
     def test_from_aermap_domain(self):
         """Create transformer from AERMAPDomain metadata."""
-        from pyaermod_aermap import AERMAPDomain
+        from pyaermod.aermap import AERMAPDomain
         domain = AERMAPDomain(
             anchor_x=500000, anchor_y=3800000,
             num_x_points=10, num_y_points=10, spacing=100,

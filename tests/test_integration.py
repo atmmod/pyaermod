@@ -16,7 +16,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Import all components
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     AERMODProject,
     ControlPathway,
     SourcePathway,
@@ -29,26 +29,26 @@ from pyaermod_input_generator import (
     MeteorologyPathway,
     OutputPathway,
 )
-from pyaermod_runner import AERMODRunner
-from pyaermod_output_parser import AERMODOutputParser, parse_aermod_output
-from pyaermod_aermet import (
+from pyaermod.runner import AERMODRunner
+from pyaermod.output_parser import AERMODOutputParser, parse_aermod_output
+from pyaermod.aermet import (
     AERMETStation,
     UpperAirStation,
     AERMETStage1,
     AERMETStage2,
     AERMETStage3,
 )
-from pyaermod_validator import Validator
+from pyaermod.validator import Validator
 
 # Try to import geospatial and postfile modules
 try:
-    from pyaermod_postfile import read_postfile, PostfileResult
+    from pyaermod.postfile import read_postfile, PostfileResult
     HAS_POSTFILE = True
 except ImportError:
     HAS_POSTFILE = False
 
 try:
-    from pyaermod_geospatial import (
+    from pyaermod.geospatial import (
         CoordinateTransformer,
         export_concentration_geotiff,
         export_concentration_shapefile,
@@ -806,7 +806,7 @@ class TestAERMAPInputGeneration:
 
     def test_aermap_project_generates_valid_input(self, temp_workspace):
         """Test that an AERMAPProject generates valid AERMAP input"""
-        from pyaermod_aermap import AERMAPProject, AERMAPReceptor, AERMAPSource
+        from pyaermod.aermap import AERMAPProject, AERMAPReceptor, AERMAPSource
 
         project = AERMAPProject(
             title_one="Integration Test AERMAP",
@@ -842,7 +842,7 @@ class TestAERMAPInputGeneration:
 
     def test_aermap_from_aermod_project(self, simple_project, temp_workspace):
         """Test creating AERMAPProject from AERMODProject"""
-        from pyaermod_aermap import AERMAPProject
+        from pyaermod.aermap import AERMAPProject
 
         aermap = AERMAPProject.from_aermod_project(
             simple_project,
@@ -859,7 +859,7 @@ class TestAERMAPInputGeneration:
 
     def test_terrain_processor_bridge(self, simple_project):
         """Test TerrainProcessor.create_aermap_project_from_aermod"""
-        from pyaermod_terrain import TerrainProcessor
+        from pyaermod.terrain import TerrainProcessor
 
         processor = TerrainProcessor()
         aermap = processor.create_aermap_project_from_aermod(
@@ -874,7 +874,7 @@ class TestAERMAPInputGeneration:
 
     def test_aermap_output_parser_disccart(self, temp_workspace):
         """Test parsing AERMAP discrete receptor output"""
-        from pyaermod_terrain import AERMAPOutputParser
+        from pyaermod.terrain import AERMAPOutputParser
 
         content = """** AERMAP Receptor Output
    DISCCART     500000.00    3800000.00    125.30    130.50
@@ -889,7 +889,7 @@ class TestAERMAPInputGeneration:
 
     def test_aermap_output_parser_source(self, temp_workspace):
         """Test parsing AERMAP source output"""
-        from pyaermod_terrain import AERMAPOutputParser
+        from pyaermod.terrain import AERMAPOutputParser
 
         content = """** AERMAP Source Output
 SO LOCATION  STACK1      POINT      500500.00    3800500.00       125.50
@@ -910,7 +910,7 @@ class TestAERMAPExecution:
 
     def test_aermap_can_be_invoked(self, temp_workspace):
         """Test that AERMAP can be invoked (will fail without DEM files)"""
-        from pyaermod_aermap import AERMAPProject, AERMAPSource
+        from pyaermod.aermap import AERMAPProject, AERMAPSource
 
         project = AERMAPProject(
             title_one="AERMAP Execution Test",
@@ -924,7 +924,7 @@ class TestAERMAPExecution:
         input_file = temp_workspace / "aermap_test.inp"
         project.write(str(input_file))
 
-        from pyaermod_terrain import AERMAPRunner
+        from pyaermod.terrain import AERMAPRunner
         runner = AERMAPRunner(executable_path=AERMAP_EXE)
         result = runner.run(str(input_file), working_dir=str(temp_workspace))
 

@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     AERMODProject,
     CartesianGrid,
     ControlPathway,
@@ -22,7 +22,7 @@ from pyaermod_input_generator import (
     SourcePathway,
 )
 
-from pyaermod_terrain import (
+from pyaermod.terrain import (
     AERMAPOutputParser,
     AERMAPRunResult,
     AERMAPRunner,
@@ -73,8 +73,8 @@ class TestDEMDownloader:
     @pytest.fixture
     def mock_requests(self):
         """Mock requests module for DEMDownloader."""
-        with patch("pyaermod_terrain.requests") as mock_req:
-            with patch("pyaermod_terrain.HAS_REQUESTS", True):
+        with patch("pyaermod.terrain.requests") as mock_req:
+            with patch("pyaermod.terrain.HAS_REQUESTS", True):
                 yield mock_req
 
     def test_find_tiles_returns_list(self, mock_requests, tmp_path):

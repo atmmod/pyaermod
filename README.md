@@ -1,320 +1,138 @@
-# PyAERMOD - Python Wrapper for AERMOD
+# PyAERMOD
 
-**Status:** 🚀 v0.2.0 Development - 75% Complete - Major features operational
+Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
-A Python wrapper for the EPA's AERMOD atmospheric dispersion model that eliminates manual input file creation and enables automated result analysis.
+PyAERMOD automates input file generation, model execution, output parsing, and result visualization — replacing manual text-file editing with a type-safe Python API.
 
-## What is This?
+## Installation
 
-PyAERMOD is a Python toolkit that makes AERMOD (the EPA's regulatory air dispersion model) much easier to use by:
+```bash
+pip install pyaermod             # core (input generation + output parsing)
+pip install pyaermod[viz]        # + matplotlib/folium visualization
+pip install pyaermod[geo]        # + geospatial export (GeoTIFF, Shapefile)
+pip install pyaermod[gui]        # + Streamlit interactive GUI
+pip install pyaermod[all]        # everything
+```
 
-1. **Generating AERMOD input files from Python** - No more manual text editing
-2. **Parsing AERMOD output into pandas** - Instant access to results in Python/pandas
-3. **Automating routine workflows** - Parameter sweeps, batch processing, compliance checking
-
-## Why Use This?
-
-**Traditional AERMOD Workflow:**
-- ❌ Manual text file editing
-- ❌ Formatting errors
-- ❌ 30-60 minutes per model setup
-- ❌ Manual result extraction
-- ❌ Hard to reproduce
-- ❌ Expensive consulting fees for routine work
-
-**With PyAERMOD:**
-- ✅ Generate inputs from Python in 2-5 minutes
-- ✅ Type-safe, validated parameters
-- ✅ Results instantly in pandas DataFrames
-- ✅ Easy parameter sweeps
-- ✅ Fully reproducible workflows
-- ✅ **80%+ time savings**
-
-## What's Implemented
-
-### ✅ Input File Generator
-- **Control pathway (CO)** - averaging periods, pollutants, terrain
-- **Source Types:**
-  - **POINT** - Stacks and elevated releases with momentum/buoyancy
-  - **AREA** - Rectangular area sources (storage piles, parking lots)
-  - **AREACIRC** - Circular area sources (tank farms)
-  - **AREAPOLY** - Irregular polygonal areas (facility boundaries)
-  - **VOLUME** - 3D emission volumes (buildings, structures)
-  - **LINE** - Linear sources (conveyors, pipelines)
-  - **RLINE** - Roadway sources (highways, mobile emissions)
-- **Building downwash** (PRIME)
-- **Receptor grids:** Cartesian, polar, and discrete
-- **Meteorology** file specification
-- **Output options** and source grouping
-
-### ✅ Output Parser
-- Parse AERMOD `.out` files
-- Extract all run metadata
-- Extract source/receptor information
-- Parse concentration results (all averaging periods)
-- Convert to pandas DataFrames
-- Find maximum concentrations
-- Statistical analysis
-- Compliance checking
-- Export to CSV
-
-### ✅ Preprocessor Support
-- **AERMET** - Meteorological data preprocessor
-  - Stage 1, 2, and 3 input generation
-  - Surface and upper air data processing
-  - Boundary layer parameter calculations
-- **AERMAP** - Terrain data preprocessor
-  - DEM file processing (NED, SRTM, GTOPO30)
-  - Receptor elevation extraction
-  - Hill height calculations for complex terrain
-
-### ✅ Tutorial Notebooks
-- **Getting Started** - Complete workflow walkthrough
-- **Point Source Modeling** - Stack optimization and sensitivity
-- **Area Source Modeling** - Storage piles, tank farms, facilities
-- **Parameter Sweeps** - Batch processing and optimization
-- **Visualization** - Contours, maps, and publication graphics
+For development:
+```bash
+git clone https://github.com/atmmod/pyaermod.git
+cd pyaermod
+pip install -e ".[dev,all]"
+```
 
 ## Quick Start
 
-### 1. Generate AERMOD Input
+### Generate AERMOD Input
 
 ```python
-from pyaermod_input_generator import *
+from pyaermod.input_generator import (
+    AERMODProject, ControlPathway, SourcePathway, ReceptorPathway,
+    MeteorologyPathway, OutputPathway, PointSource, CartesianGrid,
+    PollutantType, TerrainType,
+)
 
-# Define project
 control = ControlPathway(
-    title_one="My Facility Assessment",
+    title_one="My Facility",
     pollutant_id=PollutantType.PM25,
     averaging_periods=["ANNUAL", "24"],
-    terrain_type=TerrainType.FLAT
+    terrain_type=TerrainType.FLAT,
 )
 
-# Add emission source
 sources = SourcePathway()
 sources.add_source(PointSource(
-    source_id="STACK1",
-    x_coord=500.0,
-    y_coord=500.0,
-    base_elevation=10.0,
-    stack_height=50.0,
-    stack_temp=400.0,  # Kelvin
-    exit_velocity=15.0,  # m/s
-    stack_diameter=2.0,  # m
-    emission_rate=1.5  # g/s
+    source_id="STACK1", x_coord=500.0, y_coord=500.0,
+    base_elevation=10.0, stack_height=50.0, stack_temp=400.0,
+    exit_velocity=15.0, stack_diameter=2.0, emission_rate=1.5,
 ))
 
-# Add receptor grid
 receptors = ReceptorPathway()
-receptors.add_cartesian_grid(
-    CartesianGrid.from_bounds(
-        x_min=0, x_max=2000,
-        y_min=0, y_max=2000,
-        spacing=100  # 100m spacing
-    )
-)
+receptors.add_cartesian_grid(CartesianGrid.from_bounds(
+    x_min=0, x_max=2000, y_min=0, y_max=2000, spacing=100,
+))
 
-# Specify meteorology
 meteorology = MeteorologyPathway(
-    surface_file="met_data.sfc",
-    profile_file="met_data.pfl"
+    surface_file="met_data.sfc", profile_file="met_data.pfl",
 )
+output = OutputPathway(receptor_table=True, max_table=True)
 
-# Configure output
-output = OutputPathway(
-    receptor_table=True,
-    max_table=True,
-    summary_file="results.sum"
-)
-
-# Create and write input file
 project = AERMODProject(control, sources, receptors, meteorology, output)
 project.write("facility.inp")
 ```
 
-### 2. Run AERMOD
-
-```bash
-# Run AERMOD executable (manual for now)
-aermod.exe facility
-
-# Or on Linux/Mac
-./aermod facility
-```
-
-### 3. Parse Results
+### Run AERMOD & Parse Results
 
 ```python
-from pyaermod_output_parser import parse_aermod_output
+from pyaermod.runner import run_aermod
+from pyaermod.output_parser import parse_aermod_output
 
-# Parse output file
-results = parse_aermod_output("facility.out")
+result = run_aermod("facility.inp")
+results = parse_aermod_output(result.output_file)
 
-# Display summary
+df = results.get_concentrations("ANNUAL")
 print(results.summary())
-
-# Get concentrations as DataFrame
-annual_df = results.get_concentrations('ANNUAL')
-print(annual_df.head())
-
-# Find maximum concentration
-max_info = results.get_max_concentration('ANNUAL')
-print(f"Max: {max_info['value']:.2f} ug/m^3 at ({max_info['x']}, {max_info['y']})")
-
-# Statistical analysis
-stats = annual_df['concentration'].describe()
-print(stats)
-
-# Check compliance
-pm25_standard = 12.0  # ug/m^3
-if max_info['value'] > pm25_standard:
-    print(f"⚠️  EXCEEDS PM2.5 ANNUAL STANDARD by {max_info['value']/pm25_standard:.1%}")
-else:
-    print("✅ COMPLIES with PM2.5 ANNUAL STANDARD")
-
-# Export to CSV
-results.export_to_csv("results/", prefix="facility")
 ```
 
-## Documentation
+## Features
 
-- **[QUICKSTART.md](QUICKSTART.md)** - Detailed getting started guide
-- **[PROGRESS_SUMMARY.md](PROGRESS_SUMMARY.md)** - Current implementation status
-- **[aermod_wrapper_architecture.md](aermod_wrapper_architecture.md)** - Full technical architecture
-- **[implementation_priorities.md](implementation_priorities.md)** - Development roadmap
+### Source Types (10)
+POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 
-## Examples
+### Preprocessors
+- **AERMET** — meteorological data preprocessing (Stages 1-3)
+- **AERMAP** — terrain elevation extraction with DEM download pipeline
 
-Run the test scripts to see everything in action:
+### Analysis & Visualization
+- Output parsing to pandas DataFrames
+- POSTFILE parser for timestep-level results
+- Contour plots, interactive Folium maps, 3D surfaces, wind roses
+- Geospatial export: GeoTIFF, GeoPackage, Shapefile, GeoJSON
 
-```bash
-# Test input generator
-python test_input_generator.py
+### Validation & Automation
+- Input validation across all AERMOD pathways
+- Building downwash / BPIP integration
+- Batch processing with parallel execution
+- Interactive Streamlit GUI (`pyaermod-gui`)
 
-# Test output parser
-python test_output_parser.py
+## Project Structure
+
 ```
-
-## Files Included
-
-```
-pyaermod/
-├── README.md                          # This file
-├── QUICKSTART.md                      # Getting started guide
-├── PROGRESS_SUMMARY.md                # Implementation status
-├── aermod_wrapper_architecture.md     # Technical architecture
-├── implementation_priorities.md       # Development roadmap
-│
-├── pyaermod_input_generator.py        # Input file generator (750 lines)
-├── pyaermod_output_parser.py          # Output parser (600+ lines)
-│
-├── test_input_generator.py            # Input generator tests
-├── test_output_parser.py              # Output parser tests
-│
-└── building_downwash_example.inp      # Sample generated input
+src/pyaermod/
+    __init__.py          # Public API
+    input_generator.py   # AERMOD input file generation (all source types)
+    validator.py         # Configuration validation
+    runner.py            # AERMOD subprocess execution
+    output_parser.py     # Output file parsing
+    postfile.py          # POSTFILE output parser
+    visualization.py     # Matplotlib/Folium plots
+    advanced_viz.py      # 3D surfaces, wind roses, animations
+    aermet.py            # AERMET preprocessor wrapper
+    aermap.py            # AERMAP input generation
+    terrain.py           # DEM download + AERMAP pipeline
+    geospatial.py        # Coordinate transforms, GIS export
+    bpip.py              # Building downwash calculations
+    gui.py               # Streamlit web GUI
+tests/                   # 429 tests
+examples/                # Example scripts and Jupyter notebooks
+docs/                    # Architecture and quickstart guides
 ```
 
 ## Requirements
 
-**Python:** 3.8+
+- Python >= 3.9
+- numpy, pandas (core)
+- AERMOD executable (free from [EPA SCRAM](https://www.epa.gov/scram))
 
-**Dependencies:**
-```
-pandas
-numpy
-```
+## Documentation
 
-**AERMOD:** You must provide your own AERMOD executable (available free from EPA)
-
-## Installation (Future)
-
-When packaged:
-```bash
-pip install pyaermod
-```
-
-For now, just import the modules directly.
-
-## Roadmap
-
-### ✅ Completed (Week 1)
-- Input file generation
-- Output parsing
-- Documentation
-- Test suite
-
-### 🔄 Next (Week 2)
-- AERMOD subprocess wrapper
-- Basic visualization (contour plots, maps)
-- End-to-end examples
-
-### 🚀 Future (Week 3+)
-- Area/volume sources
-- Advanced building downwash
-- AERMET/AERMAP integration
-- Meteorology data APIs
-- Interactive dashboards
-- PyPI package
-
-## Performance
-
-- **Input generation:** <1ms for simple, <50ms for complex (100 sources, 10k receptors)
-- **Output parsing:** <100ms typical, <2s for large files
-- **Memory:** Minimal (proportional to receptor count)
-
-## Validation
-
-Based on AERMOD version 24142 source code analysis:
-- All 120 AERMOD keywords identified
-- Input format matches EPA specifications
-- Output parser tested with sample AERMOD output
-
-**Test against EPA test cases** to verify correctness before production use.
-
-## Contributing
-
-This is a work in progress. Contributions welcome!
-
-Priority areas:
-1. Area/volume/line sources
-2. Visualization
-3. Additional output formats (POSTFILE, PLOTFILE)
-4. AERMET/AERMAP wrappers
-5. Documentation improvements
-
-## Credits
-
-- AERMOD: EPA's Support Center for Regulatory Atmospheric Modeling (SCRAM)
-- Based on AERMOD version 24142 (2024)
-- Source code analysis and documentation review
-
-## Disclaimer
-
-⚠️ **Important:** This is a wrapper around AERMOD, not a reimplementation. It:
-- Uses the official EPA AERMOD binaries for all calculations
-- Maintains regulatory acceptance
-- Simply automates input generation and output parsing
-
-Always validate results against EPA test cases for your specific use case.
+- [Quick Start Guide](docs/quickstart.md)
+- [Architecture](docs/architecture.md)
+- [Examples](examples/)
 
 ## License
 
-To be determined (likely MIT or Apache 2.0)
+MIT
 
-## Support
+## Disclaimer
 
-This is a development project. For production use:
-1. Test thoroughly with your specific use cases
-2. Validate against EPA test cases
-3. Document any limitations
-4. Consider professional review for regulatory submittals
-
-## Status
-
-**Current Version:** 0.1.0-alpha
-**Last Updated:** 2026-02-05
-**Completion:** 40% (MVP core functionality operational)
-
----
-
-**Ready to eliminate manual AERMOD work?** Check out [QUICKSTART.md](QUICKSTART.md) to get started in 5 minutes!
+PyAERMOD is a wrapper around AERMOD, not a reimplementation. It uses official EPA binaries for all calculations and maintains regulatory acceptance. Always validate results against EPA test cases for your specific use case.

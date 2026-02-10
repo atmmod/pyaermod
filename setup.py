@@ -26,13 +26,13 @@ setup(
         "Topic :: Scientific/Engineering :: Atmospheric Science",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     install_requires=[
         "numpy>=1.20.0",
         "pandas>=1.3.0",
@@ -85,8 +85,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "pyaermod-run=pyaermod.cli:main",
-            "pyaermod-gui=pyaermod_gui:main",
+            "pyaermod-gui=pyaermod.gui:main",
         ],
     },
     keywords="aermod air quality dispersion modeling atmospheric",

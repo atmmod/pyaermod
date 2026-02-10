@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import tempfile
 import os
-from pyaermod_output_parser import (
+from pyaermod.output_parser import (
     ModelRunInfo,
     SourceSummary,
     ReceptorInfo,

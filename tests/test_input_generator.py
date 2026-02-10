@@ -5,7 +5,7 @@ Tests input file generation for all source types.
 """
 
 import pytest
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     ControlPathway,
     SourcePathway,
     PointSource,

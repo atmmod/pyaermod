@@ -6,8 +6,8 @@ Tests building geometry, BPIP calculations, and output formatting.
 
 import math
 import pytest
-from pyaermod_bpip import Building, BPIPCalculator, BPIPResult
-from pyaermod_input_generator import PointSource
+from pyaermod.bpip import Building, BPIPCalculator, BPIPResult
+from pyaermod.input_generator import PointSource
 
 
 # ---------------------------------------------------------------------------
