@@ -2,10 +2,10 @@
 
 ## Project State (as of Feb 2026)
 
-PyAERMOD v0.2.0-dev — Python wrapper for EPA's AERMOD atmospheric dispersion model.
+PyAERMOD v0.2.0 — Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
-**Test suite**: 258 tests across 9 files, all passing.
-**Latest commit**: Integrate AERMET and POSTFILE into public API
+**Test suite**: 335 tests across 11 files, all passing.
+**Latest commit**: Add geospatial utilities module and Streamlit GUI for full AERMOD workflow
 
 ---
 
@@ -76,6 +76,79 @@ Two workstreams developed in parallel:
 - Follows existing relative import pattern (`.aermet`, `.postfile`)
 - All 258 tests still passing
 
+### Session 5: Geospatial Utilities + Streamlit GUI (258 → 335 tests)
+
+Two new modules providing geospatial GIS integration and a web-based GUI:
+
+#### Geospatial Utilities (new module)
+- **New `pyaermod_geospatial.py`**: ~530 lines, library-first (usable without GUI):
+  - `CoordinateTransformer` dataclass: bidirectional UTM ↔ WGS84 conversion via `pyproj`
+    - `__init__(utm_zone, hemisphere, datum)` — creates `pyproj.Transformer` pair
+    - `from_aermap_domain(domain)` — classmethod, reads `utm_zone`/`datum` from `AERMAPDomain`
+    - `from_latlon(lat, lon)` — classmethod, auto-detects UTM zone from coordinates
+    - `utm_to_latlon(x, y)`, `latlon_to_utm(lat, lon)` — single-point transforms
+    - `transform_dataframe(df, to_latlon=True)` — batch adds lat/lon or UTM columns to DataFrames
+    - `utm_crs`, `geographic_crs` properties for CRS access
+  - `GeoDataFrameFactory`: converts pyaermod objects to GeoDataFrames:
+    - `sources_to_geodataframe(sources)` — Point/LineString/Polygon geometries per source type (handles all 7 types: PointSource→Point, LineSource/RLineSource→LineString, AreaPolySource→Polygon, AreaCircSource→polygon approximation, AreaSource→rotated rectangle)
+    - `receptors_to_geodataframe(receptors)` — expands CartesianGrid/PolarGrid into individual Points
+    - `concentrations_to_geodataframe(df)`, `postfile_to_geodataframe(result)`
+  - `ContourGenerator`: generates filled contour polygons using `scipy.griddata` + `matplotlib.contourf` → Shapely Polygons
+    - `generate_contours(df, levels, grid_resolution)` → GeoDataFrame with Polygon geometries
+    - `generate_contours_latlon(df)` — same but reprojected to EPSG:4326
+    - Auto falls back from cubic to linear interpolation if >30% NaN
+  - `RasterExporter`: exports concentration grids as single-band GeoTIFF via `rasterio`
+    - `export_geotiff(df, output_path, resolution, method, nodata)` → Path
+    - Auto-detects resolution from data spacing, creates parent dirs
+  - `VectorExporter`: exports to GeoPackage, Shapefile, GeoJSON
+    - `export_sources()`, `export_receptors()`, `export_concentrations(as_contours=True/False)`
+    - `export_all(project, results, output_dir)` — batch export everything
+  - Convenience functions: `utm_to_latlon()`, `latlon_to_utm()`, `export_concentration_geotiff()`, `export_concentration_shapefile()`
+  - All dependencies optional with `try/except` + clear error messages
+- **New `tests/test_geospatial.py`**: 52 tests across 7 classes:
+  - `TestCoordinateTransformer` (13): init, validation, roundtrip, from_aermap_domain, from_latlon, DataFrame transform, CRS properties
+  - `TestGeoDataFrameFactory` (15): all source types, receptors (cartesian/polar/discrete/mixed/empty), concentrations, CRS
+  - `TestContourGenerator` (5): GeoDataFrame output, custom levels, CRS, lat/lon reprojection, geometry types
+  - `TestRasterExporter` (5): file creation, CRS metadata, data range, custom resolution, parent dir creation
+  - `TestVectorExporter` (7): GeoPackage, GeoJSON, Shapefile, points vs contours export, parent dir creation
+  - `TestConvenienceFunctions` (6): utm_to_latlon, latlon_to_utm, roundtrip, one-liner GeoTIFF/Shapefile export
+
+#### Streamlit GUI (new module)
+- **New `pyaermod_gui.py`**: ~900 lines, 7-page Streamlit web application:
+  - `SessionStateManager`: manages `AERMODProject` pathway objects in `st.session_state`, decomposes into individual pathways for piecewise editing, `get_project()` reassembles on demand, `get_transformer()` creates `CoordinateTransformer` from stored UTM settings
+  - `MapEditor`: wraps `streamlit-folium` for interactive map-based editing
+    - Multiple basemap layers (OpenStreetMap, Satellite, Terrain) with layer control
+    - `add_sources_to_map()` — renders sources as markers/lines/polygons with popups
+    - `add_receptors_to_map()` — renders receptor points (throttles to boundary rectangle above 2500 points)
+    - `render_source_editor()` — returns clicked UTM coordinates for source placement
+    - `render_concentration_map()` — heatmap layer + max concentration marker
+  - `SourceFormFactory`: generates Streamlit forms for Point, Area, AreaCirc, Volume, Line, RLine sources
+  - 7 GUI pages:
+    - **Project Setup**: title, UTM zone/hemisphere/datum, map center lat/lon, pollutant type, averaging periods, terrain type
+    - **Source Editor**: interactive map (click-to-place) in left column + dynamic source form in right column + source table with delete
+    - **Receptor Editor**: tabbed interface (Cartesian Grid / Polar Grid / Discrete / CSV Import), map preview, receptor count metrics
+    - **Meteorology**: file path config + file upload with save-to-disk
+    - **Run AERMOD**: validation summary (errors/warnings), input file preview, executable path config, run with spinner, auto-parse results
+    - **Results Viewer**: interactive map tab (heatmap), static plots tab (contours), statistics tab (max/mean/percentiles, top-10 receptors, exceedance analysis)
+    - **Export**: GeoTIFF (resolution/interpolation controls), GeoPackage/Shapefile/GeoJSON (sources/receptors/concentrations as points or contours), CSV with lat/lon; all via `st.download_button`
+  - Sidebar: navigation radio + workflow progress indicator (checkboxes for sources/receptors/met/results)
+  - Streamlit imported lazily (`HAS_STREAMLIT` flag) so tests run without it installed
+- **New `tests/test_gui.py`**: 25 tests across 5 classes:
+  - `TestSessionStateManager` (6): initialize defaults, preserve existing, project assembly, transformer creation
+  - `TestSourceFormDataConversion` (5): all source types produce valid AERMOD input
+  - `TestMapEditorHelpers` (8): grid expansion (cartesian/polar), direction correctness, UTM fallback, transformer integration
+  - `TestSourceFormFactory` (2): source type list validation
+  - `TestWorkflowIntegration` (4): add/delete sources, add grids, full project assembly + input generation
+  - Uses mock `streamlit` module injection (`sys.modules`) so tests pass without streamlit installed
+
+#### Updates to Existing Files
+- **Modified `setup.py`**: Version bumped to `0.2.0`. Added 3 new extras_require groups:
+  - `[geo]`: pyproj, geopandas, rasterio, shapely, scipy
+  - `[gui]`: streamlit, streamlit-folium, folium + all geo deps + matplotlib
+  - `[all]`: union of viz + geo + gui
+  - Added console script entry point: `pyaermod-gui=pyaermod_gui:main`
+- **Modified `pyaermod__init__.py`**: Version bumped to `0.2.0`. Added conditional `try/except` import block for 9 geospatial symbols (`CoordinateTransformer`, `GeoDataFrameFactory`, `ContourGenerator`, `RasterExporter`, `VectorExporter`, `utm_to_latlon`, `latlon_to_utm`, `export_concentration_geotiff`, `export_concentration_shapefile`). Added `HAS_GEOSPATIAL` flag. Updated `__all__` (47 → 56 items). Updated `print_info()` features list with geospatial and GUI entries.
+
 ---
 
 ## Recommended Next Development Steps
@@ -87,10 +160,20 @@ Two workstreams developed in parallel:
 - DEM download → AERMAP → elevations pipeline
 
 ### Integration tests
-- End-to-end .inp generation → AERMOD run → output parse
+- End-to-end .inp generation → AERMOD run → output parse → geospatial export
 
 ### POSTFILE enhancements
 - Unformatted (binary) POSTFILE support
-- `to_geotiff()` export for GIS integration
+- Time-series animation in GUI (POSTFILE timestep playback)
 
-### Release v0.2.0 to PyPI
+### GUI enhancements
+- AERMET configuration page (Stage 1/2/3 forms, station map placement)
+- Area (Circular) and Area (Polygon) source forms in GUI (currently missing form renderers)
+- Building downwash / BPIP integration in source editor (building corner placement on map)
+- Project save/load (serialize session state to JSON)
+- Receptor elevation import from AERMAP results
+
+### Packaging & deployment
+- Release v0.2.0 to PyPI
+- Docker image with all dependencies for one-command GUI launch
+- Documentation: user guide for GUI, API reference for geospatial module
