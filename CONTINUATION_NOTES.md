@@ -5,7 +5,7 @@
 PyAERMOD v0.2.0-dev — Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
 **Test suite**: 258 tests across 9 files, all passing.
-**Latest commit**: AERMET bug fixes + POSTFILE parser
+**Latest commit**: Integrate AERMET and POSTFILE into public API
 
 ---
 
@@ -65,14 +65,20 @@ Two workstreams developed in parallel:
   - `TestReadPostfile` (1): convenience function
   - `TestOutputPathwayPostfile` (4): POSTFILE keyword generation in OutputPathway
 
+### Session 4: Integrate AERMET and POSTFILE into Public API
+
+- **Modified `pyaermod__init__.py`**: Wired AERMET and POSTFILE modules into the package's public API:
+  - Added `from .aermet import` block: `AERMETStation`, `UpperAirStation`, `AERMETStage1`, `AERMETStage2`, `AERMETStage3`, `write_aermet_runfile`
+  - Added `from .postfile import` block: `PostfileHeader`, `PostfileResult`, `PostfileParser`, `read_postfile`
+  - Updated `__all__` with all 10 new exports (37 → 47 items)
+  - Updated module docstring with POSTFILE usage example
+  - Updated `print_info()` features list with AERMET and POSTFILE entries
+- Follows existing relative import pattern (`.aermet`, `.postfile`)
+- All 258 tests still passing
+
 ---
 
 ## Recommended Next Development Steps
-
-### Integrate AERMET and POSTFILE into `pyaermod__init__.py`
-- Export AERMET classes: `AERMETStation`, `UpperAirStation`, `AERMETStage1`, `AERMETStage2`, `AERMETStage3`
-- Export POSTFILE classes: `PostfileParser`, `PostfileResult`, `PostfileHeader`, `read_postfile`
-- Note: `pyaermod__init__.py` uses relative imports (`.input_generator` etc.) — needs package restructuring or import style update
 
 ### Additional source types
 - RLINEXT, BUOYLINE, OPENPIT

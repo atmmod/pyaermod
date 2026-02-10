@@ -2,7 +2,8 @@
 PyAERMOD - Python wrapper for EPA's AERMOD atmospheric dispersion model
 
 A complete Python toolkit for AERMOD air dispersion modeling that automates
-input generation, execution, output parsing, and visualization.
+input generation, execution, output parsing, and visualization. Includes
+AERMET meteorological preprocessing and POSTFILE output parsing.
 
 Example:
     >>> from pyaermod import *
@@ -17,6 +18,10 @@ Example:
     >>> # Parse results
     >>> results = parse_aermod_output(result.output_file)
     >>> df = results.get_concentrations('ANNUAL')
+    >>>
+    >>> # Parse POSTFILE output
+    >>> post = read_postfile("postfile.out")
+    >>> print(post.max_concentration, post.max_location)
     >>>
     >>> # Visualize
     >>> viz = AERMODVisualizer(results)
@@ -93,6 +98,32 @@ from .visualization import (
     quick_map,
 )
 
+from .aermet import (
+    # Station metadata
+    AERMETStation,
+    UpperAirStation,
+
+    # Processing stages
+    AERMETStage1,
+    AERMETStage2,
+    AERMETStage3,
+
+    # Utility functions
+    write_aermet_runfile,
+)
+
+from .postfile import (
+    # Data classes
+    PostfileHeader,
+    PostfileResult,
+
+    # Parser
+    PostfileParser,
+
+    # Convenience functions
+    read_postfile,
+)
+
 # Define public API
 __all__ = [
     # Version info
@@ -135,6 +166,20 @@ __all__ = [
     'AERMODVisualizer',
     'quick_plot',
     'quick_map',
+
+    # AERMET preprocessor
+    'AERMETStation',
+    'UpperAirStation',
+    'AERMETStage1',
+    'AERMETStage2',
+    'AERMETStage3',
+    'write_aermet_runfile',
+
+    # POSTFILE parser
+    'PostfileHeader',
+    'PostfileResult',
+    'PostfileParser',
+    'read_postfile',
 ]
 
 
@@ -159,6 +204,8 @@ Features:
   • Generate AERMOD input files from Python
   • Execute AERMOD automatically
   • Parse outputs to pandas DataFrames
+  • Parse POSTFILE formatted output
+  • AERMET meteorological preprocessing
   • Create visualizations (plots and maps)
   • Batch processing and parameter sweeps
 
