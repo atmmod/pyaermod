@@ -11,7 +11,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name="pyaermod",
-    version="0.1.0",
+    version="0.2.0",
     author="Shannon Capps",
     author_email="shannon.capps@gmail.com",
     description="Python wrapper for EPA's AERMOD air dispersion model",
@@ -43,6 +43,35 @@ setup(
             "scipy>=1.7.0",
             "folium>=0.12.0",
         ],
+        "geo": [
+            "pyproj>=3.0.0",
+            "geopandas>=0.10.0",
+            "rasterio>=1.2.0",
+            "shapely>=1.8.0",
+            "scipy>=1.7.0",
+        ],
+        "gui": [
+            "streamlit>=1.28.0",
+            "streamlit-folium>=0.15.0",
+            "folium>=0.14.0",
+            "pyproj>=3.0.0",
+            "geopandas>=0.10.0",
+            "rasterio>=1.2.0",
+            "shapely>=1.8.0",
+            "scipy>=1.7.0",
+            "matplotlib>=3.3.0",
+        ],
+        "all": [
+            "matplotlib>=3.3.0",
+            "scipy>=1.7.0",
+            "folium>=0.14.0",
+            "pyproj>=3.0.0",
+            "geopandas>=0.10.0",
+            "rasterio>=1.2.0",
+            "shapely>=1.8.0",
+            "streamlit>=1.28.0",
+            "streamlit-folium>=0.15.0",
+        ],
         "dev": [
             "pytest>=6.0",
             "pytest-cov>=2.0",
@@ -53,6 +82,7 @@ setup(
     entry_points={
         "console_scripts": [
             "pyaermod-run=pyaermod.cli:main",
+            "pyaermod-gui=pyaermod_gui:main",
         ],
     },
     keywords="aermod air quality dispersion modeling atmospheric",

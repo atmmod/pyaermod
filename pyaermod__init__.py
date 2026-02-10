@@ -31,7 +31,7 @@ Website: https://github.com/atmmod/pyaermod
 Documentation: https://github.com/atmmod/pyaermod/blob/main/docs/QUICKSTART.md
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Shannon Capps"
 __email__ = "shannon.capps@gmail.com"
 __license__ = "MIT"
@@ -124,6 +124,23 @@ from .postfile import (
     read_postfile,
 )
 
+# Geospatial utilities (optional - requires pyproj, geopandas, rasterio, shapely)
+try:
+    from .geospatial import (
+        CoordinateTransformer,
+        GeoDataFrameFactory,
+        ContourGenerator,
+        RasterExporter,
+        VectorExporter,
+        utm_to_latlon,
+        latlon_to_utm,
+        export_concentration_geotiff,
+        export_concentration_shapefile,
+    )
+    HAS_GEOSPATIAL = True
+except ImportError:
+    HAS_GEOSPATIAL = False
+
 # Define public API
 __all__ = [
     # Version info
@@ -180,6 +197,17 @@ __all__ = [
     'PostfileResult',
     'PostfileParser',
     'read_postfile',
+
+    # Geospatial utilities (when available)
+    'CoordinateTransformer',
+    'GeoDataFrameFactory',
+    'ContourGenerator',
+    'RasterExporter',
+    'VectorExporter',
+    'utm_to_latlon',
+    'latlon_to_utm',
+    'export_concentration_geotiff',
+    'export_concentration_shapefile',
 ]
 
 
@@ -208,6 +236,8 @@ Features:
   • AERMET meteorological preprocessing
   • Create visualizations (plots and maps)
   • Batch processing and parameter sweeps
+  • Geospatial: UTM/WGS84 transforms, GeoTIFF & Shapefile export
+  • Interactive Streamlit GUI (pip install pyaermod[gui])
 
 Quick Start:
   >>> from pyaermod import *
