@@ -79,9 +79,20 @@ def find_executable(name):
     return None
 
 
+def find_aermap():
+    """Find AERMAP executable in PATH or local directories."""
+    exe = shutil.which("aermap")
+    if exe:
+        return exe
+    test_dir = Path(__file__).parent.parent
+    local = test_dir / "aermap" / "aermap_source_code_24142" / "aermap"
+    if local.exists():
+        return str(local)
+    return None
+
 AERMOD_EXE = find_executable("aermod")
 AERMET_EXE = find_executable("aermet")
-AERMAP_EXE = find_executable("aermap")
+AERMAP_EXE = find_aermap()
 
 # Skip markers
 requires_aermod = pytest.mark.skipif(
@@ -783,3 +794,140 @@ class TestFullPipeline:
         )
 
         assert geotiff_path.exists()
+
+
+# ============================================================================
+# AERMAP Integration Tests
+# ============================================================================
+
+@pytest.mark.integration
+class TestAERMAPInputGeneration:
+    """Test AERMAP input file generation and terrain pipeline logic"""
+
+    def test_aermap_project_generates_valid_input(self, temp_workspace):
+        """Test that an AERMAPProject generates valid AERMAP input"""
+        from pyaermod_aermap import AERMAPProject, AERMAPReceptor, AERMAPSource
+
+        project = AERMAPProject(
+            title_one="Integration Test AERMAP",
+            dem_files=["n41w088.tif"],
+            dem_format="NED",
+            anchor_x=400000.0,
+            anchor_y=4600000.0,
+            utm_zone=16,
+            datum="NAD83",
+            terrain_type="ELEVATED",
+            grid_receptor=True,
+            grid_x_init=400000.0,
+            grid_y_init=4600000.0,
+            grid_x_num=11,
+            grid_y_num=11,
+            grid_spacing=100.0,
+        )
+        project.add_source(AERMAPSource("STK1", 400500.0, 4600500.0))
+        project.add_receptor(AERMAPReceptor("R001", 400500.0, 4600500.0))
+
+        inp = project.to_aermap_input()
+        output_file = temp_workspace / "aermap.inp"
+        output_file.write_text(inp)
+
+        assert output_file.exists()
+        assert "CO STARTING" in inp
+        assert "RE STARTING" in inp
+        assert "SO STARTING" in inp
+        assert "GRIDCART" in inp
+        assert "DISCCART" in inp
+        assert "n41w088.tif" in inp
+        assert "STK1" in inp
+
+    def test_aermap_from_aermod_project(self, simple_project, temp_workspace):
+        """Test creating AERMAPProject from AERMODProject"""
+        from pyaermod_aermap import AERMAPProject
+
+        aermap = AERMAPProject.from_aermod_project(
+            simple_project,
+            dem_files=["test_dem.tif"],
+            utm_zone=16,
+            datum="NAD83",
+        )
+
+        inp = aermap.to_aermap_input()
+        assert "CO STARTING" in inp
+        assert "STACK1" in inp
+        assert "test_dem.tif" in inp
+        assert aermap.terrain_type == "ELEVATED"
+
+    def test_terrain_processor_bridge(self, simple_project):
+        """Test TerrainProcessor.create_aermap_project_from_aermod"""
+        from pyaermod_terrain import TerrainProcessor
+
+        processor = TerrainProcessor()
+        aermap = processor.create_aermap_project_from_aermod(
+            simple_project,
+            dem_files=["dem1.tif", "dem2.tif"],
+            utm_zone=16,
+        )
+
+        assert len(aermap.dem_files) == 2
+        assert len(aermap.sources) == 1
+        assert aermap.grid_receptor is True
+
+    def test_aermap_output_parser_disccart(self, temp_workspace):
+        """Test parsing AERMAP discrete receptor output"""
+        from pyaermod_terrain import AERMAPOutputParser
+
+        content = """** AERMAP Receptor Output
+   DISCCART     500000.00    3800000.00    125.30    130.50
+   DISCCART     501000.00    3801000.00    150.20    155.80
+"""
+        output_file = temp_workspace / "aermap_rec.out"
+        output_file.write_text(content)
+
+        df = AERMAPOutputParser.parse_receptor_output(output_file)
+        assert len(df) == 2
+        assert df.iloc[0]["zelev"] == pytest.approx(125.3)
+
+    def test_aermap_output_parser_source(self, temp_workspace):
+        """Test parsing AERMAP source output"""
+        from pyaermod_terrain import AERMAPOutputParser
+
+        content = """** AERMAP Source Output
+SO LOCATION  STACK1      POINT      500500.00    3800500.00       125.50
+"""
+        output_file = temp_workspace / "aermap_src.out"
+        output_file.write_text(content)
+
+        df = AERMAPOutputParser.parse_source_output(output_file)
+        assert len(df) == 1
+        assert df.iloc[0]["source_id"] == "STACK1"
+        assert df.iloc[0]["zelev"] == pytest.approx(125.5)
+
+
+@pytest.mark.integration
+@requires_aermap
+class TestAERMAPExecution:
+    """Test actual AERMAP execution (requires aermap executable)"""
+
+    def test_aermap_can_be_invoked(self, temp_workspace):
+        """Test that AERMAP can be invoked (will fail without DEM files)"""
+        from pyaermod_aermap import AERMAPProject, AERMAPSource
+
+        project = AERMAPProject(
+            title_one="AERMAP Execution Test",
+            dem_files=["nonexistent.tif"],
+            anchor_x=400000.0,
+            anchor_y=4600000.0,
+            utm_zone=16,
+        )
+        project.add_source(AERMAPSource("STK1", 400500.0, 4600500.0))
+
+        input_file = temp_workspace / "aermap_test.inp"
+        project.write(str(input_file))
+
+        from pyaermod_terrain import AERMAPRunner
+        runner = AERMAPRunner(executable_path=AERMAP_EXE)
+        result = runner.run(str(input_file), working_dir=str(temp_workspace))
+
+        # Will fail due to missing DEM, but should not crash
+        assert result.input_file == str(input_file.resolve())
+        assert result.return_code is not None

@@ -124,6 +124,14 @@ from .postfile import (
     read_postfile,
 )
 
+# AERMAP terrain preprocessor input generator
+from .aermap import (
+    AERMAPProject,
+    AERMAPDomain,
+    AERMAPReceptor,
+    AERMAPSource,
+)
+
 # Geospatial utilities (optional - requires pyproj, geopandas, rasterio, shapely)
 try:
     from .geospatial import (
@@ -140,6 +148,21 @@ try:
     HAS_GEOSPATIAL = True
 except ImportError:
     HAS_GEOSPATIAL = False
+
+# Terrain processing pipeline (optional - requires requests)
+try:
+    from .terrain import (
+        DEMTileInfo,
+        DEMDownloader,
+        AERMAPRunner,
+        AERMAPRunResult,
+        AERMAPOutputParser,
+        TerrainProcessor,
+        run_aermap,
+    )
+    HAS_TERRAIN = True
+except ImportError:
+    HAS_TERRAIN = False
 
 # Define public API
 __all__ = [
@@ -198,6 +221,12 @@ __all__ = [
     'PostfileParser',
     'read_postfile',
 
+    # AERMAP terrain preprocessor
+    'AERMAPProject',
+    'AERMAPDomain',
+    'AERMAPReceptor',
+    'AERMAPSource',
+
     # Geospatial utilities (when available)
     'CoordinateTransformer',
     'GeoDataFrameFactory',
@@ -208,6 +237,15 @@ __all__ = [
     'latlon_to_utm',
     'export_concentration_geotiff',
     'export_concentration_shapefile',
+
+    # Terrain processing (when available)
+    'DEMTileInfo',
+    'DEMDownloader',
+    'AERMAPRunner',
+    'AERMAPRunResult',
+    'AERMAPOutputParser',
+    'TerrainProcessor',
+    'run_aermap',
 ]
 
 

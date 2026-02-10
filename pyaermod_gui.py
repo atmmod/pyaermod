@@ -50,16 +50,20 @@ from pyaermod_input_generator import (
     AreaCircSource,
     AreaPolySource,
     AreaSource,
+    BuoyLineSegment,
+    BuoyLineSource,
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
     LineSource,
     MeteorologyPathway,
+    OpenPitSource,
     OutputPathway,
     PolarGrid,
     PointSource,
     PollutantType,
     ReceptorPathway,
+    RLineExtSource,
     RLineSource,
     SourcePathway,
     SourceType,
@@ -224,11 +228,43 @@ class MapEditor:
 
     def add_sources_to_map(self, m: "folium.Map", sources: list):
         """Add source markers to a folium map."""
-        from pyaermod_input_generator import LineSource, RLineSource, AreaPolySource
+        from pyaermod_input_generator import (
+            LineSource, RLineSource, RLineExtSource,
+            BuoyLineSource, OpenPitSource, AreaPolySource,
+        )
 
         for src in sources:
             sid = getattr(src, "source_id", "?")
-            if isinstance(src, (LineSource, RLineSource)):
+            if isinstance(src, RLineExtSource):
+                start = self._utm_to_latlon(src.x_start, src.y_start)
+                end = self._utm_to_latlon(src.x_end, src.y_end)
+                folium.PolyLine(
+                    [start, end], color="purple", weight=4,
+                    popup=f"{sid} (RLINEXT)",
+                ).add_to(m)
+            elif isinstance(src, BuoyLineSource):
+                for seg in src.line_segments:
+                    start = self._utm_to_latlon(seg.x_start, seg.y_start)
+                    end = self._utm_to_latlon(seg.x_end, seg.y_end)
+                    folium.PolyLine(
+                        [start, end], color="green", weight=3,
+                        popup=f"{seg.source_id} (BUOYLINE)",
+                    ).add_to(m)
+            elif isinstance(src, OpenPitSource):
+                # Rectangle from SW corner + dimensions
+                corners = [
+                    (src.x_coord, src.y_coord),
+                    (src.x_coord + src.x_dimension, src.y_coord),
+                    (src.x_coord + src.x_dimension, src.y_coord + src.y_dimension),
+                    (src.x_coord, src.y_coord + src.y_dimension),
+                ]
+                verts = [self._utm_to_latlon(x, y) for x, y in corners]
+                verts.append(verts[0])
+                folium.Polygon(
+                    verts, color="brown", fill=True, fill_opacity=0.3,
+                    popup=f"{sid} (OPENPIT)",
+                ).add_to(m)
+            elif isinstance(src, (LineSource, RLineSource)):
                 start = self._utm_to_latlon(src.x_start, src.y_start)
                 end = self._utm_to_latlon(src.x_end, src.y_end)
                 folium.PolyLine(
@@ -386,6 +422,8 @@ class SourceFormFactory:
     SOURCE_TYPES = [
         "Point", "Area (Rectangular)", "Area (Circular)",
         "Area (Polygon)", "Volume", "Line", "RLine (Roadway)",
+        "RLineExt (Extended Roadway)", "BuoyLine (Buoyant Line)",
+        "OpenPit (Open Pit Mine)",
     ]
 
     @staticmethod
@@ -534,6 +572,125 @@ class SourceFormFactory:
                 )
         return None
 
+    @staticmethod
+    def render_rlinext_source_form(
+        default_x: float = 0.0, default_y: float = 0.0,
+    ) -> Optional[RLineExtSource]:
+        with st.form("rlinext_source_form"):
+            st.subheader("Extended Roadway (RLINEXT) Source")
+            col1, col2 = st.columns(2)
+            with col1:
+                sid = st.text_input("Source ID", value="REXT1")
+                xs = st.number_input("X Start (UTM m)", value=default_x, format="%.2f")
+                ys = st.number_input("Y Start (UTM m)", value=default_y, format="%.2f")
+                zs = st.number_input("Z Start (m)", value=1.5, min_value=0.0)
+            with col2:
+                xe = st.number_input("X End (UTM m)", value=default_x + 500, format="%.2f")
+                ye = st.number_input("Y End (UTM m)", value=default_y, format="%.2f")
+                ze = st.number_input("Z End (m)", value=1.5, min_value=0.0)
+                elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f")
+            col3, col4 = st.columns(2)
+            with col3:
+                width = st.number_input("Road Width (m)", value=30.0, min_value=0.1)
+                dcl = st.number_input("Centerline Offset (m)", value=0.0)
+            with col4:
+                isz = st.number_input("Initial Sigma-Z (m)", value=1.5, min_value=0.0)
+            erate = st.number_input("Emission Rate (g/m/s)", value=0.001, format="%.6f")
+
+            st.markdown("**Depression (optional)**")
+            col5, col6 = st.columns(2)
+            with col5:
+                depth = st.number_input("Depression Depth (m, negative)", value=0.0, max_value=0.0)
+                wtop = st.number_input("Depression Top Width (m)", value=0.0, min_value=0.0)
+            with col6:
+                wbot = st.number_input("Depression Bottom Width (m)", value=0.0, min_value=0.0)
+
+            if st.form_submit_button("Add RLINEXT Source"):
+                kwargs = dict(
+                    source_id=sid, x_start=xs, y_start=ys, z_start=zs,
+                    x_end=xe, y_end=ye, z_end=ze, base_elevation=elev,
+                    emission_rate=erate, dcl=dcl, road_width=width,
+                    init_sigma_z=isz,
+                )
+                if depth < 0:
+                    kwargs.update(depression_depth=depth, depression_wtop=wtop,
+                                  depression_wbottom=wbot)
+                return RLineExtSource(**kwargs)
+        return None
+
+    @staticmethod
+    def render_buoyline_source_form(
+        default_x: float = 0.0, default_y: float = 0.0,
+    ) -> Optional[BuoyLineSource]:
+        with st.form("buoyline_source_form"):
+            st.subheader("Buoyant Line Source")
+            sid = st.text_input("Group ID", value="BLP1")
+            st.markdown("**Average Plume Rise Parameters (BLPINPUT)**")
+            col1, col2 = st.columns(2)
+            with col1:
+                avg_ll = st.number_input("Avg Line Length (m)", value=100.0, min_value=0.1)
+                avg_bh = st.number_input("Avg Building Height (m)", value=15.0, min_value=0.1)
+                avg_bw = st.number_input("Avg Building Width (m)", value=10.0, min_value=0.1)
+            with col2:
+                avg_lw = st.number_input("Avg Line Width (m)", value=5.0, min_value=0.1)
+                avg_bs = st.number_input("Avg Building Separation (m)", value=20.0, min_value=0.0)
+                avg_bp = st.number_input("Avg Buoyancy Param (m4/s3)", value=500.0, min_value=0.0, format="%.2f")
+            st.markdown("**Line Segment**")
+            col3, col4 = st.columns(2)
+            with col3:
+                seg_id = st.text_input("Segment ID", value="BL01")
+                xs = st.number_input("Seg X Start (UTM m)", value=default_x, format="%.2f")
+                ys = st.number_input("Seg Y Start (UTM m)", value=default_y, format="%.2f")
+            with col4:
+                xe = st.number_input("Seg X End (UTM m)", value=default_x + 100, format="%.2f")
+                ye = st.number_input("Seg Y End (UTM m)", value=default_y, format="%.2f")
+                rh = st.number_input("Seg Release Height (m)", value=4.5, min_value=0.0)
+            erate = st.number_input("Seg Emission Rate (g/s)", value=10.0, format="%.6f")
+
+            if st.form_submit_button("Add Buoyant Line Source"):
+                seg = BuoyLineSegment(
+                    source_id=seg_id, x_start=xs, y_start=ys,
+                    x_end=xe, y_end=ye, emission_rate=erate,
+                    release_height=rh,
+                )
+                return BuoyLineSource(
+                    source_id=sid,
+                    avg_line_length=avg_ll, avg_building_height=avg_bh,
+                    avg_building_width=avg_bw, avg_line_width=avg_lw,
+                    avg_building_separation=avg_bs, avg_buoyancy_parameter=avg_bp,
+                    line_segments=[seg],
+                )
+        return None
+
+    @staticmethod
+    def render_openpit_source_form(
+        default_x: float = 0.0, default_y: float = 0.0,
+    ) -> Optional[OpenPitSource]:
+        with st.form("openpit_source_form"):
+            st.subheader("Open Pit Source")
+            col1, col2 = st.columns(2)
+            with col1:
+                sid = st.text_input("Source ID", value="PIT1")
+                x = st.number_input("SW Corner X (UTM m)", value=default_x, format="%.2f")
+                y = st.number_input("SW Corner Y (UTM m)", value=default_y, format="%.2f")
+                elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f")
+            with col2:
+                xdim = st.number_input("X Dimension (m)", value=200.0, min_value=0.1)
+                ydim = st.number_input("Y Dimension (m)", value=100.0, min_value=0.1)
+                vol = st.number_input("Pit Volume (m3)", value=100000.0, min_value=0.1, format="%.2f")
+                angle = st.number_input("Rotation Angle (deg)", value=0.0)
+            erate = st.number_input("Emission Rate (g/s/m2)", value=0.005, format="%.6f")
+            rh = st.number_input("Release Height (m)", value=0.0, min_value=0.0)
+
+            if st.form_submit_button("Add Open Pit Source"):
+                return OpenPitSource(
+                    source_id=sid, x_coord=x, y_coord=y, base_elevation=elev,
+                    emission_rate=erate, release_height=rh,
+                    x_dimension=xdim, y_dimension=ydim,
+                    pit_volume=vol, angle=angle,
+                )
+        return None
+
 
 # ============================================================================
 # GUI PAGES
@@ -671,6 +828,12 @@ def page_source_editor():
             new_source = SourceFormFactory.render_line_source_form(default_x, default_y)
         elif source_type == "RLine (Roadway)":
             new_source = SourceFormFactory.render_rline_source_form(default_x, default_y)
+        elif source_type == "RLineExt (Extended Roadway)":
+            new_source = SourceFormFactory.render_rlinext_source_form(default_x, default_y)
+        elif source_type == "BuoyLine (Buoyant Line)":
+            new_source = SourceFormFactory.render_buoyline_source_form(default_x, default_y)
+        elif source_type == "OpenPit (Open Pit Mine)":
+            new_source = SourceFormFactory.render_openpit_source_form(default_x, default_y)
 
         if new_source:
             st.session_state["project_sources"].add_source(new_source)

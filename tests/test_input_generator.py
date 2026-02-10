@@ -15,6 +15,10 @@ from pyaermod_input_generator import (
     VolumeSource,
     LineSource,
     RLineSource,
+    RLineExtSource,
+    BuoyLineSource,
+    BuoyLineSegment,
+    OpenPitSource,
     ReceptorPathway,
     CartesianGrid,
     PolarGrid,
@@ -339,6 +343,201 @@ class TestAERMODProject:
         assert "RE FINISHED" in output_text
         assert "ME FINISHED" in output_text
         assert "OU FINISHED" in output_text
+
+
+class TestRLineExtSource:
+    """Test RLINEXT source generation"""
+
+    def test_basic_rlinext(self):
+        source = RLineExtSource(
+            source_id="REXT1",
+            x_start=500000.0, y_start=4200000.0, z_start=1.5,
+            x_end=500500.0, y_end=4200000.0, z_end=1.5,
+            emission_rate=0.00136, road_width=30.0,
+        )
+        output = source.to_aermod_input()
+        assert "REXT1" in output
+        assert "RLINEXT" in output
+        # Single LOCATION line with 6 coordinates
+        assert output.count("LOCATION") == 1
+
+    def test_rlinext_with_barrier(self):
+        source = RLineExtSource(
+            source_id="REXT2",
+            x_start=0.0, y_start=0.0, z_start=1.0,
+            x_end=500.0, y_end=0.0, z_end=1.0,
+            barrier_height_1=3.0, barrier_dcl_1=-20.0,
+            barrier_height_2=3.0, barrier_dcl_2=20.0,
+        )
+        output = source.to_aermod_input()
+        assert "RBARRIER" in output
+
+    def test_rlinext_single_barrier(self):
+        source = RLineExtSource(
+            source_id="REXT3",
+            x_start=0.0, y_start=0.0, z_start=1.0,
+            x_end=500.0, y_end=0.0, z_end=1.0,
+            barrier_height_1=3.0, barrier_dcl_1=-20.0,
+        )
+        output = source.to_aermod_input()
+        assert "RBARRIER" in output
+        # Only one barrier — no second set of height/dcl
+        rbarrier_line = [l for l in output.split("\n") if "RBARRIER" in l][0]
+        parts = rbarrier_line.split()
+        assert len(parts) == 4  # RBARRIER SrcID Ht Dcl
+
+    def test_rlinext_with_depression(self):
+        source = RLineExtSource(
+            source_id="REXT4",
+            x_start=0.0, y_start=0.0, z_start=1.0,
+            x_end=500.0, y_end=0.0, z_end=1.0,
+            depression_depth=-3.0, depression_wtop=40.0, depression_wbottom=30.0,
+        )
+        output = source.to_aermod_input()
+        assert "RDEPRESS" in output
+
+    def test_rlinext_no_depression_by_default(self):
+        source = RLineExtSource(
+            source_id="REXT5",
+            x_start=0.0, y_start=0.0, z_start=1.0,
+            x_end=500.0, y_end=0.0, z_end=1.0,
+        )
+        output = source.to_aermod_input()
+        assert "RDEPRESS" not in output
+        assert "RBARRIER" not in output
+
+    def test_rlinext_srcparam_fields(self):
+        source = RLineExtSource(
+            source_id="REXT6",
+            x_start=0.0, y_start=0.0, z_start=1.5,
+            x_end=500.0, y_end=0.0, z_end=1.5,
+            emission_rate=0.00136, dcl=5.0,
+            road_width=30.0, init_sigma_z=2.0,
+        )
+        output = source.to_aermod_input()
+        assert "SRCPARAM" in output
+        srcparam_line = [l for l in output.split("\n") if "SRCPARAM" in l][0]
+        assert "0.001360" in srcparam_line
+        assert "30.00" in srcparam_line
+
+
+class TestBuoyLineSource:
+    """Test BUOYLINE source generation"""
+
+    def test_basic_buoyline(self):
+        source = BuoyLineSource(
+            source_id="BLP1",
+            avg_line_length=100.0, avg_building_height=15.0,
+            avg_building_width=10.0, avg_line_width=5.0,
+            avg_building_separation=20.0, avg_buoyancy_parameter=500.0,
+            line_segments=[
+                BuoyLineSegment(
+                    source_id="BL01",
+                    x_start=500000, y_start=4200000,
+                    x_end=500100, y_end=4200000,
+                    emission_rate=10.5, release_height=4.5,
+                ),
+            ],
+        )
+        output = source.to_aermod_input()
+        assert "BUOYLINE" in output
+        assert "BL01" in output
+        assert "BLPINPUT" in output
+        assert "BLPGROUP" in output
+
+    def test_multiple_segments(self):
+        source = BuoyLineSource(
+            source_id="BLP2",
+            avg_line_length=100.0, avg_building_height=15.0,
+            avg_building_width=10.0, avg_line_width=5.0,
+            avg_building_separation=20.0, avg_buoyancy_parameter=500.0,
+            line_segments=[
+                BuoyLineSegment(source_id="BL01", x_start=0, y_start=0, x_end=100, y_end=0),
+                BuoyLineSegment(source_id="BL02", x_start=0, y_start=50, x_end=100, y_end=50),
+            ],
+        )
+        output = source.to_aermod_input()
+        assert output.count("LOCATION") == 2  # one per segment
+        assert output.count("SRCPARAM") == 2  # one per segment
+        assert "BL01" in output
+        assert "BL02" in output
+        # BLPGROUP should list both segment IDs
+        blpgroup_line = [l for l in output.split("\n") if "BLPGROUP" in l][0]
+        assert "BL01" in blpgroup_line
+        assert "BL02" in blpgroup_line
+
+    def test_emission_rate_property(self):
+        source = BuoyLineSource(
+            source_id="BLP3",
+            avg_line_length=100.0, avg_building_height=15.0,
+            avg_building_width=10.0, avg_line_width=5.0,
+            avg_building_separation=20.0, avg_buoyancy_parameter=500.0,
+            line_segments=[
+                BuoyLineSegment(source_id="BL01", x_start=0, y_start=0, x_end=100, y_end=0, emission_rate=1.0),
+                BuoyLineSegment(source_id="BL02", x_start=0, y_start=50, x_end=100, y_end=50, emission_rate=2.0),
+            ],
+        )
+        assert source.emission_rate == 3.0
+        assert source.number_of_lines == 2
+
+
+class TestOpenPitSource:
+    """Test OPENPIT source generation"""
+
+    def test_basic_openpit(self):
+        source = OpenPitSource(
+            source_id="PIT1",
+            x_coord=500000.0, y_coord=4200000.0,
+            x_dimension=200.0, y_dimension=100.0,
+            pit_volume=100000.0,
+        )
+        output = source.to_aermod_input()
+        assert "PIT1" in output
+        assert "OPENPIT" in output
+        assert "SRCPARAM" in output
+        assert output.count("LOCATION") == 1
+
+    def test_openpit_with_angle(self):
+        source = OpenPitSource(
+            source_id="PIT2",
+            x_coord=0.0, y_coord=0.0,
+            x_dimension=200.0, y_dimension=100.0,
+            pit_volume=100000.0, angle=45.0,
+        )
+        output = source.to_aermod_input()
+        srcparam_line = [l for l in output.split("\n") if "SRCPARAM" in l][0]
+        assert "45.00" in srcparam_line
+
+    def test_openpit_no_angle_by_default(self):
+        source = OpenPitSource(
+            source_id="PIT3",
+            x_coord=0.0, y_coord=0.0,
+            x_dimension=200.0, y_dimension=100.0, pit_volume=100000.0,
+        )
+        output = source.to_aermod_input()
+        srcparam_line = [l for l in output.split("\n") if "SRCPARAM" in l][0]
+        # Should not have angle field
+        parts = srcparam_line.split()
+        assert len(parts) == 7  # SRCPARAM SrcID Qemis Hs Xinit Yinit Volume
+
+    def test_effective_depth(self):
+        source = OpenPitSource(
+            source_id="PIT4",
+            x_coord=0.0, y_coord=0.0,
+            x_dimension=200.0, y_dimension=100.0,
+            pit_volume=400000.0,
+        )
+        assert source.effective_depth == pytest.approx(20.0)
+
+    def test_openpit_volume_in_output(self):
+        source = OpenPitSource(
+            source_id="PIT5",
+            x_coord=0.0, y_coord=0.0,
+            x_dimension=200.0, y_dimension=100.0,
+            pit_volume=123456.0,
+        )
+        output = source.to_aermod_input()
+        assert "123456.00" in output
 
 
 # Run tests

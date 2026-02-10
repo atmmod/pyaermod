@@ -236,6 +236,7 @@ class GeoDataFrameFactory:
         from pyaermod_input_generator import (
             AreaCircSource, AreaPolySource, AreaSource,
             LineSource, PointSource, RLineSource, VolumeSource,
+            RLineExtSource, BuoyLineSource, OpenPitSource,
         )
 
         records = []
@@ -244,7 +245,48 @@ class GeoDataFrameFactory:
         for src in sources:
             rec: Dict = {"source_id": getattr(src, "source_id", "")}
 
-            if isinstance(src, (LineSource, RLineSource)):
+            if isinstance(src, RLineExtSource):
+                rec["source_type"] = "RLINEXT"
+                rec["emission_rate"] = src.emission_rate
+                rec["road_width"] = src.road_width
+                geometries.append(
+                    LineString([(src.x_start, src.y_start), (src.x_end, src.y_end)])
+                )
+            elif isinstance(src, BuoyLineSource):
+                rec["source_type"] = "BUOYLINE"
+                rec["emission_rate"] = src.emission_rate
+                if src.line_segments:
+                    from shapely.geometry import MultiLineString
+                    segment_lines = [
+                        ((seg.x_start, seg.y_start), (seg.x_end, seg.y_end))
+                        for seg in src.line_segments
+                    ]
+                    geometries.append(MultiLineString(segment_lines))
+                else:
+                    geometries.append(Point(0, 0))
+            elif isinstance(src, OpenPitSource):
+                rec["source_type"] = "OPENPIT"
+                rec["emission_rate"] = src.emission_rate
+                rec["pit_volume"] = src.pit_volume
+                # Build rotated rectangle from SW corner + dimensions
+                cx, cy = src.x_coord, src.y_coord
+                xd, yd = src.x_dimension, src.y_dimension
+                corners = [
+                    (cx, cy), (cx + xd, cy),
+                    (cx + xd, cy + yd), (cx, cy + yd),
+                ]
+                if src.angle != 0.0:
+                    rad = math.radians(src.angle)
+                    cos_a, sin_a = math.cos(rad), math.sin(rad)
+                    corners = [
+                        (
+                            cx + (x - cx) * cos_a - (y - cy) * sin_a,
+                            cy + (x - cx) * sin_a + (y - cy) * cos_a,
+                        )
+                        for x, y in corners
+                    ]
+                geometries.append(Polygon(corners))
+            elif isinstance(src, (LineSource, RLineSource)):
                 rec["source_type"] = "LINE" if isinstance(src, LineSource) else "RLINE"
                 rec["emission_rate"] = src.emission_rate
                 rec["release_height"] = src.release_height

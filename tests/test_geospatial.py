@@ -31,12 +31,16 @@ from pyaermod_input_generator import (
     AreaCircSource,
     AreaPolySource,
     AreaSource,
+    BuoyLineSegment,
+    BuoyLineSource,
     CartesianGrid,
     DiscreteReceptor,
     LineSource,
+    OpenPitSource,
     PolarGrid,
     PointSource,
     ReceptorPathway,
+    RLineExtSource,
     RLineSource,
     VolumeSource,
 )
@@ -111,6 +115,27 @@ def sample_sources():
         AreaCircSource(
             source_id="CIRC1", x_coord=501500, y_coord=3801500,
             radius=100, emission_rate=0.003,
+        ),
+        RLineExtSource(
+            source_id="RLX1",
+            x_start=500500, y_start=3801000, z_start=0.5,
+            x_end=501500, y_end=3801000, z_end=0.5,
+            emission_rate=0.001, road_width=30.0,
+        ),
+        BuoyLineSource(
+            source_id="BLP1",
+            avg_line_length=100.0, avg_building_height=15.0,
+            avg_building_width=20.0, avg_line_width=5.0,
+            avg_building_separation=10.0, avg_buoyancy_parameter=0.5,
+            line_segments=[
+                BuoyLineSegment("BL01", 500800, 3800800, 501000, 3800800),
+                BuoyLineSegment("BL02", 501000, 3800800, 501200, 3800800),
+            ],
+        ),
+        OpenPitSource(
+            source_id="PIT1", x_coord=500600, y_coord=3800600,
+            x_dimension=200.0, y_dimension=150.0,
+            pit_volume=100000.0, emission_rate=0.01,
         ),
     ]
 
@@ -306,9 +331,61 @@ class TestGeoDataFrameFactory:
         assert gdf.iloc[0].geometry.geom_type == "Point"
         assert gdf.iloc[0]["source_type"] == "VOLUME"
 
+    def test_rlinext_source_to_gdf(self, factory):
+        sources = [
+            RLineExtSource(
+                source_id="RLX1",
+                x_start=500000, y_start=3801000, z_start=0.5,
+                x_end=502000, y_end=3801000, z_end=0.5,
+            ),
+        ]
+        gdf = factory.sources_to_geodataframe(sources)
+        assert gdf.iloc[0].geometry.geom_type == "LineString"
+        assert gdf.iloc[0]["source_type"] == "RLINEXT"
+
+    def test_buoyline_source_to_gdf(self, factory):
+        sources = [
+            BuoyLineSource(
+                source_id="BLP1",
+                avg_line_length=100.0, avg_building_height=15.0,
+                avg_building_width=20.0, avg_line_width=5.0,
+                avg_building_separation=10.0, avg_buoyancy_parameter=0.5,
+                line_segments=[
+                    BuoyLineSegment("BL01", 500000, 3800000, 501000, 3800000),
+                    BuoyLineSegment("BL02", 501000, 3800000, 502000, 3800000),
+                ],
+            ),
+        ]
+        gdf = factory.sources_to_geodataframe(sources)
+        assert gdf.iloc[0].geometry.geom_type == "MultiLineString"
+        assert gdf.iloc[0]["source_type"] == "BUOYLINE"
+
+    def test_openpit_source_to_gdf(self, factory):
+        sources = [
+            OpenPitSource(
+                source_id="PIT1", x_coord=500000, y_coord=3800000,
+                x_dimension=200.0, y_dimension=150.0,
+                pit_volume=100000.0,
+            ),
+        ]
+        gdf = factory.sources_to_geodataframe(sources)
+        assert gdf.iloc[0].geometry.geom_type == "Polygon"
+        assert gdf.iloc[0]["source_type"] == "OPENPIT"
+
+    def test_openpit_rotated_to_gdf(self, factory):
+        sources = [
+            OpenPitSource(
+                source_id="PIT2", x_coord=500000, y_coord=3800000,
+                x_dimension=200.0, y_dimension=100.0,
+                pit_volume=50000.0, angle=45.0,
+            ),
+        ]
+        gdf = factory.sources_to_geodataframe(sources)
+        assert gdf.iloc[0].geometry.geom_type == "Polygon"
+
     def test_mixed_sources_to_gdf(self, factory, sample_sources):
         gdf = factory.sources_to_geodataframe(sample_sources)
-        assert len(gdf) == 7  # All source types represented
+        assert len(gdf) == 10  # All source types represented
 
     def test_gdf_has_correct_crs(self, factory, sample_sources):
         gdf = factory.sources_to_geodataframe(sample_sources)

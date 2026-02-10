@@ -4,8 +4,8 @@
 
 PyAERMOD v0.2.0 — Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
-**Test suite**: 335 tests across 11 files, all passing.
-**Latest commit**: Add geospatial utilities module and Streamlit GUI for full AERMOD workflow
+**Test suite**: 427 tests across 13 files, all passing.
+**Latest commit**: Add RLINEXT/BUOYLINE/OPENPIT source types and terrain workflow pipeline
 
 ---
 
@@ -149,18 +149,68 @@ Two new modules providing geospatial GIS integration and a web-based GUI:
   - Added console script entry point: `pyaermod-gui=pyaermod_gui:main`
 - **Modified `pyaermod__init__.py`**: Version bumped to `0.2.0`. Added conditional `try/except` import block for 9 geospatial symbols (`CoordinateTransformer`, `GeoDataFrameFactory`, `ContourGenerator`, `RasterExporter`, `VectorExporter`, `utm_to_latlon`, `latlon_to_utm`, `export_concentration_geotiff`, `export_concentration_shapefile`). Added `HAS_GEOSPATIAL` flag. Updated `__all__` (47 → 56 items). Updated `print_info()` features list with geospatial and GUI entries.
 
+### Session 6: Additional Source Types + Terrain Workflow Pipeline (335 → 427 tests)
+
+Two major feature areas: three new AERMOD source types and a terrain processing pipeline.
+
+#### Additional Source Types (RLINEXT, BUOYLINE, OPENPIT)
+- **Modified `pyaermod_input_generator.py`**: Added 4 new dataclasses (all keyword formats verified against AERMOD Fortran v24142 source):
+  - `RLineExtSource`: Extended roadway with per-endpoint heights (XSB YSB ZSB XSE YSE ZSE on single LOCATION line), SRCPARAM (Qemis DCL Width InitSigmaZ), optional RBARRIER (1 or 2 barriers), optional RDEPRESS (Depth Wtop Wbottom)
+  - `BuoyLineSegment`: Helper dataclass for individual BUOYLINE segments (source_id, coords, emission_rate, release_height)
+  - `BuoyLineSource`: Buoyant line source group with per-segment LOCATION/SRCPARAM, BLPINPUT (6 average plume rise parameters), BLPGROUP keywords. Properties: `emission_rate` (sum), `number_of_lines`
+  - `OpenPitSource`: Open pit mine/quarry with SRCPARAM (Qemis Hs Xinit Yinit Volume [Angle]). No APTS_CAP keyword (escape fraction computed internally by AERMOD). Property: `effective_depth`
+  - Updated `SourcePathway.sources` Union type and `add_source()` to accept all new types
+- **Modified `pyaermod_validator.py`**: Added 3 new validation methods with isinstance dispatch:
+  - `_validate_rline_ext_source`: road_width > 0, init_sigma_z >= 0, emission_rate >= 0, zero-length line, barrier heights >= 0, depression depth <= 0, wtop >= 0, wbottom in [0, wtop]
+  - `_validate_buoyline_source`: avg_buoyancy_parameter > 0, avg_line_length > 0, avg_building_height > 0, at least 1 segment, per-segment emission_rate >= 0, release_height in [0, 3000]
+  - `_validate_openpit_source`: x/y_dimension > 0, pit_volume > 0, emission_rate >= 0, release_height >= 0, warning if release_height > effective_depth, warning if aspect ratio > 10
+- **Modified `pyaermod_geospatial.py`**: Added geometry conversion for new source types:
+  - RLineExtSource → LineString from (x_start, y_start) to (x_end, y_end)
+  - BuoyLineSource → MultiLineString from line segments (imports MultiLineString from shapely)
+  - OpenPitSource → Polygon rectangle from SW corner + dimensions with optional angle rotation
+- **Modified `pyaermod_gui.py`**: Added GUI support for all 3 new types:
+  - Updated `SourceFormFactory.SOURCE_TYPES` list (8 → 10 types)
+  - Added `render_rlinext_source_form()`, `render_buoyline_source_form()`, `render_openpit_source_form()` static methods
+  - Added dispatch branches in `page_source_editor()` and `MapEditor.add_sources_to_map()` (RLINEXT→purple, BUOYLINE→green, OPENPIT→brown)
+
+#### Terrain Workflow Pipeline
+- **New `pyaermod_terrain.py`**: ~725 lines, full DEM → AERMAP → elevations pipeline:
+  - `DEMTileInfo` dataclass: title, download_url, format, size_bytes, bounds
+  - `DEMDownloader`: queries USGS TNM API (`tnmaccess.nationalmap.gov/api/v1/products`) for NED 1/3 arc-second GeoTIFF tiles. Methods: `find_tiles(bounds)`, `download_tile(tile, output_dir)` with file caching, `download_dem(bounds, output_dir)`. Optional `requests` dependency with `_require_requests()` guard
+  - `AERMAPRunResult` dataclass: success, input_file, return_code, runtime_seconds, output files, stdout/stderr, error_message
+  - `AERMAPRunner`: mirrors AERMODRunner pattern exactly. `_find_or_set_executable()` + `subprocess.run()` with timeout
+  - `AERMAPOutputParser`: parses AERMAP output (formats verified from Fortran FORMAT statements):
+    - `parse_receptor_output(filepath)` → DataFrame (x, y, zelev, zhill): handles DISCCART (F12.2/F10.2) and GRIDCART ELEV/HILL rows (F8.1, 6 per line)
+    - `parse_source_output(filepath)` → DataFrame (source_id, source_type, x, y, zelev): handles SO LOCATION (A12/A8/F12.2)
+  - `TerrainProcessor`: high-level pipeline coordinator:
+    - `create_aermap_project_from_aermod(project, dem_files, utm_zone, datum)` → AERMAPProject
+    - `process(project, bounds, aermap_exe, ...)` → updated AERMODProject with receptor elevations (download → generate → run → parse → update)
+    - `_update_receptor_elevations(project, rec_df)` — matches by coordinate proximity
+  - `run_aermap()` convenience function
+- **Modified `pyaermod_aermap.py`**: Added `AERMAPProject.from_aermod_project()` classmethod — extracts source/receptor coordinates from AERMODProject and builds AERMAP input with configurable buffer
+
+#### Updates to Existing Files
+- **Modified `pyaermod__init__.py`**: Added AERMAP imports (AERMAPProject, AERMAPDomain, AERMAPReceptor, AERMAPSource) as direct imports. Added terrain imports (DEMTileInfo, DEMDownloader, AERMAPRunner, AERMAPRunResult, AERMAPOutputParser, TerrainProcessor, run_aermap) as optional with `HAS_TERRAIN` flag. Updated `__all__` (56 → 63 items)
+- **Modified `setup.py`**: Added `[terrain]` extras group (requests>=2.25.0). Added requests to `[all]` group
+
+#### New Tests (92 new tests across 6 files)
+- **Modified `tests/test_input_generator.py`**: Added `TestRLineExtSource` (6 tests), `TestBuoyLineSource` (3 tests), `TestOpenPitSource` (5 tests) — keyword correctness against Fortran FORMAT specs
+- **Modified `tests/test_validator.py`**: Added `TestRLineExtSourceValidation` (8 tests), `TestBuoyLineSourceValidation` (7 tests), `TestOpenPitSourceValidation` (8 tests)
+- **Modified `tests/test_geospatial.py`**: Added 5 geometry type tests (RLineExtSource→LineString, BuoyLineSource→MultiLineString, OpenPitSource→Polygon, rotated OpenPit, mixed count 7→10). Updated sample_sources fixture with 3 new types
+- **Modified `tests/test_gui.py`**: Added 3 form data conversion tests, updated SOURCE_TYPES assertion (5→8+)
+- **New `tests/test_terrain.py`**: ~310 lines, 22 tests:
+  - `TestDEMTileInfo` (2): basic/full creation
+  - `TestDEMDownloader` (6): mocked requests for find_tiles, download_tile cache, fresh download, pipeline
+  - `TestAERMAPRunResult` (2): success/failure repr
+  - `TestAERMAPRunner` (2): missing executable, missing input file
+  - `TestAERMAPOutputParser` (7): DISCCART parsing, GRIDCART parsing, source output, missing files, empty output, comments
+  - `TestTerrainProcessor` (5): create_aermap_project bridge, valid input generation, no coords error, elevation updates
+  - `TestConvenienceFunction` (1): run_aermap missing exe
+- **Modified `tests/test_integration.py`**: Added `TestAERMAPInputGeneration` (5 tests) and `TestAERMAPExecution` (1 test, requires aermap marker). Added `find_aermap()` helper for local AERMAP executable discovery
+
 ---
 
 ## Recommended Next Development Steps
-
-### Additional source types
-- RLINEXT, BUOYLINE, OPENPIT
-
-### Terrain workflow streamlining
-- DEM download → AERMAP → elevations pipeline
-
-### Integration tests
-- End-to-end .inp generation → AERMOD run → output parse → geospatial export
 
 ### POSTFILE enhancements
 - Unformatted (binary) POSTFILE support

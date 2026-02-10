@@ -61,6 +61,9 @@ setup(
             "scipy>=1.7.0",
             "matplotlib>=3.3.0",
         ],
+        "terrain": [
+            "requests>=2.25.0",
+        ],
         "all": [
             "matplotlib>=3.3.0",
             "scipy>=1.7.0",
@@ -71,6 +74,7 @@ setup(
             "shapely>=1.8.0",
             "streamlit>=1.28.0",
             "streamlit-folium>=0.15.0",
+            "requests>=2.25.0",
         ],
         "dev": [
             "pytest>=6.0",

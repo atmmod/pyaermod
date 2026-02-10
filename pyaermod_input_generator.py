@@ -666,11 +666,280 @@ class RLineSource:
 
 
 @dataclass
+class RLineExtSource:
+    """
+    AERMOD RLINEXT source (extended roadway source)
+
+    Extension of RLINE with per-endpoint heights, noise barrier support,
+    and depressed roadway modeling. Requires ALPHA model option for
+    barrier/depression features.
+    """
+    source_id: str
+    x_start: float
+    y_start: float
+    z_start: float  # source height at start endpoint (meters)
+    x_end: float
+    y_end: float
+    z_end: float    # source height at end endpoint (meters)
+    base_elevation: float = 0.0
+
+    # SRCPARAM fields
+    emission_rate: float = 1.0           # g/(m*s) per unit length of road
+    dcl: float = 0.0                     # offset distance from centerline (meters)
+    road_width: float = 30.0             # width of roadway (meters)
+    init_sigma_z: float = 1.5            # initial vertical dispersion (meters)
+
+    # Barrier fields (optional, requires ALPHA + FLAT)
+    barrier_height_1: Optional[float] = None   # height of barrier 1 (meters, >= 0)
+    barrier_dcl_1: Optional[float] = None      # barrier 1 distance from centerline (meters)
+    barrier_height_2: Optional[float] = None   # height of barrier 2 (meters, >= 0)
+    barrier_dcl_2: Optional[float] = None      # barrier 2 distance from centerline (meters)
+
+    # Depression fields (optional, requires ALPHA + FLAT)
+    depression_depth: Optional[float] = None   # depth of depression (meters, <= 0)
+    depression_wtop: Optional[float] = None    # top width of depression (meters, >= 0)
+    depression_wbottom: Optional[float] = None # bottom width of depression (meters, [0, wtop])
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword - RLINEXT has 6 coordinates (XSB YSB ZSB XSE YSE ZSE)
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} RLINEXT "
+            f"{self.x_start:12.4f} {self.y_start:12.4f} {self.z_start:8.2f} "
+            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.z_end:8.2f} "
+            f"{self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword: Qemis DCL Width InitSigmaZ
+        lines.append(
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{self.emission_rate:10.6f} {self.dcl:8.2f} "
+            f"{self.road_width:8.2f} {self.init_sigma_z:8.2f}"
+        )
+
+        # Optional RBARRIER
+        if self.barrier_height_1 is not None and self.barrier_dcl_1 is not None:
+            if self.barrier_height_2 is not None and self.barrier_dcl_2 is not None:
+                lines.append(
+                    f"   RBARRIER  {self.source_id:<8} "
+                    f"{self.barrier_height_1:8.2f} {self.barrier_dcl_1:8.2f} "
+                    f"{self.barrier_height_2:8.2f} {self.barrier_dcl_2:8.2f}"
+                )
+            else:
+                lines.append(
+                    f"   RBARRIER  {self.source_id:<8} "
+                    f"{self.barrier_height_1:8.2f} {self.barrier_dcl_1:8.2f}"
+                )
+
+        # Optional RDEPRESS
+        if self.depression_depth is not None and self.depression_wtop is not None and self.depression_wbottom is not None:
+            lines.append(
+                f"   RDEPRESS  {self.source_id:<8} "
+                f"{self.depression_depth:8.2f} {self.depression_wtop:8.2f} "
+                f"{self.depression_wbottom:8.2f}"
+            )
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class BuoyLineSegment:
+    """A single line segment within a BUOYLINE source group."""
+    source_id: str
+    x_start: float
+    y_start: float
+    x_end: float
+    y_end: float
+    emission_rate: float = 1.0       # g/s (average emission release rate)
+    release_height: float = 10.0     # meters
+
+
+@dataclass
+class BuoyLineSource:
+    """
+    AERMOD BUOYLINE source (buoyant line source)
+
+    Models buoyant line sources such as aluminum reduction plant
+    potroom roof vents. Consists of multiple line segments sharing
+    common plume rise parameters defined via BLPINPUT.
+    """
+    source_id: str  # Group identifier for BLPGROUP
+
+    # Average plume rise parameters (BLPINPUT)
+    avg_line_length: float           # meters
+    avg_building_height: float       # meters
+    avg_building_width: float        # meters
+    avg_line_width: float            # meters
+    avg_building_separation: float   # meters
+    avg_buoyancy_parameter: float    # m^4/s^3
+
+    # Line segments
+    line_segments: List[BuoyLineSegment] = field(default_factory=list)
+
+    base_elevation: float = 0.0
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    @property
+    def emission_rate(self) -> float:
+        """Total emission rate across all segments."""
+        if self.line_segments:
+            return sum(seg.emission_rate for seg in self.line_segments)
+        return 0.0
+
+    @property
+    def number_of_lines(self) -> int:
+        return len(self.line_segments)
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION and SRCPARAM for each line segment
+        for seg in self.line_segments:
+            lines.append(
+                f"   LOCATION  {seg.source_id:<8} BUOYLINE"
+                f"{seg.x_start:12.4f} {seg.y_start:12.4f} "
+                f"{seg.x_end:12.4f} {seg.y_end:12.4f} {self.base_elevation:8.2f}"
+            )
+            lines.append(
+                f"   SRCPARAM  {seg.source_id:<8} "
+                f"{seg.emission_rate:10.6f} {seg.release_height:8.2f}"
+            )
+
+        # BLPINPUT - average plume rise parameters
+        lines.append(
+            f"   BLPINPUT  "
+            f"{self.avg_line_length:8.2f} {self.avg_building_height:8.2f} "
+            f"{self.avg_building_width:8.2f} {self.avg_line_width:8.2f} "
+            f"{self.avg_building_separation:8.2f} {self.avg_buoyancy_parameter:10.6f}"
+        )
+
+        # BLPGROUP - associate all segments
+        seg_ids = " ".join(seg.source_id for seg in self.line_segments)
+        lines.append(f"   BLPGROUP  {self.source_id:<8} {seg_ids}")
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                for seg in self.line_segments:
+                    lines.append(f"   SRCGROUP  {group:<8} {seg.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            for seg in self.line_segments:
+                lines.append(f"   URBANSRC  {seg.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class OpenPitSource:
+    """
+    AERMOD OPENPIT source (open pit mine/quarry)
+
+    Models fugitive emissions from open pit sources. The escape fraction
+    is computed internally by AERMOD based on pit geometry and wind speed.
+    Coordinates specify the SW corner of the pit.
+    """
+    source_id: str
+    x_coord: float        # SW corner x-coordinate
+    y_coord: float        # SW corner y-coordinate
+    base_elevation: float = 0.0
+
+    # SRCPARAM fields
+    emission_rate: float = 1.0       # g/(s*m^2)
+    release_height: float = 0.0      # meters above pit base
+    x_dimension: float = 100.0       # meters (pit length in x-direction)
+    y_dimension: float = 100.0       # meters (pit width in y-direction)
+    pit_volume: float = 100000.0     # m^3 (must be > 0)
+    angle: float = 0.0               # rotation angle from north (degrees)
+
+    # Source groups
+    source_groups: List[str] = field(default_factory=list)
+
+    # Urban source
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+
+    @property
+    def effective_depth(self) -> float:
+        """Effective pit depth computed from volume and dimensions."""
+        if self.x_dimension > 0 and self.y_dimension > 0:
+            return self.pit_volume / (self.x_dimension * self.y_dimension)
+        return 0.0
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = []
+
+        # LOCATION keyword
+        lines.append(
+            f"   LOCATION  {self.source_id:<8} OPENPIT "
+            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+        )
+
+        # SRCPARAM keyword: Qemis Hs Xinit Yinit Volume [Angle]
+        if self.angle != 0.0:
+            lines.append(
+                f"   SRCPARAM  {self.source_id:<8} "
+                f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+                f"{self.x_dimension:8.2f} {self.y_dimension:8.2f} "
+                f"{self.pit_volume:12.2f} {self.angle:8.2f}"
+            )
+        else:
+            lines.append(
+                f"   SRCPARAM  {self.source_id:<8} "
+                f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+                f"{self.x_dimension:8.2f} {self.y_dimension:8.2f} "
+                f"{self.pit_volume:12.2f}"
+            )
+
+        # Source groups
+        if self.source_groups:
+            for group in self.source_groups:
+                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+
+        # Urban source
+        if self.is_urban and self.urban_area_name:
+            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+
+        return "\n".join(lines)
+
+
+@dataclass
 class SourcePathway:
     """Collection of sources"""
-    sources: List[Union[PointSource, AreaSource, AreaCircSource, AreaPolySource, VolumeSource, LineSource, RLineSource]] = field(default_factory=list)
+    sources: List[Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
+                        VolumeSource, LineSource, RLineSource,
+                        RLineExtSource, BuoyLineSource, OpenPitSource]] = field(default_factory=list)
 
-    def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource, VolumeSource, LineSource, RLineSource]):
+    def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
+                                       VolumeSource, LineSource, RLineSource,
+                                       RLineExtSource, BuoyLineSource, OpenPitSource]):
         """Add a source to the pathway"""
         self.sources.append(source)
 

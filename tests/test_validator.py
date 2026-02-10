@@ -15,6 +15,10 @@ from pyaermod_input_generator import (
     VolumeSource,
     LineSource,
     RLineSource,
+    RLineExtSource,
+    BuoyLineSource,
+    BuoyLineSegment,
+    OpenPitSource,
     ReceptorPathway,
     CartesianGrid,
     PolarGrid,
@@ -662,3 +666,185 @@ class TestOutputValidation:
         result = Validator.validate(project)
         rank_errors = [e for e in result.errors if "rank" in e.field]
         assert len(rank_errors) == 0
+
+
+# ---------------------------------------------------------------------------
+# RLineExtSource validation
+# ---------------------------------------------------------------------------
+
+class TestRLineExtSourceValidation:
+
+    def _project_with_rlinext(self, **kwargs):
+        defaults = dict(
+            source_id="RLX1",
+            x_start=0.0, y_start=0.0, z_start=0.5,
+            x_end=100.0, y_end=0.0, z_end=0.5,
+            emission_rate=0.001, dcl=0.0,
+            road_width=30.0, init_sigma_z=1.5,
+        )
+        defaults.update(kwargs)
+        sources = SourcePathway()
+        sources.add_source(RLineExtSource(**defaults))
+        return _make_valid_project(sources=sources)
+
+    def test_valid_rlinext(self):
+        result = Validator.validate(self._project_with_rlinext())
+        src_errors = [e for e in result.errors if "RLX1" in e.pathway and e.severity == "error"]
+        assert len(src_errors) == 0
+
+    def test_negative_emission(self):
+        result = Validator.validate(self._project_with_rlinext(emission_rate=-0.1))
+        assert any("emission_rate" in e.field for e in result.errors)
+
+    def test_zero_road_width(self):
+        result = Validator.validate(self._project_with_rlinext(road_width=0.0))
+        assert any("road_width" in e.field for e in result.errors)
+
+    def test_negative_init_sigma_z(self):
+        result = Validator.validate(self._project_with_rlinext(init_sigma_z=-1.0))
+        assert any("init_sigma_z" in e.field for e in result.errors)
+
+    def test_zero_length_line(self):
+        result = Validator.validate(self._project_with_rlinext(
+            x_start=50.0, y_start=50.0, x_end=50.0, y_end=50.0,
+        ))
+        assert any("zero-length" in e.message for e in result.errors)
+
+    def test_barrier_negative_height(self):
+        result = Validator.validate(self._project_with_rlinext(
+            barrier_height_1=-5.0, barrier_dcl_1=10.0,
+        ))
+        assert any("barrier" in e.field.lower() for e in result.errors)
+
+    def test_depression_positive_depth(self):
+        result = Validator.validate(self._project_with_rlinext(
+            depression_depth=5.0, depression_wtop=20.0, depression_wbottom=10.0,
+        ))
+        assert any("depression_depth" in e.field for e in result.errors)
+
+    def test_depression_wbottom_exceeds_wtop(self):
+        result = Validator.validate(self._project_with_rlinext(
+            depression_depth=-3.0, depression_wtop=10.0, depression_wbottom=15.0,
+        ))
+        assert any("depression_wbottom" in e.field for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# BuoyLineSource validation
+# ---------------------------------------------------------------------------
+
+class TestBuoyLineSourceValidation:
+
+    def _project_with_buoyline(self, segments=None, **kwargs):
+        if segments is None:
+            segments = [
+                BuoyLineSegment("BL01", 0, 0, 100, 0, emission_rate=1.0, release_height=10.0),
+            ]
+        defaults = dict(
+            source_id="BLP1",
+            avg_line_length=100.0,
+            avg_building_height=15.0,
+            avg_building_width=20.0,
+            avg_line_width=5.0,
+            avg_building_separation=10.0,
+            avg_buoyancy_parameter=0.5,
+            line_segments=segments,
+        )
+        defaults.update(kwargs)
+        sources = SourcePathway()
+        sources.add_source(BuoyLineSource(**defaults))
+        return _make_valid_project(sources=sources)
+
+    def test_valid_buoyline(self):
+        result = Validator.validate(self._project_with_buoyline())
+        src_errors = [e for e in result.errors if "BLP1" in e.pathway and e.severity == "error"]
+        assert len(src_errors) == 0
+
+    def test_zero_buoyancy_parameter(self):
+        result = Validator.validate(self._project_with_buoyline(avg_buoyancy_parameter=0.0))
+        assert any("avg_buoyancy_parameter" in e.field for e in result.errors)
+
+    def test_zero_line_length(self):
+        result = Validator.validate(self._project_with_buoyline(avg_line_length=0.0))
+        assert any("avg_line_length" in e.field for e in result.errors)
+
+    def test_zero_building_height(self):
+        result = Validator.validate(self._project_with_buoyline(avg_building_height=0.0))
+        assert any("avg_building_height" in e.field for e in result.errors)
+
+    def test_no_segments(self):
+        result = Validator.validate(self._project_with_buoyline(segments=[]))
+        assert any("segment" in e.message.lower() for e in result.errors)
+
+    def test_segment_negative_emission(self):
+        segs = [BuoyLineSegment("BL01", 0, 0, 100, 0, emission_rate=-1.0)]
+        result = Validator.validate(self._project_with_buoyline(segments=segs))
+        assert any("emission_rate" in e.field for e in result.errors)
+
+    def test_segment_excessive_release_height(self):
+        segs = [BuoyLineSegment("BL01", 0, 0, 100, 0, release_height=5000.0)]
+        result = Validator.validate(self._project_with_buoyline(segments=segs))
+        assert any("release_height" in e.field for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# OpenPitSource validation
+# ---------------------------------------------------------------------------
+
+class TestOpenPitSourceValidation:
+
+    def _project_with_openpit(self, **kwargs):
+        defaults = dict(
+            source_id="PIT1",
+            x_coord=0.0, y_coord=0.0,
+            emission_rate=0.01, release_height=0.0,
+            x_dimension=100.0, y_dimension=100.0,
+            pit_volume=100000.0,
+        )
+        defaults.update(kwargs)
+        sources = SourcePathway()
+        sources.add_source(OpenPitSource(**defaults))
+        return _make_valid_project(sources=sources)
+
+    def test_valid_openpit(self):
+        result = Validator.validate(self._project_with_openpit())
+        src_errors = [e for e in result.errors if "PIT1" in e.pathway and e.severity == "error"]
+        assert len(src_errors) == 0
+
+    def test_negative_emission(self):
+        result = Validator.validate(self._project_with_openpit(emission_rate=-1.0))
+        assert any("emission_rate" in e.field for e in result.errors)
+
+    def test_negative_release_height(self):
+        result = Validator.validate(self._project_with_openpit(release_height=-1.0))
+        assert any("release_height" in e.field for e in result.errors)
+
+    def test_zero_x_dimension(self):
+        result = Validator.validate(self._project_with_openpit(x_dimension=0.0))
+        assert any("x_dimension" in e.field for e in result.errors)
+
+    def test_zero_y_dimension(self):
+        result = Validator.validate(self._project_with_openpit(y_dimension=0.0))
+        assert any("y_dimension" in e.field for e in result.errors)
+
+    def test_zero_volume(self):
+        result = Validator.validate(self._project_with_openpit(pit_volume=0.0))
+        assert any("pit_volume" in e.field for e in result.errors)
+
+    def test_release_height_exceeds_depth_warning(self):
+        # Volume=100000, x_dim=100, y_dim=100 → depth=10
+        # release_height=15 exceeds depth → should produce warning
+        result = Validator.validate(self._project_with_openpit(
+            release_height=15.0, pit_volume=100000.0,
+            x_dimension=100.0, y_dimension=100.0,
+        ))
+        warnings = [e for e in result.errors
+                    if "release_height" in e.field and e.severity == "warning"]
+        assert len(warnings) >= 1
+
+    def test_extreme_aspect_ratio_warning(self):
+        result = Validator.validate(self._project_with_openpit(
+            x_dimension=1000.0, y_dimension=10.0,
+        ))
+        warnings = [e for e in result.errors if e.severity == "warning" and "aspect" in e.message.lower()]
+        assert len(warnings) >= 1

@@ -211,6 +211,7 @@ class Validator:
         from pyaermod_input_generator import (
             PointSource, AreaSource, AreaCircSource, AreaPolySource,
             VolumeSource, LineSource, RLineSource,
+            RLineExtSource, BuoyLineSource, OpenPitSource,
         )
 
         if isinstance(source, PointSource):
@@ -225,6 +226,12 @@ class Validator:
             cls._validate_volume_source(source, result)
         elif isinstance(source, (LineSource, RLineSource)):
             cls._validate_line_source(source, result)
+        elif isinstance(source, RLineExtSource):
+            cls._validate_rline_ext_source(source, result)
+        elif isinstance(source, BuoyLineSource):
+            cls._validate_buoyline_source(source, result)
+        elif isinstance(source, OpenPitSource):
+            cls._validate_openpit_source(source, result)
 
     @classmethod
     def _validate_point_source(cls, src, result: ValidationResult):
@@ -418,6 +425,179 @@ class Validator:
                 name, "coordinates",
                 "start and end points are identical (zero-length line)"
             ))
+
+    @classmethod
+    def _validate_rline_ext_source(cls, src, result: ValidationResult):
+        name = f"RLineExtSource({src.source_id})"
+
+        if src.emission_rate < 0:
+            result.errors.append(ValidationError(
+                name, "emission_rate",
+                f"must be >= 0, got {src.emission_rate}"
+            ))
+
+        if src.road_width <= 0:
+            result.errors.append(ValidationError(
+                name, "road_width",
+                f"must be > 0, got {src.road_width}"
+            ))
+
+        if src.init_sigma_z < 0:
+            result.errors.append(ValidationError(
+                name, "init_sigma_z",
+                f"must be >= 0, got {src.init_sigma_z}"
+            ))
+
+        # Zero-length line
+        if (src.x_start == src.x_end and src.y_start == src.y_end):
+            result.errors.append(ValidationError(
+                name, "coordinates",
+                "start and end points are identical (zero-length line)"
+            ))
+
+        # Barrier validation
+        if src.barrier_height_1 is not None:
+            if src.barrier_height_1 < 0:
+                result.errors.append(ValidationError(
+                    name, "barrier_height_1",
+                    f"must be >= 0, got {src.barrier_height_1}"
+                ))
+        if src.barrier_height_2 is not None:
+            if src.barrier_height_2 < 0:
+                result.errors.append(ValidationError(
+                    name, "barrier_height_2",
+                    f"must be >= 0, got {src.barrier_height_2}"
+                ))
+
+        # Depression validation
+        if src.depression_depth is not None:
+            if src.depression_depth > 0:
+                result.errors.append(ValidationError(
+                    name, "depression_depth",
+                    f"must be <= 0 (negative depth), got {src.depression_depth}"
+                ))
+        if src.depression_wtop is not None:
+            if src.depression_wtop < 0:
+                result.errors.append(ValidationError(
+                    name, "depression_wtop",
+                    f"must be >= 0, got {src.depression_wtop}"
+                ))
+        if src.depression_wbottom is not None:
+            if src.depression_wbottom < 0:
+                result.errors.append(ValidationError(
+                    name, "depression_wbottom",
+                    f"must be >= 0, got {src.depression_wbottom}"
+                ))
+            if src.depression_wtop is not None and src.depression_wbottom > src.depression_wtop:
+                result.errors.append(ValidationError(
+                    name, "depression_wbottom",
+                    f"must be <= depression_wtop ({src.depression_wtop}), got {src.depression_wbottom}"
+                ))
+
+    @classmethod
+    def _validate_buoyline_source(cls, src, result: ValidationResult):
+        name = f"BuoyLineSource({src.source_id})"
+
+        if src.avg_buoyancy_parameter <= 0:
+            result.errors.append(ValidationError(
+                name, "avg_buoyancy_parameter",
+                f"must be > 0, got {src.avg_buoyancy_parameter}"
+            ))
+
+        if src.avg_line_length <= 0:
+            result.errors.append(ValidationError(
+                name, "avg_line_length",
+                f"must be > 0, got {src.avg_line_length}"
+            ))
+
+        if src.avg_building_height <= 0:
+            result.errors.append(ValidationError(
+                name, "avg_building_height",
+                f"must be > 0, got {src.avg_building_height}"
+            ))
+
+        if not src.line_segments:
+            result.errors.append(ValidationError(
+                name, "line_segments",
+                "must have at least one line segment"
+            ))
+
+        for i, seg in enumerate(src.line_segments):
+            seg_name = f"BuoyLineSegment({seg.source_id})"
+            if seg.emission_rate < 0:
+                result.errors.append(ValidationError(
+                    seg_name, "emission_rate",
+                    f"must be >= 0, got {seg.emission_rate}"
+                ))
+            if seg.release_height < 0:
+                result.errors.append(ValidationError(
+                    seg_name, "release_height",
+                    f"must be >= 0, got {seg.release_height}"
+                ))
+            if seg.release_height > 3000:
+                result.errors.append(ValidationError(
+                    seg_name, "release_height",
+                    f"must be <= 3000, got {seg.release_height}"
+                ))
+            if (seg.x_start == seg.x_end and seg.y_start == seg.y_end):
+                result.errors.append(ValidationError(
+                    seg_name, "coordinates",
+                    "start and end points are identical (zero-length line)"
+                ))
+
+    @classmethod
+    def _validate_openpit_source(cls, src, result: ValidationResult):
+        name = f"OpenPitSource({src.source_id})"
+
+        if src.emission_rate < 0:
+            result.errors.append(ValidationError(
+                name, "emission_rate",
+                f"must be >= 0, got {src.emission_rate}"
+            ))
+
+        if src.release_height < 0:
+            result.errors.append(ValidationError(
+                name, "release_height",
+                f"must be >= 0, got {src.release_height}"
+            ))
+
+        if src.x_dimension <= 0:
+            result.errors.append(ValidationError(
+                name, "x_dimension",
+                f"must be > 0, got {src.x_dimension}"
+            ))
+
+        if src.y_dimension <= 0:
+            result.errors.append(ValidationError(
+                name, "y_dimension",
+                f"must be > 0, got {src.y_dimension}"
+            ))
+
+        if src.pit_volume <= 0:
+            result.errors.append(ValidationError(
+                name, "pit_volume",
+                f"must be > 0, got {src.pit_volume}"
+            ))
+
+        # Warning: release height exceeds effective pit depth
+        if src.x_dimension > 0 and src.y_dimension > 0 and src.pit_volume > 0:
+            eff_depth = src.effective_depth
+            if src.release_height > eff_depth:
+                result.errors.append(ValidationError(
+                    name, "release_height",
+                    f"exceeds effective pit depth ({eff_depth:.2f}m), got {src.release_height}",
+                    severity="warning"
+                ))
+
+        # Warning: aspect ratio > 10
+        if src.x_dimension > 0 and src.y_dimension > 0:
+            ratio = max(src.x_dimension / src.y_dimension, src.y_dimension / src.x_dimension)
+            if ratio > 10:
+                result.errors.append(ValidationError(
+                    name, "x_dimension/y_dimension",
+                    f"aspect ratio > 10 ({ratio:.1f})",
+                    severity="warning"
+                ))
 
     # ------------------------------------------------------------------
     # Receptor pathway

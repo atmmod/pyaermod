@@ -18,16 +18,20 @@ from unittest.mock import MagicMock, patch
 from pyaermod_input_generator import (
     AERMODProject,
     AreaSource,
+    BuoyLineSegment,
+    BuoyLineSource,
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
     LineSource,
     MeteorologyPathway,
+    OpenPitSource,
     OutputPathway,
     PolarGrid,
     PointSource,
     PollutantType,
     ReceptorPathway,
+    RLineExtSource,
     RLineSource,
     SourcePathway,
     TerrainType,
@@ -200,6 +204,42 @@ class TestSourceFormDataConversion:
         text = src.to_aermod_input()
         assert "RD1" in text
 
+    def test_rlinext_source_from_form_data(self):
+        src = RLineExtSource(
+            source_id="RLX1",
+            x_start=500000.0, y_start=3801000.0, z_start=0.5,
+            x_end=502000.0, y_end=3801000.0, z_end=0.5,
+            emission_rate=0.001, road_width=30.0, init_sigma_z=1.5,
+        )
+        text = src.to_aermod_input()
+        assert "RLX1" in text
+        assert "RLINEXT" in text
+
+    def test_buoyline_source_from_form_data(self):
+        src = BuoyLineSource(
+            source_id="BLP1",
+            avg_line_length=100.0, avg_building_height=15.0,
+            avg_building_width=20.0, avg_line_width=5.0,
+            avg_building_separation=10.0, avg_buoyancy_parameter=0.5,
+            line_segments=[
+                BuoyLineSegment("BL01", 0, 0, 100, 0, emission_rate=1.0, release_height=10.0),
+            ],
+        )
+        text = src.to_aermod_input()
+        assert "BUOYLINE" in text
+        assert "BLPINPUT" in text
+        assert "BLPGROUP" in text
+
+    def test_openpit_source_from_form_data(self):
+        src = OpenPitSource(
+            source_id="PIT1", x_coord=500000.0, y_coord=3800000.0,
+            emission_rate=0.01, x_dimension=200.0, y_dimension=150.0,
+            pit_volume=100000.0,
+        )
+        text = src.to_aermod_input()
+        assert "PIT1" in text
+        assert "OPENPIT" in text
+
 
 # ============================================================================
 # TestMapEditorHelpers
@@ -292,9 +332,12 @@ class TestSourceFormFactory:
 
     def test_source_types_list(self):
         types = SourceFormFactory.SOURCE_TYPES
-        assert len(types) >= 5
+        assert len(types) >= 8
         assert "Point" in types
         assert "Volume" in types
+        assert any("RLineExt" in t for t in types)
+        assert any("BuoyLine" in t for t in types)
+        assert any("OpenPit" in t for t in types)
 
     def test_source_types_are_strings(self):
         for t in SourceFormFactory.SOURCE_TYPES:

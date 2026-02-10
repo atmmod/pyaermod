@@ -95,6 +95,91 @@ class AERMAPProject:
     source_output: str = "aermap_sources.out"
     message_file: str = "aermap.msg"
 
+    @classmethod
+    def from_aermod_project(
+        cls,
+        aermod_project,
+        dem_files: List[str],
+        utm_zone: int = 16,
+        datum: str = "NAD83",
+        buffer: float = 1000.0,
+    ) -> "AERMAPProject":
+        """Create an AERMAPProject from an AERMODProject.
+
+        Extracts source and receptor locations and builds corresponding
+        AERMAP input for terrain elevation processing.
+
+        Parameters
+        ----------
+        aermod_project : AERMODProject
+        dem_files : list of str
+            DEM file paths.
+        utm_zone : int
+        datum : str
+        buffer : float
+            Buffer in meters around domain extents.
+
+        Returns
+        -------
+        AERMAPProject
+        """
+        all_x, all_y = [], []
+        for src in aermod_project.sources.sources:
+            if hasattr(src, "x_coord"):
+                all_x.append(src.x_coord)
+                all_y.append(src.y_coord)
+            elif hasattr(src, "x_start"):
+                all_x.extend([src.x_start, src.x_end])
+                all_y.extend([src.y_start, src.y_end])
+
+        for grid in aermod_project.receptors.cartesian_grids:
+            all_x.extend([
+                grid.x_init,
+                grid.x_init + (grid.x_num - 1) * grid.x_delta,
+            ])
+            all_y.extend([
+                grid.y_init,
+                grid.y_init + (grid.y_num - 1) * grid.y_delta,
+            ])
+
+        for rec in aermod_project.receptors.discrete_receptors:
+            all_x.append(rec.x_coord)
+            all_y.append(rec.y_coord)
+
+        if not all_x:
+            raise ValueError("No source or receptor coordinates found in project")
+
+        aermap = cls(
+            title_one=f"AERMAP for {aermod_project.control.title_one}",
+            dem_files=dem_files,
+            dem_format="NED",
+            anchor_x=min(all_x) - buffer,
+            anchor_y=min(all_y) - buffer,
+            utm_zone=utm_zone,
+            datum=datum,
+            terrain_type="ELEVATED",
+        )
+
+        for src in aermod_project.sources.sources:
+            if hasattr(src, "x_coord"):
+                aermap.add_source(AERMAPSource(src.source_id, src.x_coord, src.y_coord))
+            elif hasattr(src, "x_start"):
+                aermap.add_source(AERMAPSource(src.source_id, src.x_start, src.y_start))
+
+        for grid in aermod_project.receptors.cartesian_grids:
+            aermap.grid_receptor = True
+            aermap.grid_x_init = grid.x_init
+            aermap.grid_y_init = grid.y_init
+            aermap.grid_x_num = grid.x_num
+            aermap.grid_y_num = grid.y_num
+            aermap.grid_spacing = grid.x_delta
+            break
+
+        for i, rec in enumerate(aermod_project.receptors.discrete_receptors):
+            aermap.add_receptor(AERMAPReceptor(f"R{i + 1:04d}", rec.x_coord, rec.y_coord))
+
+        return aermap
+
     def add_receptor(self, receptor: AERMAPReceptor):
         """Add a discrete receptor"""
         self.receptors.append(receptor)
