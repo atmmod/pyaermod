@@ -542,17 +542,44 @@ class ContourGenerator:
         cs = ax.contourf(xi_grid, yi_grid, zi, levels=levels)
         plt.close(fig)
 
-        # Extract polygons from contour collections
+        # Extract polygons from contour set.
+        # matplotlib 3.8+ deprecated cs.collections; get_paths() returns one
+        # flattened Path per level in modern versions.
         records = []
         geoms = []
-        for i, collection in enumerate(cs.collections):
-            paths = collection.get_paths()
+
+        if hasattr(cs, "collections") and cs.collections:
+            # matplotlib < 3.8 path
+            level_paths = [col.get_paths() for col in cs.collections]
+        else:
+            # matplotlib >= 3.8 – get_paths() returns one Path per level;
+            # each Path may contain multiple sub-polygons separated by
+            # MOVETO codes, so we split them below.
+            level_paths = []
+            from matplotlib.path import Path as MplPath
+            for joined_path in cs.get_paths():
+                # Split a single joined Path into individual sub-paths
+                sub_paths = []
+                verts = joined_path.vertices
+                codes = joined_path.codes
+                if codes is None:
+                    sub_paths.append(joined_path)
+                else:
+                    start = 0
+                    for j in range(1, len(codes)):
+                        if codes[j] == MplPath.MOVETO:
+                            sub_paths.append(MplPath(verts[start:j], codes[start:j]))
+                            start = j
+                    sub_paths.append(MplPath(verts[start:], codes[start:]))
+                level_paths.append(sub_paths)
+
+        for i, paths in enumerate(level_paths):
             if not paths:
                 continue
             polys = []
             for path in paths:
                 try:
-                    coords = path.vertices
+                    coords = path.vertices if hasattr(path, 'vertices') else path
                     if len(coords) >= 4:
                         polys.append(Polygon(coords))
                 except Exception:
