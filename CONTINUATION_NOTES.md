@@ -1,11 +1,12 @@
 # PyAERMOD Development Continuation Notes
 
-## Project State (as of Feb 10, 2026)
+## Project State (as of Feb 11, 2026)
 
 PyAERMOD v0.2.0 — Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
-**Test suite**: 429 tests (427 passed, 2 skipped) across 14 test files.
-**Latest commit**: `158b1b6` — Restructure project for v0.2.0 release: src layout, cleanup, CI
+**Test suite**: 479 tests (477 passed, 2 skipped) across 14 test files.
+**Latest commit**: `2515d03` — Add Priority 2 GUI enhancements and Priority 3 POSTFILE support
+**CI status**: Passing on Python 3.11, 3.12, 3.13
 
 ---
 
@@ -35,7 +36,7 @@ Restructured the entire project for a proper installable package:
 3. **Fixed `setup.py`**:
    - Removed phantom `pyaermod.cli:main` entry point (no cli module exists)
    - Updated GUI entry point to `pyaermod.gui:main`
-   - Added Python 3.12 classifier, bumped minimum to 3.9
+   - Added Python 3.12 classifier, bumped minimum to 3.9 (later raised to 3.11 in Session 8)
 
 4. **Added `pyproject.toml`** with `setuptools.build_meta` backend
 
@@ -52,6 +53,44 @@ Restructured the entire project for a proper installable package:
 9. **Updated `CHANGELOG.md`** — accurate v0.2.0 content (10 source types, 8 new modules, 429 tests)
 
 10. **Added `.github/workflows/tests.yml`** — CI on push/PR to main, Python 3.9-3.12 matrix
+
+### Session 8: CI Fixes (Feb 11, 2026)
+
+Fixed GitHub Actions CI which was failing on all runs since Session 7:
+
+1. **Dropped Python 3.9/3.10 support** — Multiple key dependencies (NumPy 2.1+, SciPy 1.14+, Pandas 2.3+, Streamlit 1.37+) have dropped Python 3.9/3.10 support. Since `setup.py` had no upper-bound version pins, CI pulled incompatible latest versions. Updated `python_requires=">=3.11"`, test matrix to `["3.11", "3.12", "3.13"]`, and classifiers accordingly.
+
+2. **Added GDAL system dependencies to CI** — `rasterio` and `geopandas` require `libgdal-dev` and `gdal-bin` on Ubuntu. Added `apt-get install` step to the workflow.
+
+3. **Fixed matplotlib 3.8+ compatibility** — `QuadContourSet.collections` was deprecated in matplotlib 3.8 and removed in 3.10+. The `geospatial.py` contour extraction code (`generate_contours()`) used this API. Updated to use `get_paths()` with sub-path splitting on modern matplotlib while retaining backward compatibility for older versions. This was the actual test failure (8 tests failing across `test_geospatial.py` and `test_integration.py`).
+
+4. **Updated README.md** — Minimum Python version updated to 3.11.
+
+### Session 9: GUI Enhancements — Priority 2 (Feb 11, 2026)
+
+Implemented all 5 Priority 2 sub-tasks:
+
+1. **Project save/load** — `ProjectSerializer` class with JSON serialization via `dataclasses.asdict()`, custom `_Encoder` for Enums, `_type` discriminator for Union source types, save/load UI in project setup page.
+
+2. **AreaCirc/AreaPoly source forms** — Added `render_area_circ_source_form()` and `render_area_poly_source_form()` to `SourceFormFactory`, wired into `page_source_editor()` dispatch. AreaCircSource rendered as `folium.Circle` on map.
+
+3. **BPIP integration** — `BuildingFormFactory` with building form, buildings list in session state, `BPIPCalculator` wired to point sources, building footprints on map.
+
+4. **AERMAP elevation import** — 5th tab "Import AERMAP Elevations" in receptor editor, `_apply_aermap_receptor_elevations()` and `_apply_aermap_source_elevations()` helpers.
+
+5. **AERMET configuration** — Dual-mode meteorology page (files vs configure), 3 AERMET stage tabs, `st.data_editor` for monthly parameters.
+
+Test count: 425 → 452 passed, 4 → 2 skipped.
+
+### Session 10: POSTFILE Enhancements — Priority 3 (Feb 11, 2026)
+
+Implemented both Priority 3 tasks:
+
+1. **Unformatted (binary) POSTFILE support** — `UnformattedPostfileParser` class in `postfile.py` reads Fortran unformatted sequential records (4-byte markers, KURDAT int32, IANHRS int32, GRPID char*8, ANNVAL float64×N). Auto-format detection via `_is_text_postfile()` in `read_postfile()`. Receptor coordinates optional (index-based fallback). 12 new tests.
+
+2. **POSTFILE time-series animation in GUI** — 4th "POSTFILE Viewer" tab in Results Viewer page with: file upload + auto-detect format, header metadata display, timestep slider with contour/scatter plots, receptor time-series line chart, animation GIF generation via `AdvancedVisualizer.plot_time_series_animation()` with download button. Wired POSTFILE checkbox in output config (format selector + averaging period). `_postfile_frames_for_animation()` helper for column-name adaptation (lowercase→uppercase). 7 new GUI tests.
+
+Test count: 452 → 477 passed, 2 skipped.
 
 ---
 
@@ -124,7 +163,8 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - `pip install -e .` — installs correctly, finds package in `src/`
 - `python -c "import pyaermod; pyaermod.print_info()"` — prints v0.2.0 info
 - `python -c "from pyaermod.input_generator import PointSource"` — direct submodule import works
-- `pytest` — 427 passed, 2 skipped (the 2 skips are tests requiring AERMOD/AERMAP executables)
+- `pytest` — 477 passed, 2 skipped (skips are tests requiring AERMOD/AERMAP executables or specific runtime conditions)
+- GitHub Actions CI — passing on Python 3.11, 3.12, 3.13
 
 ---
 
@@ -136,16 +176,16 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - Tag `v0.2.0` and push tag
 - Optionally add a `publish.yml` GitHub Actions workflow
 
-### Priority 2: GUI Enhancements
-- **Project save/load** — serialize session state to JSON (usability blocker: users lose work when Streamlit session ends)
-- AERMET configuration page (Stage 1/2/3 forms, station map placement)
-- AreaCirc and AreaPoly source form renderers (currently missing in GUI)
-- Building downwash / BPIP integration in source editor
-- Receptor elevation import from AERMAP results
+### ~~Priority 2: GUI Enhancements~~ ✅ Done (Session 9)
+- ~~**Project save/load** — serialize session state to JSON~~
+- ~~AERMET configuration page (Stage 1/2/3 forms, station map placement)~~
+- ~~AreaCirc and AreaPoly source form renderers~~
+- ~~Building downwash / BPIP integration in source editor~~
+- ~~Receptor elevation import from AERMAP results~~
 
-### Priority 3: POSTFILE Enhancements
-- Unformatted (binary) POSTFILE support
-- Time-series animation in GUI (POSTFILE timestep playback)
+### ~~Priority 3: POSTFILE Enhancements~~ ✅ Done (Session 10)
+- ~~Unformatted (binary) POSTFILE support~~
+- ~~Time-series animation in GUI (POSTFILE timestep playback)~~
 
 ### Priority 4: Documentation
 - User guide for the Streamlit GUI
@@ -166,3 +206,5 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - `pyaermod-run` CLI entry point was removed (no `cli.py` module exists); only `pyaermod-gui` remains
 - The `_check_dependencies()` function in `__init__.py` is disabled (commented out) — can be re-enabled if desired
 - Fortran source directories (`aermod/`, `aermap/`, `aermet/`) are gitignored but still present on disk for local development
+- **Local matplotlib version (3.7.2) is older than CI** — local tests use the `cs.collections` path while CI uses `get_paths()`. Both paths are tested and working. Consider upgrading local matplotlib to match CI (`pip install --upgrade matplotlib`).
+- **Dependency lower bounds are loose** — `setup.py` specifies generous lower bounds (e.g. `numpy>=1.20.0`) but no upper bounds. This is fine now with Python ≥3.11 but may need attention if dependencies make further breaking changes.

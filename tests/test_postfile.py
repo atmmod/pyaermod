@@ -2,10 +2,11 @@
 Unit tests for PyAERMOD POSTFILE parser and OutputPathway POSTFILE keywords.
 
 Tests parsing of AERMOD POSTFILE output files, including header extraction,
-data line parsing, result queries, and POSTFILE keyword generation in the
-OutputPathway.
+data line parsing, result queries, POSTFILE keyword generation in the
+OutputPathway, and unformatted (binary) POSTFILE parsing.
 """
 
+import struct
 import pytest
 import pandas as pd
 from pathlib import Path
@@ -14,7 +15,9 @@ from pyaermod.postfile import (
     PostfileHeader,
     PostfileParser,
     PostfileResult,
+    UnformattedPostfileParser,
     read_postfile,
+    _is_text_postfile,
 )
 from pyaermod.input_generator import OutputPathway
 
@@ -335,6 +338,249 @@ class TestOutputPathwayPostfile:
         assert "SUMMFILE" in output
         assert "POSTFILE" in output
         assert "OU FINISHED" in output
+
+
+# ===========================================================================
+# Binary POSTFILE helpers
+# ===========================================================================
+
+def _build_binary_record(kurdat, ianhrs, grpid, concentrations):
+    """
+    Build a single Fortran unformatted sequential record.
+
+    Parameters
+    ----------
+    kurdat : int
+        Date integer (YYMMDDHH).
+    ianhrs : int
+        Hours in averaging period.
+    grpid : str
+        Source group ID (max 8 chars, space-padded).
+    concentrations : list of float
+        Concentration values (float64) for each receptor.
+
+    Returns
+    -------
+    bytes
+        Complete Fortran record with leading/trailing length markers.
+    """
+    grpid_bytes = grpid.ljust(8)[:8].encode("ascii")
+    payload = struct.pack("<i", kurdat)
+    payload += struct.pack("<i", ianhrs)
+    payload += grpid_bytes
+    for c in concentrations:
+        payload += struct.pack("<d", c)
+    rec_len = len(payload)
+    return struct.pack("<i", rec_len) + payload + struct.pack("<i", rec_len)
+
+
+@pytest.fixture
+def binary_postfile(tmp_path):
+    """Create a synthetic binary POSTFILE with 2 timesteps, 3 receptors."""
+    filepath = tmp_path / "binary.pst"
+    data = b""
+    # Timestep 1: 26010101, 1 hour, group ALL, 3 receptor concentrations
+    data += _build_binary_record(26010101, 1, "ALL", [10.5, 20.3, 5.1])
+    # Timestep 2: 26010102, 1 hour, group ALL, 3 receptor concentrations
+    data += _build_binary_record(26010102, 1, "ALL", [8.2, 15.7, 3.9])
+    filepath.write_bytes(data)
+    return filepath
+
+
+@pytest.fixture
+def binary_postfile_with_coords(tmp_path):
+    """Create a synthetic binary POSTFILE with known receptor coordinates."""
+    filepath = tmp_path / "binary_coords.pst"
+    data = b""
+    data += _build_binary_record(26010101, 1, "ALL", [12.0, 24.0])
+    filepath.write_bytes(data)
+    return filepath
+
+
+# ===========================================================================
+# TestUnformattedPostfileParser
+# ===========================================================================
+
+class TestUnformattedPostfileParser:
+    """Test UnformattedPostfileParser for binary POSTFILE files."""
+
+    def test_parse_binary_postfile(self, binary_postfile):
+        """Parser reads binary records and returns correct data shape."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        assert isinstance(result, PostfileResult)
+        # 2 timesteps × 3 receptors = 6 rows
+        assert len(result.data) == 6
+        assert list(result.data.columns) == [
+            "x", "y", "concentration", "zelev",
+            "zhill", "zflag", "ave", "grp", "date",
+        ]
+
+    def test_binary_num_receptors_inference(self, binary_postfile):
+        """Parser infers num_receptors from first record size."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        assert parser.num_receptors == 3
+        # Each timestep has 3 concentration values
+        ts1 = result.get_timestep("26010101")
+        assert len(ts1) == 3
+
+    def test_binary_receptor_coords(self, binary_postfile_with_coords):
+        """User-supplied receptor coordinates are applied correctly."""
+        coords = [(100.0, 200.0), (300.0, 400.0)]
+        parser = UnformattedPostfileParser(
+            binary_postfile_with_coords,
+            receptor_coords=coords,
+        )
+        result = parser.parse()
+
+        assert len(result.data) == 2
+        assert result.data.iloc[0]["x"] == 100.0
+        assert result.data.iloc[0]["y"] == 200.0
+        assert result.data.iloc[1]["x"] == 300.0
+        assert result.data.iloc[1]["y"] == 400.0
+
+    def test_binary_concentration_values(self, binary_postfile):
+        """Concentration values are parsed correctly from binary data."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        ts1 = result.get_timestep("26010101")
+        concs = ts1["concentration"].tolist()
+        assert abs(concs[0] - 10.5) < 1e-10
+        assert abs(concs[1] - 20.3) < 1e-10
+        assert abs(concs[2] - 5.1) < 1e-10
+
+        ts2 = result.get_timestep("26010102")
+        concs2 = ts2["concentration"].tolist()
+        assert abs(concs2[0] - 8.2) < 1e-10
+        assert abs(concs2[1] - 15.7) < 1e-10
+        assert abs(concs2[2] - 3.9) < 1e-10
+
+    def test_binary_date_conversion(self, binary_postfile):
+        """KURDAT integers are converted to YYMMDDHH date strings."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        dates = sorted(result.data["date"].unique())
+        assert dates == ["26010101", "26010102"]
+
+    def test_binary_multiple_timesteps(self, binary_postfile):
+        """Parser handles multiple timesteps in a single file."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        dates = result.data["date"].unique()
+        assert len(dates) == 2
+
+    def test_binary_header_populated(self, binary_postfile):
+        """Header is populated from first binary record."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        assert result.header.source_group == "ALL"
+        assert result.header.averaging_period == "1-HR"
+        # These are not available in binary format
+        assert result.header.version is None
+        assert result.header.title is None
+        assert result.header.model_options is None
+        assert result.header.pollutant_id is None
+
+    def test_binary_default_coords(self, binary_postfile):
+        """Without receptor_coords, index-based coordinates are used."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        ts1 = result.get_timestep("26010101")
+        xs = ts1["x"].tolist()
+        ys = ts1["y"].tolist()
+        assert xs == [0.0, 1.0, 2.0]
+        assert ys == [0.0, 0.0, 0.0]
+
+    def test_binary_zelev_zhill_zflag_zero(self, binary_postfile):
+        """Binary format sets zelev, zhill, zflag to 0.0."""
+        parser = UnformattedPostfileParser(binary_postfile)
+        result = parser.parse()
+
+        assert (result.data["zelev"] == 0.0).all()
+        assert (result.data["zhill"] == 0.0).all()
+        assert (result.data["zflag"] == 0.0).all()
+
+    def test_binary_file_not_found(self, tmp_path):
+        """Parser raises FileNotFoundError for missing file."""
+        missing = tmp_path / "no_such_file.pst"
+        with pytest.raises(FileNotFoundError):
+            UnformattedPostfileParser(missing)
+
+    def test_binary_empty_file(self, tmp_path):
+        """Parser handles an empty binary file gracefully."""
+        filepath = tmp_path / "empty.bin"
+        filepath.write_bytes(b"")
+        parser = UnformattedPostfileParser(filepath)
+        result = parser.parse()
+
+        assert result.data.empty
+
+    def test_binary_24hr_averaging(self, tmp_path):
+        """Parser correctly labels 24-HR averaging period."""
+        filepath = tmp_path / "24hr.pst"
+        data = _build_binary_record(26010124, 24, "STACKS", [100.0, 200.0])
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath)
+        result = parser.parse()
+
+        assert result.header.averaging_period == "24-HR"
+        assert result.header.source_group == "STACKS"
+        assert result.data.iloc[0]["grp"] == "STACKS"
+
+
+# ===========================================================================
+# TestAutoDetectFormat
+# ===========================================================================
+
+class TestAutoDetectFormat:
+    """Test format auto-detection and read_postfile dispatch."""
+
+    def test_detect_text_format(self, sample_postfile):
+        """Text POSTFILE starting with '*' is detected as text."""
+        assert _is_text_postfile(sample_postfile) is True
+
+    def test_detect_binary_format(self, binary_postfile):
+        """Binary POSTFILE not starting with '*' is detected as binary."""
+        assert _is_text_postfile(binary_postfile) is False
+
+    def test_detect_empty_file(self, tmp_path):
+        """Empty file is treated as text format."""
+        fp = tmp_path / "empty.pst"
+        fp.write_bytes(b"")
+        assert _is_text_postfile(fp) is True
+
+    def test_read_postfile_text_dispatch(self, sample_postfile):
+        """read_postfile correctly dispatches to text parser."""
+        result = read_postfile(sample_postfile)
+        assert isinstance(result, PostfileResult)
+        assert result.header.version == "24142"
+        assert len(result.data) == 10
+
+    def test_read_postfile_binary_dispatch(self, binary_postfile):
+        """read_postfile correctly dispatches to binary parser."""
+        result = read_postfile(binary_postfile)
+        assert isinstance(result, PostfileResult)
+        assert len(result.data) == 6
+        assert result.header.source_group == "ALL"
+
+    def test_read_postfile_binary_with_coords(self, binary_postfile_with_coords):
+        """read_postfile passes receptor_coords to binary parser."""
+        coords = [(500.0, 600.0), (700.0, 800.0)]
+        result = read_postfile(
+            binary_postfile_with_coords,
+            receptor_coords=coords,
+        )
+        assert result.data.iloc[0]["x"] == 500.0
+        assert result.data.iloc[0]["y"] == 600.0
 
 
 # Run tests

@@ -4,20 +4,30 @@ PyAERMOD POSTFILE Parser
 Parses AERMOD POSTFILE output files containing concentration grids
 for each averaging period and source group.
 
-AERMOD POSTFILE format:
+Supports both formatted (PLOT) and unformatted (UNFORM/binary) POSTFILE output.
+
+AERMOD formatted POSTFILE (PLOT):
     - Header lines start with '*' and contain metadata such as AERMOD version,
       AVERTIME, POLLUTID, and SRCGROUP.
     - Data lines contain columns: X, Y, CONC, ZELEV, ZHILL, ZFLAG, AVE, GRP,
       DATE (YYMMDDHH).
     - Concentrations may use scientific notation (e.g. 1.23456E+01).
 
+AERMOD unformatted POSTFILE (UNFORM):
+    - Fortran unformatted sequential records.
+    - Each record contains: KURDAT (int32), IANHRS (int32), GRPID (char*8),
+      ANNVAL (float64 x num_receptors).
+    - Receptor coordinates are NOT stored in the binary file; they must be
+      supplied externally or default to index-based values.
+
 Based on AERMOD version 24142 POSTFILE specifications.
 """
 
 import re
+import struct
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 from pathlib import Path
 
 
@@ -298,14 +308,230 @@ class PostfileParser:
 
 
 # ============================================================================
-# CONVENIENCE FUNCTION
+# UNFORMATTED (BINARY) POSTFILE PARSER
 # ============================================================================
 
-def read_postfile(filepath: Union[str, Path]) -> PostfileResult:
+class UnformattedPostfileParser:
     """
-    Parse an AERMOD POSTFILE and return the result.
+    Parser for AERMOD unformatted (binary) POSTFILE output files.
 
-    This is a convenience wrapper around ``PostfileParser``.
+    AERMOD writes unformatted POSTFILE records using Fortran sequential
+    unformatted I/O.  Each record has the layout::
+
+        [4-byte record-length marker]
+        KURDAT    — int32    (date in YYMMDDHH format)
+        IANHRS    — int32    (hours in averaging period, or NUMYRS for ANNUAL)
+        GRPID     — char*8   (source group ID, space-padded)
+        ANNVAL()  — float64 × num_receptors  (concentration per receptor)
+        [4-byte record-length marker]
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the unformatted POSTFILE.
+    num_receptors : int, optional
+        Number of receptors.  If *None*, inferred from the first record size.
+    receptor_coords : list of (float, float), optional
+        ``(x, y)`` coordinate pairs for each receptor index.  If *None*,
+        receptors are assigned index-based coordinates ``(i, 0)``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist.
+    """
+
+    def __init__(
+        self,
+        filepath: Union[str, Path],
+        num_receptors: Optional[int] = None,
+        receptor_coords: Optional[List[Tuple[float, float]]] = None,
+    ):
+        self.filepath = Path(filepath)
+        if not self.filepath.exists():
+            raise FileNotFoundError(
+                f"POSTFILE not found: {self.filepath}"
+            )
+        self.num_receptors = num_receptors
+        self.receptor_coords = receptor_coords
+
+    def parse(self) -> PostfileResult:
+        """
+        Read all records from the unformatted POSTFILE.
+
+        Returns
+        -------
+        PostfileResult
+            Parsed header metadata and concentration data.  Header fields
+            are populated from the first record's source group and averaging
+            info; ``version``, ``title``, ``model_options``, and
+            ``pollutant_id`` are set to *None* (not present in binary format).
+        """
+        data_rows: list = []
+        header = PostfileHeader()
+
+        with open(self.filepath, "rb") as f:
+            first_record = True
+            while True:
+                record = self._read_record(f)
+                if record is None:
+                    break
+
+                kurdat_int = record["kurdat"]
+                ianhrs = record["ianhrs"]
+                grpid = record["grpid"]
+                concentrations = record["concentrations"]
+
+                # Populate header from first record
+                if first_record:
+                    header.source_group = grpid
+                    if ianhrs == 1:
+                        header.averaging_period = "1-HR"
+                    elif ianhrs == 24:
+                        header.averaging_period = "24-HR"
+                    else:
+                        header.averaging_period = f"{ianhrs}-HR"
+                    first_record = False
+
+                date_str = self._kurdat_to_str(kurdat_int)
+                num_rec = len(concentrations)
+
+                # Resolve receptor coordinates
+                if self.receptor_coords is not None:
+                    coords = self.receptor_coords
+                else:
+                    coords = [(float(i), 0.0) for i in range(num_rec)]
+
+                for i, conc in enumerate(concentrations):
+                    x, y = coords[i] if i < len(coords) else (float(i), 0.0)
+                    data_rows.append({
+                        "x": x,
+                        "y": y,
+                        "concentration": conc,
+                        "zelev": 0.0,
+                        "zhill": 0.0,
+                        "zflag": 0.0,
+                        "ave": header.averaging_period or "1-HR",
+                        "grp": grpid,
+                        "date": date_str,
+                    })
+
+        if data_rows:
+            df = pd.DataFrame(data_rows)
+        else:
+            df = pd.DataFrame(
+                columns=[
+                    "x", "y", "concentration", "zelev",
+                    "zhill", "zflag", "ave", "grp", "date",
+                ]
+            )
+
+        return PostfileResult(header=header, data=df)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _read_record(self, f) -> Optional[dict]:
+        """
+        Read a single Fortran unformatted sequential record.
+
+        Parameters
+        ----------
+        f : binary file object
+            Open file positioned at the start of a record.
+
+        Returns
+        -------
+        dict or None
+            Dictionary with keys ``kurdat``, ``ianhrs``, ``grpid``,
+            ``concentrations``; or *None* at end-of-file.
+        """
+        # Leading 4-byte record-length marker
+        marker_bytes = f.read(4)
+        if len(marker_bytes) < 4:
+            return None  # EOF
+
+        rec_len = struct.unpack("<i", marker_bytes)[0]
+
+        # Read the full record payload
+        payload = f.read(rec_len)
+        if len(payload) < rec_len:
+            return None  # truncated file
+
+        # Trailing record-length marker (should match)
+        trail = f.read(4)
+        if len(trail) < 4:
+            return None
+        trail_len = struct.unpack("<i", trail)[0]
+        if trail_len != rec_len:
+            raise ValueError(
+                f"Record length mismatch: leading={rec_len}, "
+                f"trailing={trail_len}"
+            )
+
+        # Parse payload:
+        #   KURDAT  int32  (4 bytes)
+        #   IANHRS  int32  (4 bytes)
+        #   GRPID   char*8 (8 bytes)
+        #   ANNVAL  float64 × N (remaining bytes)
+        if len(payload) < 16:
+            return None
+
+        kurdat = struct.unpack("<i", payload[0:4])[0]
+        ianhrs = struct.unpack("<i", payload[4:8])[0]
+        grpid = payload[8:16].decode("ascii", errors="replace").strip()
+
+        conc_bytes = payload[16:]
+        num_rec = len(conc_bytes) // 8
+
+        # Infer or validate num_receptors from first record
+        if self.num_receptors is None:
+            self.num_receptors = num_rec
+        elif num_rec != self.num_receptors:
+            raise ValueError(
+                f"Expected {self.num_receptors} receptors but record "
+                f"contains {num_rec}"
+            )
+
+        concentrations = list(struct.unpack(f"<{num_rec}d", conc_bytes))
+
+        return {
+            "kurdat": kurdat,
+            "ianhrs": ianhrs,
+            "grpid": grpid,
+            "concentrations": concentrations,
+        }
+
+    @staticmethod
+    def _kurdat_to_str(kurdat: int) -> str:
+        """
+        Convert KURDAT integer to YYMMDDHH date string.
+
+        Parameters
+        ----------
+        kurdat : int
+            Date integer in YYMMDDHH format (e.g. 26010101 for
+            2026-01-01 hour 01).
+
+        Returns
+        -------
+        str
+            Zero-padded 8-character date string.
+        """
+        return f"{kurdat:08d}"
+
+
+# ============================================================================
+# FORMAT AUTO-DETECTION
+# ============================================================================
+
+def _is_text_postfile(filepath: Union[str, Path]) -> bool:
+    """
+    Detect whether a POSTFILE is in text (PLOT) or binary (UNFORM) format.
+
+    Reads the first byte of the file: text POSTFILEs always begin with
+    ``*`` (0x2A) as the first character of the header.
 
     Parameters
     ----------
@@ -314,8 +540,55 @@ def read_postfile(filepath: Union[str, Path]) -> PostfileResult:
 
     Returns
     -------
+    bool
+        *True* if the file appears to be a formatted (text) POSTFILE.
+    """
+    with open(filepath, "rb") as f:
+        first_byte = f.read(1)
+        if not first_byte:
+            return True  # empty file — treat as text
+        return first_byte == b"*"
+
+
+# ============================================================================
+# CONVENIENCE FUNCTION
+# ============================================================================
+
+def read_postfile(
+    filepath: Union[str, Path],
+    *,
+    num_receptors: Optional[int] = None,
+    receptor_coords: Optional[List[Tuple[float, float]]] = None,
+) -> PostfileResult:
+    """
+    Parse an AERMOD POSTFILE and return the result.
+
+    Automatically detects whether the file is in formatted (PLOT/text) or
+    unformatted (UNFORM/binary) format.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the POSTFILE.
+    num_receptors : int, optional
+        Number of receptors (binary files only).  Ignored for text files.
+        If *None*, inferred from the first record.
+    receptor_coords : list of (float, float), optional
+        Receptor ``(x, y)`` coordinates (binary files only).  Ignored for
+        text files.
+
+    Returns
+    -------
     PostfileResult
         Parsed header metadata and concentration data.
     """
-    parser = PostfileParser(filepath)
+    filepath = Path(filepath)
+    if _is_text_postfile(filepath):
+        parser = PostfileParser(filepath)
+    else:
+        parser = UnformattedPostfileParser(
+            filepath,
+            num_receptors=num_receptors,
+            receptor_coords=receptor_coords,
+        )
     return parser.parse()

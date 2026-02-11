@@ -117,8 +117,9 @@ from .postfile import (
     PostfileHeader,
     PostfileResult,
 
-    # Parser
+    # Parsers
     PostfileParser,
+    UnformattedPostfileParser,
 
     # Convenience functions
     read_postfile,
@@ -219,6 +220,7 @@ __all__ = [
     'PostfileHeader',
     'PostfileResult',
     'PostfileParser',
+    'UnformattedPostfileParser',
     'read_postfile',
 
     # AERMAP terrain preprocessor
