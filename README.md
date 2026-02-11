@@ -119,7 +119,7 @@ docs/                    # Architecture and quickstart guides
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.11
 - numpy, pandas (core)
 - AERMOD executable (free from [EPA SCRAM](https://www.epa.gov/scram))
 
