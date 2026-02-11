@@ -1,21 +1,23 @@
 # PyAERMOD Quick Start Guide
 
-## What You Have Now
-
-✅ **Working AERMOD Input File Generator** - Create `.inp` files from Python with validated parameters
-
-## Installation (Future - when packaged)
+## Installation
 
 ```bash
 pip install pyaermod
 ```
 
-## Current Usage (Development)
+For visualization, geospatial export, or the GUI, install extras:
 
-For now, just import the module directly:
+```bash
+pip install pyaermod[all]  # everything
+```
+
+## 5-Minute Example
+
+Create a complete AERMOD input file in just a few lines:
 
 ```python
-from pyaermod_input_generator import (
+from pyaermod.input_generator import (
     AERMODProject,
     ControlPathway,
     SourcePathway,
@@ -24,37 +26,29 @@ from pyaermod_input_generator import (
     CartesianGrid,
     MeteorologyPathway,
     OutputPathway,
-    PollutantType
+    PollutantType,
 )
-```
-
-## 5-Minute Example
-
-Create a complete AERMOD input file in just a few lines:
-
-```python
-from pyaermod_input_generator import *
 
 # 1. Define the control parameters
 control = ControlPathway(
     title_one="My First AERMOD Run",
     pollutant_id=PollutantType.PM25,
     averaging_periods=["ANNUAL", "24"],
-    terrain_type="FLAT"
+    terrain_type="FLAT",
 )
 
 # 2. Add your emission source(s)
 sources = SourcePathway()
 sources.add_source(PointSource(
     source_id="STACK1",
-    x_coord=500.0,      # meters
-    y_coord=500.0,      # meters
+    x_coord=500.0,      # meters (UTM)
+    y_coord=500.0,      # meters (UTM)
     base_elevation=10.0,
     stack_height=50.0,   # meters
     stack_temp=400.0,    # Kelvin
     exit_velocity=15.0,  # m/s
     stack_diameter=2.0,  # meters
-    emission_rate=1.5    # g/s
+    emission_rate=1.5,   # g/s
 ))
 
 # 3. Define receptor grid
@@ -63,21 +57,21 @@ receptors.add_cartesian_grid(
     CartesianGrid.from_bounds(
         x_min=0, x_max=2000,
         y_min=0, y_max=2000,
-        spacing=100  # 100m grid spacing
+        spacing=100,  # 100m grid spacing
     )
 )
 
 # 4. Specify meteorology files
 meteorology = MeteorologyPathway(
     surface_file="met_data.sfc",
-    profile_file="met_data.pfl"
+    profile_file="met_data.pfl",
 )
 
 # 5. Configure output
 output = OutputPathway(
     receptor_table=True,
     max_table=True,
-    summary_file="results.sum"
+    summary_file="results.sum",
 )
 
 # 6. Create project and write input file
@@ -86,144 +80,161 @@ project = AERMODProject(
     sources=sources,
     receptors=receptors,
     meteorology=meteorology,
-    output=output
+    output=output,
 )
 
-# Write to file
 project.write("my_first_run.inp")
 ```
 
 That's it! You now have a valid AERMOD input file.
 
-## What This Eliminates
+## Running AERMOD from Python
 
-### Before (Manual AERMOD Input):
-1. Open text editor
-2. Remember exact keyword syntax
-3. Count spaces/columns carefully
-4. Type coordinates by hand
-5. Debug formatting errors
-6. Repeat for every scenario
+```python
+from pyaermod.runner import run_aermod
 
-**Time:** 30-60 minutes per model run
+result = run_aermod("my_first_run.inp")
+print(f"Success: {result.success}")
+print(f"Runtime: {result.runtime_seconds:.1f}s")
+print(f"Output: {result.output_file}")
+```
 
-### After (With PyAERMOD):
-1. Define parameters in Python
-2. Run script
+!!! note
+    You need the AERMOD executable installed separately. Download it from
+    [EPA SCRAM](https://www.epa.gov/scram).
 
-**Time:** 2-5 minutes per model run
+## Parsing Output
 
-## Key Features Implemented
+```python
+from pyaermod.output_parser import parse_aermod_output
 
-### ✅ Control Pathway
-- Pollutant types (PM2.5, PM10, NO2, SO2, CO, O3, OTHER)
-- Averaging periods (1HR, 3HR, 24HR, ANNUAL, etc.)
-- Terrain options (FLAT, ELEVATED, FLATSRCS)
-- Urban/rural settings
-- Low wind options
-- Half-life/decay
+results = parse_aermod_output(result.output_file)
+df = results.get_concentrations("ANNUAL")
+print(f"Max concentration: {df['concentration'].max():.4g}")
+```
 
-### ✅ Source Pathway (Point Sources)
-- Stack parameters (height, temp, velocity, diameter)
-- Emission rates
-- Building downwash (height, width, length, offsets)
-- Source grouping
-- Urban source designation
+## Visualization
 
-### ✅ Receptor Pathway
-- **Cartesian grids** - Rectangular receptor arrays
-- **Polar grids** - Radial receptor patterns
-- **Discrete receptors** - Individual receptor points
-- Flexible grid generation from bounds
+```python
+from pyaermod.visualization import AERMODVisualizer
 
-### ✅ Meteorology Pathway
-- Surface and profile file specification
-- Date range selection
-- Wind direction rotation
-
-### ✅ Output Pathway
-- Receptor tables
-- Maximum value tables
-- Daily tables
-- Summary files
-- Plot files
+viz = AERMODVisualizer(results)
+fig = viz.plot_contours(averaging_period="ANNUAL")
+```
 
 ## Common Patterns
 
 ### Multiple Sources
 
 ```python
+from pyaermod.input_generator import SourcePathway, PointSource
+
 sources = SourcePathway()
 
-for i, (x, y, rate) in enumerate(stack_locations):
+stack_data = [
+    (100.0, 200.0, 1.0),
+    (300.0, 400.0, 2.5),
+    (500.0, 600.0, 0.8),
+]
+
+for i, (x, y, rate) in enumerate(stack_data):
     sources.add_source(PointSource(
-        source_id=f"STACK{i+1}",
+        source_id=f"STACK{i + 1}",
         x_coord=x,
         y_coord=y,
         stack_height=50.0,
         stack_temp=400.0,
         exit_velocity=15.0,
         stack_diameter=2.0,
-        emission_rate=rate
+        emission_rate=rate,
     ))
 ```
 
 ### Polar Grid Around Facility
 
 ```python
-from pyaermod_input_generator import PolarGrid
+from pyaermod.input_generator import PolarGrid, ReceptorPathway
 
 receptors = ReceptorPathway()
 receptors.add_polar_grid(PolarGrid(
     x_origin=500.0,
     y_origin=500.0,
-    dist_init=100.0,      # Start 100m from origin
+    dist_init=100.0,      # start 100m from origin
     dist_num=20,          # 20 distance rings
     dist_delta=100.0,     # 100m spacing
-    dir_init=0.0,         # Start at north
-    dir_num=36,           # 36 directions (every 10°)
-    dir_delta=10.0
+    dir_init=0.0,         # start at north
+    dir_num=36,           # 36 directions (every 10 degrees)
+    dir_delta=10.0,
 ))
 ```
 
 ### Building Downwash
 
 ```python
+from pyaermod.input_generator import PointSource
+
 stack = PointSource(
     source_id="STACK1",
     x_coord=0.0,
     y_coord=0.0,
     stack_height=30.0,
-    # ... other params ...
+    stack_temp=400.0,
+    exit_velocity=15.0,
+    stack_diameter=2.0,
+    emission_rate=1.5,
     building_height=25.0,
     building_width=40.0,
     building_length=60.0,
     building_x_offset=0.0,
-    building_y_offset=20.0
+    building_y_offset=20.0,
 )
 ```
+
+For direction-dependent building downwash, use the
+[BPIP module](api/bpip.md) or the GUI's built-in BPIP calculator.
 
 ### Parameter Sweep
 
 ```python
-# Test different emission rates
+from pyaermod.input_generator import *
+
 for rate in [1.0, 2.0, 3.0, 4.0, 5.0]:
     control = ControlPathway(
-        title_one=f"Emission Rate = {rate} g/s"
-        # ... other params ...
+        title_one=f"Emission Rate = {rate} g/s",
+        pollutant_id=PollutantType.SO2,
+        averaging_periods=["1", "24", "ANNUAL"],
     )
 
     sources = SourcePathway()
     sources.add_source(PointSource(
         source_id="STACK1",
+        x_coord=500.0,
+        y_coord=500.0,
+        stack_height=50.0,
+        stack_temp=400.0,
+        exit_velocity=15.0,
+        stack_diameter=2.0,
         emission_rate=rate,
-        # ... other params ...
     ))
-
-    # ... other pathways ...
 
     project = AERMODProject(control, sources, receptors, meteorology, output)
     project.write(f"scenario_rate_{rate}.inp")
+```
+
+### POSTFILE Parsing
+
+```python
+from pyaermod.postfile import read_postfile
+
+# Auto-detects text (PLOT) or binary (UNFORM) format
+result = read_postfile("postfile.pst")
+print(f"Max concentration: {result.max_concentration:.4g}")
+print(f"Location: {result.max_location}")
+
+# Step through timesteps
+for date in result.data["date"].unique():
+    ts = result.get_timestep(date)
+    print(f"{date}: max={ts['concentration'].max():.4g}")
 ```
 
 ## Validation
@@ -235,97 +246,75 @@ The input generator includes built-in validation:
 - Enum values are validated (pollutant types, terrain types)
 - Coordinate systems are consistent
 
-## Next Steps
+```python
+from pyaermod.validator import Validator
 
-### Immediate Enhancements (Next Week)
-1. **Output Parser** - Read AERMOD `.out` files into pandas DataFrames
-2. **AERMOD Runner** - Execute AERMOD directly from Python
-3. **Validation** - Enhanced parameter checking against AERMOD limits
-
-### Coming Soon (Next Month)
-1. **Area Sources** - AREA, AREACIRC, AREAPOLY
-2. **Volume Sources**
-3. **Line Sources** - LINE, RLINE
-4. **Advanced Building Downwash** - Direction-dependent dimensions
-5. **Visualization** - Contour plots, interactive maps
-
-## Running AERMOD (Manual for Now)
-
-Until the runner is implemented, you can execute AERMOD manually:
-
-```bash
-# Generate input file
-python my_script.py  # Creates my_run.inp
-
-# Run AERMOD (Windows)
-aermod.exe my_run
-
-# Run AERMOD (Linux/Mac)
-./aermod my_run
+validator = Validator()
+errors = validator.validate(project)
+for error in errors:
+    print(error)
 ```
 
-The output will be in `my_run.out`.
+## What's Available Now
 
-## Files Included
-
-1. **`pyaermod_input_generator.py`** - Main module with all classes
-2. **`test_input_generator.py`** - Comprehensive test suite with examples
-3. **`QUICKSTART.md`** - This file
-4. **`aermod_wrapper_architecture.md`** - Complete technical architecture
-5. **`implementation_priorities.md`** - Development roadmap
+| Feature | Module |
+|---------|--------|
+| 10 source types (POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT) | `input_generator` |
+| Input file validation | `validator` |
+| AERMOD execution | `runner` |
+| Output parsing to DataFrames | `output_parser` |
+| POSTFILE parsing (text and binary) | `postfile` |
+| Contour plots, Folium maps | `visualization` |
+| 3D surfaces, wind roses, animations | `advanced_viz` |
+| AERMET meteorological preprocessing | `aermet` |
+| AERMAP terrain preprocessing | `aermap` |
+| DEM download and terrain pipeline | `terrain` |
+| Coordinate transforms, GIS export | `geospatial` |
+| Building downwash (BPIP) | `bpip` |
+| Interactive 7-page web GUI | `gui` |
 
 ## AERMOD Keywords Supported
 
-Based on AERMOD version 24142 source code analysis:
+Based on AERMOD version 24142:
 
 ### Control Pathway (CO)
-✅ STARTING, FINISHED, TITLEONE, TITLETWO, MODELOPT, AVERTIME, POLLUTID, RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND
+
+STARTING, FINISHED, TITLEONE, TITLETWO, MODELOPT, AVERTIME, POLLUTID,
+RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND
 
 ### Source Pathway (SO)
-✅ LOCATION (POINT), SRCPARAM, BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ, SRCGROUP, URBANSRC
+
+LOCATION (POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT,
+BUOYLINE, OPENPIT), SRCPARAM, BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ,
+SRCGROUP, URBANSRC, APTS_CAP, BLPINPUT, BLPGROUP, RBARRIER, RDEPRESS
 
 ### Receptor Pathway (RE)
-✅ GRIDCART, GRIDPOLR, DISCCART, ELEVUNIT
+
+GRIDCART, GRIDPOLR, DISCCART, ELEVUNIT
 
 ### Meteorology Pathway (ME)
-✅ SURFFILE, PROFFILE, SURFDATA, UAIRDATA, STARTEND, WDROTATE
+
+SURFFILE, PROFFILE, SURFDATA, UAIRDATA, STARTEND, WDROTATE
 
 ### Output Pathway (OU)
-✅ RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE
+
+RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE, POSTFILE
+
+## Next Steps
+
+- Try the [GUI User Guide](gui-guide.md) for a no-code modeling experience
+- Browse the [API Reference](api/index.md) for detailed module documentation
+- Check the [examples/](https://github.com/atmmod/pyaermod/tree/main/examples)
+  directory for runnable scripts and Jupyter notebooks
 
 ## Getting Help
 
-Questions? Issues? Want to contribute?
-
-1. Check `test_input_generator.py` for more examples
-2. Review `aermod_wrapper_architecture.md` for design details
-3. Read AERMOD documentation (included PDFs)
-
-## Validation Against EPA
-
-This input generator follows EPA AERMOD specifications:
-- Keywords match AERMOD version 24142
-- Format follows AERMOD User's Guide
-- Field widths and precision match EPA examples
-
-Test your generated inputs against EPA test cases to verify correctness.
-
-## Performance
-
-Input file generation is near-instantaneous:
-- **Simple case (1 source, 1 grid):** <1ms
-- **Complex case (100 sources, 10,000 receptors):** <50ms
-
-The bottleneck is AERMOD execution, not file generation.
+1. Check the [examples/](https://github.com/atmmod/pyaermod/tree/main/examples)
+   directory for more usage patterns
+2. Review the [Architecture](architecture.md) document for design details
+3. Browse the [API Reference](api/index.md) for module documentation
+4. Read AERMOD documentation from [EPA SCRAM](https://www.epa.gov/scram)
 
 ## License
 
-To be determined - likely MIT or Apache 2.0 for maximum commercial/academic use.
-
-## Credits
-
-Based on AERMOD source code analysis (version 24142, 2024) and EPA documentation.
-
----
-
-**Ready to start? Run `python test_input_generator.py` to see it in action!**
+MIT

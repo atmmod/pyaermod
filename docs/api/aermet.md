@@ -1,0 +1,3 @@
+# aermet
+
+::: pyaermod.aermet

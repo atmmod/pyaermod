@@ -91,6 +91,6 @@ setup(
     project_urls={
         "Bug Reports": "https://github.com/atmmod/pyaermod/issues",
         "Source": "https://github.com/atmmod/pyaermod",
-        "Documentation": "https://github.com/atmmod/pyaermod/blob/main/README.md",
+        "Documentation": "https://atmmod.github.io/pyaermod/",
     },
 )

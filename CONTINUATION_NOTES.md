@@ -92,6 +92,24 @@ Implemented both Priority 3 tasks:
 
 Test count: 452 → 477 passed, 2 skipped.
 
+### Session 11: Documentation — Priority 4 (Feb 11, 2026)
+
+Set up mkdocs documentation site with auto-generated API reference, GUI user guide, and fixed quickstart:
+
+1. **mkdocs with Material theme** — `mkdocs.yml` at project root, `mkdocstrings[python]` plugin with `paths: [src]` for src-layout discovery, `docstring_style: numpy`. Builds successfully with `mkdocs build`.
+
+2. **API Reference** — `docs/api/index.md` with module table grouped by category (Core, Visualization, Preprocessors, Geospatial, GUI). 14 per-module pages (`docs/api/*.md`) using `:::` directives for auto-generated content from docstrings.
+
+3. **GUI User Guide** — `docs/gui-guide.md` (~280 lines) with page-by-page walkthrough of all 7 GUI pages: Project Setup, Source Editor, Receptor Editor, Meteorology, Run AERMOD, Results Viewer, Export. Includes launch instructions, workflow overview, and cross-references to API docs.
+
+4. **Fixed quickstart.md** — Complete rewrite: all imports updated from `pyaermod_input_generator` to `pyaermod.input_generator`, removed "coming soon" sections, added runner/parser/visualization/POSTFILE/validation usage examples, updated AERMOD keywords to include all 10 source types, fixed license to MIT.
+
+5. **Landing page** — `docs/index.md` with feature highlights, installation, and navigation links.
+
+6. **Stale URL fixes** — `__init__.py` doc URLs updated (`QUICKSTART.md` → `quickstart.md`), `setup.py` project_urls Documentation pointed to GitHub Pages site.
+
+7. **Build infrastructure** — `docs/requirements.txt` (mkdocs, mkdocs-material, mkdocstrings), `site/` added to `.gitignore`.
+
 ---
 
 ## Current Project Structure
@@ -122,7 +140,8 @@ pyaermod/
 │   ├── geospatial.py        # Coordinate transforms, GIS export
 │   ├── bpip.py              # Building downwash calculations
 │   └── gui.py               # Streamlit web GUI (7 pages)
-├── tests/                   # 14 test files, 429 tests
+├── mkdocs.yml               # mkdocs documentation config
+├── tests/                   # 14 test files, 477 tests
 ├── examples/
 │   ├── area_sources.py
 │   ├── volume_sources.py
@@ -131,8 +150,14 @@ pyaermod/
 │   ├── end_to_end.py
 │   └── notebooks/           # 5 Jupyter tutorials
 └── docs/
-    ├── quickstart.md
-    └── architecture.md
+    ├── index.md             # mkdocs landing page
+    ├── quickstart.md        # Quick start guide (updated for v0.2.0)
+    ├── gui-guide.md         # GUI user guide (7-page walkthrough)
+    ├── architecture.md      # Technical design document
+    ├── requirements.txt     # mkdocs build dependencies
+    └── api/                 # Auto-generated API reference
+        ├── index.md         # Module overview table
+        └── *.md             # 14 per-module pages (mkdocstrings)
 ```
 
 ---
@@ -187,10 +212,10 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - ~~Unformatted (binary) POSTFILE support~~
 - ~~Time-series animation in GUI (POSTFILE timestep playback)~~
 
-### Priority 4: Documentation
-- User guide for the Streamlit GUI
-- API reference (auto-generated from docstrings, e.g. Sphinx/mkdocs)
-- Docker image for one-command GUI launch
+### ~~Priority 4: Documentation~~ ✅ Partially done (Session 11)
+- ~~User guide for the Streamlit GUI~~
+- ~~API reference (auto-generated from docstrings, e.g. Sphinx/mkdocs)~~
+- Docker image for one-command GUI launch (deferred)
 
 ### Priority 5: Additional Features
 - Background concentration support

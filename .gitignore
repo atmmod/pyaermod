@@ -35,6 +35,9 @@ aermap/
 aermet/
 aermod_results/
 
+# mkdocs generated site
+site/
+
 # Archives
 *.tar.gz
 *.zip

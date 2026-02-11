@@ -28,7 +28,7 @@ Example:
     >>> viz.plot_contours(save_path="plot.png")
 
 Website: https://github.com/atmmod/pyaermod
-Documentation: https://github.com/atmmod/pyaermod/blob/main/docs/QUICKSTART.md
+Documentation: https://github.com/atmmod/pyaermod/blob/main/docs/quickstart.md
 """
 
 __version__ = "0.2.0"
@@ -286,7 +286,7 @@ Quick Start:
   >>> result = run_aermod("facility.inp")
   >>> results = parse_aermod_output(result.output_file)
 
-Documentation: {__url__}/blob/main/docs/QUICKSTART.md
+Documentation: {__url__}/blob/main/docs/quickstart.md
     """)
 
 

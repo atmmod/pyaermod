@@ -1,0 +1,64 @@
+site_name: PyAERMOD
+site_description: Python wrapper for EPA's AERMOD atmospheric dispersion model
+site_url: https://atmmod.github.io/pyaermod/
+repo_url: https://github.com/atmmod/pyaermod
+repo_name: atmmod/pyaermod
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: teal
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - GUI User Guide: gui-guide.md
+  - Architecture: architecture.md
+  - API Reference:
+      - Overview: api/index.md
+      - input_generator: api/input_generator.md
+      - validator: api/validator.md
+      - runner: api/runner.md
+      - output_parser: api/output_parser.md
+      - postfile: api/postfile.md
+      - visualization: api/visualization.md
+      - advanced_viz: api/advanced_viz.md
+      - aermet: api/aermet.md
+      - aermap: api/aermap.md
+      - terrain: api/terrain.md
+      - geospatial: api/geospatial.md
+      - bpip: api/bpip.md
+      - gui: api/gui.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            heading_level: 2
+            show_signature_annotations: true
+            separate_signature: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
