@@ -110,6 +110,18 @@ Set up mkdocs documentation site with auto-generated API reference, GUI user gui
 
 7. **Build infrastructure** — `docs/requirements.txt` (mkdocs, mkdocs-material, mkdocstrings), `site/` added to `.gitignore`.
 
+### Session 12: Docker Image — Priority 4 Completion (Feb 11, 2026)
+
+Added Docker support for one-command GUI launch:
+
+1. **Dockerfile** — Based on `python:3.11-slim-bookworm` with GDAL system deps (`libgdal-dev`, `gdal-bin`, `gcc`, `g++`). Installs PyAERMOD with `[all]` extras. Streamlit config at `/root/.streamlit/config.toml` (headless, port 8501, 0.0.0.0). Healthcheck on `/_stcore/health`. Image size: ~1.9 GB.
+
+2. **.dockerignore** — Excludes `.git`, `__pycache__`, venvs, Fortran source dirs, IDE files, test artifacts, mkdocs `site/`.
+
+3. **Usage**: `docker build -t pyaermod .` then `docker run -p 8501:8501 pyaermod`, open `http://localhost:8501`.
+
+4. **Tested**: Docker build succeeds, container starts, health endpoint returns HTTP 200, main page serves Streamlit HTML.
+
 ---
 
 ## Current Project Structure
@@ -141,6 +153,8 @@ pyaermod/
 │   ├── bpip.py              # Building downwash calculations
 │   └── gui.py               # Streamlit web GUI (7 pages)
 ├── mkdocs.yml               # mkdocs documentation config
+├── Dockerfile               # One-command GUI launch
+├── .dockerignore
 ├── tests/                   # 14 test files, 477 tests
 ├── examples/
 │   ├── area_sources.py
@@ -212,10 +226,10 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - ~~Unformatted (binary) POSTFILE support~~
 - ~~Time-series animation in GUI (POSTFILE timestep playback)~~
 
-### ~~Priority 4: Documentation~~ ✅ Partially done (Session 11)
+### ~~Priority 4: Documentation & Docker~~ ✅ Done (Sessions 11-12)
 - ~~User guide for the Streamlit GUI~~
 - ~~API reference (auto-generated from docstrings, e.g. Sphinx/mkdocs)~~
-- Docker image for one-command GUI launch (deferred)
+- ~~Docker image for one-command GUI launch~~
 
 ### Priority 5: Additional Features
 - Background concentration support

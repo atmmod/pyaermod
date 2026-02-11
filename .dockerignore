@@ -1,0 +1,45 @@
+# Version control
+.git
+.github
+
+# Python artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+dist
+build
+*.egg
+
+# Virtual environments
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.pytest_cache
+htmlcov
+.coverage
+
+# Fortran source (not needed in container)
+aermod/
+aermap/
+aermet/
+aermod_results/
+
+# mkdocs generated site
+site/
+
+# Archives
+*.tar.gz
+*.zip
+
+# Claude project files
+.claude/
