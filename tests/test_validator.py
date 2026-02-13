@@ -6,7 +6,14 @@ Tests validation logic for all pathways and cross-field checks.
 
 import pytest
 from pyaermod.input_generator import (
+    BackgroundConcentration,
+    BackgroundSector,
     ControlPathway,
+    DepositionMethod,
+    EventPathway,
+    EventPeriod,
+    GasDepositionParams,
+    ParticleDepositionParams,
     SourcePathway,
     PointSource,
     AreaSource,
@@ -847,4 +854,315 @@ class TestOpenPitSourceValidation:
             x_dimension=1000.0, y_dimension=10.0,
         ))
         warnings = [e for e in result.errors if e.severity == "warning" and "aspect" in e.message.lower()]
+        assert len(warnings) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Background Concentration Validation
+# ---------------------------------------------------------------------------
+
+class TestBackgroundValidation:
+    """Test background concentration validation."""
+
+    def _project_with_background(self, bg):
+        sp = SourcePathway()
+        sp.add_source(PointSource(
+            source_id="STK1", x_coord=500.0, y_coord=500.0,
+            stack_height=30.0, stack_diameter=1.5,
+            stack_temp=400.0, exit_velocity=10.0, emission_rate=1.0,
+        ))
+        sp.background = bg
+        return _make_valid_project(sources=sp)
+
+    def test_valid_uniform_background(self):
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(uniform_value=5.0)
+        ))
+        bg_errors = [e for e in result.errors if "BackgroundConcentration" in e.pathway]
+        assert len(bg_errors) == 0
+
+    def test_negative_uniform_value(self):
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(uniform_value=-1.0)
+        ))
+        bg_errors = [e for e in result.errors if "uniform_value" in e.field]
+        assert len(bg_errors) >= 1
+
+    def test_invalid_averaging_period(self):
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(period_values={"ANNUAL": 5.0, "INVALID": 3.0})
+        ))
+        bg_errors = [e for e in result.errors if "period_values" in e.field]
+        assert len(bg_errors) >= 1
+
+    def test_negative_period_value(self):
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(period_values={"ANNUAL": -2.0})
+        ))
+        bg_errors = [e for e in result.errors if "period_values" in e.field]
+        assert len(bg_errors) >= 1
+
+    def test_too_many_sectors(self):
+        sectors = [BackgroundSector(i, i*30.0, (i+1)*30.0) for i in range(13)]
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
+        ))
+        bg_errors = [e for e in result.errors if "sectors" in e.field and "12" in e.message]
+        assert len(bg_errors) >= 1
+
+    def test_invalid_sector_direction(self):
+        sectors = [BackgroundSector(1, -10.0, 90.0)]
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
+        ))
+        bg_errors = [e for e in result.errors if "start_direction" in e.message]
+        assert len(bg_errors) >= 1
+
+    def test_invalid_sector_id_in_values(self):
+        sectors = [BackgroundSector(1, 0.0, 180.0)]
+        result = Validator.validate(self._project_with_background(
+            BackgroundConcentration(
+                sectors=sectors,
+                sector_values={(1, "ANNUAL"): 5.0, (99, "ANNUAL"): 3.0},
+            )
+        ))
+        bg_errors = [e for e in result.errors if "sector_id 99" in e.message]
+        assert len(bg_errors) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Deposition Validation
+# ---------------------------------------------------------------------------
+
+class TestDepositionValidation:
+    """Test deposition parameter validation."""
+
+    def _project_with_deposition(self, gas_dep=None, particle_dep=None,
+                                  dep_method=None, dep_enabled=True):
+        control = ControlPathway(
+            title_one="Test", pollutant_id="OTHER",
+            averaging_periods=["ANNUAL"],
+            calculate_dry_deposition=dep_enabled,
+        )
+        sp = SourcePathway()
+        sp.add_source(PointSource(
+            source_id="STK1", x_coord=500.0, y_coord=500.0,
+            stack_height=30.0, stack_diameter=1.5,
+            stack_temp=400.0, exit_velocity=10.0, emission_rate=1.0,
+            gas_deposition=gas_dep,
+            particle_deposition=particle_dep,
+            deposition_method=dep_method,
+        ))
+        return _make_valid_project(control=control, sources=sp)
+
+    def test_valid_gas_deposition(self):
+        result = Validator.validate(self._project_with_deposition(
+            gas_dep=GasDepositionParams(
+                diffusivity=0.22, alpha_r=1000.0,
+                reactivity=0.5, henry_constant=0.011,
+            ),
+        ))
+        dep_errors = [e for e in result.errors
+                      if "deposition" in e.field.lower() or "gas_deposition" in e.field]
+        assert len(dep_errors) == 0
+
+    def test_gas_dep_no_modelopt_warning(self):
+        result = Validator.validate(self._project_with_deposition(
+            gas_dep=GasDepositionParams(
+                diffusivity=0.22, alpha_r=1000.0,
+                reactivity=0.5, henry_constant=0.011,
+            ),
+            dep_enabled=False,
+        ))
+        warnings = [e for e in result.errors
+                    if "deposition" in e.field and e.severity == "warning"]
+        assert len(warnings) >= 1
+
+    def test_gas_dep_invalid_diffusivity(self):
+        result = Validator.validate(self._project_with_deposition(
+            gas_dep=GasDepositionParams(
+                diffusivity=-0.1, alpha_r=1000.0,
+                reactivity=0.5, henry_constant=0.011,
+            ),
+        ))
+        errors = [e for e in result.errors if "diffusivity" in e.field]
+        assert len(errors) >= 1
+
+    def test_gas_dep_invalid_reactivity(self):
+        result = Validator.validate(self._project_with_deposition(
+            gas_dep=GasDepositionParams(
+                diffusivity=0.22, alpha_r=1000.0,
+                reactivity=1.5, henry_constant=0.011,
+            ),
+        ))
+        errors = [e for e in result.errors if "reactivity" in e.field]
+        assert len(errors) >= 1
+
+    def test_gas_dep_missing_henry_and_vd(self):
+        result = Validator.validate(self._project_with_deposition(
+            gas_dep=GasDepositionParams(
+                diffusivity=0.22, alpha_r=1000.0,
+                reactivity=0.5,
+            ),
+        ))
+        errors = [e for e in result.errors if "henry" in e.message.lower() or "dep_velocity" in e.message.lower()]
+        assert len(errors) >= 1
+
+    def test_valid_particle_deposition(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0, 10.0],
+                mass_fractions=[0.3, 0.5, 0.2],
+                densities=[2.5, 2.5, 2.5],
+            ),
+        ))
+        dep_errors = [e for e in result.errors
+                      if "particle_deposition" in e.field]
+        assert len(dep_errors) == 0
+
+    def test_particle_mismatched_lengths(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0],
+                mass_fractions=[0.5, 0.5],
+                densities=[2.5],  # wrong length
+            ),
+        ))
+        errors = [e for e in result.errors if "same length" in e.message]
+        assert len(errors) >= 1
+
+    def test_particle_too_many_categories(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=list(range(1, 22)),
+                mass_fractions=[1.0/21]*21,
+                densities=[2.5]*21,
+            ),
+        ))
+        errors = [e for e in result.errors if "20" in e.message]
+        assert len(errors) >= 1
+
+    def test_particle_fractions_not_summing(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0],
+                mass_fractions=[0.3, 0.3],  # sums to 0.6
+                densities=[2.5, 2.5],
+            ),
+        ))
+        warnings = [e for e in result.errors
+                    if "mass_fractions" in e.field and e.severity == "warning"]
+        assert len(warnings) >= 1
+
+    def test_particle_negative_diameter(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[-1.0, 5.0],
+                mass_fractions=[0.5, 0.5],
+                densities=[2.5, 2.5],
+            ),
+        ))
+        errors = [e for e in result.errors if "diameters" in e.field and "must be > 0" in e.message]
+        assert len(errors) >= 1
+
+    def test_invalid_output_type(self):
+        project = _make_valid_project(
+            output=OutputPathway(output_type="INVALID"),
+        )
+        result = Validator.validate(project)
+        errors = [e for e in result.errors if "output_type" in e.field]
+        assert len(errors) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Event Processing Validation
+# ---------------------------------------------------------------------------
+
+class TestEventValidation:
+    """Test event processing validation."""
+
+    def _project_with_events(self, events, eventfil="events.inp"):
+        control = ControlPathway(
+            title_one="Test", pollutant_id="OTHER",
+            averaging_periods=["ANNUAL"],
+            eventfil=eventfil,
+        )
+        return _make_valid_project(
+            control=control,
+            **{"events": EventPathway(events=events)} if events else {},
+        )
+
+    def test_valid_events(self):
+        project = _make_valid_project(
+            control=ControlPathway(
+                title_one="Test", eventfil="events.inp",
+            ),
+        )
+        project.events = EventPathway(events=[
+            EventPeriod("EVT01", "24010101", "24010124"),
+        ])
+        result = Validator.validate(project)
+        ev_errors = [e for e in result.errors if "EventPathway" in e.pathway]
+        assert len(ev_errors) == 0
+
+    def test_empty_events_list(self):
+        project = _make_valid_project()
+        project.events = EventPathway(events=[])
+        result = Validator.validate(project)
+        errors = [e for e in result.errors if "no event periods" in e.message]
+        assert len(errors) >= 1
+
+    def test_event_name_too_long(self):
+        project = _make_valid_project(
+            control=ControlPathway(title_one="Test", eventfil="events.inp"),
+        )
+        project.events = EventPathway(events=[
+            EventPeriod("TOOLONGNAME", "24010101", "24010124"),
+        ])
+        result = Validator.validate(project)
+        errors = [e for e in result.errors if "exceeds 8" in e.message]
+        assert len(errors) >= 1
+
+    def test_duplicate_event_names(self):
+        project = _make_valid_project(
+            control=ControlPathway(title_one="Test", eventfil="events.inp"),
+        )
+        project.events = EventPathway(events=[
+            EventPeriod("EVT01", "24010101", "24010124"),
+            EventPeriod("EVT01", "24020101", "24020224"),
+        ])
+        result = Validator.validate(project)
+        errors = [e for e in result.errors if "duplicate" in e.message]
+        assert len(errors) >= 1
+
+    def test_invalid_date_format(self):
+        project = _make_valid_project(
+            control=ControlPathway(title_one="Test", eventfil="events.inp"),
+        )
+        project.events = EventPathway(events=[
+            EventPeriod("EVT01", "2024010", "24010124"),  # 7 digits
+        ])
+        result = Validator.validate(project)
+        errors = [e for e in result.errors if "YYMMDDHH" in e.message]
+        assert len(errors) >= 1
+
+    def test_non_digit_date(self):
+        project = _make_valid_project(
+            control=ControlPathway(title_one="Test", eventfil="events.inp"),
+        )
+        project.events = EventPathway(events=[
+            EventPeriod("EVT01", "2401AB01", "24010124"),
+        ])
+        result = Validator.validate(project)
+        errors = [e for e in result.errors if "YYMMDDHH" in e.message]
+        assert len(errors) >= 1
+
+    def test_missing_eventfil_warning(self):
+        project = _make_valid_project()
+        project.events = EventPathway(events=[
+            EventPeriod("EVT01", "24010101", "24010124"),
+        ])
+        result = Validator.validate(project)
+        warnings = [e for e in result.errors
+                    if "eventfil" in e.field and e.severity == "warning"]
         assert len(warnings) >= 1

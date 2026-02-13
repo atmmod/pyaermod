@@ -1,11 +1,10 @@
 # PyAERMOD Development Continuation Notes
 
-## Project State (as of Feb 11, 2026)
+## Project State (as of Feb 12, 2026)
 
 PyAERMOD v0.2.0 — Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
-**Test suite**: 479 tests (477 passed, 2 skipped) across 14 test files.
-**Latest commit**: `2515d03` — Add Priority 2 GUI enhancements and Priority 3 POSTFILE support
+**Test suite**: 525 tests (525 passed, 2 skipped) across 14 test files.
 **CI status**: Passing on Python 3.11, 3.12, 3.13
 
 ---
@@ -110,6 +109,20 @@ Set up mkdocs documentation site with auto-generated API reference, GUI user gui
 
 7. **Build infrastructure** — `docs/requirements.txt` (mkdocs, mkdocs-material, mkdocstrings), `site/` added to `.gitignore`.
 
+### Session 13: Additional Features — Priority 5 (Feb 12, 2026)
+
+Implemented all 4 Priority 5 sub-tasks:
+
+1. **Background concentration support** — `BackgroundConcentration` and `BackgroundSector` dataclasses with three modes: uniform value (`SO BACKGRND {value}`), period-specific (`SO BACKGRND {period} {value}`), and sector-dependent (`SO BGSECTOR` + per-sector `SO BACKGRND`). Added `background` field to `SourcePathway`, `_validate_background()` in validator, GUI expander in source editor, serializer support. 13 new tests.
+
+2. **Deposition calculations (DDEP, WDEP)** — `DepositionMethod` enum, `GasDepositionParams`, `ParticleDepositionParams` dataclasses, shared `_deposition_to_aermod_lines()` helper. Added 3 deposition fields to all 10 source types. `OutputPathway.output_type` (CONC/DEPOS/DDEP/WDEP/DETH) wired into PLOTFILE/POSTFILE generation. `_validate_deposition_params()` in validator. GUI: deposition checkboxes in project setup, output type selector. 21 new tests.
+
+3. **EVENT processing mode** — `EventPeriod` and `EventPathway` dataclasses generating `EV STARTING`/`EVENTPER`/`EV FINISHED`. `ControlPathway.eventfil` for `EVENTFIL` keyword. `AERMODProject.write()` extended with `event_filename` parameter. `_validate_events()` in validator. GUI: event editor in Run AERMOD page. 14 new tests.
+
+4. **Performance benchmarks** — `benchmarks/` directory with 3 standalone scripts: `bench_input_gen.py` (source generation speed, 1-1000 sources × 3 types), `bench_output_parse.py` (output parsing, 100-5000 receptors), `bench_postfile.py` (text vs binary parsing). Uses `time.perf_counter()` with no external dependencies. README.md with run instructions.
+
+Test count: 477 → 525 passed, 2 skipped. 7 new exports in `__init__.py`.
+
 ### Session 12: Docker Image — Priority 4 Completion (Feb 11, 2026)
 
 Added Docker support for one-command GUI launch:
@@ -155,7 +168,8 @@ pyaermod/
 ├── mkdocs.yml               # mkdocs documentation config
 ├── Dockerfile               # One-command GUI launch
 ├── .dockerignore
-├── tests/                   # 14 test files, 477 tests
+├── benchmarks/              # Performance benchmarks (3 scripts)
+├── tests/                   # 14 test files, 525 tests
 ├── examples/
 │   ├── area_sources.py
 │   ├── volume_sources.py
@@ -202,12 +216,12 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - `pip install -e .` — installs correctly, finds package in `src/`
 - `python -c "import pyaermod; pyaermod.print_info()"` — prints v0.2.0 info
 - `python -c "from pyaermod.input_generator import PointSource"` — direct submodule import works
-- `pytest` — 477 passed, 2 skipped (skips are tests requiring AERMOD/AERMAP executables or specific runtime conditions)
+- `pytest` — 525 passed, 2 skipped (skips are tests requiring AERMOD/AERMAP executables or specific runtime conditions)
 - GitHub Actions CI — passing on Python 3.11, 3.12, 3.13
 
 ---
 
-## Recommended Next Development Steps
+## Completed Development Priorities
 
 ### Priority 1: PyPI Release
 - Test `python -m build` and `twine check dist/*`
@@ -216,26 +230,28 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - Optionally add a `publish.yml` GitHub Actions workflow
 
 ### ~~Priority 2: GUI Enhancements~~ ✅ Done (Session 9)
-- ~~**Project save/load** — serialize session state to JSON~~
-- ~~AERMET configuration page (Stage 1/2/3 forms, station map placement)~~
-- ~~AreaCirc and AreaPoly source form renderers~~
-- ~~Building downwash / BPIP integration in source editor~~
-- ~~Receptor elevation import from AERMAP results~~
-
 ### ~~Priority 3: POSTFILE Enhancements~~ ✅ Done (Session 10)
-- ~~Unformatted (binary) POSTFILE support~~
-- ~~Time-series animation in GUI (POSTFILE timestep playback)~~
-
 ### ~~Priority 4: Documentation & Docker~~ ✅ Done (Sessions 11-12)
-- ~~User guide for the Streamlit GUI~~
-- ~~API reference (auto-generated from docstrings, e.g. Sphinx/mkdocs)~~
-- ~~Docker image for one-command GUI launch~~
+### ~~Priority 5: Additional Features~~ ✅ Done (Session 13)
 
-### Priority 5: Additional Features
-- Background concentration support
-- Deposition calculations (DDEP, WDEP)
-- EVENT processing mode
-- Performance benchmarks
+## Recommended Next Development Steps
+
+### Priority 6: Testing & Quality
+- Integration tests with real AERMOD runs (requires executable)
+- Property-based testing with Hypothesis for input generation
+- Code coverage analysis and gap filling
+- Linting/formatting enforcement (ruff, black)
+
+### Priority 7: Advanced Features
+- Multi-source group management (custom SRCGROUP definitions)
+- NO2/SO2 chemistry options (OLM, PVMRM, ARM2)
+- Building downwash wake effects (PRIME algorithm integration)
+- Terrain processing pipeline improvements (multi-DEM stitching)
+
+### Priority 8: Release & Distribution
+- PyPI publish workflow (GitHub Actions)
+- Conda-forge recipe
+- Pre-built Docker images on Docker Hub/GHCR
 
 ---
 

@@ -6,7 +6,7 @@ Based on AERMOD version 24142 keyword specifications.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Union, Tuple
+from typing import Dict, List, Optional, Union, Tuple
 from pathlib import Path
 from enum import Enum
 
@@ -79,6 +79,9 @@ class ControlPathway:
     # Low wind options
     low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
 
+    # Event file reference
+    eventfil: Optional[str] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD CO pathway text"""
         lines = ["CO STARTING"]
@@ -131,11 +134,76 @@ class ControlPathway:
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
 
+        # Event file reference
+        if self.eventfil:
+            lines.append(f"   EVENTFIL  {self.eventfil}")
+
         # Run command
         lines.append("   RUNORNOT  RUN")
         lines.append("CO FINISHED")
 
         return "\n".join(lines)
+
+
+# ============================================================================
+# DEPOSITION PARAMETERS
+# ============================================================================
+
+class DepositionMethod(Enum):
+    """AERMOD deposition method types for the METHOD keyword."""
+    GASDEPVD = "GASDEPVD"
+    GASDEPDF = "GASDEPDF"
+    DRYDPLT = "DRYDPLT"
+    WETDPLT = "WETDPLT"
+
+
+@dataclass
+class GasDepositionParams:
+    """Gas deposition parameters for the GASDEPOS keyword."""
+    diffusivity: float
+    alpha_r: float
+    reactivity: float
+    henry_constant: Optional[float] = None
+    dry_dep_velocity: Optional[float] = None
+
+
+@dataclass
+class ParticleDepositionParams:
+    """Particle deposition parameters for PARTDIAM/MASSFRAX/PARTDENS keywords."""
+    diameters: List[float] = field(default_factory=list)
+    mass_fractions: List[float] = field(default_factory=list)
+    densities: List[float] = field(default_factory=list)
+
+
+def _deposition_to_aermod_lines(
+    source_id: str,
+    gas_deposition: Optional[GasDepositionParams],
+    particle_deposition: Optional[ParticleDepositionParams],
+    deposition_method: Optional[Tuple[DepositionMethod, float]],
+) -> List[str]:
+    """Generate AERMOD deposition keyword lines for a source."""
+    lines = []
+    if gas_deposition:
+        gd = gas_deposition
+        last_val = gd.henry_constant if gd.henry_constant is not None else gd.dry_dep_velocity
+        if last_val is not None:
+            lines.append(
+                f"   GASDEPOS  {source_id:<8} "
+                f"{gd.diffusivity:.4g}  {gd.alpha_r:.4g}  "
+                f"{gd.reactivity:.4g}  {last_val:.4g}"
+            )
+    if particle_deposition:
+        pd = particle_deposition
+        d_vals = "  ".join(f"{d:.4g}" for d in pd.diameters)
+        lines.append(f"   PARTDIAM  {source_id:<8} {d_vals}")
+        f_vals = "  ".join(f"{f:.6f}" for f in pd.mass_fractions)
+        lines.append(f"   MASSFRAX  {source_id:<8} {f_vals}")
+        r_vals = "  ".join(f"{r:.4g}" for r in pd.densities)
+        lines.append(f"   PARTDENS  {source_id:<8} {r_vals}")
+    if deposition_method:
+        method, value = deposition_method
+        lines.append(f"   METHOD    {source_id:<8} {method.value}  {value:.6g}")
+    return lines
 
 
 # ============================================================================
@@ -178,6 +246,11 @@ class PointSource:
     # Urban source
     is_urban: bool = False
     urban_area_name: Optional[str] = None
+
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
 
     def _format_building_keyword(
         self, keyword: str, values: Union[float, List[float]]
@@ -280,6 +353,12 @@ class PointSource:
         if self.building_y_offset is not None:
             lines.extend(self._format_building_keyword("YBADJ", self.building_y_offset))
 
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
+
         # Source groups
         if self.source_groups:
             for group in self.source_groups:
@@ -322,6 +401,11 @@ class AreaSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -342,6 +426,12 @@ class AreaSource:
         # Optional angle
         if self.angle != 0.0:
             lines.append(f"   AREAVERT  {self.source_id:<8}  {self.angle:8.2f}")
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -384,6 +474,11 @@ class AreaCircSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -400,6 +495,12 @@ class AreaCircSource:
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.radius:8.2f} {self.num_vertices:3d}"
         )
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -437,6 +538,11 @@ class AreaPolySource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -464,6 +570,12 @@ class AreaPolySource:
             chunk = self.vertices[i:i+coords_per_line]
             coord_str = "  ".join(f"{x:12.4f} {y:12.4f}" for x, y in chunk)
             lines.append(f"   AREAVERT  {self.source_id:<8} {coord_str}")
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -506,6 +618,11 @@ class VolumeSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -522,6 +639,12 @@ class VolumeSource:
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
         )
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -565,6 +688,11 @@ class LineSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -587,6 +715,12 @@ class LineSource:
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.initial_lateral_dimension:8.2f}"
         )
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -630,6 +764,11 @@ class RLineSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -652,6 +791,12 @@ class RLineSource:
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
         )
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -707,6 +852,11 @@ class RLineExtSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -747,6 +897,12 @@ class RLineExtSource:
                 f"{self.depression_depth:8.2f} {self.depression_wtop:8.2f} "
                 f"{self.depression_wbottom:8.2f}"
             )
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -803,6 +959,11 @@ class BuoyLineSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     @property
     def emission_rate(self) -> float:
         """Total emission rate across all segments."""
@@ -841,6 +1002,12 @@ class BuoyLineSource:
         # BLPGROUP - associate all segments
         seg_ids = " ".join(seg.source_id for seg in self.line_segments)
         lines.append(f"   BLPGROUP  {self.source_id:<8} {seg_ids}")
+
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
 
         # Source groups
         if self.source_groups:
@@ -885,6 +1052,11 @@ class OpenPitSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Deposition parameters (optional)
+    gas_deposition: Optional[GasDepositionParams] = None
+    particle_deposition: Optional[ParticleDepositionParams] = None
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
     @property
     def effective_depth(self) -> float:
         """Effective pit depth computed from volume and dimensions."""
@@ -918,6 +1090,12 @@ class OpenPitSource:
                 f"{self.pit_volume:12.2f}"
             )
 
+        # Deposition parameters
+        lines.extend(_deposition_to_aermod_lines(
+            self.source_id, self.gas_deposition,
+            self.particle_deposition, self.deposition_method,
+        ))
+
         # Source groups
         if self.source_groups:
             for group in self.source_groups:
@@ -931,11 +1109,54 @@ class OpenPitSource:
 
 
 @dataclass
+class BackgroundSector:
+    """A wind direction sector for direction-dependent background concentrations."""
+    sector_id: int
+    start_direction: float
+    end_direction: float
+
+
+@dataclass
+class BackgroundConcentration:
+    """
+    AERMOD background concentration configuration (SO BACKGRND / BGSECTOR).
+
+    Supports three modes:
+    1. Uniform: single value for all hours/directions
+    2. Period-specific: mapping of averaging period to value
+    3. Sector-dependent: sectors + per-sector, per-period values
+    """
+    uniform_value: Optional[float] = None
+    period_values: Optional[Dict[str, float]] = None
+    sectors: Optional[List[BackgroundSector]] = None
+    sector_values: Optional[Dict[Tuple[int, str], float]] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD BACKGRND / BGSECTOR keywords."""
+        lines = []
+        if self.sectors and self.sector_values:
+            sector_parts = []
+            for s in sorted(self.sectors, key=lambda s: s.sector_id):
+                sector_parts.append(f"{s.start_direction:.1f}")
+                sector_parts.append(f"{s.end_direction:.1f}")
+            lines.append(f"   BGSECTOR  {' '.join(sector_parts)}")
+            for (sid, period), value in sorted(self.sector_values.items()):
+                lines.append(f"   BACKGRND  {sid}  {period}  {value:.6g}")
+        elif self.period_values:
+            for period, value in self.period_values.items():
+                lines.append(f"   BACKGRND  {period}  {value:.6g}")
+        elif self.uniform_value is not None:
+            lines.append(f"   BACKGRND  {self.uniform_value:.6g}")
+        return "\n".join(lines)
+
+
+@dataclass
 class SourcePathway:
     """Collection of sources"""
     sources: List[Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                         VolumeSource, LineSource, RLineSource,
                         RLineExtSource, BuoyLineSource, OpenPitSource]] = field(default_factory=list)
+    background: Optional[BackgroundConcentration] = None
 
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
@@ -949,6 +1170,9 @@ class SourcePathway:
 
         for source in self.sources:
             lines.append(source.to_aermod_input())
+
+        if self.background:
+            lines.append(self.background.to_aermod_input())
 
         lines.append("SO FINISHED")
         return "\n".join(lines)
@@ -1194,6 +1418,9 @@ class OutputPathway:
     postfile_source_group: str = "ALL"
     postfile_format: str = "PLOT"  # PLOT (formatted) or UNFORM (unformatted/binary)
 
+    # Output type (CONC, DEPOS, DDEP, WDEP, DETH)
+    output_type: str = "CONC"
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD OU pathway text"""
         lines = ["OU STARTING"]
@@ -1220,17 +1447,58 @@ class OutputPathway:
 
         # Plot file
         if self.plot_file:
-            lines.append(f"   PLOTFILE  ANNUAL  ALL  FIRST  {self.plot_file}")
+            lines.append(
+                f"   PLOTFILE  ANNUAL  ALL  {self.output_type}  FIRST  {self.plot_file}"
+            )
 
         # Postfile
         if self.postfile:
             ave = self.postfile_averaging or "ANNUAL"
             lines.append(
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
-                f"{self.postfile_format}  {self.postfile}"
+                f"{self.output_type}  {self.postfile_format}  {self.postfile}"
             )
 
         lines.append("OU FINISHED")
+        return "\n".join(lines)
+
+
+# ============================================================================
+# EVENT PATHWAY
+# ============================================================================
+
+@dataclass
+class EventPeriod:
+    """A single AERMOD event period definition."""
+    event_name: str
+    start_date: str  # YYMMDDHH format
+    end_date: str    # YYMMDDHH format
+    source_group: str = "ALL"
+
+
+@dataclass
+class EventPathway:
+    """
+    AERMOD Event (EV) pathway.
+
+    Defines specific time periods for event-based processing.
+    Written as a separate file referenced by EVENTFIL in the CO pathway.
+    """
+    events: List[EventPeriod] = field(default_factory=list)
+
+    def add_event(self, event: EventPeriod):
+        """Add an event period."""
+        self.events.append(event)
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD EV pathway text."""
+        lines = ["EV STARTING"]
+        for event in self.events:
+            lines.append(
+                f"   EVENTPER  {event.event_name:<8} "
+                f"{event.start_date}  {event.end_date}  {event.source_group}"
+            )
+        lines.append("EV FINISHED")
         return "\n".join(lines)
 
 
@@ -1250,6 +1518,7 @@ class AERMODProject:
     receptors: ReceptorPathway
     meteorology: MeteorologyPathway
     output: OutputPathway
+    events: Optional[EventPathway] = None
 
     def to_aermod_input(self, validate: bool = False, check_files: bool = False) -> str:
         """
@@ -1283,13 +1552,27 @@ class AERMODProject:
         ]
         return "\n".join(sections)
 
-    def write(self, filename: Union[str, Path]):
-        """Write input file to disk"""
+    def write(self, filename: Union[str, Path],
+              event_filename: Optional[Union[str, Path]] = None):
+        """Write input file to disk.
+
+        Parameters
+        ----------
+        filename : str or Path
+            Path for the main AERMOD input file.
+        event_filename : str or Path, optional
+            Path for the event file. Required if events are defined.
+        """
         output_path = Path(filename)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_path, 'w') as f:
             f.write(self.to_aermod_input())
+
+        if self.events and event_filename:
+            event_path = Path(event_filename)
+            with open(event_path, 'w') as f:
+                f.write(self.events.to_aermod_input())
 
         return output_path
 

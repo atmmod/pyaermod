@@ -102,6 +102,8 @@ class Validator:
         cls._validate_receptors(project.receptors, result)
         cls._validate_meteorology(project.meteorology, result, check_files)
         cls._validate_output(project.output, result)
+        if getattr(project, "events", None) is not None:
+            cls._validate_events(project.events, project.control, result)
         return result
 
     # ------------------------------------------------------------------
@@ -206,6 +208,70 @@ class Validator:
                 "one or more sources have is_urban=True but ControlPathway.urban_option is not set"
             ))
 
+        # Validate background concentration if present
+        if sources.background is not None:
+            cls._validate_background(sources.background, result)
+
+    @classmethod
+    def _validate_background(cls, background, result: ValidationResult):
+        pathway = "BackgroundConcentration"
+
+        if background.uniform_value is not None and background.uniform_value < 0:
+            result.errors.append(ValidationError(
+                pathway, "uniform_value",
+                f"must be >= 0, got {background.uniform_value}"
+            ))
+
+        if background.period_values:
+            for period, value in background.period_values.items():
+                if period not in VALID_AVERAGING_PERIODS:
+                    result.errors.append(ValidationError(
+                        pathway, "period_values",
+                        f"invalid averaging period '{period}'"
+                    ))
+                if value < 0:
+                    result.errors.append(ValidationError(
+                        pathway, "period_values",
+                        f"value for period '{period}' must be >= 0, got {value}"
+                    ))
+
+        if background.sectors:
+            if len(background.sectors) > 12:
+                result.errors.append(ValidationError(
+                    pathway, "sectors",
+                    f"AERMOD supports max 12 background sectors, got {len(background.sectors)}"
+                ))
+            for s in background.sectors:
+                if not (0 <= s.start_direction <= 360):
+                    result.errors.append(ValidationError(
+                        pathway, "sectors",
+                        f"sector {s.sector_id} start_direction must be 0-360"
+                    ))
+                if not (0 <= s.end_direction <= 360):
+                    result.errors.append(ValidationError(
+                        pathway, "sectors",
+                        f"sector {s.sector_id} end_direction must be 0-360"
+                    ))
+
+        if background.sectors and background.sector_values:
+            valid_ids = {s.sector_id for s in background.sectors}
+            for (sid, period), val in background.sector_values.items():
+                if sid not in valid_ids:
+                    result.errors.append(ValidationError(
+                        pathway, "sector_values",
+                        f"sector_id {sid} not defined in sectors list"
+                    ))
+                if period not in VALID_AVERAGING_PERIODS:
+                    result.errors.append(ValidationError(
+                        pathway, "sector_values",
+                        f"invalid averaging period '{period}' for sector {sid}"
+                    ))
+                if val < 0:
+                    result.errors.append(ValidationError(
+                        pathway, "sector_values",
+                        f"value for sector {sid} period '{period}' must be >= 0"
+                    ))
+
     @classmethod
     def _validate_source(cls, source, control, result: ValidationResult):
         from pyaermod.input_generator import (
@@ -232,6 +298,77 @@ class Validator:
             cls._validate_buoyline_source(source, result)
         elif isinstance(source, OpenPitSource):
             cls._validate_openpit_source(source, result)
+
+        # Deposition validation for all source types
+        cls._validate_deposition_params(source, control, result)
+
+    @classmethod
+    def _validate_deposition_params(cls, source, control, result: ValidationResult):
+        name = f"{type(source).__name__}({source.source_id})"
+        gas_dep = getattr(source, "gas_deposition", None)
+        particle_dep = getattr(source, "particle_deposition", None)
+
+        dep_enabled = (control.calculate_deposition or
+                       control.calculate_dry_deposition or
+                       control.calculate_wet_deposition)
+        has_dep = gas_dep is not None or particle_dep is not None
+
+        if has_dep and not dep_enabled:
+            result.errors.append(ValidationError(
+                name, "deposition",
+                "deposition parameters specified but DEPOS/DDEP/WDEP not enabled in MODELOPT",
+                severity="warning",
+            ))
+
+        if gas_dep:
+            if gas_dep.diffusivity <= 0:
+                result.errors.append(ValidationError(
+                    name, "gas_deposition.diffusivity", "must be > 0"
+                ))
+            if not (0 <= gas_dep.reactivity <= 1):
+                result.errors.append(ValidationError(
+                    name, "gas_deposition.reactivity", "must be between 0 and 1"
+                ))
+            if gas_dep.henry_constant is None and gas_dep.dry_dep_velocity is None:
+                result.errors.append(ValidationError(
+                    name, "gas_deposition",
+                    "either henry_constant or dry_dep_velocity must be set"
+                ))
+
+        if particle_dep:
+            if len(particle_dep.diameters) != len(particle_dep.mass_fractions):
+                result.errors.append(ValidationError(
+                    name, "particle_deposition",
+                    "diameters and mass_fractions must have same length"
+                ))
+            if len(particle_dep.diameters) != len(particle_dep.densities):
+                result.errors.append(ValidationError(
+                    name, "particle_deposition",
+                    "diameters and densities must have same length"
+                ))
+            if len(particle_dep.diameters) > 20:
+                result.errors.append(ValidationError(
+                    name, "particle_deposition.diameters",
+                    "max 20 size categories"
+                ))
+            if particle_dep.mass_fractions:
+                frac_sum = sum(particle_dep.mass_fractions)
+                if abs(frac_sum - 1.0) > 0.01:
+                    result.errors.append(ValidationError(
+                        name, "particle_deposition.mass_fractions",
+                        f"must sum to 1.0, got {frac_sum:.4f}",
+                        severity="warning",
+                    ))
+            if any(d <= 0 for d in particle_dep.diameters):
+                result.errors.append(ValidationError(
+                    name, "particle_deposition.diameters",
+                    "all diameters must be > 0"
+                ))
+            if any(r <= 0 for r in particle_dep.densities):
+                result.errors.append(ValidationError(
+                    name, "particle_deposition.densities",
+                    "all densities must be > 0"
+                ))
 
     @classmethod
     def _validate_point_source(cls, src, result: ValidationResult):
@@ -729,4 +866,57 @@ class Validator:
             result.errors.append(ValidationError(
                 pathway, "max_table_rank",
                 f"must be > 0, got {output.max_table_rank}"
+            ))
+
+        valid_output_types = {"CONC", "DEPOS", "DDEP", "WDEP", "DETH"}
+        if hasattr(output, "output_type") and output.output_type not in valid_output_types:
+            result.errors.append(ValidationError(
+                pathway, "output_type",
+                f"must be one of {valid_output_types}, got '{output.output_type}'"
+            ))
+
+    # ------------------------------------------------------------------
+    # Event pathway
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _validate_events(cls, events, control, result: ValidationResult):
+        pathway = "EventPathway"
+
+        if not events.events:
+            result.errors.append(ValidationError(
+                pathway, "events", "event pathway has no event periods"
+            ))
+            return
+
+        seen_names = set()
+        for event in events.events:
+            if len(event.event_name) > 8:
+                result.errors.append(ValidationError(
+                    pathway, "event_name",
+                    f"'{event.event_name}' exceeds 8 characters"
+                ))
+
+            if event.event_name in seen_names:
+                result.errors.append(ValidationError(
+                    pathway, "event_name",
+                    f"duplicate event name '{event.event_name}'"
+                ))
+            seen_names.add(event.event_name)
+
+            for date_str, field_name in [
+                (event.start_date, "start_date"),
+                (event.end_date, "end_date"),
+            ]:
+                if len(date_str) != 8 or not date_str.isdigit():
+                    result.errors.append(ValidationError(
+                        pathway, field_name,
+                        f"must be YYMMDDHH format (8 digits), got '{date_str}'"
+                    ))
+
+        if events.events and not control.eventfil:
+            result.errors.append(ValidationError(
+                pathway, "eventfil",
+                "events defined but ControlPathway.eventfil not set",
+                severity="warning",
             ))

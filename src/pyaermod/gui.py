@@ -53,15 +53,22 @@ from .input_generator import (
     AreaCircSource,
     AreaPolySource,
     AreaSource,
+    BackgroundConcentration,
+    BackgroundSector,
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
     ControlPathway,
+    DepositionMethod,
     DiscreteReceptor,
+    EventPathway,
+    EventPeriod,
+    GasDepositionParams,
     LineSource,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
+    ParticleDepositionParams,
     PolarGrid,
     PointSource,
     PollutantType,
@@ -187,6 +194,7 @@ class SessionStateManager:
             "aermet_stage1": None,
             "aermet_stage2": None,
             "aermet_stage3": None,
+            "project_events": None,
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -201,6 +209,7 @@ class SessionStateManager:
             receptors=st.session_state["project_receptors"],
             meteorology=st.session_state["project_meteorology"],
             output=st.session_state["project_output"],
+            events=st.session_state.get("project_events"),
         )
 
     @staticmethod
@@ -287,7 +296,10 @@ class ProjectSerializer:
                         d = dataclasses.asdict(src)
                         d["_type"] = type(src).__name__
                         src_list.append(d)
-                    data[key] = {"sources": src_list}
+                    bg_data = None
+                    if obj.background is not None:
+                        bg_data = dataclasses.asdict(obj.background)
+                    data[key] = {"sources": src_list, "background": bg_data}
                 elif key == "project_receptors":
                     data[key] = {
                         "cartesian_grids": [dataclasses.asdict(g) for g in obj.cartesian_grids],
@@ -317,6 +329,13 @@ class ProjectSerializer:
                 aermet_config[key] = None
         data["aermet_config"] = aermet_config
 
+        # Event processing
+        events = st.session_state.get("project_events")
+        if events is not None:
+            data["project_events"] = dataclasses.asdict(events)
+        else:
+            data["project_events"] = None
+
         return json.dumps(data, cls=cls._Encoder, indent=2)
 
     @classmethod
@@ -344,6 +363,25 @@ class ProjectSerializer:
                 sources.append(cls._deserialize_source(src_data))
             sp = SourcePathway()
             sp.sources = sources
+            bg_data = data["project_sources"].get("background")
+            if bg_data:
+                sectors = None
+                if bg_data.get("sectors"):
+                    sectors = [
+                        BackgroundSector(**s) for s in bg_data["sectors"]
+                    ]
+                sector_values = None
+                if bg_data.get("sector_values"):
+                    sector_values = {
+                        (item[0], item[1]): item[2]
+                        for item in bg_data["sector_values"]
+                    }
+                sp.background = BackgroundConcentration(
+                    uniform_value=bg_data.get("uniform_value"),
+                    period_values=bg_data.get("period_values"),
+                    sectors=sectors,
+                    sector_values=sector_values,
+                )
             result["project_sources"] = sp
 
         # Receptors
@@ -390,6 +428,16 @@ class ProjectSerializer:
                     result[key] = cls._deserialize_aermet_stage(d, stage_cls)
                 else:
                     result[key] = None
+
+        # Events
+        events_data = data.get("project_events")
+        if events_data:
+            event_list = [
+                EventPeriod(**ep) for ep in events_data.get("events", [])
+            ]
+            result["project_events"] = EventPathway(events=event_list)
+        else:
+            result["project_events"] = None
 
         return result
 
@@ -1235,6 +1283,27 @@ def page_project_setup():
     current_avg = st.session_state["project_control"].averaging_periods
     avg_periods = st.multiselect("Averaging Periods", avg_options, default=current_avg)
 
+    # Deposition options
+    with st.expander("Deposition Options"):
+        dep_col1, dep_col2 = st.columns(2)
+        with dep_col1:
+            calc_ddep = st.checkbox(
+                "Dry Deposition (DDEP)",
+                value=st.session_state["project_control"].calculate_dry_deposition,
+                key="setup_ddep",
+            )
+            calc_wdep = st.checkbox(
+                "Wet Deposition (WDEP)",
+                value=st.session_state["project_control"].calculate_wet_deposition,
+                key="setup_wdep",
+            )
+        with dep_col2:
+            calc_depos = st.checkbox(
+                "Total Deposition (DEPOS)",
+                value=st.session_state["project_control"].calculate_deposition,
+                key="setup_depos",
+            )
+
     # Save to session state
     st.session_state["utm_zone"] = utm_zone
     st.session_state["hemisphere"] = hemisphere
@@ -1247,6 +1316,9 @@ def page_project_setup():
         pollutant_id=PollutantType[pollutant],
         averaging_periods=avg_periods if avg_periods else ["ANNUAL"],
         terrain_type=TerrainType[terrain],
+        calculate_dry_deposition=calc_ddep,
+        calculate_wet_deposition=calc_wdep,
+        calculate_deposition=calc_depos,
     )
 
     st.success("Project settings saved automatically.")
@@ -1459,6 +1531,79 @@ def page_source_editor():
                         st.error(f"BPIP calculation failed: {e}")
             else:
                 st.info("Add point sources to calculate building downwash.")
+
+    # ------------------------------------------------------------------
+    # Background Concentration
+    # ------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("Background Concentration")
+
+    bg = st.session_state["project_sources"].background
+    bg_mode = st.radio(
+        "Background Mode",
+        ["None", "Uniform", "Period-specific", "Sector-dependent"],
+        index=0 if bg is None else (
+            1 if bg.uniform_value is not None else (
+                2 if bg.period_values else 3
+            )
+        ),
+        key="bg_mode",
+        horizontal=True,
+    )
+
+    if bg_mode == "Uniform":
+        bg_val = st.number_input(
+            "Background Concentration (ug/m3)", min_value=0.0, value=0.0,
+            key="bg_uniform_val",
+        )
+        st.session_state["project_sources"].background = BackgroundConcentration(
+            uniform_value=bg_val,
+        )
+    elif bg_mode == "Period-specific":
+        avg_periods = st.session_state["project_control"].averaging_periods
+        if not avg_periods:
+            avg_periods = ["ANNUAL"]
+        period_vals = {}
+        for period in avg_periods:
+            val = st.number_input(
+                f"Background for {period} (ug/m3)", min_value=0.0, value=0.0,
+                key=f"bg_period_{period}",
+            )
+            period_vals[period] = val
+        st.session_state["project_sources"].background = BackgroundConcentration(
+            period_values=period_vals,
+        )
+    elif bg_mode == "Sector-dependent":
+        n_sectors = st.number_input(
+            "Number of Sectors", min_value=2, max_value=12, value=4,
+            key="bg_n_sectors",
+        )
+        sectors = []
+        sector_values = {}
+        step = 360.0 / n_sectors
+        avg_periods = st.session_state["project_control"].averaging_periods or ["ANNUAL"]
+
+        for i in range(n_sectors):
+            sid = i + 1
+            start_dir = i * step
+            end_dir = (i + 1) * step
+            sectors.append(BackgroundSector(sid, start_dir, end_dir))
+            col_dir, col_val = st.columns([1, 2])
+            with col_dir:
+                st.text(f"Sector {sid}: {start_dir:.0f}-{end_dir:.0f} deg")
+            with col_val:
+                for period in avg_periods:
+                    val = st.number_input(
+                        f"S{sid} {period} (ug/m3)", min_value=0.0, value=0.0,
+                        key=f"bg_sector_{sid}_{period}",
+                    )
+                    sector_values[(sid, period)] = val
+        st.session_state["project_sources"].background = BackgroundConcentration(
+            sectors=sectors,
+            sector_values=sector_values,
+        )
+    else:
+        st.session_state["project_sources"].background = None
 
 
 def _apply_aermap_receptor_elevations(
@@ -2021,20 +2166,77 @@ def page_run_aermod():
                 help="Averaging period to output in POSTFILE",
             )
 
+    # Output type (shown when deposition is enabled)
+    dep_enabled = (
+        st.session_state["project_control"].calculate_deposition
+        or st.session_state["project_control"].calculate_dry_deposition
+        or st.session_state["project_control"].calculate_wet_deposition
+    )
+    output_type = "CONC"
+    if dep_enabled:
+        output_type = st.selectbox(
+            "Output Type",
+            ["CONC", "DEPOS", "DDEP", "WDEP", "DETH"],
+            help="Type of output: concentration (CONC) or deposition flux",
+        )
+
+    out_kwargs = dict(
+        receptor_table=receptor_table,
+        max_table=max_table,
+        output_type=output_type,
+    )
     if postfile_enabled:
-        st.session_state["project_output"] = OutputPathway(
-            receptor_table=receptor_table,
-            max_table=max_table,
+        out_kwargs.update(
             postfile="postfile.pst",
             postfile_averaging=postfile_avg,
             postfile_source_group="ALL",
             postfile_format=postfile_format,
         )
-    else:
-        st.session_state["project_output"] = OutputPathway(
-            receptor_table=receptor_table,
-            max_table=max_table,
-        )
+    st.session_state["project_output"] = OutputPathway(**out_kwargs)
+
+    # Event processing
+    with st.expander("Event Processing"):
+        event_enabled = st.checkbox("Enable Event Processing", value=False, key="event_enabled")
+        if event_enabled:
+            n_events = st.number_input(
+                "Number of Events", min_value=1, max_value=50, value=1,
+                key="n_events",
+            )
+            events = []
+            for i in range(n_events):
+                ev_col1, ev_col2, ev_col3 = st.columns(3)
+                with ev_col1:
+                    ev_name = st.text_input(
+                        f"Event {i+1} Name", value=f"EVT{i+1:02d}",
+                        max_chars=8, key=f"ev_name_{i}",
+                    )
+                with ev_col2:
+                    ev_start = st.text_input(
+                        f"Start (YYMMDDHH)", value="24010101",
+                        max_chars=8, key=f"ev_start_{i}",
+                    )
+                with ev_col3:
+                    ev_end = st.text_input(
+                        f"End (YYMMDDHH)", value="24010124",
+                        max_chars=8, key=f"ev_end_{i}",
+                    )
+                events.append(EventPeriod(
+                    event_name=ev_name,
+                    start_date=ev_start,
+                    end_date=ev_end,
+                ))
+            st.session_state["project_events"] = EventPathway(events=events)
+            st.session_state["project_control"] = ControlPathway(
+                **{
+                    **{
+                        f.name: getattr(st.session_state["project_control"], f.name)
+                        for f in st.session_state["project_control"].__dataclass_fields__.values()
+                    },
+                    "eventfil": "events.inp",
+                }
+            )
+        else:
+            st.session_state["project_events"] = None
 
     # Run
     st.subheader("Execute AERMOD")

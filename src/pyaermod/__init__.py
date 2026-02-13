@@ -52,6 +52,19 @@ from .input_generator import (
     # Source types
     PointSource,
 
+    # Background concentration
+    BackgroundConcentration,
+    BackgroundSector,
+
+    # Deposition
+    DepositionMethod,
+    GasDepositionParams,
+    ParticleDepositionParams,
+
+    # Event processing
+    EventPeriod,
+    EventPathway,
+
     # Receptor types
     CartesianGrid,
     PolarGrid,
@@ -186,6 +199,13 @@ __all__ = [
     'PollutantType',
     'TerrainType',
     'SourceType',
+    'BackgroundConcentration',
+    'BackgroundSector',
+    'DepositionMethod',
+    'GasDepositionParams',
+    'ParticleDepositionParams',
+    'EventPeriod',
+    'EventPathway',
 
     # Runner
     'AERMODRunner',
