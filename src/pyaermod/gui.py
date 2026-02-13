@@ -57,6 +57,8 @@ from .input_generator import (
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
     EventPathway,
@@ -65,12 +67,14 @@ from .input_generator import (
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
+    OzoneData,
     PointSource,
     PolarGrid,
     PollutantType,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SourceGroupDefinition,
     SourcePathway,
     SourceType,
     TerrainType,
@@ -297,7 +301,12 @@ class ProjectSerializer:
                     bg_data = None
                     if obj.background is not None:
                         bg_data = dataclasses.asdict(obj.background)
-                    data[key] = {"sources": src_list, "background": bg_data}
+                    group_defs = [dataclasses.asdict(g) for g in obj.group_definitions]
+                    data[key] = {
+                        "sources": src_list,
+                        "background": bg_data,
+                        "group_definitions": group_defs,
+                    }
                 elif key == "project_receptors":
                     data[key] = {
                         "cartesian_grids": [dataclasses.asdict(g) for g in obj.cartesian_grids],
@@ -380,6 +389,12 @@ class ProjectSerializer:
                     sectors=sectors,
                     sector_values=sector_values,
                 )
+            # Reconstruct source group definitions
+            for gd in data["project_sources"].get("group_definitions", []):
+                gd_copy = dict(gd)
+                gd_copy.pop("_type", None)
+                sp.group_definitions.append(SourceGroupDefinition(**gd_copy))
+
             result["project_sources"] = sp
 
         # Receptors
@@ -396,6 +411,9 @@ class ProjectSerializer:
         if "project_output" in data:
             d = data["project_output"]
             d.pop("_type", None)
+            # Convert plot_file_groups back to tuples
+            if d.get("plot_file_groups"):
+                d["plot_file_groups"] = [tuple(item) for item in d["plot_file_groups"]]
             result["project_output"] = OutputPathway(**d)
 
         # Geo settings
@@ -449,6 +467,7 @@ class ProjectSerializer:
                 "PollutantType": PollutantType,
                 "TerrainType": TerrainType,
                 "SourceType": SourceType,
+                "ChemistryMethod": ChemistryMethod,
             }
             enum_cls = enum_classes.get(cls_name)
             if enum_cls:
@@ -464,6 +483,31 @@ class ProjectSerializer:
             d["pollutant_id"] = cls._resolve_enum(d["pollutant_id"])
         if "terrain_type" in d:
             d["terrain_type"] = cls._resolve_enum(d["terrain_type"])
+
+        # Reconstruct chemistry options
+        if "chemistry" in d and d["chemistry"] is not None:
+            chem_data = dict(d["chemistry"])
+            chem_data.pop("_type", None)
+            if "method" in chem_data:
+                chem_data["method"] = cls._resolve_enum(chem_data["method"])
+            if "ozone_data" in chem_data and chem_data["ozone_data"] is not None:
+                oz_data = dict(chem_data["ozone_data"])
+                oz_data.pop("_type", None)
+                # JSON serializes Dict[int, float] keys as strings; convert back
+                if oz_data.get("sector_values") is not None:
+                    oz_data["sector_values"] = {
+                        int(k): v for k, v in oz_data["sector_values"].items()
+                    }
+                chem_data["ozone_data"] = OzoneData(**oz_data)
+            if chem_data.get("olm_groups"):
+                chem_data["olm_groups"] = [
+                    SourceGroupDefinition(**{k: v for k, v in g.items() if k != "_type"})
+                    for g in chem_data["olm_groups"]
+                ]
+            else:
+                chem_data["olm_groups"] = []
+            d["chemistry"] = ChemistryOptions(**chem_data)
+
         return ControlPathway(**d)
 
     @classmethod
@@ -840,6 +884,11 @@ class SourceFormFactory:
                 vel = st.number_input("Exit Velocity (m/s)", value=15.0, min_value=0.0)
                 diam = st.number_input("Stack Diameter (m)", value=2.5, min_value=0.0)
             erate = st.number_input("Emission Rate (g/s)", value=1.0, min_value=0.0, format="%.6f")
+            no2_r = st.number_input(
+                "NO2/NOx Ratio (optional, 0-1)", value=0.0,
+                min_value=0.0, max_value=1.0, step=0.01, format="%.2f",
+                help="Per-source NO2/NOx ratio. Leave at 0 to use default.",
+            )
 
             if st.form_submit_button("Add Point Source"):
                 return PointSource(
@@ -847,6 +896,7 @@ class SourceFormFactory:
                     stack_height=height, stack_temp=temp,
                     exit_velocity=vel, stack_diameter=diam,
                     emission_rate=erate,
+                    no2_ratio=no2_r if no2_r > 0 else None,
                 )
         return None
 
@@ -1307,6 +1357,75 @@ def page_project_setup():
                 key="setup_depos",
             )
 
+    # NO2/SO2 Chemistry Options
+    chemistry_config = None
+    if pollutant == "NO2":
+        with st.expander("NO2 Chemistry Options"):
+            method_names = [m.name for m in ChemistryMethod]
+            existing_chem = getattr(
+                st.session_state["project_control"], "chemistry", None,
+            )
+            default_method_idx = 0
+            default_ratio = 0.5
+            if existing_chem is not None:
+                default_method_idx = method_names.index(existing_chem.method.name)
+                default_ratio = existing_chem.default_no2_ratio
+
+            chem_method = st.selectbox(
+                "Chemistry Method", method_names, index=default_method_idx,
+                key="chem_method",
+            )
+            no2_ratio_default = st.slider(
+                "Default NO2/NOx Ratio", min_value=0.0, max_value=1.0,
+                value=default_ratio, step=0.01, key="chem_no2_ratio",
+            )
+
+            oz_mode = st.radio(
+                "Ozone Data Source",
+                ["None", "File", "Uniform Value", "Sector Values"],
+                horizontal=True, key="oz_mode",
+            )
+
+            ozone_data = None
+            if oz_mode == "File":
+                oz_file = st.text_input("Ozone Data File Path", value="", key="oz_file")
+                if oz_file:
+                    ozone_data = OzoneData(ozone_file=oz_file)
+            elif oz_mode == "Uniform Value":
+                oz_val = st.number_input(
+                    "Ozone Concentration (ppb)", min_value=0.0, value=40.0,
+                    key="oz_uniform_val",
+                )
+                ozone_data = OzoneData(uniform_value=oz_val)
+            elif oz_mode == "Sector Values":
+                n_oz_sectors = st.number_input(
+                    "Number of Sectors", min_value=1, max_value=36,
+                    value=6, key="oz_n_sectors",
+                )
+                oz_sector_vals = {}
+                for i in range(int(n_oz_sectors)):
+                    val = st.number_input(
+                        f"Sector {i + 1} O3 (ppb)", min_value=0.0,
+                        value=40.0, key=f"oz_sector_{i}",
+                    )
+                    oz_sector_vals[i + 1] = val
+                ozone_data = OzoneData(sector_values=oz_sector_vals)
+
+            nox_file = None
+            if chem_method == "GRSM":
+                nox_file = st.text_input(
+                    "NOx Background File Path", value="", key="nox_file",
+                )
+                if not nox_file:
+                    nox_file = None
+
+            chemistry_config = ChemistryOptions(
+                method=ChemistryMethod[chem_method],
+                ozone_data=ozone_data,
+                default_no2_ratio=no2_ratio_default,
+                nox_file=nox_file,
+            )
+
     # Save to session state
     st.session_state["utm_zone"] = utm_zone
     st.session_state["hemisphere"] = hemisphere
@@ -1322,6 +1441,7 @@ def page_project_setup():
         calculate_dry_deposition=calc_ddep,
         calculate_wet_deposition=calc_wdep,
         calculate_deposition=calc_depos,
+        chemistry=chemistry_config,
     )
 
     st.success("Project settings saved automatically.")
@@ -1445,6 +1565,61 @@ def page_source_editor():
         st.info("No sources defined yet. Use the form above or click on the map to add sources.")
 
     # ------------------------------------------------------------------
+    # Source Group Management
+    # ------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("Source Groups")
+
+    sp = st.session_state["project_sources"]
+    existing_groups = sp.group_definitions
+
+    if existing_groups:
+        group_rows = []
+        for g in existing_groups:
+            group_rows.append({
+                "Group Name": g.group_name,
+                "Members": ", ".join(g.member_source_ids),
+                "Description": g.description,
+            })
+        st.dataframe(pd.DataFrame(group_rows), use_container_width=True)
+
+        del_grp_idx = st.selectbox(
+            "Select group to delete",
+            range(len(existing_groups)),
+            format_func=lambda i: existing_groups[i].group_name,
+            key="grp_delete_idx",
+        )
+        if st.button("Delete Selected Group", type="secondary"):
+            del sp.group_definitions[del_grp_idx]
+            st.rerun()
+
+    with st.expander("Add Source Group", expanded=not bool(existing_groups)):
+        available_ids = [s.source_id for s in sources]
+        if available_ids:
+            with st.form("source_group_form"):
+                grp_name = st.text_input(
+                    "Group Name (max 8 chars)", value="GRP1", max_chars=8,
+                )
+                grp_members = st.multiselect("Member Sources", available_ids)
+                grp_desc = st.text_input("Description (optional)", value="")
+
+                if st.form_submit_button("Add Source Group"):
+                    if grp_name and grp_members:
+                        sp.group_definitions.append(
+                            SourceGroupDefinition(
+                                group_name=grp_name,
+                                member_source_ids=grp_members,
+                                description=grp_desc,
+                            )
+                        )
+                        st.success(f"Added group: {grp_name}")
+                        st.rerun()
+                    else:
+                        st.error("Group name and at least one member are required.")
+        else:
+            st.info("Add sources first to create source groups.")
+
+    # ------------------------------------------------------------------
     # Building Downwash (BPIP)
     # ------------------------------------------------------------------
     if HAS_BPIP:
@@ -1486,15 +1661,21 @@ def page_source_editor():
                 st.rerun()
 
             # Run BPIP calculation
-            point_sources = [s for s in sources if isinstance(s, PointSource)]
-            if point_sources:
+            downwash_sources = [
+                s for s in sources
+                if isinstance(s, (PointSource, AreaSource, VolumeSource))
+            ]
+            if downwash_sources:
                 st.markdown("**Calculate Downwash**")
                 col_src, col_bldg = st.columns(2)
                 with col_src:
                     src_idx = st.selectbox(
-                        "Point Source",
-                        range(len(point_sources)),
-                        format_func=lambda i: point_sources[i].source_id,
+                        "Source",
+                        range(len(downwash_sources)),
+                        format_func=lambda i: (
+                            f"{downwash_sources[i].source_id} "
+                            f"({type(downwash_sources[i]).__name__})"
+                        ),
                         key="bpip_src_idx",
                     )
                 with col_bldg:
@@ -1505,7 +1686,7 @@ def page_source_editor():
                         key="bpip_bldg_idx",
                     )
                 if st.button("Run BPIP Calculation", type="primary"):
-                    ps = point_sources[src_idx]
+                    ps = downwash_sources[src_idx]
                     bldg = buildings[bldg_idx]
                     try:
                         calc = BPIPCalculator(bldg, ps.x_coord, ps.y_coord)
@@ -1533,7 +1714,7 @@ def page_source_editor():
                     except Exception as e:
                         st.error(f"BPIP calculation failed: {e}")
             else:
-                st.info("Add point sources to calculate building downwash.")
+                st.info("Add point, area, or volume sources to calculate building downwash.")
 
     # ------------------------------------------------------------------
     # Background Concentration
@@ -2196,6 +2377,32 @@ def page_run_aermod():
             postfile_format=postfile_format,
         )
     st.session_state["project_output"] = OutputPathway(**out_kwargs)
+
+    # Per-group PLOTFILE options
+    groups = st.session_state["project_sources"].group_definitions
+    if groups:
+        with st.expander("Per-Group Plot Files"):
+            st.markdown("Configure separate PLOTFILE outputs for each source group.")
+            plot_file_groups = []
+            avg_periods = st.session_state["project_control"].averaging_periods
+            for grp in groups:
+                grp_col1, grp_col2 = st.columns(2)
+                with grp_col1:
+                    enable_grp = st.checkbox(
+                        f"Enable PLOTFILE for {grp.group_name}",
+                        key=f"plotfile_grp_{grp.group_name}",
+                    )
+                if enable_grp:
+                    with grp_col2:
+                        grp_avg = st.selectbox(
+                            f"Averaging for {grp.group_name}",
+                            avg_periods if avg_periods else ["ANNUAL"],
+                            key=f"plotfile_avg_{grp.group_name}",
+                        )
+                    plot_file_groups.append(
+                        (grp_avg, grp.group_name, f"plotfile_{grp.group_name}.plt")
+                    )
+            st.session_state["project_output"].plot_file_groups = plot_file_groups
 
     # Event processing
     with st.expander("Event Processing"):

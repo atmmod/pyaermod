@@ -24,18 +24,22 @@ from pyaermod.input_generator import (
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
     LineSource,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
+    OzoneData,
     PointSource,
     PolarGrid,
     PollutantType,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SourceGroupDefinition,
     SourcePathway,
     TerrainType,
     VolumeSource,
@@ -974,3 +978,437 @@ class TestPostfileGUI:
         output = ou.to_aermod_input()
         assert "UNFORM" in output
         assert "binary.pst" in output
+
+
+# ============================================================================
+# TestChemistrySerializerRoundTrip
+# ============================================================================
+
+
+class TestChemistrySerializerRoundTrip:
+    """Test round-trip serialization of chemistry options."""
+
+    def test_round_trip_chemistry_arm2(self):
+        """ChemistryOptions with ARM2 method round-trips correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="NO2 Test",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.ARM2,
+                default_no2_ratio=0.5,
+            ),
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        ctrl = new_state["project_control"]
+        assert ctrl.chemistry is not None
+        assert ctrl.chemistry.method == ChemistryMethod.ARM2
+        assert ctrl.chemistry.default_no2_ratio == 0.5
+
+    def test_round_trip_chemistry_olm_with_ozone_file(self):
+        """OLM method with ozone file round-trips."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="OLM Test",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.OLM,
+                ozone_data=OzoneData(ozone_file="/path/to/o3.dat"),
+            ),
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        chem = new_state["project_control"].chemistry
+        assert chem.method == ChemistryMethod.OLM
+        assert chem.ozone_data.ozone_file == "/path/to/o3.dat"
+
+    def test_round_trip_chemistry_pvmrm_uniform_ozone(self):
+        """PVMRM with uniform ozone value round-trips."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="PVMRM Test",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.PVMRM,
+                ozone_data=OzoneData(uniform_value=40.0),
+            ),
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        chem = new_state["project_control"].chemistry
+        assert chem.method == ChemistryMethod.PVMRM
+        assert chem.ozone_data.uniform_value == 40.0
+
+    def test_round_trip_chemistry_grsm_with_nox_file(self):
+        """GRSM with nox_file round-trips."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="GRSM Test",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.GRSM,
+                nox_file="/path/nox.dat",
+                ozone_data=OzoneData(uniform_value=50.0),
+            ),
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        chem = new_state["project_control"].chemistry
+        assert chem.method == ChemistryMethod.GRSM
+        assert chem.nox_file == "/path/nox.dat"
+
+    def test_round_trip_chemistry_sector_ozone_int_keys(self):
+        """OzoneData.sector_values with int keys survives JSON round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="Sector O3",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.OLM,
+                ozone_data=OzoneData(sector_values={1: 30.0, 2: 45.0, 3: 55.0}),
+            ),
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        oz = new_state["project_control"].chemistry.ozone_data
+        assert oz.sector_values == {1: 30.0, 2: 45.0, 3: 55.0}
+        # Verify keys are int, not str
+        assert all(isinstance(k, int) for k in oz.sector_values)
+
+    def test_round_trip_chemistry_olm_groups(self):
+        """ChemistryOptions with olm_groups round-trips."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="OLM Groups",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.OLM,
+                olm_groups=[
+                    SourceGroupDefinition("OLM1", ["S1", "S2"]),
+                    SourceGroupDefinition("OLM2", ["S3"]),
+                ],
+            ),
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        chem = new_state["project_control"].chemistry
+        assert len(chem.olm_groups) == 2
+        assert chem.olm_groups[0].group_name == "OLM1"
+        assert chem.olm_groups[0].member_source_ids == ["S1", "S2"]
+        assert chem.olm_groups[1].group_name == "OLM2"
+
+    def test_round_trip_control_without_chemistry(self):
+        """ControlPathway with chemistry=None round-trips correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="No Chemistry",
+            pollutant_id=PollutantType.PM25,
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        ctrl = new_state["project_control"]
+        assert ctrl.chemistry is None
+
+    def test_round_trip_point_source_with_no2_ratio(self):
+        """PointSource with no2_ratio round-trips correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        src = PointSource(
+            source_id="STK1", x_coord=0, y_coord=0,
+            stack_height=50, emission_rate=1.0,
+            no2_ratio=0.75,
+        )
+        pyaermod_gui.st.session_state["project_sources"].add_source(src)
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        loaded = new_state["project_sources"].sources[0]
+        assert loaded.no2_ratio == 0.75
+
+
+# ============================================================================
+# TestSourceGroupSerializerRoundTrip
+# ============================================================================
+
+
+class TestSourceGroupSerializerRoundTrip:
+    """Test round-trip serialization of source group definitions."""
+
+    def test_round_trip_with_source_groups(self):
+        """SourceGroupDefinition round-trips through serializer."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        sp.add_source(PointSource(source_id="S2", x_coord=100, y_coord=0, emission_rate=1.0))
+        sp.group_definitions.append(
+            SourceGroupDefinition("GRP1", ["S1", "S2"], "Test group")
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        groups = new_state["project_sources"].group_definitions
+        assert len(groups) == 1
+        assert groups[0].group_name == "GRP1"
+        assert groups[0].member_source_ids == ["S1", "S2"]
+        assert groups[0].description == "Test group"
+
+    def test_round_trip_multiple_groups(self):
+        """Multiple source groups round-trip correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        sp.add_source(PointSource(source_id="S2", x_coord=100, y_coord=0, emission_rate=1.0))
+        sp.add_source(PointSource(source_id="S3", x_coord=200, y_coord=0, emission_rate=1.0))
+        sp.group_definitions.append(SourceGroupDefinition("GRP1", ["S1", "S2"]))
+        sp.group_definitions.append(SourceGroupDefinition("GRP2", ["S3"]))
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        groups = new_state["project_sources"].group_definitions
+        assert len(groups) == 2
+        assert groups[1].group_name == "GRP2"
+
+    def test_round_trip_empty_group_definitions(self):
+        """Empty group_definitions round-trips as empty list."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        groups = new_state["project_sources"].group_definitions
+        assert groups == []
+
+    def test_backward_compat_missing_group_definitions(self):
+        """Old JSON without group_definitions deserializes with empty list."""
+        import json
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        json_str = ProjectSerializer.serialize_session_state()
+        data = json.loads(json_str)
+        # Remove group_definitions to simulate old format
+        if "group_definitions" in data.get("project_sources", {}):
+            del data["project_sources"]["group_definitions"]
+        new_state = ProjectSerializer.deserialize_session_state(json.dumps(data))
+        groups = new_state["project_sources"].group_definitions
+        assert groups == []
+
+
+# ============================================================================
+# TestOutputPathwaySerializerRoundTrip
+# ============================================================================
+
+
+class TestOutputPathwaySerializerRoundTrip:
+    """Test round-trip serialization of OutputPathway with plot_file_groups."""
+
+    def test_round_trip_with_plot_file_groups(self):
+        """plot_file_groups tuples round-trip correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_output"] = OutputPathway(
+            plot_file_groups=[("ANNUAL", "GRP1", "plot_grp1.plt")],
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        out = new_state["project_output"]
+        assert len(out.plot_file_groups) == 1
+        assert out.plot_file_groups[0] == ("ANNUAL", "GRP1", "plot_grp1.plt")
+        assert isinstance(out.plot_file_groups[0], tuple)
+
+    def test_round_trip_empty_plot_file_groups(self):
+        """Default OutputPathway has empty plot_file_groups."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        out = new_state["project_output"]
+        assert out.plot_file_groups == []
+
+    def test_round_trip_multiple_plot_file_groups(self):
+        """Multiple plot_file_groups entries round-trip correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_output"] = OutputPathway(
+            plot_file_groups=[
+                ("ANNUAL", "GRP1", "plot_grp1.plt"),
+                ("1-HR", "GRP2", "plot_grp2.plt"),
+                ("24-HR", "ALL", "plot_all.plt"),
+            ],
+        )
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        out = new_state["project_output"]
+        assert len(out.plot_file_groups) == 3
+        assert out.plot_file_groups[1] == ("1-HR", "GRP2", "plot_grp2.plt")
+
+
+# ============================================================================
+# TestBuildingDownwashAreaVolume
+# ============================================================================
+
+
+class TestBuildingDownwashAreaVolume:
+    """Test building downwash serialization for Area and Volume sources."""
+
+    def test_area_source_building_fields_round_trip(self):
+        """AreaSource with building fields round-trips correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        src = AreaSource(
+            source_id="AREA1", x_coord=0, y_coord=0,
+            emission_rate=0.01,
+            building_height=[20.0] * 36,
+            building_width=[15.0] * 36,
+            building_length=[30.0] * 36,
+            building_x_offset=[5.0] * 36,
+            building_y_offset=[3.0] * 36,
+        )
+        pyaermod_gui.st.session_state["project_sources"].add_source(src)
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        loaded = new_state["project_sources"].sources[0]
+        assert isinstance(loaded, AreaSource)
+        assert isinstance(loaded.building_height, list)
+        assert len(loaded.building_height) == 36
+        assert loaded.building_height[0] == 20.0
+
+    def test_volume_source_building_fields_round_trip(self):
+        """VolumeSource with building fields round-trips correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        src = VolumeSource(
+            source_id="VOL1", x_coord=0, y_coord=0,
+            emission_rate=1.0,
+            building_height=[25.0] * 36,
+            building_width=[10.0] * 36,
+            building_length=[20.0] * 36,
+            building_x_offset=[2.0] * 36,
+            building_y_offset=[1.0] * 36,
+        )
+        pyaermod_gui.st.session_state["project_sources"].add_source(src)
+        json_str = ProjectSerializer.serialize_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+        loaded = new_state["project_sources"].sources[0]
+        assert isinstance(loaded, VolumeSource)
+        assert len(loaded.building_height) == 36
+        assert loaded.building_width[0] == 10.0
+
+    def test_area_source_bpip_populates_fields(self):
+        """BPIP calculation populates building fields on AreaSource."""
+        from pyaermod.bpip import BPIPCalculator, Building
+        bldg = Building("B1", [(0, 0), (50, 0), (50, 30), (0, 30)], 20.0)
+        src = AreaSource(
+            source_id="AREA1", x_coord=25.0, y_coord=15.0,
+            emission_rate=0.01,
+        )
+        calc = BPIPCalculator(bldg, src.x_coord, src.y_coord)
+        result = calc.calculate_all()
+        src.building_height = result.buildhgt
+        src.building_width = result.buildwid
+        src.building_length = result.buildlen
+        src.building_x_offset = result.xbadj
+        src.building_y_offset = result.ybadj
+
+        assert len(src.building_height) == 36
+        assert all(h > 0 for h in src.building_height)
+        text = src.to_aermod_input()
+        assert "BUILDHGT" in text
+
+    def test_volume_source_bpip_populates_fields(self):
+        """BPIP calculation populates building fields on VolumeSource."""
+        from pyaermod.bpip import BPIPCalculator, Building
+        bldg = Building("B1", [(0, 0), (50, 0), (50, 30), (0, 30)], 20.0)
+        src = VolumeSource(
+            source_id="VOL1", x_coord=25.0, y_coord=15.0,
+            emission_rate=1.0,
+        )
+        calc = BPIPCalculator(bldg, src.x_coord, src.y_coord)
+        result = calc.calculate_all()
+        src.building_height = result.buildhgt
+        src.building_width = result.buildwid
+        src.building_length = result.buildlen
+        src.building_x_offset = result.xbadj
+        src.building_y_offset = result.ybadj
+
+        assert len(src.building_height) == 36
+        text = src.to_aermod_input()
+        assert "BUILDHGT" in text
+
+
+# ============================================================================
+# TestSourceGroupWorkflow
+# ============================================================================
+
+
+class TestSourceGroupWorkflow:
+    """Test source group management workflow via session state."""
+
+    def test_source_group_default_empty(self):
+        """Session state initializes with empty group_definitions."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        assert sp.group_definitions == []
+
+    def test_add_source_group_to_session_state(self):
+        """Source group can be added to session state."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        sp.group_definitions.append(SourceGroupDefinition("GRP1", ["S1"]))
+        assert len(sp.group_definitions) == 1
+        assert sp.group_definitions[0].group_name == "GRP1"
+
+    def test_source_group_in_aermod_output(self):
+        """SRCGROUP keyword appears in generated AERMOD input."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        sp.add_source(PointSource(source_id="S2", x_coord=100, y_coord=0, emission_rate=1.0))
+        sp.group_definitions.append(SourceGroupDefinition("MYGRP", ["S1", "S2"]))
+
+        pyaermod_gui.st.session_state["project_meteorology"] = MeteorologyPathway(
+            surface_file="test.sfc", profile_file="test.pfl",
+        )
+        project = SessionStateManager.get_project()
+        inp = project.to_aermod_input(validate=False)
+        assert "SRCGROUP" in inp
+        assert "MYGRP" in inp
+
+    def test_delete_source_group(self):
+        """Source group can be deleted from session state."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.group_definitions.append(SourceGroupDefinition("GRP1", ["S1"]))
+        sp.group_definitions.append(SourceGroupDefinition("GRP2", ["S2"]))
+        assert len(sp.group_definitions) == 2
+        del sp.group_definitions[0]
+        assert len(sp.group_definitions) == 1
+        assert sp.group_definitions[0].group_name == "GRP2"
+
+    def test_plot_file_groups_in_aermod_output(self):
+        """PLOTFILE with group name appears in generated AERMOD input."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+
+        pyaermod_gui.st.session_state["project_output"] = OutputPathway(
+            plot_file_groups=[("ANNUAL", "GRP1", "plot_grp1.plt")],
+        )
+        pyaermod_gui.st.session_state["project_meteorology"] = MeteorologyPathway(
+            surface_file="test.sfc", profile_file="test.pfl",
+        )
+        project = SessionStateManager.get_project()
+        inp = project.to_aermod_input(validate=False)
+        assert "PLOTFILE" in inp
+        assert "GRP1" in inp
