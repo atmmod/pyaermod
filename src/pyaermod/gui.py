@@ -13,14 +13,13 @@ Requires: pip install pyaermod[gui]
 """
 
 import dataclasses
-import io
 import json
 import math
 import os
 import tempfile
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -59,18 +58,15 @@ from .input_generator import (
     BuoyLineSource,
     CartesianGrid,
     ControlPathway,
-    DepositionMethod,
     DiscreteReceptor,
     EventPathway,
     EventPeriod,
-    GasDepositionParams,
     LineSource,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
-    ParticleDepositionParams,
-    PolarGrid,
     PointSource,
+    PolarGrid,
     PollutantType,
     ReceptorPathway,
     RLineExtSource,
@@ -83,33 +79,35 @@ from .input_generator import (
 
 try:
     from .geospatial import (
+        ContourGenerator,  # noqa: F401
         CoordinateTransformer,
-        ContourGenerator,
         GeoDataFrameFactory,
         RasterExporter,
         VectorExporter,
-        export_concentration_geotiff,
-        export_concentration_shapefile,
+        export_concentration_geotiff,  # noqa: F401
+        export_concentration_shapefile,  # noqa: F401
     )
     HAS_GEO = True
 except ImportError:
     HAS_GEO = False
 
 try:
-    from .runner import AERMODRunner, run_aermod
+    from .runner import AERMODRunner, run_aermod  # noqa: F401
     HAS_RUNNER = True
 except ImportError:
     HAS_RUNNER = False
 
 try:
-    from .output_parser import AERMODOutputParser, parse_aermod_output
+    from .output_parser import AERMODOutputParser, parse_aermod_output  # noqa: F401
     HAS_PARSER = True
 except ImportError:
     HAS_PARSER = False
 
 try:
     from .postfile import (
-        PostfileParser, PostfileResult, UnformattedPostfileParser,
+        PostfileParser,  # noqa: F401
+        PostfileResult,  # noqa: F401
+        UnformattedPostfileParser,  # noqa: F401
         read_postfile,
     )
     HAS_POSTFILE = True
@@ -141,18 +139,18 @@ except ImportError:
     HAS_TERRAIN = False
 
 try:
-    from .bpip import Building, BPIPCalculator, BPIPResult
+    from .bpip import BPIPCalculator, BPIPResult, Building  # noqa: F401
     HAS_BPIP = True
 except ImportError:
     HAS_BPIP = False
 
 try:
     from .aermet import (
-        AERMETStation,
-        UpperAirStation,
         AERMETStage1,
         AERMETStage2,
         AERMETStage3,
+        AERMETStation,
+        UpperAirStation,
     )
     HAS_AERMET = True
 except ImportError:
@@ -409,7 +407,7 @@ class ProjectSerializer:
         # Buildings
         if "buildings" in data:
             try:
-                from .bpip import Building
+                from .bpip import Building  # noqa: F401 — guard import
                 result["buildings"] = [cls._deserialize_building(b) for b in data["buildings"]]
             except ImportError:
                 result["buildings"] = []
@@ -599,8 +597,13 @@ class MapEditor:
     def add_sources_to_map(self, m: "folium.Map", sources: list):
         """Add source markers to a folium map."""
         from .input_generator import (
-            LineSource, RLineSource, RLineExtSource,
-            BuoyLineSource, OpenPitSource, AreaPolySource, AreaCircSource,
+            AreaCircSource,
+            AreaPolySource,
+            BuoyLineSource,
+            LineSource,
+            OpenPitSource,
+            RLineExtSource,
+            RLineSource,
         )
 
         for src in sources:
@@ -1828,7 +1831,7 @@ def page_receptor_editor():
     col2.metric("Polar", n_polar)
     col3.metric("Discrete", n_disc)
 
-    if receptors.cartesian_grids or receptors.polar_grids or receptors.discrete_receptors:
+    if receptors.cartesian_grids or receptors.polar_grids or receptors.discrete_receptors:  # noqa: SIM102
         if st.button("Clear All Receptors", type="secondary"):
             st.session_state["project_receptors"] = ReceptorPathway()
             st.rerun()
@@ -2212,12 +2215,12 @@ def page_run_aermod():
                     )
                 with ev_col2:
                     ev_start = st.text_input(
-                        f"Start (YYMMDDHH)", value="24010101",
+                        "Start (YYMMDDHH)", value="24010101",
                         max_chars=8, key=f"ev_start_{i}",
                     )
                 with ev_col3:
                     ev_end = st.text_input(
-                        f"End (YYMMDDHH)", value="24010124",
+                        "End (YYMMDDHH)", value="24010124",
                         max_chars=8, key=f"ev_end_{i}",
                     )
                 events.append(EventPeriod(

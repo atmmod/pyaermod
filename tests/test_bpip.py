@@ -5,10 +5,11 @@ Tests building geometry, BPIP calculations, and output formatting.
 """
 
 import math
-import pytest
-from pyaermod.bpip import Building, BPIPCalculator, BPIPResult
-from pyaermod.input_generator import PointSource
 
+import pytest
+
+from pyaermod.bpip import BPIPCalculator, BPIPResult, Building
+from pyaermod.input_generator import PointSource
 
 # ---------------------------------------------------------------------------
 # Building dataclass tests

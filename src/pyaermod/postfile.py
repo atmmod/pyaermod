@@ -25,10 +25,11 @@ Based on AERMOD version 24142 POSTFILE specifications.
 
 import re
 import struct
-import pandas as pd
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Union
+from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+import pandas as pd
 
 
 @dataclass
@@ -184,7 +185,7 @@ class PostfileParser:
         header = PostfileHeader()
         data_rows = []
 
-        with open(self.filepath, "r", encoding="utf-8", errors="ignore") as f:
+        with open(self.filepath, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.rstrip("\n")
                 if line.startswith("*"):

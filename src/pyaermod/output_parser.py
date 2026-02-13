@@ -5,13 +5,14 @@ Parses AERMOD output files (.out) and converts results to pandas DataFrames.
 Based on AERMOD version 24142 output format specifications.
 """
 
+import contextlib
 import re
-import pandas as pd
-import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union
 from pathlib import Path
-from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
 
 
 @dataclass
@@ -94,7 +95,7 @@ class AERMODOutputParser:
             raise FileNotFoundError(f"Output file not found: {output_file}")
 
         # Read entire file
-        with open(self.output_file, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(self.output_file, encoding='utf-8', errors='ignore') as f:
             self.content = f.read()
 
         # Parsed data
@@ -231,13 +232,12 @@ class AERMODOutputParser:
                     )
 
                     # Additional parameters if available
-                    if len(parts) > 5 and parts[1] == 'POINT':
-                        if len(parts) >= 10:
-                            source.stack_height = float(parts[5])
-                            source.stack_temp = float(parts[6])
-                            source.exit_velocity = float(parts[7])
-                            source.stack_diameter = float(parts[8])
-                            source.emission_rate = float(parts[9])
+                    if len(parts) > 5 and parts[1] == 'POINT' and len(parts) >= 10:
+                        source.stack_height = float(parts[5])
+                        source.stack_temp = float(parts[6])
+                        source.exit_velocity = float(parts[7])
+                        source.stack_diameter = float(parts[8])
+                        source.emission_rate = float(parts[9])
 
                     self.sources.append(source)
                 except (ValueError, IndexError):
@@ -347,10 +347,8 @@ class AERMODOutputParser:
                     # Additional fields if available
                     if len(parts) > 3:
                         # Might include rank, contributing sources, etc.
-                        try:
+                        with contextlib.suppress(ValueError):
                             row['rank'] = int(parts[3])
-                        except ValueError:
-                            pass
 
                     data_rows.append(row)
 
@@ -524,10 +522,10 @@ class AERMODResults:
 
         lines.append(f"Pollutant: {self.run_info.pollutant_id or 'Unknown'}")
         lines.append(f"Terrain: {self.run_info.terrain_type or 'Unknown'}")
-        lines.append(f"")
+        lines.append("")
         lines.append(f"Sources: {len(self.sources)}")
         lines.append(f"Receptors: {len(self.receptors)}")
-        lines.append(f"")
+        lines.append("")
         lines.append("Concentration Results:")
 
         for period in sorted(self.concentrations.keys()):
@@ -618,7 +616,7 @@ if __name__ == "__main__":
 
         # Show first few concentration values
         if results.concentrations:
-            period = list(results.concentrations.keys())[0]
+            period = next(iter(results.concentrations.keys()))
             df = results.get_concentrations(period)
             print(f"\nFirst 10 {period} concentrations:")
             print(df.head(10))

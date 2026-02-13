@@ -3,12 +3,13 @@ Unit tests for PyAERMOD AERMET input generator
 """
 
 import pytest
+
 from pyaermod.aermet import (
-    AERMETStation,
-    UpperAirStation,
     AERMETStage1,
     AERMETStage2,
     AERMETStage3,
+    AERMETStation,
+    UpperAirStation,
     write_aermet_runfile,
 )
 

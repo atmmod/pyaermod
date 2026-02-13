@@ -5,16 +5,15 @@ Advanced plotting capabilities including 3D visualizations, wind roses,
 animations, and publication-quality figure generation.
 """
 
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Tuple, Dict
-from pathlib import Path
 
 try:
-    import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
-    from matplotlib import cm
-    from mpl_toolkits.mplot3d import Axes3D
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — registers 3d projection
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -139,7 +138,7 @@ class AdvancedVisualizer:
         dir_width = 2 * np.pi / bins
 
         # Calculate frequencies
-        for i, (speed_min, speed_max) in enumerate(zip(speed_bins[:-1], speed_bins[1:])):
+        for i, (speed_min, speed_max) in enumerate(zip(speed_bins[:-1], speed_bins[1:])):  # noqa: RUF007
             # Filter by speed
             mask = (wind_speeds >= speed_min) & (wind_speeds < speed_max)
             directions_subset = wind_directions[mask]

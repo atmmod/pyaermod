@@ -5,10 +5,11 @@ Tests DEM downloading (mocked), AERMAP runner, AERMAP output parsing,
 and terrain processor pipeline logic.
 """
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
 
 from pyaermod.input_generator import (
     AERMODProject,
@@ -21,17 +22,15 @@ from pyaermod.input_generator import (
     ReceptorPathway,
     SourcePathway,
 )
-
 from pyaermod.terrain import (
     AERMAPOutputParser,
-    AERMAPRunResult,
     AERMAPRunner,
+    AERMAPRunResult,
     DEMDownloader,
     DEMTileInfo,
     TerrainProcessor,
     run_aermap,
 )
-
 
 # ============================================================================
 # TestDEMTileInfo
@@ -73,9 +72,8 @@ class TestDEMDownloader:
     @pytest.fixture
     def mock_requests(self):
         """Mock requests module for DEMDownloader."""
-        with patch("pyaermod.terrain.requests") as mock_req:
-            with patch("pyaermod.terrain.HAS_REQUESTS", True):
-                yield mock_req
+        with patch("pyaermod.terrain.requests") as mock_req, patch("pyaermod.terrain.HAS_REQUESTS", True):
+            yield mock_req
 
     def test_find_tiles_returns_list(self, mock_requests, tmp_path):
         mock_response = MagicMock()

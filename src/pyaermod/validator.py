@@ -8,9 +8,8 @@ AERMOD rejects at runtime.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 from pathlib import Path
-
+from typing import List
 
 # Valid AERMOD averaging periods
 VALID_AVERAGING_PERIODS = {
@@ -275,9 +274,16 @@ class Validator:
     @classmethod
     def _validate_source(cls, source, control, result: ValidationResult):
         from pyaermod.input_generator import (
-            PointSource, AreaSource, AreaCircSource, AreaPolySource,
-            VolumeSource, LineSource, RLineSource,
-            RLineExtSource, BuoyLineSource, OpenPitSource,
+            AreaCircSource,
+            AreaPolySource,
+            AreaSource,
+            BuoyLineSource,
+            LineSource,
+            OpenPitSource,
+            PointSource,
+            RLineExtSource,
+            RLineSource,
+            VolumeSource,
         )
 
         if isinstance(source, PointSource):
@@ -593,32 +599,28 @@ class Validator:
             ))
 
         # Barrier validation
-        if src.barrier_height_1 is not None:
-            if src.barrier_height_1 < 0:
-                result.errors.append(ValidationError(
-                    name, "barrier_height_1",
-                    f"must be >= 0, got {src.barrier_height_1}"
-                ))
-        if src.barrier_height_2 is not None:
-            if src.barrier_height_2 < 0:
-                result.errors.append(ValidationError(
-                    name, "barrier_height_2",
-                    f"must be >= 0, got {src.barrier_height_2}"
-                ))
+        if src.barrier_height_1 is not None and src.barrier_height_1 < 0:
+            result.errors.append(ValidationError(
+                name, "barrier_height_1",
+                f"must be >= 0, got {src.barrier_height_1}"
+            ))
+        if src.barrier_height_2 is not None and src.barrier_height_2 < 0:
+            result.errors.append(ValidationError(
+                name, "barrier_height_2",
+                f"must be >= 0, got {src.barrier_height_2}"
+            ))
 
         # Depression validation
-        if src.depression_depth is not None:
-            if src.depression_depth > 0:
-                result.errors.append(ValidationError(
-                    name, "depression_depth",
-                    f"must be <= 0 (negative depth), got {src.depression_depth}"
-                ))
-        if src.depression_wtop is not None:
-            if src.depression_wtop < 0:
-                result.errors.append(ValidationError(
-                    name, "depression_wtop",
-                    f"must be >= 0, got {src.depression_wtop}"
-                ))
+        if src.depression_depth is not None and src.depression_depth > 0:
+            result.errors.append(ValidationError(
+                name, "depression_depth",
+                f"must be <= 0 (negative depth), got {src.depression_depth}"
+            ))
+        if src.depression_wtop is not None and src.depression_wtop < 0:
+            result.errors.append(ValidationError(
+                name, "depression_wtop",
+                f"must be >= 0, got {src.depression_wtop}"
+            ))
         if src.depression_wbottom is not None:
             if src.depression_wbottom < 0:
                 result.errors.append(ValidationError(
@@ -659,7 +661,7 @@ class Validator:
                 "must have at least one line segment"
             ))
 
-        for i, seg in enumerate(src.line_segments):
+        for _i, seg in enumerate(src.line_segments):
             seg_name = f"BuoyLineSegment({seg.source_id})"
             if seg.emission_rate < 0:
                 result.errors.append(ValidationError(

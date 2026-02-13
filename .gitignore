@@ -19,8 +19,11 @@ env/
 .DS_Store
 Thumbs.db
 
-# pytest
+# pytest / coverage
 .pytest_cache/
+htmlcov/
+coverage.xml
+.coverage
 
 # Generated AERMOD input/output files
 *.inp

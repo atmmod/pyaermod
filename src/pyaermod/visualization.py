@@ -4,15 +4,13 @@ PyAERMOD Visualization Tools
 Create publication-ready plots and interactive maps for AERMOD results.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Optional, List, Tuple, Union
 from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+import numpy as np
 
 try:
     import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
-    from matplotlib import cm
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -20,7 +18,6 @@ except ImportError:
 
 try:
     import folium
-    from folium import plugins
     HAS_FOLIUM = True
 except ImportError:
     HAS_FOLIUM = False
@@ -53,7 +50,7 @@ class AERMODVisualizer:
                      units: str = 'ug/m³',
                      figsize: Tuple[int, int] = (12, 10),
                      save_path: Optional[Union[str, Path]] = None,
-                     dpi: int = 300) -> 'matplotlib.figure.Figure':
+                     dpi: int = 300) -> 'matplotlib.figure.Figure':  # noqa: F821
         """
         Create concentration contour plot
 
@@ -109,7 +106,7 @@ class AERMODVisualizer:
         ax.clabel(contour, inline=True, fontsize=8, fmt='%.1f')
 
         # Add colorbar
-        cbar = plt.colorbar(contourf, ax=ax, label=f'Concentration ({units})')
+        plt.colorbar(contourf, ax=ax, label=f'Concentration ({units})')
 
         # Show source locations
         if show_sources and self.results.sources:
@@ -266,7 +263,7 @@ class AERMODVisualizer:
                         averaging_periods: Optional[List[str]] = None,
                         title: Optional[str] = None,
                         figsize: Tuple[int, int] = (12, 6),
-                        save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':
+                        save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
         """
         Plot concentration time series at a specific receptor
 
@@ -327,7 +324,7 @@ class AERMODVisualizer:
                        metric: str = 'max',
                        title: Optional[str] = None,
                        figsize: Tuple[int, int] = (10, 6),
-                       save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':
+                       save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
         """
         Compare multiple AERMOD runs
 
@@ -383,7 +380,7 @@ class AERMODVisualizer:
         ax.grid(True, alpha=0.3, axis='y')
 
         # Add value labels on bars
-        for i, (bar, value) in enumerate(zip(bars, values)):
+        for _i, (bar, value) in enumerate(zip(bars, values)):
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height,
                    f'{value:.2f}',
@@ -403,7 +400,7 @@ class AERMODVisualizer:
 
 def quick_plot(results,
               averaging_period: str = 'ANNUAL',
-              save_path: Optional[str] = None) -> 'matplotlib.figure.Figure':
+              save_path: Optional[str] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
     """
     Quick contour plot with default settings
 
@@ -442,8 +439,9 @@ def quick_map(results,
 # ============================================================================
 
 if __name__ == "__main__":
-    from pyaermod.output_parser import parse_aermod_output
     import sys
+
+    from pyaermod.output_parser import parse_aermod_output
 
     if len(sys.argv) > 1:
         output_file = sys.argv[1]

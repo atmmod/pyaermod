@@ -10,10 +10,11 @@ use a mock module injected before import.
 
 import math
 import sys
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from pyaermod.input_generator import (
     AERMODProject,
@@ -29,8 +30,8 @@ from pyaermod.input_generator import (
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
-    PolarGrid,
     PointSource,
+    PolarGrid,
     PollutantType,
     ReceptorPathway,
     RLineExtSource,
@@ -53,12 +54,15 @@ if "streamlit_folium" not in sys.modules:
     sys.modules["streamlit_folium"] = MagicMock()
 
 # Now import the GUI module (it will use our mock if streamlit isn't installed)
-import pyaermod.gui as pyaermod_gui
-from pyaermod.gui import (
-    SessionStateManager, MapEditor, SourceFormFactory, ProjectSerializer,
+import pyaermod.gui as pyaermod_gui  # noqa: E402
+from pyaermod.gui import (  # noqa: E402
+    MapEditor,
+    ProjectSerializer,
+    SessionStateManager,
+    SourceFormFactory,
     _postfile_frames_for_animation,
 )
-from pyaermod.postfile import PostfileHeader, PostfileResult
+from pyaermod.postfile import PostfileHeader, PostfileResult  # noqa: E402
 
 
 def _fresh_session_state():
@@ -720,7 +724,7 @@ class TestBPIPIntegration:
         assert pyaermod_gui.st.session_state["buildings"][0].building_id == "B1"
 
     def test_bpip_calculation_populates_point_source(self):
-        from pyaermod.bpip import Building, BPIPCalculator
+        from pyaermod.bpip import BPIPCalculator, Building
         bldg = Building("B1", [(0, 0), (50, 0), (50, 30), (0, 30)], 20.0)
         src = PointSource(
             source_id="STK1", x_coord=25.0, y_coord=15.0,
@@ -742,6 +746,7 @@ class TestBPIPIntegration:
 
     def test_building_serialization_round_trip(self):
         import json
+
         from pyaermod.bpip import Building
         _fresh_session_state()
         SessionStateManager.initialize()
@@ -780,7 +785,7 @@ class TestAERMETConfiguration:
         assert pyaermod_gui.st.session_state["aermet_stage1"] is None
 
     def test_aermet_stage1_construction(self):
-        from pyaermod.aermet import AERMETStation, UpperAirStation, AERMETStage1
+        from pyaermod.aermet import AERMETStage1, AERMETStation, UpperAirStation
         station = AERMETStation(
             station_id="KATL", station_name="Atlanta",
             latitude=33.63, longitude=-84.44, time_zone=-5,
@@ -817,7 +822,7 @@ class TestAERMETConfiguration:
             AERMETStage3(albedo=[0.15] * 6)
 
     def test_aermet_serialization_round_trip(self):
-        from pyaermod.aermet import AERMETStation, UpperAirStation, AERMETStage1, AERMETStage3
+        from pyaermod.aermet import AERMETStage1, AERMETStage3, AERMETStation, UpperAirStation
         _fresh_session_state()
         SessionStateManager.initialize()
 
@@ -898,7 +903,7 @@ class TestPostfileGUI:
     def test_postfile_frame_extraction_columns(self):
         """Frames have uppercase X, Y, CONC columns for animation."""
         pf = self._make_postfile_result(num_receptors=4, num_timesteps=2)
-        frames, dates = _postfile_frames_for_animation(pf)
+        frames, _dates = _postfile_frames_for_animation(pf)
 
         for frame in frames:
             assert "X" in frame.columns
@@ -924,7 +929,7 @@ class TestPostfileGUI:
     def test_postfile_frame_extraction_sorted_dates(self):
         """Dates are returned in sorted order."""
         pf = self._make_postfile_result(num_receptors=2, num_timesteps=5)
-        frames, dates = _postfile_frames_for_animation(pf)
+        _frames, dates = _postfile_frames_for_animation(pf)
 
         assert dates == sorted(dates)
         assert len(dates) == 5

@@ -1,11 +1,11 @@
 # PyAERMOD Development Continuation Notes
 
-## Project State (as of Feb 12, 2026)
+## Project State (as of Feb 13, 2026)
 
 PyAERMOD v0.2.0 — Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
-**Test suite**: 525 tests (525 passed, 2 skipped) across 14 test files.
-**CI status**: Passing on Python 3.11, 3.12, 3.13
+**Test suite**: 622 tests (622 passed, 2 skipped) across 15 test files. **89.0% code coverage.**
+**CI status**: Passing on Python 3.11, 3.12, 3.13 (with ruff lint + coverage reporting)
 
 ---
 
@@ -109,6 +109,28 @@ Set up mkdocs documentation site with auto-generated API reference, GUI user gui
 
 7. **Build infrastructure** — `docs/requirements.txt` (mkdocs, mkdocs-material, mkdocstrings), `site/` added to `.gitignore`.
 
+### Session 14: Testing & Quality — Priority 6 (Feb 13, 2026)
+
+Implemented all 8 Priority 6 sub-tasks:
+
+1. **Coverage infrastructure** — `.coveragerc` with source/omit/exclude config, `pytest.ini` updated with `--cov` flags, `.gitignore` updated for `htmlcov/`, `coverage.xml`, `.coverage`.
+
+2. **Ruff linting** — Replaced flake8 with ruff in `setup.py` dev deps. Added `[tool.ruff]` to `pyproject.toml` (E/W/F/I/UP/B/SIM/RUF rules, line-length=120, py311 target). Auto-fixed 75 violations, manually fixed 54 more across 14 source/test files. Zero violations remaining.
+
+3. **Shared fixtures** — `tests/conftest.py` with `valid_point_source`, `valid_area_source`, `valid_volume_source`, `valid_project`, `sample_concentration_df`, `fake_aermod_exe` fixtures.
+
+4. **Parametrized tests** — Added `@pytest.mark.parametrize` tests: 10-case source keyword check, 9-case deposition keyword check, 15-case point source field validation, 14-case cross-source emission validation, 6-case release height validation.
+
+5. **Coverage gap-filling** — 15 new runner tests (run_aermod convenience, _extract_error_message 6 paths, timeout/OSError, run_batch 3 paths, parameter_sweep). 5 new visualization tests (quick_plot, contour save PNG/PDF). 9 new output parser tests (warnings, empty/malformed files, edge cases).
+
+6. **Hypothesis property-based tests** — `tests/test_property_based.py` with 10 tests using custom strategies (source_ids, coords, positive_floats). Fuzz PointSource/AreaSource/VolumeSource/CartesianGrid generation, validator boundary detection, deposition/background roundtrips.
+
+7. **CI pipeline** — `.github/workflows/tests.yml` updated: ruff lint step before tests, pytest with `--cov` and XML report, coverage artifact upload on Python 3.12.
+
+8. **Pre-commit** — `.pre-commit-config.yaml` with ruff (check + format) and pre-commit-hooks (trailing-whitespace, end-of-file-fixer, check-yaml, check-added-large-files).
+
+Test count: 525 → 622 passed, 2 skipped. **Code coverage: 89.0%.** Hypothesis tests marked `@pytest.mark.slow`.
+
 ### Session 13: Additional Features — Priority 5 (Feb 12, 2026)
 
 Implemented all 4 Priority 5 sub-tasks:
@@ -169,7 +191,7 @@ pyaermod/
 ├── Dockerfile               # One-command GUI launch
 ├── .dockerignore
 ├── benchmarks/              # Performance benchmarks (3 scripts)
-├── tests/                   # 14 test files, 525 tests
+├── tests/                   # 15 test files, 622 tests (89% coverage)
 ├── examples/
 │   ├── area_sources.py
 │   ├── volume_sources.py
@@ -216,7 +238,8 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 - `pip install -e .` — installs correctly, finds package in `src/`
 - `python -c "import pyaermod; pyaermod.print_info()"` — prints v0.2.0 info
 - `python -c "from pyaermod.input_generator import PointSource"` — direct submodule import works
-- `pytest` — 525 passed, 2 skipped (skips are tests requiring AERMOD/AERMAP executables or specific runtime conditions)
+- `pytest` — 622 passed, 2 skipped (skips are tests requiring AERMOD/AERMAP executables or specific runtime conditions)
+- `ruff check src/ tests/` — passes with zero violations
 - GitHub Actions CI — passing on Python 3.11, 3.12, 3.13
 
 ---
@@ -233,14 +256,9 @@ Cross-module imports in src/pyaermod/ use relative: `from .input_generator impor
 ### ~~Priority 3: POSTFILE Enhancements~~ ✅ Done (Session 10)
 ### ~~Priority 4: Documentation & Docker~~ ✅ Done (Sessions 11-12)
 ### ~~Priority 5: Additional Features~~ ✅ Done (Session 13)
+### ~~Priority 6: Testing & Quality~~ ✅ Done (Session 14)
 
 ## Recommended Next Development Steps
-
-### Priority 6: Testing & Quality
-- Integration tests with real AERMOD runs (requires executable)
-- Property-based testing with Hypothesis for input generation
-- Code coverage analysis and gap filling
-- Linting/formatting enforcement (ruff, black)
 
 ### Priority 7: Advanced Features
 - Multi-source group management (custom SRCGROUP definitions)

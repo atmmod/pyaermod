@@ -8,13 +8,12 @@ Requires: pip install pyaermod[terrain]
 """
 
 import logging
-import subprocess
 import shutil
-import platform
-from dataclasses import dataclass, field
+import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 try:
     import requests
@@ -338,7 +337,7 @@ class AERMAPOutputParser:
     """
 
     @staticmethod
-    def parse_receptor_output(filepath: Union[str, Path]) -> "pd.DataFrame":
+    def parse_receptor_output(filepath: Union[str, Path]) -> "pd.DataFrame":  # noqa: F821
         """Parse AERMAP receptor output to extract elevations and hill heights.
 
         Handles both discrete (DISCCART) and grid (GRIDCART ELEV/HILL) formats.
@@ -366,12 +365,12 @@ class AERMAPOutputParser:
         grid_hills = {}   # row_num -> list of hills
         grid_x_init = None
         grid_y_init = None
-        grid_x_num = None
-        grid_y_num = None
+        _grid_x_num = None
+        _grid_y_num = None
         grid_x_delta = None
         grid_y_delta = None
 
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             for line in f:
                 stripped = line.strip()
 
@@ -398,10 +397,10 @@ class AERMAPOutputParser:
                     try:
                         idx = parts.index("XYINC")
                         grid_x_init = float(parts[idx + 1])
-                        grid_x_num = int(parts[idx + 2])
+                        _grid_x_num = int(parts[idx + 2])
                         grid_x_delta = float(parts[idx + 3])
                         grid_y_init = float(parts[idx + 4])
-                        grid_y_num = int(parts[idx + 5])
+                        _grid_y_num = int(parts[idx + 5])
                         grid_y_delta = float(parts[idx + 6])
                     except (ValueError, IndexError):
                         continue
@@ -445,7 +444,7 @@ class AERMAPOutputParser:
         return pd.DataFrame(records)
 
     @staticmethod
-    def parse_source_output(filepath: Union[str, Path]) -> "pd.DataFrame":
+    def parse_source_output(filepath: Union[str, Path]) -> "pd.DataFrame":  # noqa: F821
         """Parse AERMAP source output to extract base elevations.
 
         Format: "SO LOCATION  srcid(A12)  type(A8)  x(F12.2)  y(F12.2)  zelev(F12.2)"
@@ -467,7 +466,7 @@ class AERMAPOutputParser:
             raise FileNotFoundError(f"AERMAP source output not found: {filepath}")
 
         records = []
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             for line in f:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("**"):

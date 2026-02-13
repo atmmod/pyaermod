@@ -76,10 +76,10 @@ setup(
             "requests>=2.25.0",
         ],
         "dev": [
-            "pytest>=6.0",
-            "pytest-cov>=2.0",
-            "black>=21.0",
-            "flake8>=3.9",
+            "pytest>=7.0",
+            "pytest-cov>=4.0",
+            "ruff>=0.4.0",
+            "hypothesis>=6.82.0",
         ],
     },
     entry_points={

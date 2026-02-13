@@ -7,20 +7,20 @@ OutputPathway, and unformatted (binary) POSTFILE parsing.
 """
 
 import struct
-import pytest
-import pandas as pd
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
+from pyaermod.input_generator import OutputPathway
 from pyaermod.postfile import (
     PostfileHeader,
     PostfileParser,
     PostfileResult,
     UnformattedPostfileParser,
-    read_postfile,
     _is_text_postfile,
+    read_postfile,
 )
-from pyaermod.input_generator import OutputPathway
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

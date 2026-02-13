@@ -1,6 +1,6 @@
 """Benchmark AERMOD output parsing speed."""
-import time
 import tempfile
+import time
 from pathlib import Path
 
 from pyaermod.output_parser import AERMODOutputParser

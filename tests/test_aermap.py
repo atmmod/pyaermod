@@ -3,11 +3,12 @@ Unit tests for PyAERMOD AERMAP input generator
 """
 
 import pytest
+
 from pyaermod.aermap import (
     AERMAPDomain,
+    AERMAPProject,
     AERMAPReceptor,
     AERMAPSource,
-    AERMAPProject,
     create_grid_receptors_for_aermap,
 )
 
@@ -298,7 +299,7 @@ class TestCreateGridReceptors:
 
     def test_fine_spacing(self):
         """Test fine grid spacing"""
-        x_init, y_init, x_num, y_num = create_grid_receptors_for_aermap(
+        _x_init, _y_init, x_num, y_num = create_grid_receptors_for_aermap(
             x_min=0.0, x_max=100.0,
             y_min=0.0, y_max=100.0,
             spacing=10.0

@@ -6,9 +6,9 @@ Based on AERMOD version 24142 keyword specifications.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union, Tuple
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
 
 class TerrainType(Enum):

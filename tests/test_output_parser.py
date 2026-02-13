@@ -5,22 +5,23 @@ Since we don't have a real AERMOD output file, we test the dataclasses,
 the AERMODResults methods, and parser behavior with synthetic data.
 """
 
-import pytest
+import os
+import tempfile
+
 import numpy as np
 import pandas as pd
-import tempfile
-import os
+import pytest
+
 from pyaermod.output_parser import (
-    ModelRunInfo,
-    SourceSummary,
-    ReceptorInfo,
-    ConcentrationResult,
     AERMODOutputParser,
     AERMODResults,
+    ConcentrationResult,
+    ModelRunInfo,
+    ReceptorInfo,
+    SourceSummary,
     parse_aermod_output,
     quick_summary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -348,3 +349,158 @@ class TestConvenienceFunctions:
         summary = quick_summary(str(outfile))
         assert "AERMOD Results Summary" in summary
         assert "SYNTH_TEST" in summary
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests — warnings in output, empty/malformed files
+# ---------------------------------------------------------------------------
+
+OUTPUT_WITH_WARNINGS = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: WARN_TEST
+Run Date: 02-10-26
+Run Time: 08:00:00
+
+** Model Setup Options Selected **
+
+*** SOURCE LOCATIONS ***
+
+   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV
+   STACK1   POINT      0.00         0.00        10.00
+
+WARNING: Low wind speed detected at hour 1234
+WARNING: Calm processing applied for hour 5678
+
+*** RECEPTOR LOCATIONS ***
+
+   X-COORD      Y-COORD
+   100.00       200.00
+
+*** ANNUAL RESULTS ***
+
+   100.00    200.00    3.210
+"""
+
+
+class TestParserWithWarnings:
+    """Test that the parser handles output files containing warning lines."""
+
+    def test_parse_with_warning_lines(self, tmp_path):
+        """Parser should still extract results when warnings are present."""
+        outfile = tmp_path / "warn.out"
+        outfile.write_text(OUTPUT_WITH_WARNINGS)
+
+        results = parse_aermod_output(str(outfile))
+        assert results.run_info.jobname == "WARN_TEST"
+        assert len(results.sources) == 1
+        assert "ANNUAL" in results.concentrations
+        assert results.concentrations["ANNUAL"].max_value == pytest.approx(3.210)
+
+    def test_warning_lines_dont_corrupt_source_parsing(self, tmp_path):
+        """Warning lines between sections should not be parsed as sources."""
+        outfile = tmp_path / "warn.out"
+        outfile.write_text(OUTPUT_WITH_WARNINGS)
+
+        parser = AERMODOutputParser(str(outfile))
+        parser.run_info = ModelRunInfo("24142", "TEST")
+        parser._parse_sources()
+
+        # Only STACK1 should be parsed, not the WARNING lines
+        assert len(parser.sources) == 1
+        assert parser.sources[0].source_id == "STACK1"
+
+
+class TestEmptyAndMalformedOutput:
+    """Test parser behavior with empty or malformed output files."""
+
+    def test_empty_file(self, tmp_path):
+        """An empty output file should parse without crashing."""
+        outfile = tmp_path / "empty.out"
+        outfile.write_text("")
+
+        parser = AERMODOutputParser(str(outfile))
+        results = parser.parse()
+
+        assert results.run_info is not None
+        assert results.run_info.version == "Unknown"
+        assert results.run_info.jobname == "Unknown"
+        assert len(results.sources) == 0
+        assert len(results.receptors) == 0
+        assert len(results.concentrations) == 0
+
+    def test_file_with_only_whitespace(self, tmp_path):
+        """A whitespace-only output file should parse without crashing."""
+        outfile = tmp_path / "blank.out"
+        outfile.write_text("   \n\n   \n")
+
+        parser = AERMODOutputParser(str(outfile))
+        results = parser.parse()
+
+        assert results.run_info.version == "Unknown"
+        assert len(results.concentrations) == 0
+
+    def test_malformed_concentration_lines(self, tmp_path):
+        """Malformed data lines in concentration section should be skipped."""
+        content = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: MAL_TEST
+
+*** ANNUAL RESULTS ***
+
+   not_a_number    also_bad    nope
+   100.00    200.00    5.432
+   bad line here
+"""
+        outfile = tmp_path / "malformed.out"
+        outfile.write_text(content)
+
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_concentration_results()
+
+        assert "ANNUAL" in parser.concentrations
+        # Only the valid row should be parsed
+        assert len(parser.concentrations["ANNUAL"].data) == 1
+        assert parser.concentrations["ANNUAL"].max_value == pytest.approx(5.432)
+
+    def test_no_concentration_results_section(self, tmp_path):
+        """File with no results section should have empty concentrations."""
+        content = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: NORESULTS
+
+*** SOURCE LOCATIONS ***
+
+   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV
+   STACK1   POINT      0.00         0.00        10.00
+"""
+        outfile = tmp_path / "noresults.out"
+        outfile.write_text(content)
+
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_concentration_results()
+
+        assert len(parser.concentrations) == 0
+
+    def test_from_file_classmethod(self, tmp_path):
+        """AERMODResults.from_file() should work the same as parse_aermod_output()."""
+        outfile = tmp_path / "test.out"
+        outfile.write_text(MINIMAL_OUTPUT)
+
+        results = AERMODResults.from_file(str(outfile))
+        assert results.run_info.jobname == "SYNTH_TEST"
+        assert "ANNUAL" in results.concentrations
+
+    def test_get_receptors_dataframe_empty(self):
+        """get_receptors_dataframe() on empty receptors returns empty DataFrame."""
+        results = AERMODResults(
+            run_info=ModelRunInfo("24142", "EMPTY"),
+            sources=[],
+            receptors=[],
+            concentrations={},
+            output_file="empty.out",
+        )
+        df = results.get_receptors_dataframe()
+        assert len(df) == 0

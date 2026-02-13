@@ -6,19 +6,20 @@ and GIS export (GeoTIFF, vector files) using synthetic data.
 """
 
 import math
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
 
 # Skip entire module if core geo dependencies are missing
 pyproj = pytest.importorskip("pyproj")
 gpd = pytest.importorskip("geopandas")
 shapely = pytest.importorskip("shapely")
 
-from pyaermod.geospatial import (
-    CoordinateTransformer,
+from pyaermod.geospatial import (  # noqa: E402
     ContourGenerator,
+    CoordinateTransformer,
     GeoDataFrameFactory,
     RasterExporter,
     VectorExporter,
@@ -27,7 +28,7 @@ from pyaermod.geospatial import (
     latlon_to_utm,
     utm_to_latlon,
 )
-from pyaermod.input_generator import (
+from pyaermod.input_generator import (  # noqa: E402
     AreaCircSource,
     AreaPolySource,
     AreaSource,
@@ -37,14 +38,13 @@ from pyaermod.input_generator import (
     DiscreteReceptor,
     LineSource,
     OpenPitSource,
-    PolarGrid,
     PointSource,
+    PolarGrid,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
     VolumeSource,
 )
-
 
 # ============================================================================
 # FIXTURES

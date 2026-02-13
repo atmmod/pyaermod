@@ -5,35 +5,36 @@ Tests input file generation for all source types.
 """
 
 import pytest
+
 from pyaermod.input_generator import (
+    AERMODProject,
+    AreaCircSource,
+    AreaPolySource,
+    AreaSource,
     BackgroundConcentration,
     BackgroundSector,
+    BuoyLineSegment,
+    BuoyLineSource,
+    CartesianGrid,
     ControlPathway,
     DepositionMethod,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
-    ParticleDepositionParams,
-    SourcePathway,
-    PointSource,
-    AreaSource,
-    AreaCircSource,
-    AreaPolySource,
-    VolumeSource,
     LineSource,
-    RLineSource,
-    RLineExtSource,
-    BuoyLineSource,
-    BuoyLineSegment,
-    OpenPitSource,
-    ReceptorPathway,
-    CartesianGrid,
-    PolarGrid,
     MeteorologyPathway,
+    OpenPitSource,
     OutputPathway,
-    AERMODProject,
+    ParticleDepositionParams,
+    PointSource,
+    PolarGrid,
     PollutantType,
-    TerrainType
+    ReceptorPathway,
+    RLineExtSource,
+    RLineSource,
+    SourcePathway,
+    TerrainType,
+    VolumeSource,
 )
 
 
@@ -389,7 +390,7 @@ class TestRLineExtSource:
         output = source.to_aermod_input()
         assert "RBARRIER" in output
         # Only one barrier — no second set of height/dcl
-        rbarrier_line = [l for l in output.split("\n") if "RBARRIER" in l][0]
+        rbarrier_line = next(l for l in output.split("\n") if "RBARRIER" in l)
         parts = rbarrier_line.split()
         assert len(parts) == 4  # RBARRIER SrcID Ht Dcl
 
@@ -423,7 +424,7 @@ class TestRLineExtSource:
         )
         output = source.to_aermod_input()
         assert "SRCPARAM" in output
-        srcparam_line = [l for l in output.split("\n") if "SRCPARAM" in l][0]
+        srcparam_line = next(l for l in output.split("\n") if "SRCPARAM" in l)
         assert "0.001360" in srcparam_line
         assert "30.00" in srcparam_line
 
@@ -469,7 +470,7 @@ class TestBuoyLineSource:
         assert "BL01" in output
         assert "BL02" in output
         # BLPGROUP should list both segment IDs
-        blpgroup_line = [l for l in output.split("\n") if "BLPGROUP" in l][0]
+        blpgroup_line = next(l for l in output.split("\n") if "BLPGROUP" in l)
         assert "BL01" in blpgroup_line
         assert "BL02" in blpgroup_line
 
@@ -512,7 +513,7 @@ class TestOpenPitSource:
             pit_volume=100000.0, angle=45.0,
         )
         output = source.to_aermod_input()
-        srcparam_line = [l for l in output.split("\n") if "SRCPARAM" in l][0]
+        srcparam_line = next(l for l in output.split("\n") if "SRCPARAM" in l)
         assert "45.00" in srcparam_line
 
     def test_openpit_no_angle_by_default(self):
@@ -522,7 +523,7 @@ class TestOpenPitSource:
             x_dimension=200.0, y_dimension=100.0, pit_volume=100000.0,
         )
         output = source.to_aermod_input()
-        srcparam_line = [l for l in output.split("\n") if "SRCPARAM" in l][0]
+        srcparam_line = next(l for l in output.split("\n") if "SRCPARAM" in l)
         # Should not have angle field
         parts = srcparam_line.split()
         assert len(parts) == 7  # SRCPARAM SrcID Qemis Hs Xinit Yinit Volume
@@ -801,6 +802,416 @@ class TestEventProcessing:
         assert len(ep.events) == 1
         output = ep.to_aermod_input()
         assert "EVT01" in output
+
+
+# ---------------------------------------------------------------------------
+# Parametrized tests: source type keywords
+# ---------------------------------------------------------------------------
+
+
+class TestParametrizedSourceKeywords:
+    """Parametrized tests verifying that all 10 source types produce correct AERMOD keywords."""
+
+    @pytest.mark.parametrize(
+        "source_cls,kwargs,expected_keywords",
+        [
+            (
+                PointSource,
+                {
+                    "source_id": "S1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "stack_height": 50.0,
+                    "stack_diameter": 1.5,
+                    "stack_temp": 400.0,
+                    "exit_velocity": 10.0,
+                    "emission_rate": 1.0,
+                },
+                ["LOCATION", "POINT", "SRCPARAM"],
+            ),
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "emission_rate": 0.5,
+                    "initial_lateral_dimension": 100.0,
+                    "initial_vertical_dimension": 100.0,
+                },
+                ["LOCATION", "AREA", "SRCPARAM"],
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "emission_rate": 0.3,
+                    "release_height": 5.0,
+                    "initial_lateral_dimension": 10.0,
+                    "initial_vertical_dimension": 5.0,
+                },
+                ["LOCATION", "VOLUME", "SRCPARAM"],
+            ),
+            (
+                LineSource,
+                {
+                    "source_id": "L1",
+                    "x_start": -100.0,
+                    "y_start": 0.0,
+                    "x_end": 100.0,
+                    "y_end": 0.0,
+                    "emission_rate": 0.001,
+                },
+                ["LOCATION", "LINE", "SRCPARAM"],
+            ),
+            (
+                RLineSource,
+                {
+                    "source_id": "R1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "x_end": 1000.0,
+                    "y_end": 0.0,
+                    "emission_rate": 0.002,
+                },
+                ["LOCATION", "RLINE", "SRCPARAM"],
+            ),
+            (
+                RLineExtSource,
+                {
+                    "source_id": "RX1",
+                    "x_start": 500000.0,
+                    "y_start": 4200000.0,
+                    "z_start": 1.5,
+                    "x_end": 500500.0,
+                    "y_end": 4200000.0,
+                    "z_end": 1.5,
+                    "emission_rate": 0.00136,
+                    "road_width": 30.0,
+                },
+                ["LOCATION", "RLINEXT", "SRCPARAM"],
+            ),
+            (
+                AreaCircSource,
+                {
+                    "source_id": "C1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "radius": 50.0,
+                    "num_vertices": 20,
+                },
+                ["LOCATION", "AREACIRC", "SRCPARAM"],
+            ),
+            (
+                AreaPolySource,
+                {
+                    "source_id": "P1",
+                    "vertices": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                },
+                ["LOCATION", "AREAPOLY", "SRCPARAM", "AREAVERT"],
+            ),
+            (
+                OpenPitSource,
+                {
+                    "source_id": "OP1",
+                    "x_coord": 500000.0,
+                    "y_coord": 4200000.0,
+                    "x_dimension": 200.0,
+                    "y_dimension": 100.0,
+                    "pit_volume": 100000.0,
+                },
+                ["LOCATION", "OPENPIT", "SRCPARAM"],
+            ),
+            (
+                BuoyLineSource,
+                {
+                    "source_id": "BL1",
+                    "avg_line_length": 100.0,
+                    "avg_building_height": 15.0,
+                    "avg_building_width": 10.0,
+                    "avg_line_width": 5.0,
+                    "avg_building_separation": 20.0,
+                    "avg_buoyancy_parameter": 500.0,
+                    "line_segments": [
+                        BuoyLineSegment(
+                            source_id="BL01",
+                            x_start=500000,
+                            y_start=4200000,
+                            x_end=500100,
+                            y_end=4200000,
+                            emission_rate=10.5,
+                            release_height=4.5,
+                        ),
+                    ],
+                },
+                ["LOCATION", "BUOYLINE", "SRCPARAM", "BLPINPUT", "BLPGROUP"],
+            ),
+        ],
+        ids=[
+            "PointSource",
+            "AreaSource",
+            "VolumeSource",
+            "LineSource",
+            "RLineSource",
+            "RLineExtSource",
+            "AreaCircSource",
+            "AreaPolySource",
+            "OpenPitSource",
+            "BuoyLineSource",
+        ],
+    )
+    def test_source_type_keywords(self, source_cls, kwargs, expected_keywords):
+        """Each source type must produce its expected AERMOD keywords."""
+        source = source_cls(**kwargs)
+        output = source.to_aermod_input()
+        for kw in expected_keywords:
+            assert kw in output, (
+                f"{source_cls.__name__} output missing keyword '{kw}'"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Parametrized tests: deposition keywords across source types
+# ---------------------------------------------------------------------------
+
+
+class TestParametrizedDepositionKeywords:
+    """Parametrized tests verifying deposition keywords across representative source types."""
+
+    @pytest.mark.parametrize(
+        "source_cls,base_kwargs",
+        [
+            (
+                PointSource,
+                {
+                    "source_id": "S1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "stack_height": 50,
+                    "stack_diameter": 1.5,
+                    "stack_temp": 400,
+                    "exit_velocity": 10,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "emission_rate": 0.5,
+                    "initial_lateral_dimension": 100,
+                    "initial_vertical_dimension": 100,
+                },
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "emission_rate": 0.3,
+                    "release_height": 5,
+                    "initial_lateral_dimension": 10,
+                    "initial_vertical_dimension": 5,
+                },
+            ),
+            (
+                LineSource,
+                {
+                    "source_id": "L1",
+                    "x_start": 0,
+                    "y_start": 0,
+                    "x_end": 100,
+                    "y_end": 0,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                RLineSource,
+                {
+                    "source_id": "R1",
+                    "x_start": 0,
+                    "y_start": 0,
+                    "x_end": 1000,
+                    "y_end": 0,
+                    "emission_rate": 0.002,
+                },
+            ),
+            (
+                RLineExtSource,
+                {
+                    "source_id": "RX1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "z_start": 1.5,
+                    "x_end": 500.0,
+                    "y_end": 0.0,
+                    "z_end": 1.5,
+                    "emission_rate": 0.001,
+                    "road_width": 30.0,
+                },
+            ),
+            (
+                AreaCircSource,
+                {
+                    "source_id": "C1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "radius": 50.0,
+                },
+            ),
+            (
+                AreaPolySource,
+                {
+                    "source_id": "P1",
+                    "vertices": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                },
+            ),
+            (
+                OpenPitSource,
+                {
+                    "source_id": "OP1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "x_dimension": 200.0,
+                    "y_dimension": 100.0,
+                    "pit_volume": 100000.0,
+                },
+            ),
+        ],
+        ids=[
+            "PointSource",
+            "AreaSource",
+            "VolumeSource",
+            "LineSource",
+            "RLineSource",
+            "RLineExtSource",
+            "AreaCircSource",
+            "AreaPolySource",
+            "OpenPitSource",
+        ],
+    )
+    def test_gas_deposition_keywords(self, source_cls, base_kwargs):
+        """Gas deposition parameters must produce GASDEPOS keyword for all source types."""
+        gas_dep = GasDepositionParams(
+            diffusivity=0.15, alpha_r=2.0, reactivity=0.5, henry_constant=0.01
+        )
+        source = source_cls(**base_kwargs, gas_deposition=gas_dep)
+        output = source.to_aermod_input()
+        assert "GASDEPOS" in output, (
+            f"{source_cls.__name__} with gas_deposition missing GASDEPOS keyword"
+        )
+
+    @pytest.mark.parametrize(
+        "source_cls,base_kwargs",
+        [
+            (
+                PointSource,
+                {
+                    "source_id": "S1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "stack_height": 50,
+                    "stack_diameter": 1.5,
+                    "stack_temp": 400,
+                    "exit_velocity": 10,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "emission_rate": 0.5,
+                    "initial_lateral_dimension": 100,
+                    "initial_vertical_dimension": 100,
+                },
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "emission_rate": 0.3,
+                    "release_height": 5,
+                    "initial_lateral_dimension": 10,
+                    "initial_vertical_dimension": 5,
+                },
+            ),
+        ],
+        ids=["PointSource", "AreaSource", "VolumeSource"],
+    )
+    def test_particle_deposition_keywords(self, source_cls, base_kwargs):
+        """Particle deposition params must produce PARTDIAM/MASSFRAX/PARTDENS keywords."""
+        particle_dep = ParticleDepositionParams(
+            diameters=[1.0, 5.0, 10.0],
+            mass_fractions=[0.3, 0.5, 0.2],
+            densities=[2.5, 2.5, 2.5],
+        )
+        source = source_cls(**base_kwargs, particle_deposition=particle_dep)
+        output = source.to_aermod_input()
+        assert "PARTDIAM" in output
+        assert "MASSFRAX" in output
+        assert "PARTDENS" in output
+
+    @pytest.mark.parametrize(
+        "source_cls,base_kwargs",
+        [
+            (
+                PointSource,
+                {
+                    "source_id": "S1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "stack_height": 50,
+                    "stack_diameter": 1.5,
+                    "stack_temp": 400,
+                    "exit_velocity": 10,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "emission_rate": 0.5,
+                    "initial_lateral_dimension": 100,
+                    "initial_vertical_dimension": 100,
+                },
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0,
+                    "y_coord": 0,
+                    "emission_rate": 0.3,
+                    "release_height": 5,
+                    "initial_lateral_dimension": 10,
+                    "initial_vertical_dimension": 5,
+                },
+            ),
+        ],
+        ids=["PointSource", "AreaSource", "VolumeSource"],
+    )
+    def test_no_deposition_omits_keywords(self, source_cls, base_kwargs):
+        """Sources without deposition params must not produce deposition keywords."""
+        source = source_cls(**base_kwargs)
+        output = source.to_aermod_input()
+        assert "GASDEPOS" not in output
+        assert "PARTDIAM" not in output
+        assert "MASSFRAX" not in output
+        assert "PARTDENS" not in output
+        assert "METHOD" not in output
 
 
 # Run tests

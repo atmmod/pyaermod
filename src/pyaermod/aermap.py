@@ -237,7 +237,7 @@ class AERMAPProject:
 
             # Grid receptors
             if self.grid_receptor:
-                lines.append(f"   GRIDCART  GRID     XYINC  " +
+                lines.append("   GRIDCART  GRID     XYINC  " +
                            f"{self.grid_x_init:10.2f} {self.grid_x_num:5d} {self.grid_spacing:8.2f}  " +
                            f"{self.grid_y_init:10.2f} {self.grid_y_num:5d} {self.grid_spacing:8.2f}")
 

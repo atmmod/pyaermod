@@ -9,11 +9,12 @@ Install with: pip install pyaermod[geo]
 """
 
 import math
-import numpy as np
-import pandas as pd
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
 
 try:
     import pyproj
@@ -24,7 +25,10 @@ except ImportError:
 try:
     import geopandas as gpd
     from shapely.geometry import (
-        LineString, MultiPolygon, Point, Polygon, mapping,
+        LineString,
+        MultiPolygon,
+        Point,
+        Polygon,
     )
     HAS_GEOPANDAS = True
 except ImportError:
@@ -234,9 +238,16 @@ class GeoDataFrameFactory:
         geometries for polygonal area sources.
         """
         from pyaermod.input_generator import (
-            AreaCircSource, AreaPolySource, AreaSource,
-            LineSource, PointSource, RLineSource, VolumeSource,
-            RLineExtSource, BuoyLineSource, OpenPitSource,
+            AreaCircSource,
+            AreaPolySource,
+            AreaSource,
+            BuoyLineSource,
+            LineSource,
+            OpenPitSource,
+            PointSource,
+            RLineExtSource,
+            RLineSource,
+            VolumeSource,
         )
 
         records = []

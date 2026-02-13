@@ -5,27 +5,27 @@ Tests class instantiation, parameter validation, and basic method calls
 using mock/synthetic data (no real AERMOD output required).
 """
 
-import pytest
-import numpy as np
-import pandas as pd
-from unittest.mock import MagicMock, patch
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+from unittest.mock import MagicMock, patch
+
+import matplotlib
+import numpy as np
+import pandas as pd
+import pytest
 
 # We need to construct a mock AERMODResults for the visualizer
 from pyaermod.output_parser import (
+    AERMODResults,
+    ConcentrationResult,
     ModelRunInfo,
     SourceSummary,
-    ConcentrationResult,
-    AERMODResults,
 )
 
-import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend for testing
 
-from pyaermod.visualization import AERMODVisualizer, quick_plot, quick_map
 from pyaermod.advanced_viz import AdvancedVisualizer
-
+from pyaermod.visualization import AERMODVisualizer, quick_map, quick_plot
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -311,4 +311,56 @@ class TestAdvancedVisualizerComparison:
 
 
 # Need os for file existence checks
-import os
+import os  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests — quick_plot, plot_contours save to file
+# ---------------------------------------------------------------------------
+
+
+class TestQuickPlot:
+    """Test the quick_plot() convenience function."""
+
+    def test_quick_plot_returns_figure(self, sample_results):
+        import matplotlib.pyplot as plt
+        fig = quick_plot(sample_results, averaging_period="ANNUAL")
+        assert fig is not None
+        assert hasattr(fig, "savefig")  # It is a matplotlib Figure
+        plt.close(fig)
+
+    def test_quick_plot_save_to_file(self, sample_results, tmp_path):
+        import matplotlib.pyplot as plt
+        save_file = str(tmp_path / "quick_plot_output.png")
+        fig = quick_plot(sample_results, averaging_period="ANNUAL", save_path=save_file)
+        assert os.path.exists(save_file)
+        assert os.path.getsize(save_file) > 0
+        plt.close(fig)
+
+
+class TestPlotContoursSaveFile:
+    """Test plot_contours saving to various file formats via tmp_path."""
+
+    def test_plot_contours_save_png(self, sample_results, tmp_path):
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        save_file = str(tmp_path / "contour_test.png")
+        fig = viz.plot_contours(averaging_period="ANNUAL", save_path=save_file)
+        assert os.path.exists(save_file)
+        assert os.path.getsize(save_file) > 100  # non-trivial file
+        plt.close(fig)
+
+    def test_plot_contours_save_pdf(self, sample_results, tmp_path):
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        save_file = str(tmp_path / "contour_test.pdf")
+        fig = viz.plot_contours(averaging_period="ANNUAL", save_path=save_file, dpi=72)
+        assert os.path.exists(save_file)
+        plt.close(fig)
+
+    def test_plot_contours_custom_levels(self, sample_results):
+        """Test with explicit contour levels."""
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        fig = viz.plot_contours(averaging_period="ANNUAL", levels=[0, 50, 100, 200, 500, 1000])
+        assert fig is not None
+        plt.close(fig)

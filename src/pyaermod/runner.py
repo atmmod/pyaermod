@@ -5,16 +5,15 @@ Executes AERMOD binaries from Python with error handling, progress monitoring,
 and batch processing capabilities.
 """
 
-import subprocess
-import shutil
 import logging
-import time
-from pathlib import Path
-from typing import Optional, Union, List, Dict, Tuple
-from dataclasses import dataclass, field
-from datetime import datetime
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import platform
+import shutil
+import subprocess
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
 
 @dataclass
@@ -247,7 +246,7 @@ class AERMODRunner:
         # Check error file
         if output_files['error'].exists():
             try:
-                with open(output_files['error'], 'r') as f:
+                with open(output_files['error']) as f:
                     error_content = f.read(1000)
                     if error_content.strip():
                         messages.append(f"Error file: {error_content[:500]}")
@@ -257,7 +256,7 @@ class AERMODRunner:
         # Check output file for errors
         if output_files['output'].exists():
             try:
-                with open(output_files['output'], 'r') as f:
+                with open(output_files['output']) as f:
                     content = f.read()
                     # Look for error indicators
                     if 'ERROR' in content or 'FATAL' in content:
@@ -362,7 +361,7 @@ class AERMODRunner:
             return False, [f"Input file does not exist: {input_path}"]
 
         try:
-            with open(input_path, 'r') as f:
+            with open(input_path) as f:
                 content = f.read()
 
             # Check for required pathways

@@ -38,126 +38,105 @@ __license__ = "MIT"
 __url__ = "https://github.com/atmmod/pyaermod"
 
 # Import main components for easy access
+# AERMAP terrain preprocessor input generator
+from .aermap import (
+    AERMAPDomain,
+    AERMAPProject,
+    AERMAPReceptor,
+    AERMAPSource,
+)
+from .aermet import (
+    # Processing stages
+    AERMETStage1,
+    AERMETStage2,
+    AERMETStage3,
+    # Station metadata
+    AERMETStation,
+    UpperAirStation,
+    # Utility functions
+    write_aermet_runfile,
+)
 from .input_generator import (
     # Main project class
     AERMODProject,
-
-    # Pathway classes
-    ControlPathway,
-    SourcePathway,
-    ReceptorPathway,
-    MeteorologyPathway,
-    OutputPathway,
-
-    # Source types
-    PointSource,
-
     # Background concentration
     BackgroundConcentration,
     BackgroundSector,
-
-    # Deposition
-    DepositionMethod,
-    GasDepositionParams,
-    ParticleDepositionParams,
-
-    # Event processing
-    EventPeriod,
-    EventPathway,
-
     # Receptor types
     CartesianGrid,
-    PolarGrid,
+    # Pathway classes
+    ControlPathway,
+    # Deposition
+    DepositionMethod,
     DiscreteReceptor,
-
+    EventPathway,
+    # Event processing
+    EventPeriod,
+    GasDepositionParams,
+    MeteorologyPathway,
+    OutputPathway,
+    ParticleDepositionParams,
+    # Source types
+    PointSource,
+    PolarGrid,
     # Enums
     PollutantType,
-    TerrainType,
+    ReceptorPathway,
+    SourcePathway,
     SourceType,
+    TerrainType,
 )
-
+from .output_parser import (
+    # Parser classes
+    AERMODOutputParser,
+    # Result classes
+    AERMODResults,
+    ConcentrationResult,
+    ModelRunInfo,
+    ReceptorInfo,
+    SourceSummary,
+    # Convenience functions
+    parse_aermod_output,
+    quick_summary,
+)
+from .postfile import (
+    # Data classes
+    PostfileHeader,
+    # Parsers
+    PostfileParser,
+    PostfileResult,
+    UnformattedPostfileParser,
+    # Convenience functions
+    read_postfile,
+)
 from .runner import (
     # Runner classes
     AERMODRunner,
     AERMODRunResult,
     BatchRunner,
-
     # Convenience functions
     run_aermod,
 )
-
-from .output_parser import (
-    # Result classes
-    AERMODResults,
-    ModelRunInfo,
-    SourceSummary,
-    ReceptorInfo,
-    ConcentrationResult,
-
-    # Parser classes
-    AERMODOutputParser,
-
-    # Convenience functions
-    parse_aermod_output,
-    quick_summary,
-)
-
 from .visualization import (
     # Visualizer class
     AERMODVisualizer,
-
+    quick_map,
     # Convenience functions
     quick_plot,
-    quick_map,
-)
-
-from .aermet import (
-    # Station metadata
-    AERMETStation,
-    UpperAirStation,
-
-    # Processing stages
-    AERMETStage1,
-    AERMETStage2,
-    AERMETStage3,
-
-    # Utility functions
-    write_aermet_runfile,
-)
-
-from .postfile import (
-    # Data classes
-    PostfileHeader,
-    PostfileResult,
-
-    # Parsers
-    PostfileParser,
-    UnformattedPostfileParser,
-
-    # Convenience functions
-    read_postfile,
-)
-
-# AERMAP terrain preprocessor input generator
-from .aermap import (
-    AERMAPProject,
-    AERMAPDomain,
-    AERMAPReceptor,
-    AERMAPSource,
 )
 
 # Geospatial utilities (optional - requires pyproj, geopandas, rasterio, shapely)
 try:
     from .geospatial import (
+        ContourGenerator,
         CoordinateTransformer,
         GeoDataFrameFactory,
-        ContourGenerator,
         RasterExporter,
         VectorExporter,
-        utm_to_latlon,
-        latlon_to_utm,
         export_concentration_geotiff,
         export_concentration_shapefile,
+        latlon_to_utm,
+        utm_to_latlon,
     )
     HAS_GEOSPATIAL = True
 except ImportError:
@@ -166,11 +145,11 @@ except ImportError:
 # Terrain processing pipeline (optional - requires requests)
 try:
     from .terrain import (
-        DEMTileInfo,
-        DEMDownloader,
+        AERMAPOutputParser,
         AERMAPRunner,
         AERMAPRunResult,
-        AERMAPOutputParser,
+        DEMDownloader,
+        DEMTileInfo,
         TerrainProcessor,
         run_aermap,
     )
@@ -321,7 +300,8 @@ def _check_dependencies():
         warnings.warn(
             "matplotlib not installed. Static plotting will be unavailable. "
             "Install with: pip install matplotlib",
-            ImportWarning
+            ImportWarning,
+            stacklevel=2,
         )
 
     try:
@@ -330,7 +310,8 @@ def _check_dependencies():
         warnings.warn(
             "folium not installed. Interactive maps will be unavailable. "
             "Install with: pip install folium",
-            ImportWarning
+            ImportWarning,
+            stacklevel=2,
         )
 
     try:
@@ -339,7 +320,8 @@ def _check_dependencies():
         warnings.warn(
             "scipy not installed. Contour interpolation will be limited. "
             "Install with: pip install scipy",
-            ImportWarning
+            ImportWarning,
+            stacklevel=2,
         )
 
 

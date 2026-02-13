@@ -5,39 +5,39 @@ Tests validation logic for all pathways and cross-field checks.
 """
 
 import pytest
+
 from pyaermod.input_generator import (
+    AERMODProject,
+    AreaCircSource,
+    AreaPolySource,
+    AreaSource,
     BackgroundConcentration,
     BackgroundSector,
+    BuoyLineSegment,
+    BuoyLineSource,
+    CartesianGrid,
     ControlPathway,
     DepositionMethod,
+    DiscreteReceptor,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
-    ParticleDepositionParams,
-    SourcePathway,
-    PointSource,
-    AreaSource,
-    AreaCircSource,
-    AreaPolySource,
-    VolumeSource,
     LineSource,
-    RLineSource,
-    RLineExtSource,
-    BuoyLineSource,
-    BuoyLineSegment,
-    OpenPitSource,
-    ReceptorPathway,
-    CartesianGrid,
-    PolarGrid,
-    DiscreteReceptor,
     MeteorologyPathway,
+    OpenPitSource,
     OutputPathway,
-    AERMODProject,
+    ParticleDepositionParams,
+    PointSource,
+    PolarGrid,
     PollutantType,
+    ReceptorPathway,
+    RLineExtSource,
+    RLineSource,
+    SourcePathway,
     TerrainType,
+    VolumeSource,
 )
-from pyaermod.validator import Validator, ValidationResult, ValidationError
-
+from pyaermod.validator import ValidationError, ValidationResult, Validator
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -206,7 +206,7 @@ class TestControlValidation:
             control=ControlPathway(title_one="T", half_life=-1.0),
         )
         result = Validator.validate(project)
-        assert any("half_life" in e.field and "error" == e.severity for e in result.errors)
+        assert any("half_life" in e.field and e.severity == "error" for e in result.errors)
 
     def test_negative_decay_coefficient(self):
         project = _make_valid_project(
@@ -1166,3 +1166,397 @@ class TestEventValidation:
         warnings = [e for e in result.errors
                     if "eventfil" in e.field and e.severity == "warning"]
         assert len(warnings) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Parametrized validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestParametrizedValidation:
+    """Parametrized tests for common validation patterns across source types."""
+
+    # -- PointSource field validation --
+
+    @pytest.mark.parametrize(
+        "field_name,value,should_error",
+        [
+            ("stack_height", -1.0, True),
+            ("stack_height", 0.0, True),
+            ("stack_height", 1.0, False),
+            ("stack_diameter", -1.0, True),
+            ("stack_diameter", 0.0, True),
+            ("stack_diameter", 1.0, False),
+            ("stack_temp", -1.0, True),
+            ("stack_temp", 0.0, True),
+            ("stack_temp", 300.0, False),
+            ("exit_velocity", -1.0, True),
+            ("exit_velocity", 0.0, False),
+            ("exit_velocity", 10.0, False),
+            ("emission_rate", -1.0, True),
+            ("emission_rate", 0.0, False),
+            ("emission_rate", 1.0, False),
+        ],
+        ids=[
+            "stack_height_negative",
+            "stack_height_zero",
+            "stack_height_positive",
+            "stack_diameter_negative",
+            "stack_diameter_zero",
+            "stack_diameter_positive",
+            "stack_temp_negative",
+            "stack_temp_zero",
+            "stack_temp_positive",
+            "exit_velocity_negative",
+            "exit_velocity_zero",
+            "exit_velocity_positive",
+            "emission_rate_negative",
+            "emission_rate_zero",
+            "emission_rate_positive",
+        ],
+    )
+    def test_point_source_field_validation(self, field_name, value, should_error):
+        """Validate individual PointSource numeric fields."""
+        defaults = dict(
+            source_id="STK1",
+            x_coord=500.0,
+            y_coord=500.0,
+            stack_height=30.0,
+            stack_diameter=1.5,
+            stack_temp=400.0,
+            exit_velocity=10.0,
+            emission_rate=1.0,
+        )
+        defaults[field_name] = value
+        sources = SourcePathway()
+        sources.add_source(PointSource(**defaults))
+        project = _make_valid_project(sources=sources)
+        result = Validator.validate(project)
+        field_errors = [
+            e
+            for e in result.errors
+            if field_name in e.field and e.severity == "error"
+        ]
+        if should_error:
+            assert len(field_errors) >= 1, (
+                f"Expected validation error for {field_name}={value}"
+            )
+        else:
+            assert len(field_errors) == 0, (
+                f"Unexpected validation error for {field_name}={value}: {field_errors}"
+            )
+
+    # -- Emission rate validation across multiple source types --
+
+    @pytest.mark.parametrize(
+        "source_cls,base_kwargs,emission_value,should_error",
+        [
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "initial_lateral_dimension": 10.0,
+                    "initial_vertical_dimension": 10.0,
+                },
+                -1.0,
+                True,
+            ),
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "initial_lateral_dimension": 10.0,
+                    "initial_vertical_dimension": 10.0,
+                },
+                0.0,
+                False,
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "initial_lateral_dimension": 5.0,
+                    "initial_vertical_dimension": 5.0,
+                },
+                -1.0,
+                True,
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "initial_lateral_dimension": 5.0,
+                    "initial_vertical_dimension": 5.0,
+                },
+                0.0,
+                False,
+            ),
+            (
+                LineSource,
+                {
+                    "source_id": "L1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "x_end": 100.0,
+                    "y_end": 0.0,
+                    "initial_lateral_dimension": 1.0,
+                },
+                -1.0,
+                True,
+            ),
+            (
+                LineSource,
+                {
+                    "source_id": "L1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "x_end": 100.0,
+                    "y_end": 0.0,
+                    "initial_lateral_dimension": 1.0,
+                },
+                0.0,
+                False,
+            ),
+            (
+                AreaCircSource,
+                {
+                    "source_id": "C1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "radius": 50.0,
+                },
+                -1.0,
+                True,
+            ),
+            (
+                AreaCircSource,
+                {
+                    "source_id": "C1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "radius": 50.0,
+                },
+                0.0,
+                False,
+            ),
+            (
+                AreaPolySource,
+                {
+                    "source_id": "P1",
+                    "vertices": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                },
+                -1.0,
+                True,
+            ),
+            (
+                AreaPolySource,
+                {
+                    "source_id": "P1",
+                    "vertices": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                },
+                0.0,
+                False,
+            ),
+            (
+                OpenPitSource,
+                {
+                    "source_id": "OP1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "x_dimension": 100.0,
+                    "y_dimension": 100.0,
+                    "pit_volume": 100000.0,
+                },
+                -1.0,
+                True,
+            ),
+            (
+                OpenPitSource,
+                {
+                    "source_id": "OP1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "x_dimension": 100.0,
+                    "y_dimension": 100.0,
+                    "pit_volume": 100000.0,
+                },
+                0.0,
+                False,
+            ),
+            (
+                RLineExtSource,
+                {
+                    "source_id": "RX1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "z_start": 0.5,
+                    "x_end": 100.0,
+                    "y_end": 0.0,
+                    "z_end": 0.5,
+                    "road_width": 30.0,
+                },
+                -1.0,
+                True,
+            ),
+            (
+                RLineExtSource,
+                {
+                    "source_id": "RX1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "z_start": 0.5,
+                    "x_end": 100.0,
+                    "y_end": 0.0,
+                    "z_end": 0.5,
+                    "road_width": 30.0,
+                },
+                0.0,
+                False,
+            ),
+        ],
+        ids=[
+            "AreaSource_negative",
+            "AreaSource_zero",
+            "VolumeSource_negative",
+            "VolumeSource_zero",
+            "LineSource_negative",
+            "LineSource_zero",
+            "AreaCircSource_negative",
+            "AreaCircSource_zero",
+            "AreaPolySource_negative",
+            "AreaPolySource_zero",
+            "OpenPitSource_negative",
+            "OpenPitSource_zero",
+            "RLineExtSource_negative",
+            "RLineExtSource_zero",
+        ],
+    )
+    def test_emission_rate_across_source_types(
+        self, source_cls, base_kwargs, emission_value, should_error
+    ):
+        """Negative emission_rate must error; zero emission_rate is valid (placeholder)."""
+        kwargs = {**base_kwargs, "emission_rate": emission_value}
+        sources = SourcePathway()
+        sources.add_source(source_cls(**kwargs))
+        project = _make_valid_project(sources=sources)
+        result = Validator.validate(project)
+        er_errors = [
+            e
+            for e in result.errors
+            if "emission_rate" in e.field and e.severity == "error"
+        ]
+        if should_error:
+            assert len(er_errors) >= 1, (
+                f"Expected emission_rate error for {source_cls.__name__} "
+                f"with value {emission_value}"
+            )
+        else:
+            assert len(er_errors) == 0, (
+                f"Unexpected emission_rate error for {source_cls.__name__} "
+                f"with value {emission_value}: {er_errors}"
+            )
+
+    # -- Release height validation across source types that have it --
+
+    @pytest.mark.parametrize(
+        "source_cls,base_kwargs",
+        [
+            (
+                AreaSource,
+                {
+                    "source_id": "A1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "initial_lateral_dimension": 10.0,
+                    "initial_vertical_dimension": 10.0,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                VolumeSource,
+                {
+                    "source_id": "V1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "initial_lateral_dimension": 5.0,
+                    "initial_vertical_dimension": 5.0,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                AreaCircSource,
+                {
+                    "source_id": "C1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "radius": 50.0,
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                AreaPolySource,
+                {
+                    "source_id": "P1",
+                    "vertices": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                    "emission_rate": 1.0,
+                },
+            ),
+            (
+                LineSource,
+                {
+                    "source_id": "L1",
+                    "x_start": 0.0,
+                    "y_start": 0.0,
+                    "x_end": 100.0,
+                    "y_end": 0.0,
+                    "emission_rate": 1.0,
+                    "initial_lateral_dimension": 1.0,
+                },
+            ),
+            (
+                OpenPitSource,
+                {
+                    "source_id": "OP1",
+                    "x_coord": 0.0,
+                    "y_coord": 0.0,
+                    "x_dimension": 100.0,
+                    "y_dimension": 100.0,
+                    "pit_volume": 100000.0,
+                    "emission_rate": 0.01,
+                },
+            ),
+        ],
+        ids=[
+            "AreaSource",
+            "VolumeSource",
+            "AreaCircSource",
+            "AreaPolySource",
+            "LineSource",
+            "OpenPitSource",
+        ],
+    )
+    def test_negative_release_height_across_source_types(
+        self, source_cls, base_kwargs
+    ):
+        """Negative release_height must produce a validation error."""
+        kwargs = {**base_kwargs, "release_height": -1.0}
+        sources = SourcePathway()
+        sources.add_source(source_cls(**kwargs))
+        project = _make_valid_project(sources=sources)
+        result = Validator.validate(project)
+        rh_errors = [
+            e
+            for e in result.errors
+            if "release_height" in e.field and e.severity == "error"
+        ]
+        assert len(rh_errors) >= 1, (
+            f"Expected release_height error for {source_cls.__name__}"
+        )

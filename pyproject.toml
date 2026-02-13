@@ -1,3 +1,44 @@
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (let formatter handle)
+    "E741",   # ambiguous variable name (l, O, I) — used in AERMOD context
+    "B008",   # function call in default argument (dataclass field())
+    "B905",   # zip() without strict= (not always needed)
+    "RUF012", # mutable class variables (dataclass pattern)
+    "SIM108", # use ternary operator (readability preference)
+    "UP006",  # use builtin type instead of typing (List -> list) — keep existing style
+    "UP007",  # use X | Y instead of Union[X, Y] — keep existing style
+    "UP035",  # deprecated import from typing — keep existing style
+    "UP045",  # use X | None instead of Optional[X] — keep existing style
+    "RUF001", # ambiguous unicode character in string (degree symbols etc.)
+    "RUF002", # ambiguous unicode character in docstring
+    "RUF003", # ambiguous unicode character in comment
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "F841", "F401"]
+"src/pyaermod/__init__.py" = ["F401", "RUF022"]
+"src/pyaermod/gui.py" = ["E402"]
+"benchmarks/*" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pyaermod"]
