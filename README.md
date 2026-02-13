@@ -78,19 +78,26 @@ print(results.summary())
 ### Source Types (10)
 POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 
+### Advanced Modeling
+- **Background concentrations** — uniform, period-specific, or sector-dependent
+- **Deposition** — dry, wet, or combined for gas and particle emissions
+- **NO2/SO2 chemistry** — OLM, PVMRM, ARM2, GRSM with ozone data
+- **Source groups** — custom groupings with per-group PLOTFILE output
+- **EVENT processing** — date/receptor-specific analysis
+
 ### Preprocessors
 - **AERMET** — meteorological data preprocessing (Stages 1-3)
 - **AERMAP** — terrain elevation extraction with DEM download pipeline
 
 ### Analysis & Visualization
 - Output parsing to pandas DataFrames
-- POSTFILE parser for timestep-level results
+- POSTFILE parser for timestep-level results (text and binary formats)
 - Contour plots, interactive Folium maps, 3D surfaces, wind roses
 - Geospatial export: GeoTIFF, GeoPackage, Shapefile, GeoJSON
 
 ### Validation & Automation
 - Input validation across all AERMOD pathways
-- Building downwash / BPIP integration
+- Building downwash / BPIP integration (point, area, and volume sources)
 - Batch processing with parallel execution
 - Interactive Streamlit GUI (`pyaermod-gui`)
 
@@ -112,7 +119,7 @@ src/pyaermod/
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
     gui.py               # Streamlit web GUI
-tests/                   # 429 tests
+tests/                   # 731 tests
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
 ```
@@ -126,7 +133,9 @@ docs/                    # Architecture and quickstart guides
 ## Documentation
 
 - [Quick Start Guide](docs/quickstart.md)
+- [GUI User Guide](docs/gui-guide.md)
 - [Architecture](docs/architecture.md)
+- [API Reference](https://atmmod.github.io/pyaermod/api/)
 - [Examples](examples/)
 
 ## License

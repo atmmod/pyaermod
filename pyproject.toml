@@ -2,6 +2,94 @@
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "pyaermod"
+version = "0.2.0"
+description = "Python wrapper for EPA's AERMOD air dispersion model"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Shannon Capps", email = "shannon.capps@gmail.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+keywords = ["aermod", "air quality", "dispersion", "modeling", "atmospheric"]
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/atmmod/pyaermod"
+Documentation = "https://atmmod.github.io/pyaermod/"
+Repository = "https://github.com/atmmod/pyaermod"
+Issues = "https://github.com/atmmod/pyaermod/issues"
+Changelog = "https://github.com/atmmod/pyaermod/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib>=3.3.0",
+    "scipy>=1.7.0",
+    "folium>=0.12.0",
+]
+geo = [
+    "pyproj>=3.0.0",
+    "geopandas>=0.10.0",
+    "rasterio>=1.2.0",
+    "shapely>=1.8.0",
+    "scipy>=1.7.0",
+]
+gui = [
+    "streamlit>=1.28.0",
+    "streamlit-folium>=0.15.0",
+    "folium>=0.14.0",
+    "pyproj>=3.0.0",
+    "geopandas>=0.10.0",
+    "rasterio>=1.2.0",
+    "shapely>=1.8.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.3.0",
+]
+terrain = [
+    "requests>=2.25.0",
+]
+all = [
+    "matplotlib>=3.3.0",
+    "scipy>=1.7.0",
+    "folium>=0.14.0",
+    "pyproj>=3.0.0",
+    "geopandas>=0.10.0",
+    "rasterio>=1.2.0",
+    "shapely>=1.8.0",
+    "streamlit>=1.28.0",
+    "streamlit-folium>=0.15.0",
+    "requests>=2.25.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+    "hypothesis>=6.82.0",
+    "build",
+    "twine",
+]
+
+[project.scripts]
+pyaermod-gui = "pyaermod.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120

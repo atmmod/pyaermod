@@ -67,6 +67,23 @@ Source Editor and Receptor Editor pages.
 - **Terrain Type** -- dropdown: FLAT, ELEVATED, FLATSRCS
 - **Averaging Periods** -- multi-select: 1-HR through ANNUAL
 
+### NO2 Chemistry Options
+
+When **NO2** is selected as the pollutant, an expandable **Chemistry Options**
+section appears with:
+
+- **Chemistry Method** -- OLM, PVMRM, ARM2, or GRSM
+- **Default NO2/NOx Ratio** -- slider (0.0--1.0)
+- **Ozone Data** -- radio selector:
+    - *None* -- no ozone data
+    - *File* -- path to ozone data file
+    - *Uniform Value* -- single ozone concentration (ppb)
+    - *Sector Values* -- per-sector ozone concentrations
+- **NOx File** -- only visible when GRSM is selected
+
+These settings generate the `MODELOPT`, `O3VALUES`, `OZONEFIL`, and `NOXFIL`
+keywords in the AERMOD input.
+
 ### Project Save / Load
 
 - **Download Project** -- serializes the entire session state (sources,
@@ -104,7 +121,9 @@ A radio button lets you choose from all 10 AERMOD source types:
 | OpenPit (Open Pit Mine) | Open pit with internal circulation |
 
 Each source type renders a dedicated form with the relevant parameters
-(coordinates, emission rate, stack height, temperature, etc.).
+(coordinates, emission rate, stack height, temperature, etc.). Point sources
+include an optional **NO2/NOx Ratio** field (0--1) for per-source NO2
+conversion ratios when using chemistry options.
 
 ### Source Table
 
@@ -112,16 +131,32 @@ A table below the form lists all defined sources with their ID, type,
 coordinates, and emission rate. Use the select box and **Delete** button
 to remove sources.
 
+### Source Groups
+
+Manage custom source groups for separate impact analysis:
+
+- **Source Groups Table** -- lists existing groups (name, member sources,
+  description).
+- **Add Source Group** -- expandable form with:
+    - Group name (max 8 characters, AERMOD requirement)
+    - Multi-select of source IDs from defined sources
+    - Optional description
+- **Delete Source Group** -- select a group and remove it.
+
+Source groups generate `SRCGROUP` keywords in the AERMOD input. Per-group
+PLOTFILE output can be configured on the **Run AERMOD** page.
+
 ### Building Downwash (BPIP)
 
-An expandable section for defining buildings near point sources:
+An expandable section for defining buildings near point, area, and volume
+sources:
 
 1. **Add Building** -- form for building ID, height, and corner coordinates.
 2. **Buildings Table** -- lists all buildings with geometry summary.
-3. **Calculate BPIP** -- select a point source and building, then run the
-   BPIP calculator. It computes direction-dependent downwash parameters
-   (BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ) for 36 wind directions
-   and applies them to the selected point source.
+3. **Calculate BPIP** -- select a source (point, area, or volume) and
+   building, then run the BPIP calculator. It computes direction-dependent
+   downwash parameters (BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ) for
+   36 wind directions and applies them to the selected source.
 
 See also: [bpip API reference](api/bpip.md)
 
@@ -243,6 +278,13 @@ written. Review it before running.
   additional selectors appear:
     - **Format**: PLOT (formatted text) or UNFORM (binary)
     - **Averaging Period**: 1, 3, 8, 24, ANNUAL, or PERIOD
+
+### Per-Group PLOTFILE
+
+If source groups have been defined (see Source Editor), an expandable section
+shows per-group PLOTFILE options. For each source group, you can enable a
+PLOTFILE and select its averaging period. These generate additional
+`PLOTFILE` keywords with the group name.
 
 ### Execute
 

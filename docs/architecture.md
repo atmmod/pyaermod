@@ -432,40 +432,34 @@ comparison = proj.compare_scenarios(
 ### File Organization
 
 ```
-project_root/
-├── pyaermod/               # Main package
-│   ├── __init__.py
-│   ├── config/            # Configuration models
-│   │   ├── sources.py
-│   │   ├── receptors.py
-│   │   ├── meteorology.py
-│   │   └── project.py
-│   ├── core/              # Core functionality
-│   │   ├── input_writer.py
-│   │   ├── runner.py
-│   │   ├── output_parser.py
-│   │   └── validator.py
-│   ├── data/              # Data integration
-│   │   ├── met_sources.py
-│   │   ├── terrain.py
-│   │   └── maps.py
-│   ├── viz/               # Visualization
-│   │   ├── plots.py
-│   │   ├── maps.py
-│   │   └── reports.py
-│   ├── utils/             # Utilities
-│   │   ├── coordinates.py
-│   │   ├── units.py
-│   │   └── validation.py
-│   └── cli/               # Command-line interface
-│       └── commands.py
-├── tests/                 # Test suite
-├── docs/                  # Documentation
-├── examples/              # Example scripts
-├── binaries/              # AERMOD executables (optional)
-│   ├── linux/
-│   └── windows/
-└── setup.py
+pyaermod/
+├── src/pyaermod/              # Main package (src layout)
+│   ├── __init__.py            # Public API, version, optional dep checks
+│   ├── input_generator.py     # All 10 source types, 5 pathways, AERMODProject
+│   ├── validator.py           # Cross-field validation for all pathways
+│   ├── runner.py              # AERMODRunner, BatchRunner, run_aermod()
+│   ├── output_parser.py       # .out file parsing to DataFrames
+│   ├── postfile.py            # POSTFILE parser (text PLOT + binary UNFORM)
+│   ├── visualization.py       # Contour plots, Folium maps
+│   ├── advanced_viz.py        # 3D surfaces, wind roses, animations
+│   ├── aermet.py              # AERMET Stages 1-3 input generation
+│   ├── aermap.py              # AERMAP input generation
+│   ├── terrain.py             # DEM download, AERMAP runner, elevation pipeline
+│   ├── geospatial.py          # UTM/WGS84 transforms, GIS export
+│   ├── bpip.py                # Building downwash (BPIP) calculations
+│   └── gui.py                 # 7-page Streamlit web application
+├── tests/                     # 731 tests across 16 files
+├── docs/                      # MkDocs documentation site
+│   ├── quickstart.md
+│   ├── gui-guide.md
+│   ├── architecture.md
+│   └── api/                   # Auto-generated API reference (mkdocstrings)
+├── examples/                  # 6 example scripts + 5 Jupyter notebooks
+├── benchmarks/                # Performance benchmarks
+├── setup.py                   # Package metadata and dependencies
+├── pyproject.toml             # Build system + ruff config
+├── mkdocs.yml                 # Documentation site configuration
+└── CHANGELOG.md
 ```
 
 ## API Design Principles
