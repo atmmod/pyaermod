@@ -679,6 +679,14 @@ class TerrainProcessor:
             rec_df = parser.parse_receptor_output(rec_output)
             self.logger.info(f"Parsed {len(rec_df)} receptor elevations")
             self._update_receptor_elevations(project, rec_df)
+            self._update_grid_receptor_elevations(project, rec_df)
+
+        # Parse source elevations if available
+        src_output = work_dir / aermap_project.source_output
+        if hasattr(aermap_project, "source_output") and src_output.exists():
+            src_df = parser.parse_source_output(src_output)
+            self.logger.info(f"Parsed {len(src_df)} source elevations")
+            self._update_source_elevations(project, src_df)
 
         return project
 
@@ -695,6 +703,79 @@ class TerrainProcessor:
             if not match.empty:
                 rec.z_elev = float(match.iloc[0]["zelev"])
                 rec.z_hill = float(match.iloc[0]["zhill"])
+
+    def _update_grid_receptor_elevations(self, project, rec_df):
+        """Update CartesianGrid receptors with parsed AERMAP elevation data.
+
+        Maps AERMAP receptor output (x, y, zelev, zhill) back to
+        CartesianGrid objects by computing expected grid coordinates
+        and populating grid_elevations and grid_hills 2D arrays.
+
+        Parameters
+        ----------
+        project : AERMODProject
+        rec_df : pandas.DataFrame
+            AERMAP receptor output with columns: x, y, zelev, zhill.
+        """
+        if rec_df.empty:
+            return
+
+        for grid in project.receptors.cartesian_grids:
+            # Compute expected x/y coordinates for this grid
+            x_coords = [grid.x_init + i * grid.x_delta for i in range(grid.x_num)]
+            y_coords = [grid.y_init + j * grid.y_delta for j in range(grid.y_num)]
+
+            elevations = []
+            hills = []
+            has_data = False
+
+            for _j, y_val in enumerate(y_coords):
+                elev_row = []
+                hill_row = []
+                for _i, x_val in enumerate(x_coords):
+                    match = rec_df[
+                        (abs(rec_df["x"] - x_val) < 0.5) &
+                        (abs(rec_df["y"] - y_val) < 0.5)
+                    ]
+                    if not match.empty:
+                        elev_row.append(float(match.iloc[0]["zelev"]))
+                        hill_row.append(float(match.iloc[0]["zhill"]))
+                        has_data = True
+                    else:
+                        elev_row.append(0.0)
+                        hill_row.append(0.0)
+                elevations.append(elev_row)
+                hills.append(hill_row)
+
+            if has_data:
+                grid.grid_elevations = elevations
+                grid.grid_hills = hills
+
+    def _update_source_elevations(self, project, src_df):
+        """Update source base elevations from AERMAP source output.
+
+        Parameters
+        ----------
+        project : AERMODProject
+        src_df : pandas.DataFrame
+            AERMAP source output with columns: source_id, zelev
+            (at minimum).
+        """
+        if src_df.empty:
+            return
+
+        from pyaermod.input_generator import BuoyLineSource
+
+        for source in project.sources.sources:
+            if isinstance(source, BuoyLineSource):
+                for seg in source.line_segments:
+                    match = src_df[src_df["source_id"].str.strip() == seg.source_id.strip()]
+                    if not match.empty:
+                        source.base_elevation = float(match.iloc[0]["zelev"])
+            else:
+                match = src_df[src_df["source_id"].str.strip() == source.source_id.strip()]
+                if not match.empty:
+                    source.base_elevation = float(match.iloc[0]["zelev"])
 
 
 # ============================================================================

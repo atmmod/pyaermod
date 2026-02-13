@@ -119,6 +119,10 @@ class Validator:
                 pathway, "title_one", "must not be empty"
             ))
 
+        # Chemistry options
+        if getattr(control, "chemistry", None) is not None:
+            cls._validate_chemistry(control.chemistry, control, result)
+
         # Averaging periods
         if not control.averaging_periods:
             result.errors.append(ValidationError(
@@ -210,6 +214,10 @@ class Validator:
         # Validate background concentration if present
         if sources.background is not None:
             cls._validate_background(sources.background, result)
+
+        # Validate centralized source group definitions
+        if sources.group_definitions:
+            cls._validate_source_groups(sources, result)
 
     @classmethod
     def _validate_background(cls, background, result: ValidationResult):
@@ -420,6 +428,13 @@ class Validator:
                     f"must have exactly 36 values (one per 10° sector), got {len(val)}"
                 ))
 
+        # Per-source NO2/NOx ratio
+        if getattr(src, "no2_ratio", None) is not None and not (0 <= src.no2_ratio <= 1):
+            result.errors.append(ValidationError(
+                name, "no2_ratio",
+                f"must be between 0 and 1, got {src.no2_ratio}"
+            ))
+
         # Cross-field: building height < stack height for downwash to be meaningful
         bh = src.building_height
         if bh is not None:
@@ -459,6 +474,16 @@ class Validator:
                 name, "release_height",
                 f"must be >= 0, got {src.release_height}"
             ))
+
+        # Building downwash array lengths
+        for field_name in ("building_height", "building_width", "building_length",
+                           "building_x_offset", "building_y_offset"):
+            val = getattr(src, field_name, None)
+            if val is not None and isinstance(val, list) and len(val) != 36:
+                result.errors.append(ValidationError(
+                    name, field_name,
+                    f"must have exactly 36 values (one per 10° sector), got {len(val)}"
+                ))
 
     @classmethod
     def _validate_area_circ_source(cls, src, result: ValidationResult):
@@ -537,6 +562,16 @@ class Validator:
                 name, "release_height",
                 f"must be >= 0, got {src.release_height}"
             ))
+
+        # Building downwash array lengths
+        for field_name in ("building_height", "building_width", "building_length",
+                           "building_x_offset", "building_y_offset"):
+            val = getattr(src, field_name, None)
+            if val is not None and isinstance(val, list) and len(val) != 36:
+                result.errors.append(ValidationError(
+                    name, field_name,
+                    f"must have exactly 36 values (one per 10° sector), got {len(val)}"
+                ))
 
     @classmethod
     def _validate_line_source(cls, src, result: ValidationResult):
@@ -736,6 +771,119 @@ class Validator:
                     name, "x_dimension/y_dimension",
                     f"aspect ratio > 10 ({ratio:.1f})",
                     severity="warning"
+                ))
+
+    # ------------------------------------------------------------------
+    # Source groups
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _validate_source_groups(cls, sources, result: ValidationResult):
+        """Validate centralized source group definitions."""
+        all_source_ids = set()
+        from pyaermod.input_generator import BuoyLineSource
+
+        for source in sources.sources:
+            if isinstance(source, BuoyLineSource):
+                for seg in source.line_segments:
+                    all_source_ids.add(seg.source_id)
+            else:
+                all_source_ids.add(source.source_id)
+
+        seen_names = set()
+        for group in sources.group_definitions:
+            # Group name length
+            if len(group.group_name) > 8:
+                result.errors.append(ValidationError(
+                    "SourceGroupDefinition", "group_name",
+                    f"'{group.group_name}' exceeds 8 characters (AERMOD limit)"
+                ))
+
+            # Duplicate group names
+            if group.group_name in seen_names:
+                result.errors.append(ValidationError(
+                    "SourceGroupDefinition", "group_name",
+                    f"duplicate group name '{group.group_name}'"
+                ))
+            seen_names.add(group.group_name)
+
+            # Member IDs reference existing sources
+            for member_id in group.member_source_ids:
+                if member_id not in all_source_ids:
+                    result.errors.append(ValidationError(
+                        f"SourceGroupDefinition({group.group_name})",
+                        "member_source_ids",
+                        f"source ID '{member_id}' not found in project sources"
+                    ))
+
+    # ------------------------------------------------------------------
+    # Chemistry options
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _validate_chemistry(cls, chemistry, control, result: ValidationResult):
+        """Validate NO2 chemistry options."""
+        from pyaermod.input_generator import ChemistryMethod
+
+        pathway = "ChemistryOptions"
+
+        # Pollutant must be NO2
+        pollutant = (
+            control.pollutant_id.value
+            if hasattr(control.pollutant_id, "value")
+            else control.pollutant_id
+        )
+        if pollutant != "NO2":
+            result.errors.append(ValidationError(
+                pathway, "pollutant_id",
+                f"chemistry options require pollutant_id=NO2, got '{pollutant}'"
+            ))
+
+        # Default NO2 ratio in [0, 1]
+        if not (0 <= chemistry.default_no2_ratio <= 1):
+            result.errors.append(ValidationError(
+                pathway, "default_no2_ratio",
+                f"must be between 0 and 1, got {chemistry.default_no2_ratio}"
+            ))
+
+        # Ozone data required for OLM, PVMRM, GRSM
+        if (chemistry.method in (ChemistryMethod.OLM, ChemistryMethod.PVMRM,
+                                 ChemistryMethod.GRSM) and chemistry.ozone_data is None):
+            result.errors.append(ValidationError(
+                pathway, "ozone_data",
+                f"ozone data required for {chemistry.method.value} method"
+            ))
+
+        # Validate ozone data values
+        if chemistry.ozone_data is not None:
+            oz = chemistry.ozone_data
+            if oz.uniform_value is not None and oz.uniform_value < 0:
+                result.errors.append(ValidationError(
+                    pathway, "ozone_data.uniform_value",
+                    f"must be >= 0, got {oz.uniform_value}"
+                ))
+            if oz.sector_values:
+                for sector_id, value in oz.sector_values.items():
+                    if value < 0:
+                        result.errors.append(ValidationError(
+                            pathway, "ozone_data.sector_values",
+                            f"sector {sector_id} value must be >= 0, got {value}"
+                        ))
+
+        # NOx file required for GRSM
+        if chemistry.method == ChemistryMethod.GRSM and not chemistry.nox_file:
+            result.errors.append(ValidationError(
+                pathway, "nox_file",
+                "NOx background file required for GRSM method",
+                severity="warning",
+            ))
+
+        # OLM groups: validate member IDs
+        for olm_group in chemistry.olm_groups:
+            if len(olm_group.group_name) > 8:
+                result.errors.append(ValidationError(
+                    f"OLMGroup({olm_group.group_name})", "group_name",
+                    "exceeds 8 characters (AERMOD limit)"
                 ))
 
     # ------------------------------------------------------------------

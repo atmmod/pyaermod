@@ -64,6 +64,9 @@ from .input_generator import (
     BackgroundSector,
     # Receptor types
     CartesianGrid,
+    # NO2 chemistry options
+    ChemistryMethod,
+    ChemistryOptions,
     # Pathway classes
     ControlPathway,
     # Deposition
@@ -75,6 +78,7 @@ from .input_generator import (
     GasDepositionParams,
     MeteorologyPathway,
     OutputPathway,
+    OzoneData,
     ParticleDepositionParams,
     # Source types
     PointSource,
@@ -82,6 +86,8 @@ from .input_generator import (
     # Enums
     PollutantType,
     ReceptorPathway,
+    # Source group management
+    SourceGroupDefinition,
     SourcePathway,
     SourceType,
     TerrainType,
@@ -185,6 +191,10 @@ __all__ = [
     'ParticleDepositionParams',
     'EventPeriod',
     'EventPathway',
+    'SourceGroupDefinition',
+    'ChemistryMethod',
+    'ChemistryOptions',
+    'OzoneData',
 
     # Runner
     'AERMODRunner',

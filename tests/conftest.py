@@ -44,8 +44,8 @@ def valid_area_source():
         x_coord=0.0,
         y_coord=0.0,
         emission_rate=0.5,
-        x_length=100.0,
-        y_length=100.0,
+        initial_lateral_dimension=100.0,
+        initial_vertical_dimension=100.0,
         release_height=3.0,
     )
 
@@ -59,8 +59,8 @@ def valid_volume_source():
         y_coord=100.0,
         emission_rate=0.3,
         release_height=5.0,
-        init_sigma_y=10.0,
-        init_sigma_z=5.0,
+        initial_lateral_dimension=10.0,
+        initial_vertical_dimension=5.0,
     )
 
 

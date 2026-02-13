@@ -44,6 +44,68 @@ class SourceType(Enum):
 
 
 # ============================================================================
+# NO2/SO2 CHEMISTRY OPTIONS
+# ============================================================================
+
+class ChemistryMethod(Enum):
+    """AERMOD NO2 chemistry conversion methods."""
+    OLM = "OLM"
+    PVMRM = "PVMRM"
+    ARM2 = "ARM2"
+    GRSM = "GRSM"
+
+
+@dataclass
+class OzoneData:
+    """
+    Ozone data for NO2 chemistry options.
+
+    Provide either an hourly ozone file, a uniform value, or
+    sector-dependent values.
+
+    Parameters
+    ----------
+    ozone_file : str, optional
+        Path to hourly ozone data file.
+    uniform_value : float, optional
+        Uniform ozone concentration in ppb.
+    sector_values : dict, optional
+        Mapping of sector index to ozone value in ppb.
+    """
+    ozone_file: Optional[str] = None
+    uniform_value: Optional[float] = None
+    sector_values: Optional[Dict[int, float]] = None
+
+
+@dataclass
+class ChemistryOptions:
+    """
+    AERMOD NO2 chemistry configuration.
+
+    Controls the NO2-to-NOx conversion method used in AERMOD.
+    Requires pollutant to be NO2.
+
+    Parameters
+    ----------
+    method : ChemistryMethod
+        Chemistry algorithm (OLM, PVMRM, ARM2, GRSM).
+    ozone_data : OzoneData, optional
+        Ozone data for OLM/PVMRM/GRSM methods.
+    default_no2_ratio : float
+        Default in-stack NO2/NOx ratio (0-1). Default 0.5.
+    olm_groups : list of SourceGroupDefinition
+        Source groups for OLM method.
+    nox_file : str, optional
+        NOx background file (GRSM only).
+    """
+    method: ChemistryMethod = ChemistryMethod.ARM2
+    ozone_data: Optional[OzoneData] = None
+    default_no2_ratio: float = 0.5
+    olm_groups: List['SourceGroupDefinition'] = field(default_factory=list)
+    nox_file: Optional[str] = None
+
+
+# ============================================================================
 # CONTROL PATHWAY
 # ============================================================================
 
@@ -82,6 +144,9 @@ class ControlPathway:
     # Event file reference
     eventfil: Optional[str] = None
 
+    # NO2 chemistry options
+    chemistry: Optional[ChemistryOptions] = None
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD CO pathway text"""
         lines = ["CO STARTING"]
@@ -105,6 +170,10 @@ class ControlPathway:
         # Add terrain type
         terrain = self.terrain_type.value if isinstance(self.terrain_type, TerrainType) else self.terrain_type
         model_opts.append(terrain)
+
+        # Append chemistry method to MODELOPT
+        if self.chemistry is not None:
+            model_opts.append(self.chemistry.method.value)
 
         lines.append(f"   MODELOPT  {' '.join(model_opts)}")
 
@@ -133,6 +202,27 @@ class ControlPathway:
 
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
+
+        # Chemistry-related CO keywords
+        if self.chemistry is not None:
+            chem = self.chemistry
+            # O3VALUES
+            if chem.ozone_data is not None:
+                oz = chem.ozone_data
+                if oz.ozone_file:
+                    lines.append(f"   O3VALUES  {oz.ozone_file}")
+                elif oz.uniform_value is not None:
+                    lines.append(f"   O3VALUES  UNIFORM  {oz.uniform_value:.4g}")
+                elif oz.sector_values:
+                    for sector_id, value in sorted(oz.sector_values.items()):
+                        lines.append(f"   O3VALUES  SECTOR  {sector_id}  {value:.4g}")
+
+            # NO2STACK (default in-stack ratio)
+            lines.append(f"   NO2STACK  {chem.default_no2_ratio:.4f}")
+
+            # NOx background file (GRSM)
+            if chem.nox_file:
+                lines.append(f"   NOXVALUE  {chem.nox_file}")
 
         # Event file reference
         if self.eventfil:
@@ -210,6 +300,103 @@ def _deposition_to_aermod_lines(
 # SOURCE PATHWAY
 # ============================================================================
 
+def _format_building_keyword(
+    source_id: str, keyword: str, values: Union[float, List[float]]
+) -> List[str]:
+    """
+    Format a building downwash keyword for AERMOD input.
+
+    Parameters
+    ----------
+    source_id : str
+        Source identifier.
+    keyword : str
+        AERMOD keyword (BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ).
+    values : float or list of float
+        Scalar (single value for all directions) or 36-value list
+        (one per 10-degree wind sector).
+
+    Returns
+    -------
+    list of str
+        Formatted AERMOD input lines.
+
+    Raises
+    ------
+    ValueError
+        If values is a list with length other than 36.
+    """
+    kw = f"{keyword:<9}"
+
+    if isinstance(values, (int, float)):
+        return [f"   {kw} {source_id:<8} {values:8.2f}"]
+
+    if len(values) != 36:
+        raise ValueError(
+            f"{keyword} requires exactly 36 values for direction-dependent "
+            f"downwash, got {len(values)}"
+        )
+
+    lines = []
+    for row_start in range(0, 36, 10):
+        chunk = values[row_start : row_start + 10]
+        val_str = " ".join(f"{v:8.2f}" for v in chunk)
+        lines.append(f"   {kw} {source_id:<8} {val_str}")
+    return lines
+
+
+def _building_downwash_lines(source_id: str, source) -> List[str]:
+    """Generate building downwash keyword lines for a source.
+
+    Reads building_height, building_width, building_length,
+    building_x_offset, building_y_offset from the source and
+    emits the corresponding AERMOD keywords.
+    """
+    lines = []
+    mapping = [
+        ("building_height", "BUILDHGT"),
+        ("building_width", "BUILDWID"),
+        ("building_length", "BUILDLEN"),
+        ("building_x_offset", "XBADJ"),
+        ("building_y_offset", "YBADJ"),
+    ]
+    for attr, keyword in mapping:
+        val = getattr(source, attr, None)
+        if val is not None:
+            lines.extend(_format_building_keyword(source_id, keyword, val))
+    return lines
+
+
+def _set_building_from_bpip(source, x_coord: float, y_coord: float, building) -> None:
+    """
+    Populate building downwash fields from a Building object.
+
+    Runs BPIPCalculator to compute 36 direction-dependent values
+    and stores them in the building_* fields.
+
+    Parameters
+    ----------
+    source : PointSource, AreaSource, or VolumeSource
+        The source to populate building fields on.
+    x_coord : float
+        Source x-coordinate.
+    y_coord : float
+        Source y-coordinate.
+    building : pyaermod.bpip.Building
+        Building geometry to use for downwash calculations.
+    """
+    from pyaermod.bpip import BPIPCalculator
+
+    calc = BPIPCalculator(building, x_coord, y_coord)
+    result = calc.calculate_all()
+
+    source.building_height = result.buildhgt
+    source.building_width = result.buildwid
+    source.building_length = result.buildlen
+    source.building_x_offset = result.xbadj
+    source.building_y_offset = result.ybadj
+
+
 @dataclass
 class PointSource:
     """
@@ -247,6 +434,9 @@ class PointSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Per-source NO2/NOx ratio (optional, overrides default)
+    no2_ratio: Optional[float] = None
+
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
@@ -255,47 +445,8 @@ class PointSource:
     def _format_building_keyword(
         self, keyword: str, values: Union[float, List[float]]
     ) -> List[str]:
-        """
-        Format a building downwash keyword for AERMOD input.
-
-        Parameters
-        ----------
-        keyword : str
-            AERMOD keyword (BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ).
-        values : float or list of float
-            Scalar (single value for all directions) or 36-value list
-            (one per 10-degree wind sector).
-
-        Returns
-        -------
-        list of str
-            Formatted AERMOD input lines.
-
-        Raises
-        ------
-        ValueError
-            If values is a list with length other than 36.
-        """
-        # Pad keyword to align with AERMOD formatting
-        kw = f"{keyword:<9}"
-
-        if isinstance(values, (int, float)):
-            return [f"   {kw} {self.source_id:<8} {values:8.2f}"]
-
-        # List of values — must be exactly 36
-        if len(values) != 36:
-            raise ValueError(
-                f"{keyword} requires exactly 36 values for direction-dependent "
-                f"downwash, got {len(values)}"
-            )
-
-        lines = []
-        # AERMOD format: 10 values per continuation line
-        for row_start in range(0, 36, 10):
-            chunk = values[row_start : row_start + 10]
-            val_str = " ".join(f"{v:8.2f}" for v in chunk)
-            lines.append(f"   {kw} {self.source_id:<8} {val_str}")
-        return lines
+        """Thin wrapper around module-level helper for backward compat."""
+        return _format_building_keyword(self.source_id, keyword, values)
 
     def set_building_from_bpip(self, building) -> None:
         """
@@ -306,19 +457,10 @@ class PointSource:
 
         Parameters
         ----------
-        building : pyaermod_bpip.Building
+        building : pyaermod.bpip.Building
             Building geometry to use for downwash calculations.
         """
-        from pyaermod.bpip import BPIPCalculator
-
-        calc = BPIPCalculator(building, self.x_coord, self.y_coord)
-        result = calc.calculate_all()
-
-        self.building_height = result.buildhgt
-        self.building_width = result.buildwid
-        self.building_length = result.buildlen
-        self.building_x_offset = result.xbadj
-        self.building_y_offset = result.ybadj
+        _set_building_from_bpip(self, self.x_coord, self.y_coord, building)
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -338,20 +480,11 @@ class PointSource:
         )
 
         # Building downwash parameters (scalar or 36-value direction-dependent)
-        if self.building_height is not None:
-            lines.extend(self._format_building_keyword("BUILDHGT", self.building_height))
+        lines.extend(_building_downwash_lines(self.source_id, self))
 
-        if self.building_width is not None:
-            lines.extend(self._format_building_keyword("BUILDWID", self.building_width))
-
-        if self.building_length is not None:
-            lines.extend(self._format_building_keyword("BUILDLEN", self.building_length))
-
-        if self.building_x_offset is not None:
-            lines.extend(self._format_building_keyword("XBADJ", self.building_x_offset))
-
-        if self.building_y_offset is not None:
-            lines.extend(self._format_building_keyword("YBADJ", self.building_y_offset))
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -394,6 +527,13 @@ class AreaSource:
     # Orientation
     angle: float = 0.0  # degrees from north (optional)
 
+    # Building downwash (optional)
+    building_height: Optional[Union[float, List[float]]] = None
+    building_width: Optional[Union[float, List[float]]] = None
+    building_length: Optional[Union[float, List[float]]] = None
+    building_x_offset: Optional[Union[float, List[float]]] = None
+    building_y_offset: Optional[Union[float, List[float]]] = None
+
     # Source groups
     source_groups: List[str] = field(default_factory=list)
 
@@ -405,6 +545,10 @@ class AreaSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
+    def set_building_from_bpip(self, building) -> None:
+        """Populate building downwash fields from a Building object."""
+        _set_building_from_bpip(self, self.x_coord, self.y_coord, building)
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -426,6 +570,9 @@ class AreaSource:
         # Optional angle
         if self.angle != 0.0:
             lines.append(f"   AREAVERT  {self.source_id:<8}  {self.angle:8.2f}")
+
+        # Building downwash parameters
+        lines.extend(_building_downwash_lines(self.source_id, self))
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -611,6 +758,13 @@ class VolumeSource:
     # Emission parameters
     emission_rate: float = 1.0  # g/s
 
+    # Building downwash (optional)
+    building_height: Optional[Union[float, List[float]]] = None
+    building_width: Optional[Union[float, List[float]]] = None
+    building_length: Optional[Union[float, List[float]]] = None
+    building_x_offset: Optional[Union[float, List[float]]] = None
+    building_y_offset: Optional[Union[float, List[float]]] = None
+
     # Source groups
     source_groups: List[str] = field(default_factory=list)
 
@@ -622,6 +776,10 @@ class VolumeSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+
+    def set_building_from_bpip(self, building) -> None:
+        """Populate building downwash fields from a Building object."""
+        _set_building_from_bpip(self, self.x_coord, self.y_coord, building)
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -639,6 +797,9 @@ class VolumeSource:
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
         )
+
+        # Building downwash parameters
+        lines.extend(_building_downwash_lines(self.source_id, self))
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1151,12 +1312,35 @@ class BackgroundConcentration:
 
 
 @dataclass
+class SourceGroupDefinition:
+    """
+    Centralized source group definition.
+
+    Allows defining named groups of sources for AERMOD's SRCGROUP keyword,
+    enabling per-group output files and chemistry associations.
+
+    Parameters
+    ----------
+    group_name : str
+        Group identifier (max 8 characters, AERMOD limitation).
+    member_source_ids : list of str
+        Source IDs belonging to this group.
+    description : str
+        Optional description for documentation purposes.
+    """
+    group_name: str
+    member_source_ids: List[str] = field(default_factory=list)
+    description: str = ""
+
+
+@dataclass
 class SourcePathway:
     """Collection of sources"""
     sources: List[Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                         VolumeSource, LineSource, RLineSource,
                         RLineExtSource, BuoyLineSource, OpenPitSource]] = field(default_factory=list)
     background: Optional[BackgroundConcentration] = None
+    group_definitions: List[SourceGroupDefinition] = field(default_factory=list)
 
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
@@ -1164,8 +1348,29 @@ class SourcePathway:
         """Add a source to the pathway"""
         self.sources.append(source)
 
-    def to_aermod_input(self) -> str:
-        """Generate AERMOD SO pathway text"""
+    def add_group(self, group: SourceGroupDefinition):
+        """Add a source group definition."""
+        self.group_definitions.append(group)
+
+    def _collect_all_source_ids(self) -> List[str]:
+        """Collect all source IDs, including BUOYLINE segment IDs."""
+        ids = []
+        for source in self.sources:
+            if isinstance(source, BuoyLineSource):
+                for seg in source.line_segments:
+                    ids.append(seg.source_id)
+            else:
+                ids.append(source.source_id)
+        return ids
+
+    def to_aermod_input(self, chemistry: Optional[ChemistryOptions] = None) -> str:
+        """Generate AERMOD SO pathway text.
+
+        Parameters
+        ----------
+        chemistry : ChemistryOptions, optional
+            Chemistry options from ControlPathway for OLM group emission.
+        """
         lines = ["SO STARTING"]
 
         for source in self.sources:
@@ -1173,6 +1378,29 @@ class SourcePathway:
 
         if self.background:
             lines.append(self.background.to_aermod_input())
+
+        # OLM groups (from chemistry options)
+        if chemistry is not None and chemistry.olm_groups:
+            for olm_group in chemistry.olm_groups:
+                if olm_group.member_source_ids:
+                    lines.append(
+                        f"   OLMGROUP  {olm_group.group_name:<8} "
+                        f"{' '.join(olm_group.member_source_ids)}"
+                    )
+
+        # Centralized SRCGROUP definitions
+        all_ids = self._collect_all_source_ids()
+        if all_ids:
+            # SRCGROUP ALL — includes all sources
+            lines.append(f"   SRCGROUP  ALL      {' '.join(all_ids)}")
+
+        # Custom group definitions
+        for group in self.group_definitions:
+            if group.member_source_ids:
+                lines.append(
+                    f"   SRCGROUP  {group.group_name:<8} "
+                    f"{' '.join(group.member_source_ids)}"
+                )
 
         lines.append("SO FINISHED")
         return "\n".join(lines)
@@ -1206,6 +1434,11 @@ class CartesianGrid:
     z_hill: float = 0.0
     z_flag: float = 0.0
 
+    # Per-receptor grid elevations from AERMAP (optional)
+    # 2D arrays [row][col] where row = y-index, col = x-index
+    grid_elevations: Optional[List[List[float]]] = None
+    grid_hills: Optional[List[List[float]]] = None
+
     @classmethod
     def from_bounds(cls, x_min: float, x_max: float, y_min: float, y_max: float,
                    spacing: float = 100.0, grid_name: str = "GRID1") -> 'CartesianGrid':
@@ -1225,11 +1458,36 @@ class CartesianGrid:
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD RE pathway text"""
-        return (
+        lines = [
             f"   GRIDCART  {self.grid_name:<8} XYINC  "
             f"{self.x_init:10.2f} {self.x_num:5d} {self.x_delta:8.2f}  "
             f"{self.y_init:10.2f} {self.y_num:5d} {self.y_delta:8.2f}"
-        )
+        ]
+
+        # Per-receptor elevations (from AERMAP output)
+        if self.grid_elevations is not None:
+            for row_idx, row in enumerate(self.grid_elevations):
+                # AERMOD format: 6 values per line, F8.1
+                for chunk_start in range(0, len(row), 6):
+                    chunk = row[chunk_start : chunk_start + 6]
+                    val_str = " ".join(f"{v:8.1f}" for v in chunk)
+                    lines.append(
+                        f"   GRIDCART  {self.grid_name:<8} ELEV  "
+                        f"{row_idx + 1:5d}  {val_str}"
+                    )
+
+        # Per-receptor hill heights (from AERMAP output)
+        if self.grid_hills is not None:
+            for row_idx, row in enumerate(self.grid_hills):
+                for chunk_start in range(0, len(row), 6):
+                    chunk = row[chunk_start : chunk_start + 6]
+                    val_str = " ".join(f"{v:8.1f}" for v in chunk)
+                    lines.append(
+                        f"   GRIDCART  {self.grid_name:<8} HILL  "
+                        f"{row_idx + 1:5d}  {val_str}"
+                    )
+
+        return "\n".join(lines)
 
 
 @dataclass
@@ -1418,6 +1676,9 @@ class OutputPathway:
     postfile_source_group: str = "ALL"
     postfile_format: str = "PLOT"  # PLOT (formatted) or UNFORM (unformatted/binary)
 
+    # Per-group plot files: list of (averaging_period, source_group, filename)
+    plot_file_groups: List[Tuple[str, str, str]] = field(default_factory=list)
+
     # Output type (CONC, DEPOS, DDEP, WDEP, DETH)
     output_type: str = "CONC"
 
@@ -1449,6 +1710,13 @@ class OutputPathway:
         if self.plot_file:
             lines.append(
                 f"   PLOTFILE  ANNUAL  ALL  {self.output_type}  FIRST  {self.plot_file}"
+            )
+
+        # Per-group plot files
+        for avg_period, src_group, filename in self.plot_file_groups:
+            lines.append(
+                f"   PLOTFILE  {avg_period}  {src_group}  "
+                f"{self.output_type}  FIRST  {filename}"
             )
 
         # Postfile
@@ -1539,10 +1807,13 @@ class AERMODProject:
             if not result.is_valid:
                 raise ValueError(str(result))
 
+        # Pass chemistry options to SO pathway for OLMGROUP emission
+        chemistry = getattr(self.control, "chemistry", None)
+
         sections = [
             self.control.to_aermod_input(),
             "",
-            self.sources.to_aermod_input(),
+            self.sources.to_aermod_input(chemistry=chemistry),
             "",
             self.receptors.to_aermod_input(),
             "",
