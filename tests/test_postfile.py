@@ -583,6 +583,253 @@ class TestAutoDetectFormat:
         assert result.data.iloc[0]["y"] == 600.0
 
 
+# ===========================================================================
+# Synthetic Deposition Format (12-column)
+# ===========================================================================
+
+SAMPLE_DEPOSITION_POSTFILE = """\
+* AERMOD ( 24142 ): Deposition Test Case
+* MODELING OPTIONS USED: NonDFAULT CONC DDEP WDEP FLAT DRYDPLT WETDPLT
+* FORMAT: (5(1X,F13.5),3(1X,F8.2),2A,A8,2X,A6,2X,A5)
+* POST/PLOT FILE OF CONCURRENT 1-HR VALUES FOR SOURCE GROUP: ALL
+*         X             Y      AVERAGE CONC    DRY DEPO    WET DEPO  ZELEV  ZHILL  ZFLAG    AVE     GRP       DATE
+      0.00000     100.00000      15.21444       0.55937       8.01199    0.00    0.00    0.00   1-HR    ALL    90010101
+    100.00000     100.00000      10.50000       0.30000       5.20000    0.00    0.00    0.00   1-HR    ALL    90010101
+      0.00000     200.00000       8.75000       0.25000       3.10000   10.00    5.00    0.00   1-HR    ALL    90010101
+"""
+
+
+@pytest.fixture
+def deposition_postfile(tmp_path):
+    """Write synthetic deposition POSTFILE to temp file."""
+    filepath = tmp_path / "deposition.pst"
+    filepath.write_text(SAMPLE_DEPOSITION_POSTFILE)
+    return filepath
+
+
+class TestDepositionPostfileParser:
+    """Test parsing of deposition-format postfiles (5 float columns)."""
+
+    def test_deposition_detected_from_format_line(self, deposition_postfile):
+        """FORMAT: (5(1X,F13.5)... sets _is_deposition flag."""
+        parser = PostfileParser(deposition_postfile)
+        result = parser.parse()
+        assert parser._is_deposition is True
+        assert parser._is_plotfile is False
+        assert len(result.data) == 3
+
+    def test_deposition_column_names(self, deposition_postfile):
+        """Deposition postfile has dry_depo and wet_depo columns."""
+        result = read_postfile(deposition_postfile)
+        expected = [
+            "x", "y", "concentration", "dry_depo", "wet_depo",
+            "zelev", "zhill", "zflag", "ave", "grp", "date",
+        ]
+        assert list(result.data.columns) == expected
+
+    def test_deposition_xy_correct(self, deposition_postfile):
+        """X and Y coordinates are parsed correctly."""
+        result = read_postfile(deposition_postfile)
+        assert result.data.iloc[0]["x"] == pytest.approx(0.0, abs=0.01)
+        assert result.data.iloc[0]["y"] == pytest.approx(100.0, abs=0.01)
+
+    def test_deposition_concentration_correct(self, deposition_postfile):
+        """Concentration values parsed correctly."""
+        result = read_postfile(deposition_postfile)
+        assert result.data.iloc[0]["concentration"] == pytest.approx(15.21444, abs=1e-4)
+
+    def test_deposition_dry_wet_values(self, deposition_postfile):
+        """Dry and wet deposition columns have correct values."""
+        result = read_postfile(deposition_postfile)
+        assert result.data.iloc[0]["dry_depo"] == pytest.approx(0.55937, abs=1e-4)
+        assert result.data.iloc[0]["wet_depo"] == pytest.approx(8.01199, abs=1e-4)
+
+    def test_deposition_zelev_not_shifted(self, deposition_postfile):
+        """zelev correctly parsed (not shifted to dry_depo column)."""
+        result = read_postfile(deposition_postfile)
+        assert result.data.iloc[0]["zelev"] == pytest.approx(0.0, abs=0.01)
+        # Third row has non-zero zelev
+        assert result.data.iloc[2]["zelev"] == pytest.approx(10.0, abs=0.01)
+
+    def test_deposition_ave_grp_date(self, deposition_postfile):
+        """Ave, grp, and date columns correctly parsed."""
+        result = read_postfile(deposition_postfile)
+        assert result.data.iloc[0]["ave"] == "1-HR"
+        assert result.data.iloc[0]["grp"] == "ALL"
+        assert result.data.iloc[0]["date"] == "90010101"
+
+    def test_deposition_header_parsed(self, deposition_postfile):
+        """EPA header format parsed for deposition files."""
+        result = read_postfile(deposition_postfile)
+        assert result.header.averaging_period == "1-HR"
+        assert result.header.source_group == "ALL"
+        assert result.header.version == "24142"
+
+    def test_deposition_max_concentration(self, deposition_postfile):
+        """Max concentration works with deposition format."""
+        result = read_postfile(deposition_postfile)
+        assert result.max_concentration == pytest.approx(15.21444, abs=1e-4)
+
+    def test_deposition_empty_data(self, tmp_path):
+        """Empty deposition file creates correct column structure."""
+        content = """\
+* AERMOD ( 24142 ): Empty Deposition
+* MODELING OPTIONS USED: CONC DDEP WDEP FLAT
+* FORMAT: (5(1X,F13.5),3(1X,F8.2),2A,A8,2X,A6,2X,A5)
+"""
+        filepath = tmp_path / "empty_dep.pst"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+        assert result.data.empty
+        assert "dry_depo" in result.data.columns
+        assert "wet_depo" in result.data.columns
+
+
+# ===========================================================================
+# Synthetic Plotfile Format (with RANK column)
+# ===========================================================================
+
+SAMPLE_PLOTFILE = """\
+* AERMOD ( 24142 ): Plotfile Test Case
+* MODELING OPTIONS USED: CONC FLAT
+* PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR SOURCE GROUP: ALL
+*         X             Y      AVERAGE CONC   ZELEV  ZHILL  ZFLAG    AVE     GRP     RANK   NETID       DATE(CONC)
+   500.00000     500.00000      12.34560    0.00    0.00    0.00   1-HR    ALL       1ST    GC001    26010101
+   600.00000     500.00000       8.76543    0.00    0.00    0.00   1-HR    ALL       1ST    GC001    26010102
+   700.00000     500.00000       5.43210   10.00    5.00    0.00   1-HR    ALL       1ST    GC002    26010103
+"""
+
+
+@pytest.fixture
+def plotfile(tmp_path):
+    """Write synthetic plotfile to temp file."""
+    filepath = tmp_path / "sample.plt"
+    filepath.write_text(SAMPLE_PLOTFILE)
+    return filepath
+
+
+class TestPlotfileParser:
+    """Test parsing of plotfile-format files (with RANK column)."""
+
+    def test_plotfile_detected_from_header(self, plotfile):
+        """'PLOT FILE OF HIGH' sets _is_plotfile flag."""
+        parser = PostfileParser(plotfile)
+        result = parser.parse()
+        assert parser._is_plotfile is True
+        assert parser._is_deposition is False
+        assert len(result.data) == 3
+
+    def test_plotfile_column_names(self, plotfile):
+        """Plotfile has rank column in addition to standard columns."""
+        result = read_postfile(plotfile)
+        expected = [
+            "x", "y", "concentration", "zelev",
+            "zhill", "zflag", "ave", "grp", "rank", "date",
+        ]
+        assert list(result.data.columns) == expected
+
+    def test_plotfile_rank_column(self, plotfile):
+        """Rank column has correct values."""
+        result = read_postfile(plotfile)
+        assert result.data.iloc[0]["rank"] == "1ST"
+        assert (result.data["rank"] == "1ST").all()
+
+    def test_plotfile_date_is_real(self, plotfile):
+        """Date column has YYMMDDHH dates, not rank values."""
+        result = read_postfile(plotfile)
+        assert result.data.iloc[0]["date"] == "26010101"
+        assert result.data.iloc[1]["date"] == "26010102"
+        assert result.data.iloc[2]["date"] == "26010103"
+
+    def test_plotfile_concentration_correct(self, plotfile):
+        """Concentration values parsed correctly."""
+        result = read_postfile(plotfile)
+        assert result.data.iloc[0]["concentration"] == pytest.approx(12.3456, abs=1e-4)
+
+    def test_plotfile_zelev_correct(self, plotfile):
+        """Zelev values parsed correctly (not shifted)."""
+        result = read_postfile(plotfile)
+        assert result.data.iloc[0]["zelev"] == pytest.approx(0.0, abs=0.01)
+        assert result.data.iloc[2]["zelev"] == pytest.approx(10.0, abs=0.01)
+
+    def test_plotfile_header_parsed(self, plotfile):
+        """EPA plotfile header parsed correctly."""
+        result = read_postfile(plotfile)
+        assert result.header.averaging_period == "1-HR"
+        assert result.header.source_group == "ALL"
+        assert result.header.version == "24142"
+
+    def test_plotfile_max_concentration(self, plotfile):
+        """Max concentration works with plotfile format."""
+        result = read_postfile(plotfile)
+        assert result.max_concentration == pytest.approx(12.3456, abs=1e-4)
+
+    def test_plotfile_empty_data(self, tmp_path):
+        """Empty plotfile creates correct column structure with rank."""
+        content = """\
+* AERMOD ( 24142 ): Empty Plotfile
+* MODELING OPTIONS USED: CONC FLAT
+* PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR SOURCE GROUP: ALL
+"""
+        filepath = tmp_path / "empty.plt"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+        assert result.data.empty
+        assert "rank" in result.data.columns
+
+    def test_standard_postfile_no_rank(self, sample_postfile):
+        """Standard postfile does NOT have rank column (backward compat)."""
+        result = read_postfile(sample_postfile)
+        assert "rank" not in result.data.columns
+        assert list(result.data.columns) == [
+            "x", "y", "concentration", "zelev",
+            "zhill", "zflag", "ave", "grp", "date",
+        ]
+
+
+# ===========================================================================
+# TestEPAHeaderFormat
+# ===========================================================================
+
+class TestEPAHeaderFormat:
+    """Test EPA header format parsing (POST/PLOT FILE OF CONCURRENT...)."""
+
+    def test_epa_postfile_header(self, tmp_path):
+        """EPA postfile header with averaging period and source group."""
+        content = """\
+* AERMOD ( 24142 ): Some Test Case
+* MODELING OPTIONS USED: CONC FLAT
+* POST/PLOT FILE OF CONCURRENT 1-HR VALUES FOR SOURCE GROUP: ALL
+* FORMAT: (3(1X,F13.5),3(1X,F8.2),2A,A8,2X,A6,2X,A5)
+"""
+        filepath = tmp_path / "epa_header.pst"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+        assert result.header.averaging_period == "1-HR"
+        assert result.header.source_group == "ALL"
+
+    def test_epa_24hr_header(self, tmp_path):
+        """EPA header with 24-HR averaging period."""
+        content = """\
+* AERMOD ( 24142 ): 24-HR Test
+* MODELING OPTIONS USED: CONC FLAT
+* POST/PLOT FILE OF CONCURRENT 24-HR VALUES FOR SOURCE GROUP: STACKS
+* FORMAT: (3(1X,F13.5),3(1X,F8.2),2A,A8,2X,A6,2X,A5)
+"""
+        filepath = tmp_path / "24hr.pst"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+        assert result.header.averaging_period == "24-HR"
+        assert result.header.source_group == "STACKS"
+
+    def test_pyaermod_header_still_works(self, sample_postfile):
+        """Synthetic pyaermod format (AVERTIME/SRCGROUP) still parsed."""
+        result = read_postfile(sample_postfile)
+        assert result.header.averaging_period == "1-HR"
+        assert result.header.source_group == "ALL"
+        assert result.header.pollutant_id == "SO2"
+
+
 # Run tests
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

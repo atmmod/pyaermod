@@ -172,6 +172,9 @@ class PostfileParser:
             raise FileNotFoundError(
                 f"POSTFILE not found: {self.filepath}"
             )
+        # Format flags set during header parsing
+        self._is_deposition = False
+        self._is_plotfile = False
 
     def parse(self) -> PostfileResult:
         """
@@ -198,12 +201,15 @@ class PostfileParser:
         if data_rows:
             df = pd.DataFrame(data_rows)
         else:
-            df = pd.DataFrame(
-                columns=[
-                    "x", "y", "concentration", "zelev",
-                    "zhill", "zflag", "ave", "grp", "date",
-                ]
-            )
+            # Build default columns based on detected format
+            cols = ["x", "y", "concentration"]
+            if self._is_deposition:
+                cols.extend(["dry_depo", "wet_depo"])
+            cols.extend(["zelev", "zhill", "zflag", "ave", "grp"])
+            if self._is_plotfile:
+                cols.append("rank")
+            cols.append("date")
+            df = pd.DataFrame(columns=cols)
 
         return PostfileResult(header=header, data=df)
 
@@ -221,6 +227,12 @@ class PostfileParser:
             * AVERTIME:              -> header.averaging_period
             * POLLUTID:              -> header.pollutant_id
             * SRCGROUP:              -> header.source_group
+
+        EPA format patterns (also recognized):
+            * POST/PLOT FILE OF CONCURRENT <period> VALUES FOR SOURCE GROUP: <grp>
+            * PLOT FILE OF  HIGH <rank> <period> VALUES FOR SOURCE GROUP: <grp>
+            * FORMAT: (5(1X,F13.5)...  -> deposition format detection
+            * FORMAT: (3(1X,F13.5)...  -> standard format
 
         Parameters
         ----------
@@ -251,31 +263,69 @@ class PostfileParser:
             header.model_options = options_match.group(1).strip()
             return
 
-        # Averaging period
+        # Averaging period — pyaermod synthetic format
         ave_match = re.match(r"AVERTIME:\s*(.*)", text, re.IGNORECASE)
         if ave_match:
             header.averaging_period = ave_match.group(1).strip()
             return
 
-        # Pollutant ID
+        # EPA format: POST/PLOT FILE OF CONCURRENT <period> VALUES
+        # Also: PLOT FILE OF  HIGH <rank> <period> VALUES
+        epa_pst_match = re.match(
+            r"(?:POST/?PLOT|POST|PLOT)\s+FILE\s+OF\s+.*?"
+            r"\b(\d+-HR|PERIOD|ANNUAL|MONTH)\b\s+VALUES"
+            r"(?:\s+FOR\s+SOURCE\s+GROUP:\s*(\S+))?",
+            text, re.IGNORECASE,
+        )
+        if epa_pst_match:
+            if header.averaging_period is None:
+                header.averaging_period = epa_pst_match.group(1).strip()
+            if epa_pst_match.group(2) and header.source_group is None:
+                header.source_group = epa_pst_match.group(2).strip()
+            # Detect plotfile vs postfile
+            if re.match(r"PLOT\s+FILE\s+OF\s+HIGH", text, re.IGNORECASE):
+                self._is_plotfile = True
+            return
+
+        # Pollutant ID — pyaermod synthetic format
         poll_match = re.match(r"POLLUTID:\s*(.*)", text, re.IGNORECASE)
         if poll_match:
             header.pollutant_id = poll_match.group(1).strip()
             return
 
-        # Source group
+        # Source group — pyaermod synthetic format
         src_match = re.match(r"SRCGROUP:\s*(.*)", text, re.IGNORECASE)
         if src_match:
             header.source_group = src_match.group(1).strip()
             return
 
-    @staticmethod
-    def _parse_data_line(line: str) -> Optional[dict]:
+        # Deposition format detection from FORMAT line
+        # FORMAT: (5(1X,F13.5),...) means 5 float columns (X,Y,CONC,DRY,WET)
+        # FORMAT: (3(1X,F13.5),...) means 3 float columns (X,Y,CONC) — standard
+        fmt_match = re.match(r"FORMAT:\s*\((\d+)\(", text, re.IGNORECASE)
+        if fmt_match:
+            num_float_cols = int(fmt_match.group(1))
+            if num_float_cols == 5:
+                self._is_deposition = True
+            return
+
+    def _parse_data_line(self, line: str) -> Optional[dict]:
         """
         Parse a single data line from the POSTFILE.
 
-        Expected column order:
-            X  Y  CONC  ZELEV  ZHILL  ZFLAG  AVE  GRP  DATE
+        Handles three column layouts:
+
+        Standard (9+ columns)::
+
+            X  Y  CONC  ZELEV  ZHILL  ZFLAG  AVE  GRP  DATE  [NETID]
+
+        Deposition (11+ columns)::
+
+            X  Y  CONC  DRY_DEPO  WET_DEPO  ZELEV  ZHILL  ZFLAG  AVE  GRP  DATE  [NETID]
+
+        Plotfile (10+ columns)::
+
+            X  Y  CONC  ZELEV  ZHILL  ZFLAG  AVE  GRP  RANK  NETID  DATE(CONC)
 
         Parameters
         ----------
@@ -293,6 +343,39 @@ class PostfileParser:
             return None
 
         try:
+            if self._is_deposition and len(parts) >= 11:
+                # Deposition: X Y CONC DRY_DEPO WET_DEPO ZELEV ZHILL ZFLAG AVE GRP DATE
+                return {
+                    "x": float(parts[0]),
+                    "y": float(parts[1]),
+                    "concentration": float(parts[2]),
+                    "dry_depo": float(parts[3]),
+                    "wet_depo": float(parts[4]),
+                    "zelev": float(parts[5]),
+                    "zhill": float(parts[6]),
+                    "zflag": float(parts[7]),
+                    "ave": parts[8],
+                    "grp": parts[9],
+                    "date": parts[10],
+                }
+
+            if self._is_plotfile and len(parts) >= 10:
+                # Plotfile: X Y CONC ZELEV ZHILL ZFLAG AVE GRP RANK NETID [DATE]
+                row = {
+                    "x": float(parts[0]),
+                    "y": float(parts[1]),
+                    "concentration": float(parts[2]),
+                    "zelev": float(parts[3]),
+                    "zhill": float(parts[4]),
+                    "zflag": float(parts[5]),
+                    "ave": parts[6],
+                    "grp": parts[7],
+                    "rank": parts[8],
+                    "date": parts[10] if len(parts) > 10 else "",
+                }
+                return row
+
+            # Standard: X Y CONC ZELEV ZHILL ZFLAG AVE GRP DATE
             return {
                 "x": float(parts[0]),
                 "y": float(parts[1]),

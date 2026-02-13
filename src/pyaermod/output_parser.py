@@ -163,10 +163,16 @@ class AERMODOutputParser:
                     option = line.split('--')[0].strip()
                     run_info.model_options.append(option)
 
-        # Pollutant ID
+        # Pollutant ID — try standard format first, then EPA SUM format
         pollutant_match = re.search(r'Pollutant/Gas ID:\s*(\w+)', self.content)
         if pollutant_match:
             run_info.pollutant_id = pollutant_match.group(1)
+        else:
+            epa_poll_match = re.search(
+                r'Pollutant\s+Type\s+of:\s*(\S+)', self.content
+            )
+            if epa_poll_match:
+                run_info.pollutant_id = epa_poll_match.group(1).strip()
 
         # Averaging periods
         avertime_match = re.search(r'Averaging Time Period.*?:\s*(.+)', self.content)
@@ -190,6 +196,17 @@ class AERMODOutputParser:
         if period_match:
             run_info.start_date = period_match.group(1)
             run_info.end_date = period_match.group(2)
+
+        # EPA SUM format: source/receptor counts from summary line
+        # "This Run Includes: 1 Source(s); 1 Source Group(s); and 144 Receptor(s)"
+        counts_match = re.search(
+            r'This\s+Run\s+Includes:\s*(\d+)\s+Source\(s\).*?'
+            r'and\s+(\d+)\s+Receptor\(s\)',
+            self.content, re.DOTALL
+        )
+        if counts_match:
+            run_info.num_sources = int(counts_match.group(1))
+            run_info.num_receptors = int(counts_match.group(2))
 
         self.run_info = run_info
 
@@ -292,7 +309,10 @@ class AERMODOutputParser:
     def _parse_concentration_results(self):
         """Parse concentration results for all averaging periods"""
 
-        # Common averaging period patterns
+        # Common averaging period patterns — matches both standard format
+        # (*** ANNUAL RESULTS ***) and EPA SUM format
+        # (*** THE SUMMARY OF HIGHEST 1-HR RESULTS ***)
+        # (*** THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS) RESULTS ***)
         period_patterns = [
             (r'ANNUAL', 'ANNUAL'),
             (r'24-HOUR|24HR|24-HR', '24HR'),
@@ -311,16 +331,34 @@ class AERMODOutputParser:
     def _parse_concentration_table(self, pattern: str, period_name: str) -> Optional[ConcentrationResult]:
         """Parse concentration table for specific averaging period"""
 
-        # Find the results section
-        section_pattern = rf'\*\*\*.*?{pattern}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)'
-        section_match = re.search(section_pattern, self.content, re.DOTALL | re.IGNORECASE)
+        # Find the results section — try two section header formats:
+        # Standard: *** ANNUAL RESULTS ***
+        # EPA SUM:  *** THE SUMMARY OF HIGHEST 1-HR RESULTS ***
+        #           *** THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS) RESULTS ***
+        #
+        # For EPA SUM, the section header is on one line, so we match
+        # [^\n]* instead of .*? to avoid spanning across *** boundaries.
+        section_patterns = [
+            rf'\*\*\*[^\n]*{pattern}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
+            rf'\*\*\*.*?{pattern}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
+        ]
 
-        if not section_match or not section_match.group(1):
+        table_text = None
+        for sp in section_patterns:
+            section_match = re.search(sp, self.content, re.DOTALL | re.IGNORECASE)
+            if section_match and section_match.group(1) and len(section_match.group(1).strip()) > 10:
+                table_text = section_match.group(1)
+                break
+
+        if table_text is None:
             return None
 
-        table_text = section_match.group(1)
+        # Try EPA SUM "VALUE IS X AT (x, y, ...)" format first
+        epa_result = self._parse_epa_value_is_format(table_text, period_name)
+        if epa_result is not None:
+            return epa_result
 
-        # Parse concentration data
+        # Fall back to standard tabular format (x y concentration rows)
         data_rows = []
         lines = table_text.split('\n')
 
@@ -362,6 +400,70 @@ class AERMODOutputParser:
         df = pd.DataFrame(data_rows)
 
         # Find maximum value
+        max_idx = df['concentration'].idxmax()
+        max_value = df.loc[max_idx, 'concentration']
+        max_x = df.loc[max_idx, 'x']
+        max_y = df.loc[max_idx, 'y']
+
+        return ConcentrationResult(
+            averaging_period=period_name,
+            data=df,
+            max_value=max_value,
+            max_location=(max_x, max_y)
+        )
+
+    @staticmethod
+    def _parse_epa_value_is_format(
+        table_text: str, period_name: str
+    ) -> Optional[ConcentrationResult]:
+        """
+        Parse EPA SUM format concentration tables.
+
+        EPA SUM files list results in two formats::
+
+            PERIOD results:
+              ALL   1ST HIGHEST VALUE IS  24.85173 AT (  433.01,  -250.00,  0.00,  0.00,  0.00)
+
+            Short-term (1-HR, etc.) results:
+              ALL   HIGH  1ST HIGH VALUE IS  753.65603  ON 88030111: AT (  303.11,  -175.00, ...)
+
+        Parameters
+        ----------
+        table_text : str
+            Text of the concentration results section.
+        period_name : str
+            Name for the averaging period.
+
+        Returns
+        -------
+        ConcentrationResult or None
+            Parsed result, or *None* if no "VALUE IS" entries found.
+        """
+        # Match both formats: "VALUE IS <conc> AT (...)" and
+        # "VALUE IS <conc> ON <date>: AT (...)"
+        value_pattern = re.compile(
+            r'VALUE\s+IS\s+(\S+)\s+(?:ON\s+\S+:\s+)?AT\s*\(\s*'
+            r'([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)'
+        )
+
+        data_rows = []
+        for match in value_pattern.finditer(table_text):
+            try:
+                conc = float(match.group(1))
+                x = float(match.group(2).strip())
+                y = float(match.group(3).strip())
+                data_rows.append({
+                    'x': x,
+                    'y': y,
+                    'concentration': conc,
+                })
+            except ValueError:
+                continue
+
+        if not data_rows:
+            return None
+
+        df = pd.DataFrame(data_rows)
         max_idx = df['concentration'].idxmax()
         max_value = df.loc[max_idx, 'concentration']
         max_x = df.loc[max_idx, 'x']
