@@ -2450,6 +2450,24 @@ def page_run_aermod():
 
     # Run
     st.subheader("Execute AERMOD")
+
+    # Estimated model complexity
+    n_sources = len(st.session_state.get("project_sources", SourcePathway()).sources)
+    recs = st.session_state.get("project_receptors", ReceptorPathway())
+    n_receptors = _count_receptors(recs)
+    with st.expander("Model Complexity", expanded=False):
+        c1, c2 = st.columns(2)
+        c1.metric("Sources", n_sources)
+        c2.metric("Receptors", n_receptors)
+        if n_sources > 0 and n_receptors > 0:
+            complexity = n_sources * n_receptors
+            if complexity < 1000:
+                st.info("Small model — expected runtime: seconds")
+            elif complexity < 50000:
+                st.info("Medium model — expected runtime: minutes")
+            else:
+                st.warning("Large model — expected runtime: tens of minutes or more")
+
     work_dir = st.text_input("Working Directory", value=str(Path.cwd()), key="run_workdir")
     aermod_exe = st.text_input("AERMOD Executable Path", value="aermod")
 
@@ -2483,6 +2501,67 @@ def page_run_aermod():
                     st.error("Runner module not available.")
             except Exception as e:
                 st.error(f"Execution error: {e}")
+
+
+def _count_receptors(receptor_pathway):
+    """Estimate total receptor count from a ReceptorPathway."""
+    count = 0
+    for g in getattr(receptor_pathway, "cartesian_grids", []):
+        count += getattr(g, "x_num", 0) * getattr(g, "y_num", 0)
+    for g in getattr(receptor_pathway, "polar_grids", []):
+        count += getattr(g, "num_rings", 0) * getattr(g, "num_radials", 0)
+    count += len(getattr(receptor_pathway, "discrete_receptors", []))
+    return count
+
+
+def _compute_statistics_by_period(results, avail_periods):
+    """Compute summary statistics for each averaging period.
+
+    Returns a list of dicts suitable for ``pd.DataFrame(rows)``.
+    """
+    rows = []
+    for period in avail_periods:
+        conc = results.get_concentrations(period)
+        if conc is None or conc.empty:
+            continue
+        s = conc["concentration"]
+        rows.append({
+            "Period": period,
+            "Mean": round(s.mean(), 4),
+            "Max": round(s.max(), 4),
+            "P50": round(s.quantile(0.50), 4),
+            "P90": round(s.quantile(0.90), 4),
+            "P95": round(s.quantile(0.95), 4),
+            "P99": round(s.quantile(0.99), 4),
+            "Receptors": len(s),
+        })
+    return rows
+
+
+def _build_receptor_ranking(conc_df, n=10):
+    """Return a ranked DataFrame of the top *n* receptor concentrations."""
+    top = conc_df.nlargest(n, "concentration").copy()
+    top.insert(0, "Rank", range(1, len(top) + 1))
+    # Add percentile column if enough data
+    if len(conc_df) > 1:
+        max_val = conc_df["concentration"].max()
+        if max_val > 0:
+            top["Pct of Max"] = (
+                top["concentration"] / max_val * 100
+            ).round(1).astype(str) + "%"
+    return top.reset_index(drop=True)
+
+
+def _get_available_export_formats():
+    """Return a list of export formats based on installed optional dependencies."""
+    formats = []
+    if HAS_GEO:
+        formats.append("GeoTIFF (.tif)")
+        formats.append("GeoPackage (.gpkg)")
+        formats.append("Shapefile (.shp)")
+        formats.append("GeoJSON (.geojson)")
+    formats.append("CSV with Lat/Lon")
+    return formats
 
 
 def page_results_viewer():
@@ -2566,6 +2645,16 @@ def page_results_viewer():
 
     with tab_stats:
         st.subheader("Concentration Statistics")
+
+        # Cross-period summary table
+        summary_rows = _compute_statistics_by_period(results, avail_periods)
+        if summary_rows:
+            st.subheader("Summary Across All Averaging Periods")
+            st.dataframe(
+                pd.DataFrame(summary_rows).set_index("Period"),
+                use_container_width=True,
+            )
+
         period3 = st.selectbox("Averaging Period", avail_periods, key="stats_period")
 
         conc_df3 = results.get_concentrations(period3)
@@ -2585,9 +2674,9 @@ def page_results_viewer():
             }
             st.dataframe(pd.DataFrame([pct_data]), use_container_width=True)
 
-            # Top receptors
+            # Top receptors with rank
             st.subheader("Top 10 Receptor Concentrations")
-            top10 = conc_df3.nlargest(10, "concentration")
+            top10 = _build_receptor_ranking(conc_df3, n=10)
             st.dataframe(top10, use_container_width=True)
 
             # Threshold exceedance
@@ -2842,18 +2931,23 @@ def page_export():
         st.warning("Configure UTM zone in Project Setup first.")
         return
 
+    # Show coordinate transformation parameters
+    with st.expander("Coordinate Transformation Info", expanded=False):
+        utm_zone = st.session_state.get("utm_zone", "N/A")
+        hemisphere = st.session_state.get("hemisphere", "N/A")
+        st.text(f"UTM Zone: {utm_zone}{hemisphere}")
+        st.text("Datum: WGS84")
+        st.text(f"Transformer: {type(transformer).__name__}")
+
     avail_periods = []
     if results:
         avail_periods = list(getattr(results, "concentrations", {}).keys())
 
-    # Export format selection
-    fmt = st.selectbox("Export Format", [
-        "GeoTIFF (.tif)",
-        "GeoPackage (.gpkg)",
-        "Shapefile (.shp)",
-        "GeoJSON (.geojson)",
-        "CSV with Lat/Lon",
-    ])
+    # Export format selection — show formats based on installed dependencies
+    available_formats = _get_available_export_formats()
+    fmt = st.selectbox("Export Format", available_formats)
+    if not HAS_GEO and fmt != "CSV with Lat/Lon":
+        st.warning("Install pyaermod[geo] for geospatial exports.")
 
     if fmt == "GeoTIFF (.tif)":
         st.subheader("GeoTIFF Export")

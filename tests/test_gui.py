@@ -1591,3 +1591,138 @@ class TestPageResultsViewer:
         pyaermod_gui.st.expander.return_value.__exit__ = MagicMock(return_value=False)
         # Should not raise
         pyaermod_gui.page_run_aermod()
+
+
+# ============================================================================
+# TestStatisticsHelpers
+# ============================================================================
+
+
+class TestStatisticsHelpers:
+    """Test the new statistics helper functions."""
+
+    def test_compute_statistics_by_period(self):
+        """_compute_statistics_by_period returns correct stats for each period."""
+        from pyaermod.gui import _compute_statistics_by_period
+
+        # Mock results object with two averaging periods
+        mock_results = MagicMock()
+        annual_df = pd.DataFrame({
+            "x": [0, 100, 200, 300, 400],
+            "y": [0, 0, 0, 0, 0],
+            "concentration": [1.0, 2.0, 5.0, 10.0, 20.0],
+        })
+        hr_df = pd.DataFrame({
+            "x": [0, 100, 200],
+            "y": [0, 0, 0],
+            "concentration": [10.0, 50.0, 100.0],
+        })
+
+        def _get_conc(period):
+            if period == "ANNUAL":
+                return annual_df
+            elif period == "1HR":
+                return hr_df
+            return None
+
+        mock_results.get_concentrations = _get_conc
+
+        rows = _compute_statistics_by_period(mock_results, ["ANNUAL", "1HR"])
+        assert len(rows) == 2
+        assert rows[0]["Period"] == "ANNUAL"
+        assert rows[0]["Max"] == 20.0
+        assert rows[0]["Receptors"] == 5
+        assert rows[1]["Period"] == "1HR"
+        assert rows[1]["Max"] == 100.0
+        assert rows[1]["Receptors"] == 3
+
+    def test_compute_statistics_empty_period(self):
+        """_compute_statistics_by_period skips periods with no data."""
+        from pyaermod.gui import _compute_statistics_by_period
+
+        mock_results = MagicMock()
+        mock_results.get_concentrations.return_value = None
+
+        rows = _compute_statistics_by_period(mock_results, ["ANNUAL"])
+        assert len(rows) == 0
+
+    def test_build_receptor_ranking(self):
+        """_build_receptor_ranking returns ranked DataFrame with Pct of Max."""
+        from pyaermod.gui import _build_receptor_ranking
+
+        df = pd.DataFrame({
+            "x": [0, 100, 200, 300, 400],
+            "y": [0, 0, 0, 0, 0],
+            "concentration": [5.0, 20.0, 10.0, 1.0, 15.0],
+        })
+
+        result = _build_receptor_ranking(df, n=3)
+        assert len(result) == 3
+        assert "Rank" in result.columns
+        assert "Pct of Max" in result.columns
+        assert list(result["Rank"]) == [1, 2, 3]
+        assert result.iloc[0]["concentration"] == 20.0
+        assert result.iloc[1]["concentration"] == 15.0
+        assert result.iloc[2]["concentration"] == 10.0
+
+    def test_build_receptor_ranking_single_row(self):
+        """_build_receptor_ranking handles single-row DataFrame."""
+        from pyaermod.gui import _build_receptor_ranking
+
+        df = pd.DataFrame({
+            "x": [0],
+            "y": [0],
+            "concentration": [42.0],
+        })
+        result = _build_receptor_ranking(df, n=5)
+        assert len(result) == 1
+        assert result.iloc[0]["Rank"] == 1
+
+    def test_count_receptors(self):
+        """_count_receptors calculates total from grids and discrete receptors."""
+        from pyaermod.gui import _count_receptors
+
+        recs = ReceptorPathway()
+        recs.add_cartesian_grid(CartesianGrid(
+            x_init=-500, x_num=11, x_delta=100,
+            y_init=-500, y_num=11, y_delta=100,
+        ))
+        recs.add_discrete_receptor(DiscreteReceptor(x_coord=0, y_coord=0))
+
+        count = _count_receptors(recs)
+        assert count == 11 * 11 + 1  # 121 grid + 1 discrete
+
+    def test_count_receptors_empty(self):
+        """_count_receptors returns 0 for empty ReceptorPathway."""
+        from pyaermod.gui import _count_receptors
+
+        recs = ReceptorPathway()
+        assert _count_receptors(recs) == 0
+
+    def test_get_available_export_formats_with_geo(self):
+        """_get_available_export_formats includes geo formats when HAS_GEO is True."""
+        from pyaermod.gui import _get_available_export_formats
+
+        original = pyaermod_gui.HAS_GEO
+        try:
+            pyaermod_gui.HAS_GEO = True
+            formats = _get_available_export_formats()
+            assert "GeoTIFF (.tif)" in formats
+            assert "GeoPackage (.gpkg)" in formats
+            assert "CSV with Lat/Lon" in formats
+        finally:
+            pyaermod_gui.HAS_GEO = original
+
+    def test_get_available_export_formats_without_geo(self):
+        """_get_available_export_formats only has CSV when HAS_GEO is False."""
+        from pyaermod.gui import _get_available_export_formats
+
+        original = pyaermod_gui.HAS_GEO
+        try:
+            pyaermod_gui.HAS_GEO = False
+            formats = _get_available_export_formats()
+            assert "GeoTIFF (.tif)" not in formats
+            assert "CSV with Lat/Lon" in formats
+            assert len(formats) == 1
+        finally:
+            pyaermod_gui.HAS_GEO = original
