@@ -10,10 +10,12 @@ in the system PATH. These tests are automatically skipped if executables are not
 
 import os
 import shutil
+import struct
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from pyaermod.aermet import (
@@ -933,3 +935,265 @@ class TestAERMAPExecution:
         # Will fail due to missing DEM, but should not crash
         assert result.input_file == str(input_file.resolve())
         assert result.return_code is not None
+
+
+# ============================================================================
+# End-to-End Mock Pipeline Tests
+# ============================================================================
+
+def _build_binary_record(kurdat, ianhrs, grpid, concentrations):
+    """Build a single Fortran unformatted sequential record for binary postfile."""
+    grpid_bytes = grpid.ljust(8)[:8].encode("ascii")
+    payload = struct.pack("<i", kurdat)
+    payload += struct.pack("<i", ianhrs)
+    payload += grpid_bytes
+    for c in concentrations:
+        payload += struct.pack("<d", c)
+    rec_len = len(payload)
+    return struct.pack("<i", rec_len) + payload + struct.pack("<i", rec_len)
+
+
+def _build_binary_deposition_record(kurdat, ianhrs, grpid, concs, dry_deps, wet_deps):
+    """Build a Fortran unformatted record with deposition data (3×N floats)."""
+    grpid_bytes = grpid.ljust(8)[:8].encode("ascii")
+    payload = struct.pack("<i", kurdat)
+    payload += struct.pack("<i", ianhrs)
+    payload += grpid_bytes
+    for c in concs:
+        payload += struct.pack("<d", c)
+    for d in dry_deps:
+        payload += struct.pack("<d", d)
+    for w in wet_deps:
+        payload += struct.pack("<d", w)
+    rec_len = len(payload)
+    return struct.pack("<i", rec_len) + payload + struct.pack("<i", rec_len)
+
+
+# Synthetic AERMOD output content for E2E tests
+E2E_OUTPUT_CONTENT = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: E2E_TEST
+
+  Pollutant Type of: SO2
+
+  Averaging Time Period:  1-HR  ANNUAL
+
+  This Run Includes:   1 Source(s);   1 Source Group(s); and   25 Receptor(s)
+
+*** THE SUMMARY OF HIGHEST ANNUAL RESULTS ***
+
+   ALL   1ST HIGHEST VALUE IS  12.34567 AT (  100.00,   100.00,  0.00,  0.00,  0.00)
+   ALL   2ND HIGHEST VALUE IS  10.00000 AT (  200.00,   200.00,  0.00,  0.00,  0.00)
+
+*** THE SUMMARY OF HIGHEST 1-HR RESULTS ***
+
+   ALL   HIGH  1ST HIGH VALUE IS  456.78901  ON 88030111: AT (  100.00,   100.00,  0.00,  0.00,  0.00)
+   ALL   HIGH  2ND HIGH VALUE IS  300.00000  ON 88061205: AT (  200.00,   200.00,  0.00,  0.00,  0.00)
+"""
+
+
+@pytest.fixture
+def e2e_workspace(tmp_path):
+    """Create a workspace with synthetic AERMOD output and binary postfiles."""
+    workspace = tmp_path / "e2e"
+    workspace.mkdir()
+
+    # Write synthetic AERMOD .out file
+    out_file = workspace / "e2e_test.out"
+    out_file.write_text(E2E_OUTPUT_CONTENT)
+
+    # Write synthetic binary postfile (concentration only, 4 receptors)
+    concs = [1.5, 2.5, 3.5, 4.5]
+    rec1 = _build_binary_record(2001010101, 1, "ALL", concs)
+    rec2 = _build_binary_record(2001010102, 1, "ALL", [1.0, 2.0, 3.0, 4.0])
+    binary_postfile = workspace / "conc.pst"
+    binary_postfile.write_bytes(rec1 + rec2)
+
+    # Write synthetic binary deposition postfile (3 receptors)
+    dep_concs = [10.0, 20.0, 30.0]
+    dep_dry = [0.1, 0.2, 0.3]
+    dep_wet = [0.01, 0.02, 0.03]
+    dep_rec = _build_binary_deposition_record(2001010101, 1, "ALL",
+                                               dep_concs, dep_dry, dep_wet)
+    dep_postfile = workspace / "depo.pst"
+    dep_postfile.write_bytes(dep_rec)
+
+    # Write formatted text postfile
+    text_postfile_content = """* AERMOD ( 24142):  E2E Pipeline Test
+* MODELING OPTIONS USED:  CONC   FLAT
+* AVERTIME: 1-HR
+* POLLUTID: SO2
+* SRCGROUP: ALL
+*    X         Y        CONC    ZELEV    ZHILL   ZFLAG   AVE   GRP     DATE(CONC)
+*  (met)     (met)   (ug/m^3)   (m)      (m)             (hr)        (YYMMDDHH)
+    100.000   100.000   5.67890   0.00     0.00    0.00     1   ALL    01010101
+    200.000   200.000   3.45600   0.00     0.00    0.00     1   ALL    01010101
+    100.000   100.000   4.56700   0.00     0.00    0.00     1   ALL    01010102
+    200.000   200.000   2.34500   0.00     0.00    0.00     1   ALL    01010102
+"""
+    text_postfile = workspace / "text.pst"
+    text_postfile.write_text(text_postfile_content)
+
+    return workspace
+
+
+@pytest.mark.integration
+class TestEndToEndMockPipeline:
+    """
+    End-to-end pipeline tests using synthetic data.
+
+    Chains: input generation → output parsing → visualization → postfile parsing
+    without requiring a real AERMOD executable.
+    """
+
+    def test_input_to_output_parse(self, simple_project, e2e_workspace):
+        """Generate AERMOD input → write to file → parse synthetic output."""
+        # Step 1: Generate input text
+        inp_text = simple_project.to_aermod_input(validate=True)
+        inp_file = e2e_workspace / "pipeline.inp"
+        inp_file.write_text(inp_text)
+
+        # Verify input file is valid
+        assert "CO STARTING" in inp_text
+        assert "STACK1" in inp_text
+
+        # Step 2: Parse synthetic output file
+        results = parse_aermod_output(str(e2e_workspace / "e2e_test.out"))
+
+        # Verify parsed results
+        assert results.run_info.jobname == "E2E_TEST"
+        assert results.run_info.pollutant_id == "SO2"
+        assert "ANNUAL" in results.concentrations
+        assert "1HR" in results.concentrations
+
+        # Verify concentration values
+        annual_max = results.get_max_concentration("ANNUAL")
+        assert annual_max["value"] == pytest.approx(12.34567)
+        assert annual_max["x"] == pytest.approx(100.0)
+
+        hourly_max = results.get_max_concentration("1HR")
+        assert hourly_max["value"] == pytest.approx(456.78901)
+
+    def test_output_parse_to_visualization(self, e2e_workspace):
+        """Parse output → create contour plot with matplotlib."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        results = parse_aermod_output(str(e2e_workspace / "e2e_test.out"))
+        from pyaermod.visualization import AERMODVisualizer
+
+        viz = AERMODVisualizer(results)
+
+        # Need enough data points for contour. The parsed output only has
+        # max values, not full grids. So we verify the visualizer initializes
+        # correctly and the results chain works.
+        assert viz.results.run_info.jobname == "E2E_TEST"
+        assert viz.results.run_info.pollutant_id == "SO2"
+        assert len(viz.results.concentrations) >= 2
+        plt.close("all")
+
+    def test_output_parse_to_interactive_map(self, e2e_workspace):
+        """Parse output → create folium interactive map."""
+        folium = pytest.importorskip("folium")
+
+        results = parse_aermod_output(str(e2e_workspace / "e2e_test.out"))
+        from pyaermod.visualization import AERMODVisualizer
+
+        viz = AERMODVisualizer(results)
+        # Verify the visualizer is correctly initialized with parsed data
+        assert viz.results.run_info.jobname == "E2E_TEST"
+        assert "ANNUAL" in viz.results.concentrations
+
+    def test_postfile_binary_chain(self, e2e_workspace):
+        """Parse binary postfile → verify DataFrame structure."""
+        result = read_postfile(str(e2e_workspace / "conc.pst"))
+
+        assert result is not None
+        df = result.to_dataframe()
+        assert len(df) == 8  # 4 receptors × 2 timesteps
+        assert "concentration" in df.columns
+        assert "x" in df.columns
+        assert "y" in df.columns
+
+        # Verify header info
+        assert result.header.source_group == "ALL"
+        assert result.header.averaging_period == "1-HR"
+
+    def test_postfile_text_chain(self, e2e_workspace):
+        """Parse text postfile → verify DataFrame structure."""
+        result = read_postfile(str(e2e_workspace / "text.pst"))
+
+        assert result is not None
+        df = result.to_dataframe()
+        assert len(df) == 4  # 2 receptors × 2 timesteps
+        assert result.header.pollutant_id == "SO2"
+        assert result.header.averaging_period == "1-HR"
+        assert result.header.source_group == "ALL"
+        assert result.max_concentration > 0
+
+    def test_postfile_deposition_chain(self, e2e_workspace):
+        """Parse binary deposition postfile → verify conc/dry/wet columns."""
+        result = read_postfile(
+            str(e2e_workspace / "depo.pst"),
+            has_deposition=True,
+        )
+
+        assert result is not None
+        df = result.to_dataframe()
+        assert len(df) == 3  # 3 receptors, 1 timestep
+        assert "concentration" in df.columns
+        assert "dry_depo" in df.columns
+        assert "wet_depo" in df.columns
+
+        # Verify values
+        assert df["concentration"].max() == pytest.approx(30.0)
+        assert df["dry_depo"].max() == pytest.approx(0.3)
+        assert df["wet_depo"].max() == pytest.approx(0.03)
+
+    def test_full_pipeline_roundtrip(self, simple_project, e2e_workspace):
+        """Full roundtrip: input gen → write → parse output → parse postfile."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        # Step 1: Generate and write input
+        inp_text = simple_project.to_aermod_input(validate=True)
+        inp_file = e2e_workspace / "roundtrip.inp"
+        inp_file.write_text(inp_text)
+        assert inp_file.exists()
+        assert "CO STARTING" in inp_text
+
+        # Step 2: Parse output (simulating AERMOD ran and produced output)
+        results = parse_aermod_output(str(e2e_workspace / "e2e_test.out"))
+        assert results is not None
+        assert results.run_info.version == "24142"
+        assert len(results.concentrations) >= 2
+
+        # Step 3: Parse binary postfile
+        post_result = read_postfile(str(e2e_workspace / "conc.pst"))
+        assert post_result is not None
+        post_df = post_result.to_dataframe()
+        assert len(post_df) > 0
+
+        # Step 4: Parse text postfile
+        text_result = read_postfile(str(e2e_workspace / "text.pst"))
+        assert text_result is not None
+        assert text_result.header.pollutant_id == "SO2"
+
+        # Step 5: Parse deposition postfile
+        dep_result = read_postfile(
+            str(e2e_workspace / "depo.pst"),
+            has_deposition=True,
+        )
+        assert dep_result is not None
+        dep_df = dep_result.to_dataframe()
+        assert "dry_depo" in dep_df.columns
+
+        # Step 6: Verify cross-component data consistency
+        # Output parser and postfile both handle SO2
+        assert results.run_info.pollutant_id == "SO2"
+        assert text_result.header.pollutant_id == "SO2"
+
+        plt.close("all")

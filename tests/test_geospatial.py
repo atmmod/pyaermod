@@ -663,3 +663,260 @@ class TestConvenienceFunctions:
             sample_concentration_df, outfile, utm_zone=16, as_contours=False,
         )
         assert result.exists()
+
+
+# ============================================================================
+# Coverage expansion tests
+# ============================================================================
+
+
+class TestRequireMissingDeps:
+    """Test _require() guard function with missing deps (lines 62-70)."""
+
+    def test_require_missing_pyproj(self):
+        from pyaermod import geospatial
+        with pytest.raises(ImportError, match="pyproj"):
+            geospatial._require("pyproj", False)
+
+    def test_require_missing_geopandas(self):
+        from pyaermod import geospatial
+        with pytest.raises(ImportError, match="geopandas"):
+            geospatial._require("geopandas", False)
+
+    def test_require_missing_rasterio(self):
+        from pyaermod import geospatial
+        with pytest.raises(ImportError, match="rasterio"):
+            geospatial._require("rasterio", False)
+
+    def test_require_missing_matplotlib(self):
+        from pyaermod import geospatial
+        with pytest.raises(ImportError, match="matplotlib"):
+            geospatial._require("matplotlib", False)
+
+    def test_require_unknown_lib_defaults_to_geo(self):
+        from pyaermod import geospatial
+        with pytest.raises(ImportError, match="geo"):
+            geospatial._require("unknown_lib", False)
+
+
+class TestBuoylineEmptySegments:
+    """Test BuoyLineSource with empty line_segments (line 277)."""
+
+    def test_empty_segments_produces_point(self, transformer):
+        from shapely.geometry import Point
+
+        buoy = BuoyLineSource(
+            source_id="BL_EMPTY",
+            base_elevation=0.0,
+            avg_buoyancy_parameter=0.5,
+            avg_line_length=100.0,
+            avg_building_separation=50.0,
+            avg_building_width=30.0,
+            avg_line_width=10.0,
+            avg_building_height=15.0,
+            line_segments=[],  # Empty!
+        )
+
+        factory = GeoDataFrameFactory(transformer)
+        gdf = factory.sources_to_geodataframe([buoy])
+
+        assert len(gdf) == 1
+        assert gdf.iloc[0].geometry.equals(Point(0, 0))
+
+
+class TestUnknownSourceTypeFallback:
+    """Test sources_to_geodataframe with unknown source type (lines 360-363)."""
+
+    def test_fallback_for_custom_source(self, transformer):
+        # Create a mock source type that doesn't match any known type
+        class CustomSource:
+            source_id = "CUSTOM1"
+            x_coord = 500.0
+            y_coord = 600.0
+            base_elevation = 0.0
+            emission_rate = 1.0
+
+        src = CustomSource()
+        factory = GeoDataFrameFactory(transformer)
+        gdf = factory.sources_to_geodataframe([src])
+
+        assert len(gdf) == 1
+        assert gdf.iloc[0]["source_type"] == "CustomSource"
+        assert gdf.iloc[0].geometry.x == pytest.approx(500.0)
+        assert gdf.iloc[0].geometry.y == pytest.approx(600.0)
+
+
+class TestGeotiffEdgeCases:
+    """Test GeoTIFF export edge cases (lines 682, 707)."""
+
+    def test_single_x_resolution_fallback(self, transformer, tmp_path):
+        """All same x → resolution defaults to 100.0 (line 682)."""
+        rasterio = pytest.importorskip("rasterio")
+
+        # All x values are the same → only 1 unique x → fallback to 100.0
+        df = pd.DataFrame({
+            "x": [100.0, 100.0, 100.0],
+            "y": [0.0, 100.0, 200.0],
+            "concentration": [1.0, 2.0, 3.0],
+        })
+
+        outfile = tmp_path / "single_x.tif"
+        exporter = RasterExporter(transformer)
+        # Use method="nearest" to avoid Qhull crash with collinear points
+        exporter.export_geotiff(df, outfile, resolution=None, method="nearest")
+        assert outfile.exists()
+
+    def test_griddata_none_fallback(self, transformer, tmp_path):
+        """When griddata returns None → fill with nodata (line 707)."""
+        rasterio = pytest.importorskip("rasterio")
+        from unittest.mock import patch as mock_patch
+
+        df = pd.DataFrame({
+            "x": [0.0, 100.0, 0.0, 100.0],
+            "y": [0.0, 0.0, 100.0, 100.0],
+            "concentration": [1.0, 2.0, 1.5, 3.0],
+        })
+
+        outfile = tmp_path / "none_grid.tif"
+        exporter = RasterExporter(transformer)
+
+        with mock_patch("pyaermod.geospatial.griddata", return_value=None):
+            exporter.export_geotiff(df, outfile, resolution=50.0)
+        assert outfile.exists()
+
+
+class TestVectorExporterExportAll:
+    """Test export_all() with various configurations (lines 837-868)."""
+
+    def test_export_all_no_results(self, transformer, tmp_path):
+        """export_all with results=None → sources and receptors only."""
+        from pyaermod.input_generator import SourcePathway
+
+        sources_pathway = SourcePathway()
+        point = PointSource(
+            source_id="S1", x_coord=100.0, y_coord=200.0,
+            base_elevation=0.0, stack_height=20.0, stack_temp=350.0,
+            exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0,
+        )
+        sources_pathway.add_source(point)
+
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(
+            DiscreteReceptor(x_coord=0, y_coord=0, z_elev=0, z_flag=0)
+        )
+
+        from pyaermod.input_generator import AERMODProject, ControlPathway, MeteorologyPathway, OutputPathway
+        project = AERMODProject(
+            control=ControlPathway(title_one="Export Test"),
+            sources=sources_pathway,
+            receptors=receptors,
+            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
+            output=OutputPathway(),
+        )
+
+        factory = GeoDataFrameFactory(transformer)
+        exporter = VectorExporter(factory)
+        paths = exporter.export_all(
+            project, output_dir=tmp_path / "export",
+            results=None,
+        )
+
+        assert "sources" in paths
+        assert "receptors" in paths
+        # No concentration paths since results=None
+        conc_keys = [k for k in paths if k.startswith("conc_")]
+        assert len(conc_keys) == 0
+
+    def test_export_all_with_results(self, transformer, tmp_path):
+        """export_all with results → includes concentration exports."""
+        from unittest.mock import MagicMock
+
+        from pyaermod.input_generator import (
+            AERMODProject,
+            ControlPathway,
+            MeteorologyPathway,
+            OutputPathway,
+            SourcePathway,
+        )
+
+        sources_pathway = SourcePathway()
+        point = PointSource(
+            source_id="S1", x_coord=100.0, y_coord=200.0,
+            base_elevation=0.0, stack_height=20.0, stack_temp=350.0,
+            exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0,
+        )
+        sources_pathway.add_source(point)
+
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(
+            DiscreteReceptor(x_coord=0, y_coord=0, z_elev=0, z_flag=0)
+        )
+
+        project = AERMODProject(
+            control=ControlPathway(title_one="Export Results Test"),
+            sources=sources_pathway,
+            receptors=receptors,
+            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
+            output=OutputPathway(),
+        )
+
+        # Mock results with concentration data
+        conc_df = pd.DataFrame({
+            "x": [0.0, 100.0, 0.0, 100.0],
+            "y": [0.0, 0.0, 100.0, 100.0],
+            "concentration": [1.0, 2.0, 1.5, 3.0],
+        })
+        mock_results = MagicMock()
+        mock_results.concentrations = {"ANNUAL": MagicMock()}
+        mock_results.get_concentrations.return_value = conc_df
+
+        factory = GeoDataFrameFactory(transformer)
+        exporter = VectorExporter(factory)
+        paths = exporter.export_all(
+            project, output_dir=tmp_path / "export_results",
+            results=mock_results,
+        )
+
+        assert "sources" in paths
+        assert "receptors" in paths
+        assert "conc_ANNUAL" in paths
+
+
+class TestGeoDataFrameFactoryFromResults:
+    """Test sources_from_results (lines 372-375) and postfile_to_geodataframe (lines 461-464)."""
+
+    def test_sources_from_results(self, transformer):
+        """sources_from_results converts AERMODResults sources to GDF."""
+        from unittest.mock import MagicMock
+        mock_results = MagicMock()
+        mock_results.get_sources_dataframe.return_value = pd.DataFrame({
+            "source_id": ["S1", "S2"],
+            "source_type": ["POINT", "AREA"],
+            "x": [100.0, 200.0],
+            "y": [300.0, 400.0],
+            "emission_rate": [1.0, 2.0],
+        })
+
+        factory = GeoDataFrameFactory(transformer)
+        gdf = factory.sources_from_results(mock_results)
+
+        assert len(gdf) == 2
+        assert gdf.iloc[0].geometry.x == pytest.approx(100.0)
+        assert gdf.iloc[1].geometry.y == pytest.approx(400.0)
+
+    def test_postfile_to_geodataframe(self, transformer):
+        """postfile_to_geodataframe converts PostfileResult to GDF."""
+        from unittest.mock import MagicMock
+        mock_result = MagicMock()
+        mock_result.data = pd.DataFrame({
+            "x": [0.0, 100.0, 200.0],
+            "y": [0.0, 100.0, 200.0],
+            "concentration": [1.0, 2.0, 3.0],
+        })
+        mock_result.data.copy = mock_result.data.copy
+
+        factory = GeoDataFrameFactory(transformer)
+        gdf = factory.postfile_to_geodataframe(mock_result)
+
+        assert len(gdf) == 3
+        assert "concentration" in gdf.columns

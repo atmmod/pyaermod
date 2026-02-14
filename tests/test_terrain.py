@@ -5,14 +5,18 @@ Tests DEM downloading (mocked), AERMAP runner, AERMAP output parsing,
 and terrain processor pipeline logic.
 """
 
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
+import pandas as pd
 import pytest
 
 from pyaermod.input_generator import (
     AERMODProject,
+    BuoyLineSegment,
+    BuoyLineSource,
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
@@ -20,6 +24,7 @@ from pyaermod.input_generator import (
     OutputPathway,
     PointSource,
     ReceptorPathway,
+    RLineExtSource,
     SourcePathway,
 )
 from pyaermod.terrain import (
@@ -426,3 +431,341 @@ class TestConvenienceFunction:
         """run_aermap should fail gracefully when no executable exists."""
         with pytest.raises(FileNotFoundError):
             run_aermap("/nonexistent/input.inp")
+
+
+# ============================================================================
+# Coverage expansion tests
+# ============================================================================
+
+
+class TestRequireRequests:
+    """Test _require_requests guard function (line 27)."""
+
+    def test_raises_when_requests_missing(self):
+        from pyaermod import terrain
+        original = terrain.HAS_REQUESTS
+        try:
+            terrain.HAS_REQUESTS = False
+            with pytest.raises(ImportError, match="requests is required"):
+                terrain._require_requests()
+        finally:
+            terrain.HAS_REQUESTS = original
+
+
+class TestDEMDownloaderEdgeCases:
+    """Test download_dem with no tiles found (lines 175-176)."""
+
+    def test_download_dem_no_tiles(self, tmp_path):
+        downloader = DEMDownloader(cache_dir=tmp_path / "cache")
+        with patch.object(downloader, "find_tiles", return_value=[]):
+            result = downloader.download_dem(
+                bounds=(-88.0, 40.0, -87.0, 41.0),
+                output_dir=tmp_path / "output",
+            )
+        assert result == []
+
+
+class TestAERMAPRunnerExceptions:
+    """Test AERMAP runner exception paths (lines 313-325)."""
+
+    def test_timeout_exception(self, tmp_path):
+        """TimeoutExpired → AERMAPRunResult with error message."""
+        input_file = tmp_path / "test.inp"
+        input_file.write_text("CO STARTING\nCO FINISHED")
+
+        runner = AERMAPRunner.__new__(AERMAPRunner)
+        runner.executable = "/usr/bin/true"
+        runner.logger = MagicMock()
+
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(
+            cmd="aermap", timeout=10
+        )):
+            result = runner.run(str(input_file), working_dir=str(tmp_path), timeout=10)
+
+        assert result.success is False
+        assert "timed out" in result.error_message
+
+    def test_generic_exception(self, tmp_path):
+        """Generic OSError → AERMAPRunResult with error message."""
+        input_file = tmp_path / "test.inp"
+        input_file.write_text("CO STARTING\nCO FINISHED")
+
+        runner = AERMAPRunner.__new__(AERMAPRunner)
+        runner.executable = "/usr/bin/true"
+        runner.logger = MagicMock()
+
+        with patch("subprocess.run", side_effect=OSError("disk full")):
+            result = runner.run(str(input_file), working_dir=str(tmp_path))
+
+        assert result.success is False
+        assert "disk full" in result.error_message
+
+
+class TestAERMAPOutputParserMalformed:
+    """Test parser with malformed input lines (lines 391-432, 490-491)."""
+
+    def test_malformed_disccart_line(self, tmp_path):
+        """Malformed DISCCART → skip, don't crash (lines 391-392)."""
+        content = """** AERMAP Receptor Output
+   DISCCART     500000.00    NOT_A_NUMBER    125.30    130.50
+   DISCCART     501000.00    3801000.00    150.20    155.80
+"""
+        output_file = tmp_path / "rec.out"
+        output_file.write_text(content)
+        df = AERMAPOutputParser.parse_receptor_output(output_file)
+        assert len(df) == 1  # Only the valid line
+        assert df.iloc[0]["x"] == pytest.approx(501000.0)
+
+    def test_malformed_gridcart_elev(self, tmp_path):
+        """Malformed GRIDCART ELEV → skip (lines 405-406)."""
+        content = """** AERMAP Receptor Output
+   RE GRIDCART  GRD1 XYINC 500000.00 3 100.0 3800000.00 3 100.0
+   RE GRIDCART  GRD1 ELEV  ABC 125.0 130.0 135.0
+   RE GRIDCART  GRD1 ELEV  2 140.0 145.0 150.0
+"""
+        output_file = tmp_path / "grid.out"
+        output_file.write_text(content)
+        df = AERMAPOutputParser.parse_receptor_output(output_file)
+        # Row 1 malformed → skipped; row 2 valid with grid y_init + 1*delta
+        assert len(df) == 3  # Only row 2's 3 values
+
+    def test_malformed_gridcart_hill(self, tmp_path):
+        """Malformed GRIDCART HILL → skip (lines 418-419)."""
+        content = """** AERMAP Receptor Output
+   RE GRIDCART  GRD1 XYINC 500000.00 2 100.0 3800000.00 2 100.0
+   RE GRIDCART  GRD1 ELEV  1 125.0 130.0
+   RE GRIDCART  GRD1 ELEV  2 135.0 140.0
+   RE GRIDCART  GRD1 HILL  1 126.0 131.0
+   RE GRIDCART  GRD1 HILL  BADROW 136.0 141.0
+"""
+        output_file = tmp_path / "hill.out"
+        output_file.write_text(content)
+        df = AERMAPOutputParser.parse_receptor_output(output_file)
+        assert len(df) == 4  # 2×2 grid
+        # Row 1 has hill data, row 2 has defaults (0.0) due to malformed HILL line
+        row_1 = df[(abs(df["x"] - 500000.00) < 0.5) & (abs(df["y"] - 3800000.00) < 0.5)]
+        if not row_1.empty:
+            assert row_1.iloc[0]["zhill"] == pytest.approx(126.0)
+
+    def test_malformed_source_location(self, tmp_path):
+        """Malformed SO LOCATION → skip (lines 490-491)."""
+        content = """** AERMAP Source Output
+SO LOCATION  STK1  POINT  NOT_FLOAT  3800500.00  125.5
+SO LOCATION  STK2  POINT  501000.00  3801000.00  130.0
+"""
+        output_file = tmp_path / "src.out"
+        output_file.write_text(content)
+        df = AERMAPOutputParser.parse_source_output(output_file)
+        assert len(df) == 1  # Only STK2
+        assert df.iloc[0]["source_id"] == "STK2"
+
+
+class TestCreateAermapWithLineSources:
+    """Test create_aermap_project_from_aermod with line sources (lines 542-544, 581-582)."""
+
+    def test_rlinext_source_extraction(self):
+        """RLineExtSource has x_start/y_start → should be used for AERMAP."""
+        control = ControlPathway(title_one="Line Source Test")
+        sources = SourcePathway()
+
+        # Add a point source and a RLineExtSource
+        point = PointSource(
+            source_id="PT1", x_coord=100.0, y_coord=200.0,
+            base_elevation=0.0, stack_height=20.0, stack_temp=350.0,
+            exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0,
+        )
+        rlinext = RLineExtSource(
+            source_id="RL1", x_start=300.0, y_start=400.0, z_start=5.0,
+            x_end=500.0, y_end=600.0, z_end=5.0,
+            emission_rate=2.0, road_width=10.0,
+        )
+        sources.add_source(point)
+        sources.add_source(rlinext)
+
+        receptors = ReceptorPathway()
+        grid = CartesianGrid(x_init=0.0, x_num=3, x_delta=100.0,
+                             y_init=0.0, y_num=3, y_delta=100.0)
+        receptors.add_cartesian_grid(grid)
+
+        meteorology = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl")
+        output = OutputPathway()
+
+        project = AERMODProject(
+            control=control, sources=sources, receptors=receptors,
+            meteorology=meteorology, output=output,
+        )
+
+        processor = TerrainProcessor()
+        aermap = processor.create_aermap_project_from_aermod(
+            project, dem_files=["dem.tif"], utm_zone=16,
+        )
+
+        # Should have 2 AERMAP sources (PT1 and RL1)
+        assert len(aermap.sources) == 2
+        source_ids = [s.source_id for s in aermap.sources]
+        assert "PT1" in source_ids
+        assert "RL1" in source_ids
+
+
+class TestUpdateElevationsEdgeCases:
+    """Test elevation update edge cases (lines 745-746, 771-774)."""
+
+    def test_grid_elevations_no_match(self):
+        """Grid coords don't match parsed data → default 0.0 (lines 745-746)."""
+        control = ControlPathway(title_one="Grid No Match")
+        sources = SourcePathway()
+        point = PointSource(
+            source_id="S1", x_coord=100.0, y_coord=100.0,
+            base_elevation=0.0, stack_height=20.0, stack_temp=350.0,
+            exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0,
+        )
+        sources.add_source(point)
+        grid = CartesianGrid(x_init=0.0, x_num=2, x_delta=100.0,
+                             y_init=0.0, y_num=2, y_delta=100.0)
+        receptors = ReceptorPathway(cartesian_grids=[grid])
+        met = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl")
+        output = OutputPathway()
+        project = AERMODProject(
+            control=control, sources=sources, receptors=receptors,
+            meteorology=met, output=output,
+        )
+
+        # Parsed data with completely different coordinates
+        rec_df = pd.DataFrame([
+            {"x": 9999.0, "y": 9999.0, "zelev": 500.0, "zhill": 550.0},
+        ])
+
+        processor = TerrainProcessor()
+        processor._update_grid_receptor_elevations(project, rec_df)
+
+        # Grid should NOT have elevations set (no match → has_data stays False)
+        assert not hasattr(grid, "grid_elevations") or grid.grid_elevations is None
+
+    def test_source_elevations_buoyline(self):
+        """BuoyLineSource elevation update via segments (lines 771-774)."""
+        control = ControlPathway(title_one="Buoy Test")
+        sources = SourcePathway()
+        seg = BuoyLineSegment(
+            source_id="BL1SEG1",
+            x_start=100.0, y_start=200.0,
+            x_end=300.0, y_end=400.0,
+            emission_rate=1.0,
+        )
+        buoy = BuoyLineSource(
+            source_id="BLINE1",
+            base_elevation=0.0,
+            avg_buoyancy_parameter=0.5,
+            avg_line_length=200.0,
+            avg_building_separation=50.0,
+            avg_building_width=30.0,
+            avg_line_width=10.0,
+            avg_building_height=15.0,
+            line_segments=[seg],
+        )
+        sources.add_source(buoy)
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(DiscreteReceptor(x_coord=0, y_coord=0, z_elev=0, z_flag=0))
+        met = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl")
+        output = OutputPathway()
+        project = AERMODProject(
+            control=control, sources=sources, receptors=receptors,
+            meteorology=met, output=output,
+        )
+
+        src_df = pd.DataFrame([
+            {"source_id": "BL1SEG1", "source_type": "BUOYLINE", "x": 100.0, "y": 200.0, "zelev": 250.0},
+        ])
+
+        processor = TerrainProcessor()
+        processor._update_source_elevations(project, src_df)
+
+        # BuoyLineSource base_elevation updated from segment match
+        assert buoy.base_elevation == pytest.approx(250.0)
+
+
+class TestTerrainProcessorProcess:
+    """Test the full process() pipeline with mocks (lines 641-691)."""
+
+    def test_process_mocked_pipeline(self, tmp_path):
+        """Mock all sub-components to test process() flow."""
+        control = ControlPathway(title_one="Pipeline Test")
+        sources = SourcePathway()
+        point = PointSource(
+            source_id="S1", x_coord=500000.0, y_coord=3800000.0,
+            base_elevation=0.0, stack_height=20.0, stack_temp=350.0,
+            exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0,
+        )
+        sources.add_source(point)
+        grid = CartesianGrid(
+            x_init=499500.0, x_num=3, x_delta=500.0,
+            y_init=3799500.0, y_num=3, y_delta=500.0,
+        )
+        receptors = ReceptorPathway(cartesian_grids=[grid])
+        met = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl")
+        output = OutputPathway()
+        project = AERMODProject(
+            control=control, sources=sources, receptors=receptors,
+            meteorology=met, output=output,
+        )
+
+        processor = TerrainProcessor()
+
+        # Create mock AERMAP run result
+        mock_result = AERMAPRunResult(
+            success=True, input_file=str(tmp_path / "aermap.inp"),
+            return_code=0, runtime_seconds=1.0,
+        )
+
+        # Create receptor output file that AERMAP would have produced
+        rec_output_dir = tmp_path / "aermap_work"
+        rec_output_dir.mkdir(parents=True, exist_ok=True)
+        rec_file = rec_output_dir / "aermap_rec.out"
+        rec_content = """** AERMAP Receptor Output
+   DISCCART     499500.00    3799500.00    100.00    110.00
+   DISCCART     500000.00    3799500.00    105.00    115.00
+   DISCCART     500500.00    3799500.00    110.00    120.00
+"""
+        rec_file.write_text(rec_content)
+
+        with patch.object(AERMAPRunner, "__init__", return_value=None), \
+             patch.object(AERMAPRunner, "run", return_value=mock_result):
+            result = processor.process(
+                project,
+                bounds=(-88.0, 40.0, -87.0, 41.0),
+                aermap_exe="/fake/aermap",
+                working_dir=str(rec_output_dir),
+                skip_download=True,
+                dem_files=["test.tif"],
+            )
+
+        # Should return the updated project
+        assert result is project
+
+    def test_process_skip_download_requires_dem_files(self, tmp_path):
+        """process() with skip_download=True and no dem_files → ValueError."""
+        processor = TerrainProcessor()
+        control = ControlPathway(title_one="Test")
+        sources = SourcePathway()
+        point = PointSource(
+            source_id="S1", x_coord=0.0, y_coord=0.0,
+            base_elevation=0.0, stack_height=20.0, stack_temp=350.0,
+            exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0,
+        )
+        sources.add_source(point)
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(DiscreteReceptor(x_coord=0, y_coord=0, z_elev=0, z_flag=0))
+        met = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl")
+        output = OutputPathway()
+        project = AERMODProject(
+            control=control, sources=sources, receptors=receptors,
+            meteorology=met, output=output,
+        )
+
+        with pytest.raises(ValueError, match="dem_files required"):
+            processor.process(
+                project,
+                bounds=(-88, 40, -87, 41),
+                skip_download=True,
+                dem_files=None,
+                working_dir=str(tmp_path),
+            )

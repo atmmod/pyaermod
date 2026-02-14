@@ -73,6 +73,20 @@ df = results.get_concentrations("ANNUAL")
 print(results.summary())
 ```
 
+### Parse POSTFILE Output
+
+```python
+from pyaermod.postfile import read_postfile
+
+# Auto-detects text vs binary format
+post = read_postfile("postfile.out")
+df = post.to_dataframe()
+
+# Binary postfile with deposition data
+dep = read_postfile("depo_post.out", has_deposition=True)
+print(dep.to_dataframe()[["concentration", "dry_depo", "wet_depo"]])
+```
+
 ## Features
 
 ### Source Types (10)
@@ -119,7 +133,7 @@ src/pyaermod/
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
     gui.py               # Streamlit web GUI
-tests/                   # 731 tests
+tests/                   # 1158 tests, 95% coverage
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
 ```

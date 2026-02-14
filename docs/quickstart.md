@@ -366,6 +366,24 @@ for date in result.data["date"].unique():
     print(f"{date}: max={ts['concentration'].max():.4g}")
 ```
 
+### Binary POSTFILE with Deposition
+
+Binary (UNFORM) POSTFILEs from deposition runs store concentration, dry deposition,
+and wet deposition as contiguous blocks of `N` floats each (3N total per record).
+
+```python
+from pyaermod.postfile import read_postfile
+
+# Explicit deposition flag
+result = read_postfile("depo_post.pst", has_deposition=True)
+df = result.to_dataframe()
+print(df[["x", "y", "concentration", "dry_depo", "wet_depo"]])
+
+# Auto-detect: provide num_receptors, parser checks if 3N floats
+result = read_postfile("post.pst", num_receptors=50)
+# If 150 floats found, deposition is auto-detected
+```
+
 ## Validation
 
 The input generator includes built-in validation:
@@ -397,7 +415,7 @@ for error in errors:
 | Input file validation | `validator` |
 | AERMOD execution | `runner` |
 | Output parsing to DataFrames | `output_parser` |
-| POSTFILE parsing (text and binary) | `postfile` |
+| POSTFILE parsing (text and binary, with deposition) | `postfile` |
 | Contour plots, Folium maps | `visualization` |
 | 3D surfaces, wind roses, animations | `advanced_viz` |
 | AERMET meteorological preprocessing | `aermet` |
@@ -441,6 +459,14 @@ RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE, POSTFILE
 ### Event Pathway (EV)
 
 EVENTPER, EVENTLOC
+
+## Testing & Validation
+
+PyAERMOD includes comprehensive testing validated against official EPA data:
+
+- **1158+ unit and integration tests** with 95% code coverage
+- **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.)
+- End-to-end pipeline tests chaining input generation through visualization
 
 ## Next Steps
 

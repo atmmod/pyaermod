@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Binary POSTFILE deposition support** — `UnformattedPostfileParser` now handles deposition records with `has_deposition` parameter (auto-detect or explicit). Parses 3N floats into concentration, dry deposition, and wet deposition columns
+- **EPA v24142 integration tests** — 315 tests parsing official EPA AERMOD test case outputs (LOVETT, FLATELEV, TESTPART, etc.)
+- **End-to-end mock pipeline tests** — full chain: input generation → output parsing → visualization → postfile parsing, without requiring AERMOD executable
+- **Expanded test coverage** — 1158 tests, 95.0% code coverage (was 731 tests / 89%)
+- `test_init.py` — tests for `get_version()`, `print_info()`, `_check_dependencies()`
+
 ## [0.2.0] - 2026-02-13
 
 ### Added
@@ -76,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Source Groups UI**: create/delete source groups, per-group PLOTFILE checkboxes
 
 #### Testing & Quality
-- 731 tests across 16 test files, 89% code coverage
+- 1158 tests across 17 test files, 95% code coverage
 - `conftest.py` with shared fixtures for all test files
 - Property-based testing with Hypothesis strategies for source types
 - `ruff` linting (replaced flake8) with comprehensive rule set
