@@ -5,6 +5,7 @@ Tests class instantiation, parameter validation, and basic method calls
 using mock/synthetic data (no real AERMOD output required).
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from unittest.mock import MagicMock, patch
@@ -310,8 +311,211 @@ class TestAdvancedVisualizerComparison:
         plt.close(fig)
 
 
-# Need os for file existence checks
-import os  # noqa: E402
+# ---------------------------------------------------------------------------
+# Interactive map tests (folium)
+# ---------------------------------------------------------------------------
+
+class TestCreateInteractiveMap:
+    """Test create_interactive_map() (visualization.py lines 194-259)."""
+
+    def test_returns_map(self, sample_results):
+        """create_interactive_map returns a folium Map object."""
+        folium = pytest.importorskip("folium")
+        viz = AERMODVisualizer(sample_results)
+        m = viz.create_interactive_map(averaging_period="ANNUAL")
+        assert isinstance(m, folium.Map)
+
+    def test_custom_center(self, sample_results):
+        """Explicit center/zoom_start are respected."""
+        pytest.importorskip("folium")
+        viz = AERMODVisualizer(sample_results)
+        m = viz.create_interactive_map(
+            averaging_period="ANNUAL",
+            center=(40.0, -74.0),
+            zoom_start=10,
+        )
+        assert m is not None
+
+    def test_no_sources_no_max(self, sample_results):
+        """Map can be created without source/max markers."""
+        pytest.importorskip("folium")
+        viz = AERMODVisualizer(sample_results)
+        m = viz.create_interactive_map(
+            averaging_period="ANNUAL",
+            show_sources=False,
+            show_max=False,
+        )
+        assert m is not None
+
+    def test_save_html(self, sample_results, tmp_path):
+        """save_path writes an HTML file."""
+        pytest.importorskip("folium")
+        viz = AERMODVisualizer(sample_results)
+        save_file = tmp_path / "map.html"
+        m = viz.create_interactive_map(
+            averaging_period="ANNUAL",
+            save_path=str(save_file),
+        )
+        assert save_file.exists()
+        assert save_file.stat().st_size > 100
+
+
+# ---------------------------------------------------------------------------
+# Time series tests
+# ---------------------------------------------------------------------------
+
+class TestPlotTimeSeries:
+    """Test plot_time_series() (visualization.py lines 280-318)."""
+
+    def test_returns_figure(self, sample_results):
+        """plot_time_series returns a matplotlib Figure."""
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        fig = viz.plot_time_series(receptor_location=(0.0, 0.0))
+        assert fig is not None
+        plt.close(fig)
+
+    def test_custom_title(self, sample_results):
+        """Custom title parameter is accepted."""
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        fig = viz.plot_time_series(
+            receptor_location=(0.0, 0.0),
+            title="My Custom Title",
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_save(self, sample_results, tmp_path):
+        """save_path writes a PNG file."""
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        save_file = str(tmp_path / "timeseries.png")
+        fig = viz.plot_time_series(
+            receptor_location=(0.0, 0.0),
+            save_path=save_file,
+        )
+        assert os.path.exists(save_file)
+        assert os.path.getsize(save_file) > 100
+        plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Comparison metric + save tests
+# ---------------------------------------------------------------------------
+
+class TestPlotComparisonExtended:
+    """Additional plot_comparison tests (median metric, save_path)."""
+
+    def test_plot_comparison_median_metric(self, sample_results):
+        """metric='median' computes median concentration."""
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        fig = viz.plot_comparison(
+            results_list=[sample_results],
+            labels=["Baseline"],
+            averaging_period="ANNUAL",
+            metric="median",
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_plot_comparison_save(self, sample_results, tmp_path):
+        """save_path writes a file."""
+        import matplotlib.pyplot as plt
+        viz = AERMODVisualizer(sample_results)
+        save_file = str(tmp_path / "comparison.png")
+        fig = viz.plot_comparison(
+            results_list=[sample_results],
+            labels=["Baseline"],
+            save_path=save_file,
+        )
+        assert os.path.exists(save_file)
+        plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Quick map convenience function tests
+# ---------------------------------------------------------------------------
+
+class TestQuickMap:
+    """Test the quick_map() convenience function."""
+
+    def test_quick_map_returns_map(self, sample_results):
+        """quick_map returns a folium Map."""
+        folium = pytest.importorskip("folium")
+        m = quick_map(sample_results, averaging_period="ANNUAL")
+        assert isinstance(m, folium.Map)
+
+    def test_quick_map_save(self, sample_results, tmp_path):
+        """quick_map with save_path writes HTML file."""
+        pytest.importorskip("folium")
+        save_file = tmp_path / "quick_map.html"
+        m = quick_map(
+            sample_results,
+            averaging_period="ANNUAL",
+            save_path=str(save_file),
+        )
+        assert save_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# Animation tests (advanced_viz.py)
+# ---------------------------------------------------------------------------
+
+class TestAdvancedVisualizerAnimation:
+    """Test plot_time_series_animation (advanced_viz.py lines 320-391)."""
+
+    def test_animation_creation(self, advanced_viz_df):
+        """Two DataFrames + timestamps creates animation object."""
+        import matplotlib.pyplot as plt
+        df2 = advanced_viz_df.copy()
+        df2["CONC"] *= 1.5
+
+        anim = AdvancedVisualizer.plot_time_series_animation(
+            dataframes=[advanced_viz_df, df2],
+            timestamps=["T1", "T2"],
+            interval=200,
+        )
+        assert anim is not None
+        plt.close("all")
+
+    def test_animation_save_gif(self, advanced_viz_df, tmp_path):
+        """save_path produces a GIF file (requires pillow)."""
+        pytest.importorskip("PIL")
+        import matplotlib.pyplot as plt
+        df2 = advanced_viz_df.copy()
+        df2["CONC"] *= 1.5
+
+        save_file = str(tmp_path / "anim.gif")
+        anim = AdvancedVisualizer.plot_time_series_animation(
+            dataframes=[advanced_viz_df, df2],
+            timestamps=["T1", "T2"],
+            save_path=save_file,
+        )
+        assert os.path.exists(save_file)
+        assert os.path.getsize(save_file) > 100
+        plt.close("all")
+
+    def test_animation_mismatched_lengths(self, advanced_viz_df):
+        """ValueError when len(dataframes) != len(timestamps)."""
+        with pytest.raises(ValueError, match="timestamps"):
+            AdvancedVisualizer.plot_time_series_animation(
+                dataframes=[advanced_viz_df],
+                timestamps=["T1", "T2"],
+            )
+
+    def test_comparison_grid_save(self, advanced_viz_df, tmp_path):
+        """Comparison grid with save_path writes a file."""
+        import matplotlib.pyplot as plt
+        save_file = str(tmp_path / "grid.png")
+        scenarios = {"A": advanced_viz_df}
+        fig = AdvancedVisualizer.create_comparison_grid(
+            scenarios, save_path=save_file
+        )
+        assert os.path.exists(save_file)
+        plt.close(fig)
+
 
 # ---------------------------------------------------------------------------
 # Additional coverage tests — quick_plot, plot_contours save to file

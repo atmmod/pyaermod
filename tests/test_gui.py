@@ -1412,3 +1412,182 @@ class TestSourceGroupWorkflow:
         inp = project.to_aermod_input(validate=False)
         assert "PLOTFILE" in inp
         assert "GRP1" in inp
+
+
+# ============================================================================
+# TestPageRunAermod
+# ============================================================================
+
+
+class TestPageRunAermod:
+    """Test page_run_aermod() functionality via its underlying logic."""
+
+    def test_generates_input_preview(self):
+        """SessionStateManager → project → to_aermod_input() works."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        pyaermod_gui.st.session_state["project_meteorology"] = MeteorologyPathway(
+            surface_file="test.sfc", profile_file="test.pfl",
+        )
+        project = SessionStateManager.get_project()
+        inp_text = project.to_aermod_input(validate=False)
+        assert "CO STARTING" in inp_text
+        assert "SO STARTING" in inp_text
+        assert "OU STARTING" in inp_text
+
+    def test_output_config_postfile(self):
+        """OutputPathway with POSTFILE generates correct keywords."""
+        ou = OutputPathway(
+            postfile="output.pst",
+            postfile_averaging="1",
+            postfile_source_group="ALL",
+            postfile_format="UNFORM",
+        )
+        output = ou.to_aermod_input()
+        assert "POSTFILE" in output
+        assert "UNFORM" in output
+        assert "ALL" in output
+
+    def test_event_processing(self):
+        """EventPathway + eventfil in ControlPathway produces EV pathway."""
+        from pyaermod.input_generator import EventPathway, EventPeriod
+
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        pyaermod_gui.st.session_state["project_meteorology"] = MeteorologyPathway(
+            surface_file="test.sfc", profile_file="test.pfl",
+        )
+        pyaermod_gui.st.session_state["project_control"] = ControlPathway(
+            title_one="Event Test",
+            eventfil="events.inp",
+        )
+        pyaermod_gui.st.session_state["project_events"] = EventPathway(
+            events=[EventPeriod(event_name="EVT01", start_date="24010101", end_date="24010124")]
+        )
+
+        project = SessionStateManager.get_project()
+        inp = project.to_aermod_input(validate=False)
+        assert "EVENTFIL" in inp
+
+    def test_deposition_output_types(self):
+        """CONC/DEPOS/DDEP/WDEP/DETH all accepted in OutputPathway."""
+        for otype in ["CONC", "DEPOS", "DDEP", "WDEP", "DETH"]:
+            ou = OutputPathway(output_type=otype)
+            output = ou.to_aermod_input()
+            # Just verify it generates without error
+            assert "OU STARTING" in output
+
+
+# ============================================================================
+# TestPageExport
+# ============================================================================
+
+
+class TestPageExport:
+    """Test page_export() guard conditions."""
+
+    def test_export_no_crash_without_geo(self):
+        """With HAS_GEO=False, page_export() calls st.error but doesn't crash."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        original = pyaermod_gui.HAS_GEO
+        try:
+            pyaermod_gui.HAS_GEO = False
+            pyaermod_gui.page_export()
+            # st.error should have been called
+            pyaermod_gui.st.error.assert_called()
+        finally:
+            pyaermod_gui.HAS_GEO = original
+
+    def test_export_no_crash_without_transformer(self):
+        """With HAS_GEO=True but no UTM zone → st.warning, no crash."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        # Ensure no transformer (utm_zone=0 → get_transformer returns None)
+        pyaermod_gui.st.session_state["utm_zone"] = 0
+        original = pyaermod_gui.HAS_GEO
+        try:
+            pyaermod_gui.HAS_GEO = True
+            pyaermod_gui.page_export()
+            # Should call st.warning about configuring UTM
+            pyaermod_gui.st.warning.assert_called()
+        finally:
+            pyaermod_gui.HAS_GEO = original
+
+
+# ============================================================================
+# TestMainFunction
+# ============================================================================
+
+
+class TestMainFunction:
+    """Test the main() entry point."""
+
+    def test_main_has_streamlit_guard(self):
+        """main() raises ImportError if HAS_STREAMLIT is False."""
+        original = pyaermod_gui.HAS_STREAMLIT
+        try:
+            pyaermod_gui.HAS_STREAMLIT = False
+            with pytest.raises(ImportError, match="Streamlit"):
+                pyaermod_gui.main()
+        finally:
+            pyaermod_gui.HAS_STREAMLIT = original
+
+    def test_page_functions_exist(self):
+        """All 7 page functions exist as attributes on gui module."""
+        pages = [
+            "page_project_setup",
+            "page_source_editor",
+            "page_receptor_editor",
+            "page_meteorology",
+            "page_run_aermod",
+            "page_results_viewer",
+            "page_export",
+        ]
+        for name in pages:
+            assert hasattr(pyaermod_gui, name), f"Missing: {name}"
+            assert callable(getattr(pyaermod_gui, name))
+
+
+# ============================================================================
+# TestPageResultsViewer
+# ============================================================================
+
+
+class TestPageResultsViewer:
+    """Test page_results_viewer() guard conditions."""
+
+    def test_no_results_no_crash(self):
+        """page_results_viewer() with no parsed_results doesn't crash."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["parsed_results"] = None
+        # Ensure file_uploader returns None (no uploaded file)
+        pyaermod_gui.st.file_uploader.return_value = None
+        # Should not raise
+        pyaermod_gui.page_results_viewer()
+
+    def test_page_run_aermod_no_crash(self):
+        """page_run_aermod() runs through without crashing."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.add_source(PointSource(source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0))
+        pyaermod_gui.st.session_state["project_meteorology"] = MeteorologyPathway(
+            surface_file="test.sfc", profile_file="test.pfl",
+        )
+        # Mock st.columns to return a tuple of MagicMocks with context manager
+        col_mock = MagicMock()
+        col_mock.__enter__ = MagicMock(return_value=col_mock)
+        col_mock.__exit__ = MagicMock(return_value=False)
+        pyaermod_gui.st.columns.return_value = [col_mock, col_mock]
+        pyaermod_gui.st.checkbox.return_value = False
+        pyaermod_gui.st.button.return_value = False
+        pyaermod_gui.st.expander.return_value.__enter__ = MagicMock()
+        pyaermod_gui.st.expander.return_value.__exit__ = MagicMock(return_value=False)
+        # Should not raise
+        pyaermod_gui.page_run_aermod()

@@ -584,6 +584,313 @@ class TestAutoDetectFormat:
 
 
 # ===========================================================================
+# Binary Deposition helpers + tests
+# ===========================================================================
+
+def _build_binary_deposition_record(kurdat, ianhrs, grpid, concs, dry_deps, wet_deps):
+    """
+    Build a Fortran unformatted record with deposition data.
+
+    AERMOD writes deposition records as contiguous blocks:
+    [CONC_1..CONC_N, DRY_1..DRY_N, WET_1..WET_N]
+    """
+    grpid_bytes = grpid.ljust(8)[:8].encode("ascii")
+    payload = struct.pack("<i", kurdat)
+    payload += struct.pack("<i", ianhrs)
+    payload += grpid_bytes
+    for c in concs:
+        payload += struct.pack("<d", c)
+    for d in dry_deps:
+        payload += struct.pack("<d", d)
+    for w in wet_deps:
+        payload += struct.pack("<d", w)
+    rec_len = len(payload)
+    return struct.pack("<i", rec_len) + payload + struct.pack("<i", rec_len)
+
+
+class TestBinaryDepositionPostfile:
+    """Test binary POSTFILE parsing with deposition data (3×N floats)."""
+
+    def test_explicit_deposition_flag(self, tmp_path):
+        """has_deposition=True parses 3N floats into conc/dry/wet columns."""
+        filepath = tmp_path / "dep.bin"
+        data = _build_binary_deposition_record(
+            26010101, 1, "ALL",
+            [10.0, 20.0],        # concentrations
+            [0.5, 1.0],          # dry deposition
+            [2.0, 3.0],          # wet deposition
+        )
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath, has_deposition=True)
+        result = parser.parse()
+
+        assert len(result.data) == 2
+        assert "dry_depo" in result.data.columns
+        assert "wet_depo" in result.data.columns
+        assert result.data.iloc[0]["concentration"] == pytest.approx(10.0)
+        assert result.data.iloc[0]["dry_depo"] == pytest.approx(0.5)
+        assert result.data.iloc[0]["wet_depo"] == pytest.approx(2.0)
+        assert result.data.iloc[1]["concentration"] == pytest.approx(20.0)
+        assert result.data.iloc[1]["dry_depo"] == pytest.approx(1.0)
+        assert result.data.iloc[1]["wet_depo"] == pytest.approx(3.0)
+
+    def test_auto_detect_deposition(self, tmp_path):
+        """Auto-detect deposition when num_receptors given and 3N floats."""
+        filepath = tmp_path / "auto_dep.bin"
+        data = _build_binary_deposition_record(
+            26010101, 1, "ALL",
+            [5.0, 6.0, 7.0],    # 3 receptors
+            [0.1, 0.2, 0.3],
+            [1.1, 1.2, 1.3],
+        )
+        filepath.write_bytes(data)
+
+        # 9 floats with num_receptors=3 → auto-detect deposition
+        parser = UnformattedPostfileParser(
+            filepath, num_receptors=3, has_deposition=None
+        )
+        result = parser.parse()
+
+        assert "dry_depo" in result.data.columns
+        assert "wet_depo" in result.data.columns
+        assert len(result.data) == 3
+        assert result.data.iloc[2]["concentration"] == pytest.approx(7.0)
+        assert result.data.iloc[2]["dry_depo"] == pytest.approx(0.3)
+        assert result.data.iloc[2]["wet_depo"] == pytest.approx(1.3)
+
+    def test_deposition_multiple_timesteps(self, tmp_path):
+        """Multiple deposition records parsed correctly."""
+        filepath = tmp_path / "multi_dep.bin"
+        data = _build_binary_deposition_record(
+            26010101, 1, "ALL",
+            [10.0, 20.0], [0.5, 1.0], [2.0, 3.0],
+        )
+        data += _build_binary_deposition_record(
+            26010102, 1, "ALL",
+            [15.0, 25.0], [0.7, 1.2], [2.5, 3.5],
+        )
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath, has_deposition=True)
+        result = parser.parse()
+
+        assert len(result.data) == 4  # 2 timesteps × 2 receptors
+        ts2 = result.data[result.data["date"] == "26010102"]
+        assert len(ts2) == 2
+        assert ts2.iloc[0]["concentration"] == pytest.approx(15.0)
+        assert ts2.iloc[1]["dry_depo"] == pytest.approx(1.2)
+        assert ts2.iloc[1]["wet_depo"] == pytest.approx(3.5)
+
+    def test_read_postfile_deposition_passthrough(self, tmp_path):
+        """read_postfile passes has_deposition to binary parser."""
+        filepath = tmp_path / "pass.bin"
+        data = _build_binary_deposition_record(
+            26010101, 1, "GRP1",
+            [100.0], [5.0], [10.0],
+        )
+        filepath.write_bytes(data)
+
+        result = read_postfile(filepath, has_deposition=True)
+        assert "dry_depo" in result.data.columns
+        assert result.data.iloc[0]["dry_depo"] == pytest.approx(5.0)
+        assert result.header.source_group == "GRP1"
+
+    def test_deposition_empty_file(self, tmp_path):
+        """Empty file with has_deposition=True has correct columns."""
+        filepath = tmp_path / "empty_dep.bin"
+        filepath.write_bytes(b"")
+
+        parser = UnformattedPostfileParser(filepath, has_deposition=True)
+        result = parser.parse()
+
+        assert result.data.empty
+        assert "dry_depo" in result.data.columns
+        assert "wet_depo" in result.data.columns
+        assert "concentration" in result.data.columns
+
+    def test_deposition_header_populated(self, tmp_path):
+        """Header gets averaging_period/source_group from first depo record."""
+        filepath = tmp_path / "header_dep.bin"
+        data = _build_binary_deposition_record(
+            26010124, 24, "STACKS",
+            [50.0], [2.0], [8.0],
+        )
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath, has_deposition=True)
+        result = parser.parse()
+
+        assert result.header.averaging_period == "24-HR"
+        assert result.header.source_group == "STACKS"
+        assert result.header.version is None
+
+    def test_deposition_not_divisible_by_3_raises(self, tmp_path):
+        """has_deposition=True with non-3N floats raises ValueError."""
+        filepath = tmp_path / "bad_dep.bin"
+        # Build a record with only 2 floats (not divisible by 3)
+        data = _build_binary_record(26010101, 1, "ALL", [10.0, 20.0])
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath, has_deposition=True)
+        with pytest.raises(ValueError, match="not divisible by 3"):
+            parser.parse()
+
+    def test_deposition_num_receptors_mismatch_raises(self, tmp_path):
+        """Explicit num_receptors conflicts with deposition record size."""
+        filepath = tmp_path / "mismatch_dep.bin"
+        # 3 concs + 3 dry + 3 wet = 9 floats → 3 receptors
+        data = _build_binary_deposition_record(
+            26010101, 1, "ALL",
+            [1.0, 2.0, 3.0], [0.1, 0.2, 0.3], [0.4, 0.5, 0.6],
+        )
+        filepath.write_bytes(data)
+
+        # But claim 5 receptors
+        parser = UnformattedPostfileParser(
+            filepath, num_receptors=5, has_deposition=True
+        )
+        with pytest.raises(ValueError, match="receptors"):
+            parser.parse()
+
+
+class TestTextPostfileEdgeCases:
+    """Test text POSTFILE edge cases (lines 343, 390-391, 494, 529-530)."""
+
+    def test_data_line_too_few_parts(self, tmp_path):
+        """Line with <9 parts returns None → skipped (covers line 343)."""
+        content = """\
+* AERMOD ( 24142 ): Edge Case
+* MODELING OPTIONS USED: CONC FLAT
+* AVERTIME: 1-HR
+* POLLUTID: SO2
+* SRCGROUP: ALL
+*         X             Y      AVERAGE CONC   ZELEV  ZHILL  ZFLAG    AVE     GRP       DATE
+   500.00      500.00      1.23456E+01    0.00    0.00    0.00   1-HR    ALL    26010101
+   too few parts here
+   600.00      500.00      8.76543E+00    0.00    0.00    0.00   1-HR    ALL    26010101
+"""
+        filepath = tmp_path / "few_parts.pst"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+        # The malformed line is skipped, only 2 valid data rows
+        assert len(result.data) == 2
+
+    def test_malformed_float_in_data_line(self, tmp_path):
+        """Non-numeric in float position returns None (covers lines 390-391)."""
+        content = """\
+* AERMOD ( 24142 ): Malformed
+* MODELING OPTIONS USED: CONC FLAT
+* AVERTIME: 1-HR
+* POLLUTID: SO2
+* SRCGROUP: ALL
+*         X             Y      AVERAGE CONC   ZELEV  ZHILL  ZFLAG    AVE     GRP       DATE
+   500.00      500.00      1.23456E+01    0.00    0.00    0.00   1-HR    ALL    26010101
+   abc.xx      500.00      BADVALUE       0.00    0.00    0.00   1-HR    ALL    26010101
+   600.00      500.00      8.76543E+00    0.00    0.00    0.00   1-HR    ALL    26010101
+"""
+        filepath = tmp_path / "bad_float.pst"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+        # The malformed line is skipped
+        assert len(result.data) == 2
+
+    def test_binary_other_averaging_period(self, tmp_path):
+        """Averaging period not 1 or 24 → e.g. '3-HR' (covers line 494)."""
+        filepath = tmp_path / "3hr.pst"
+        data = _build_binary_record(26010103, 3, "ALL", [10.0, 20.0])
+        filepath.write_bytes(data)
+        parser = UnformattedPostfileParser(filepath)
+        result = parser.parse()
+        assert result.header.averaging_period == "3-HR"
+
+    def test_binary_conc_only_num_receptors_mismatch(self, tmp_path):
+        """Conc-only mode: num_receptors given but record has different count."""
+        filepath = tmp_path / "mismatch_conc.pst"
+        # Record has 3 floats (concentrations only)
+        data = _build_binary_record(26010101, 1, "ALL", [1.0, 2.0, 3.0])
+        filepath.write_bytes(data)
+        # Claim 5 receptors, but 3 floats (not deposition since has_deposition=False)
+        parser = UnformattedPostfileParser(
+            filepath, num_receptors=5, has_deposition=False
+        )
+        with pytest.raises(ValueError, match="Expected"):
+            parser.parse()
+
+
+class TestBinaryEdgeCases:
+    """Test binary POSTFILE edge cases for robust error handling."""
+
+    def test_truncated_record_payload(self, tmp_path):
+        """Payload shorter than rec_len → graceful empty result."""
+        filepath = tmp_path / "truncated.bin"
+        # Write a leading marker claiming 100 bytes but only 10 bytes of payload
+        data = struct.pack("<i", 100) + b"\x00" * 10
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath)
+        result = parser.parse()
+        assert result.data.empty
+
+    def test_missing_trailing_marker(self, tmp_path):
+        """No trailing 4 bytes → graceful empty result."""
+        filepath = tmp_path / "no_trail.bin"
+        # Build valid payload but cut off the trailing marker
+        grpid_bytes = b"ALL     "
+        payload = struct.pack("<i", 26010101) + struct.pack("<i", 1) + grpid_bytes
+        payload += struct.pack("<d", 10.0)
+        rec_len = len(payload)
+        # Only write leading marker + payload, NO trailing marker
+        data = struct.pack("<i", rec_len) + payload
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath)
+        result = parser.parse()
+        assert result.data.empty
+
+    def test_mismatched_record_markers(self, tmp_path):
+        """Leading ≠ trailing record marker → ValueError."""
+        filepath = tmp_path / "mismatch.bin"
+        grpid_bytes = b"ALL     "
+        payload = struct.pack("<i", 26010101) + struct.pack("<i", 1) + grpid_bytes
+        payload += struct.pack("<d", 10.0)
+        rec_len = len(payload)
+        # Write leading marker, payload, then WRONG trailing marker
+        data = struct.pack("<i", rec_len) + payload + struct.pack("<i", rec_len + 99)
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath)
+        with pytest.raises(ValueError, match="mismatch"):
+            parser.parse()
+
+    def test_payload_too_short_for_header(self, tmp_path):
+        """Payload < 16 bytes (can't hold KURDAT+IANHRS+GRPID) → empty."""
+        filepath = tmp_path / "tiny.bin"
+        # 8 bytes of payload (only KURDAT + IANHRS, no GRPID)
+        payload = struct.pack("<i", 26010101) + struct.pack("<i", 1)
+        rec_len = len(payload)
+        data = struct.pack("<i", rec_len) + payload + struct.pack("<i", rec_len)
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath)
+        result = parser.parse()
+        assert result.data.empty
+
+    def test_receptor_count_mismatch_raises(self, tmp_path):
+        """Second record has different float count → ValueError."""
+        filepath = tmp_path / "count_change.bin"
+        # Record 1: 3 receptors
+        data = _build_binary_record(26010101, 1, "ALL", [1.0, 2.0, 3.0])
+        # Record 2: 2 receptors (should fail)
+        data += _build_binary_record(26010102, 1, "ALL", [4.0, 5.0])
+        filepath.write_bytes(data)
+
+        parser = UnformattedPostfileParser(filepath)
+        with pytest.raises(ValueError, match="Expected"):
+            parser.parse()
+
+
+# ===========================================================================
 # Synthetic Deposition Format (12-column)
 # ===========================================================================
 

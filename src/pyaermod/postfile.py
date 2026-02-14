@@ -409,6 +409,10 @@ class UnformattedPostfileParser:
         ANNVAL()  — float64 × num_receptors  (concentration per receptor)
         [4-byte record-length marker]
 
+    For deposition runs the ANNVAL array contains three contiguous blocks:
+    ``CONC(1:N), DRY_DEP(1:N), WET_DEP(1:N)`` — i.e. 3×N float64 values
+    per record.
+
     Parameters
     ----------
     filepath : str or Path
@@ -418,6 +422,12 @@ class UnformattedPostfileParser:
     receptor_coords : list of (float, float), optional
         ``(x, y)`` coordinate pairs for each receptor index.  If *None*,
         receptors are assigned index-based coordinates ``(i, 0)``.
+    has_deposition : bool, optional
+        If *True*, each record is assumed to contain 3×N float64 values
+        (concentration, dry deposition, wet deposition).  If *None*
+        (default), deposition is auto-detected when *num_receptors* is
+        given and the record contains exactly 3×N values.  If *False*,
+        deposition columns are never produced.
 
     Raises
     ------
@@ -430,6 +440,7 @@ class UnformattedPostfileParser:
         filepath: Union[str, Path],
         num_receptors: Optional[int] = None,
         receptor_coords: Optional[List[Tuple[float, float]]] = None,
+        has_deposition: Optional[bool] = None,
     ):
         self.filepath = Path(filepath)
         if not self.filepath.exists():
@@ -438,6 +449,7 @@ class UnformattedPostfileParser:
             )
         self.num_receptors = num_receptors
         self.receptor_coords = receptor_coords
+        self.has_deposition = has_deposition
 
     def parse(self) -> PostfileResult:
         """
@@ -450,9 +462,14 @@ class UnformattedPostfileParser:
             are populated from the first record's source group and averaging
             info; ``version``, ``title``, ``model_options``, and
             ``pollutant_id`` are set to *None* (not present in binary format).
+
+            When the file contains deposition data (3×N floats per record),
+            the DataFrame includes ``dry_depo`` and ``wet_depo`` columns in
+            addition to ``concentration``.
         """
         data_rows: list = []
         header = PostfileHeader()
+        deposition_detected = self.has_deposition  # may be None
 
         with open(self.filepath, "rb") as f:
             first_record = True
@@ -464,9 +481,9 @@ class UnformattedPostfileParser:
                 kurdat_int = record["kurdat"]
                 ianhrs = record["ianhrs"]
                 grpid = record["grpid"]
-                concentrations = record["concentrations"]
+                values = record["values"]
 
-                # Populate header from first record
+                # --- Deposition auto-detection on first record -----------
                 if first_record:
                     header.source_group = grpid
                     if ianhrs == 1:
@@ -475,23 +492,91 @@ class UnformattedPostfileParser:
                         header.averaging_period = "24-HR"
                     else:
                         header.averaging_period = f"{ianhrs}-HR"
+
+                    num_floats = len(values)
+
+                    if self.has_deposition is True:
+                        # Explicit: 3N floats → N receptors
+                        if num_floats % 3 != 0:
+                            raise ValueError(
+                                f"has_deposition=True but record has "
+                                f"{num_floats} floats (not divisible by 3)"
+                            )
+                        inferred_nr = num_floats // 3
+                        if self.num_receptors is None:
+                            self.num_receptors = inferred_nr
+                        elif self.num_receptors != inferred_nr:
+                            raise ValueError(
+                                f"num_receptors={self.num_receptors} but "
+                                f"deposition record has {inferred_nr} "
+                                f"receptors ({num_floats} floats / 3)"
+                            )
+                        deposition_detected = True
+
+                    elif (
+                        self.has_deposition is None
+                        and self.num_receptors is not None
+                        and num_floats == 3 * self.num_receptors
+                    ):
+                        # Auto-detect: num_receptors given and 3× match
+                        deposition_detected = True
+
+                    else:
+                        # Concentration only — infer num_receptors
+                        deposition_detected = False
+                        if self.num_receptors is None:
+                            self.num_receptors = num_floats
+                        elif num_floats != self.num_receptors:
+                            raise ValueError(
+                                f"Expected {self.num_receptors} values "
+                                f"but record contains {num_floats}"
+                            )
+
                     first_record = False
 
+                # --- Validate subsequent record sizes --------------------
+                else:
+                    expected = (
+                        self.num_receptors * 3
+                        if deposition_detected
+                        else self.num_receptors
+                    )
+                    if len(values) != expected:
+                        raise ValueError(
+                            f"Expected {expected} floats per record but "
+                            f"got {len(values)}"
+                        )
+
+                # --- Split values into columns ---------------------------
+                n = self.num_receptors
+                if deposition_detected:
+                    concentrations = values[0:n]
+                    dry_deps = values[n:2 * n]
+                    wet_deps = values[2 * n:3 * n]
+                else:
+                    concentrations = values
+                    dry_deps = None
+                    wet_deps = None
+
                 date_str = self._kurdat_to_str(kurdat_int)
-                num_rec = len(concentrations)
 
                 # Resolve receptor coordinates
                 if self.receptor_coords is not None:
                     coords = self.receptor_coords
                 else:
-                    coords = [(float(i), 0.0) for i in range(num_rec)]
+                    coords = [(float(i), 0.0) for i in range(n)]
 
                 for i, conc in enumerate(concentrations):
                     x, y = coords[i] if i < len(coords) else (float(i), 0.0)
-                    data_rows.append({
+                    row = {
                         "x": x,
                         "y": y,
                         "concentration": conc,
+                    }
+                    if deposition_detected:
+                        row["dry_depo"] = dry_deps[i]
+                        row["wet_depo"] = wet_deps[i]
+                    row.update({
                         "zelev": 0.0,
                         "zhill": 0.0,
                         "zflag": 0.0,
@@ -499,16 +584,17 @@ class UnformattedPostfileParser:
                         "grp": grpid,
                         "date": date_str,
                     })
+                    data_rows.append(row)
 
         if data_rows:
             df = pd.DataFrame(data_rows)
         else:
-            df = pd.DataFrame(
-                columns=[
-                    "x", "y", "concentration", "zelev",
-                    "zhill", "zflag", "ave", "grp", "date",
-                ]
-            )
+            # Build empty DataFrame with correct columns
+            cols = ["x", "y", "concentration"]
+            if self.has_deposition is True or deposition_detected:
+                cols += ["dry_depo", "wet_depo"]
+            cols += ["zelev", "zhill", "zflag", "ave", "grp", "date"]
+            df = pd.DataFrame(columns=cols)
 
         return PostfileResult(header=header, data=df)
 
@@ -529,7 +615,7 @@ class UnformattedPostfileParser:
         -------
         dict or None
             Dictionary with keys ``kurdat``, ``ianhrs``, ``grpid``,
-            ``concentrations``; or *None* at end-of-file.
+            ``values`` (raw float list); or *None* at end-of-file.
         """
         # Leading 4-byte record-length marker
         marker_bytes = f.read(4)
@@ -566,25 +652,15 @@ class UnformattedPostfileParser:
         ianhrs = struct.unpack("<i", payload[4:8])[0]
         grpid = payload[8:16].decode("ascii", errors="replace").strip()
 
-        conc_bytes = payload[16:]
-        num_rec = len(conc_bytes) // 8
-
-        # Infer or validate num_receptors from first record
-        if self.num_receptors is None:
-            self.num_receptors = num_rec
-        elif num_rec != self.num_receptors:
-            raise ValueError(
-                f"Expected {self.num_receptors} receptors but record "
-                f"contains {num_rec}"
-            )
-
-        concentrations = list(struct.unpack(f"<{num_rec}d", conc_bytes))
+        val_bytes = payload[16:]
+        num_floats = len(val_bytes) // 8
+        values = list(struct.unpack(f"<{num_floats}d", val_bytes))
 
         return {
             "kurdat": kurdat,
             "ianhrs": ianhrs,
             "grpid": grpid,
-            "concentrations": concentrations,
+            "values": values,
         }
 
     @staticmethod
@@ -643,6 +719,7 @@ def read_postfile(
     *,
     num_receptors: Optional[int] = None,
     receptor_coords: Optional[List[Tuple[float, float]]] = None,
+    has_deposition: Optional[bool] = None,
 ) -> PostfileResult:
     """
     Parse an AERMOD POSTFILE and return the result.
@@ -660,6 +737,10 @@ def read_postfile(
     receptor_coords : list of (float, float), optional
         Receptor ``(x, y)`` coordinates (binary files only).  Ignored for
         text files.
+    has_deposition : bool, optional
+        Whether the binary file contains deposition data (3×N floats per
+        record).  Ignored for text files.  If *None*, auto-detection is
+        attempted when *num_receptors* is provided.
 
     Returns
     -------
@@ -674,5 +755,6 @@ def read_postfile(
             filepath,
             num_receptors=num_receptors,
             receptor_coords=receptor_coords,
+            has_deposition=has_deposition,
         )
     return parser.parse()

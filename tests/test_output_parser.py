@@ -504,3 +504,118 @@ Jobname: NORESULTS
         )
         df = results.get_receptors_dataframe()
         assert len(df) == 0
+
+
+# ---------------------------------------------------------------------------
+# Output parser edge case tests (Phase 2d)
+# ---------------------------------------------------------------------------
+
+# Synthetic EPA SUM-style output with multiple averaging periods and dates
+EPA_STYLE_OUTPUT = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: EPA_STYLE
+
+  Pollutant Type of: SO2
+
+  Averaging Time Period:  1-HR  24-HR  ANNUAL
+
+  STARTING DATE:  01/01/88   ENDING DATE:  12/31/88
+
+  This Run Includes:   3 Source(s);   1 Source Group(s); and   50 Receptor(s)
+
+*** THE SUMMARY OF HIGHEST ANNUAL RESULTS ***
+
+   ALL   1ST HIGHEST VALUE IS  24.85173 AT (  433.01,  -250.00,  0.00,  0.00,  0.00)
+   ALL   2ND HIGHEST VALUE IS  20.00000 AT (  500.00,  -100.00,  0.00,  0.00,  0.00)
+
+*** THE SUMMARY OF HIGHEST 1-HR RESULTS ***
+
+   ALL   HIGH  1ST HIGH VALUE IS  753.65603  ON 88030111: AT (  303.11,  -175.00,  0.00,  0.00,  0.00)
+   ALL   HIGH  2ND HIGH VALUE IS  600.00000  ON 88061205: AT (  200.00,   100.00,  0.00,  0.00,  0.00)
+
+*** THE SUMMARY OF HIGHEST 24-HR RESULTS ***
+
+   ALL   HIGH  1ST HIGH VALUE IS  120.50000  ON 88030124: AT (  400.00,  -200.00,  0.00,  0.00,  0.00)
+"""
+
+
+class TestOutputParserEdgeCases:
+    """Test output_parser edge cases for uncovered lines."""
+
+    def test_parse_multiple_averaging_periods(self, tmp_path):
+        """Multiple averaging periods (ANNUAL + 1HR + 24HR) all parsed."""
+        outfile = tmp_path / "multi_period.out"
+        outfile.write_text(EPA_STYLE_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        results = parser.parse()
+
+        assert "ANNUAL" in results.concentrations
+        assert "1HR" in results.concentrations
+        assert "24HR" in results.concentrations
+
+    def test_modeling_period_dates(self, tmp_path):
+        """STARTING DATE / ENDING DATE extraction from EPA format."""
+        outfile = tmp_path / "dates.out"
+        outfile.write_text(EPA_STYLE_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_header()
+
+        assert parser.run_info.start_date == "01/01/88"
+        assert parser.run_info.end_date == "12/31/88"
+
+    def test_epa_value_is_format_synthetic(self, tmp_path):
+        """EPA VALUE IS format parsed — both with and without ON date."""
+        outfile = tmp_path / "value_is.out"
+        outfile.write_text(EPA_STYLE_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        results = parser.parse()
+
+        # ANNUAL has VALUE IS without ON date
+        annual = results.concentrations["ANNUAL"]
+        assert annual.max_value == pytest.approx(24.85173, abs=1e-4)
+        assert annual.max_location[0] == pytest.approx(433.01, abs=0.01)
+        assert len(annual.data) == 2
+
+        # 1HR has VALUE IS with ON date
+        hr1 = results.concentrations["1HR"]
+        assert hr1.max_value == pytest.approx(753.65603, abs=1e-4)
+        assert len(hr1.data) == 2
+
+    def test_summary_with_run_date(self, tmp_path):
+        """Summary includes run date when present in header."""
+        outfile = tmp_path / "summary.out"
+        outfile.write_text(MINIMAL_OUTPUT)
+        results = parse_aermod_output(str(outfile))
+        summary = results.summary()
+        assert "Run Date: 01-15-26" in summary
+
+    def test_source_receptor_counts_from_epa(self, tmp_path):
+        """Source/receptor counts extracted from EPA 'This Run Includes' line."""
+        outfile = tmp_path / "counts.out"
+        outfile.write_text(EPA_STYLE_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_header()
+
+        assert parser.run_info.num_sources == 3
+        assert parser.run_info.num_receptors == 50
+
+    def test_epa_pollutant_type_parsed(self, tmp_path):
+        """Pollutant Type of: SO2 extracted from EPA format."""
+        outfile = tmp_path / "pollutant.out"
+        outfile.write_text(EPA_STYLE_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_header()
+
+        assert parser.run_info.pollutant_id == "SO2"
+
+    def test_averaging_periods_parsed(self, tmp_path):
+        """Averaging Time Period line populates averaging_periods list."""
+        outfile = tmp_path / "avgtime.out"
+        outfile.write_text(EPA_STYLE_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_header()
+
+        assert "1-HR" in parser.run_info.averaging_periods
+        assert "24-HR" in parser.run_info.averaging_periods
+        assert "ANNUAL" in parser.run_info.averaging_periods

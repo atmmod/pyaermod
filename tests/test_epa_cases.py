@@ -697,6 +697,130 @@ class TestOutputParserEdgeCases:
 
 
 # ============================================================================
+# 10a. Deeper EPA Validation — LOVETT, FLATELEV, TESTPART
+# ============================================================================
+
+@pytest.mark.epa
+@requires_epa
+class TestLovettOutputParsing:
+    """Deeper validation of LOVETT.SUM — complex terrain test case."""
+
+    def test_lovett_pollutant(self):
+        filepath = OUTPUTS_DIR / "LOVETT.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert result.run_info.pollutant_id == "SO2"
+
+    def test_lovett_source_receptor_counts(self):
+        filepath = OUTPUTS_DIR / "LOVETT.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert result.run_info.num_sources == 1
+        assert result.run_info.num_receptors == 11
+
+    def test_lovett_four_periods(self):
+        """LOVETT has 1HR, 3HR, 24HR, and PERIOD averaging periods."""
+        filepath = OUTPUTS_DIR / "LOVETT.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert "1HR" in result.concentrations
+        assert "3HR" in result.concentrations
+        assert "24HR" in result.concentrations
+        assert "PERIOD" in result.concentrations
+
+    def test_lovett_1hr_max(self):
+        """LOVETT 1HR max concentration = 293.02376 at (4780, 70700)."""
+        filepath = OUTPUTS_DIR / "LOVETT.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        hr1 = result.concentrations["1HR"]
+        assert hr1.max_value == pytest.approx(293.02376, abs=0.01)
+        assert hr1.max_location[0] == pytest.approx(4780.0, abs=1.0)
+        assert hr1.max_location[1] == pytest.approx(70700.0, abs=1.0)
+
+    def test_lovett_period_max(self):
+        """LOVETT PERIOD max = 4.27442 at (5110, 70850)."""
+        filepath = OUTPUTS_DIR / "LOVETT.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        period = result.concentrations["PERIOD"]
+        assert period.max_value == pytest.approx(4.27442, abs=0.001)
+
+
+@pytest.mark.epa
+@requires_epa
+class TestFlatelevOutputParsing:
+    """Deeper validation of FLATELEV.SUM — flat + elevated terrain."""
+
+    def test_flatelev_pollutant(self):
+        filepath = OUTPUTS_DIR / "FLATELEV.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert result.run_info.pollutant_id == "SO2"
+
+    def test_flatelev_source_receptor_counts(self):
+        filepath = OUTPUTS_DIR / "FLATELEV.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert result.run_info.num_sources == 2
+        assert result.run_info.num_receptors == 11
+
+    def test_flatelev_five_periods(self):
+        """FLATELEV has 1HR, 3HR, 8HR, 24HR, and PERIOD."""
+        filepath = OUTPUTS_DIR / "FLATELEV.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        periods = sorted(result.concentrations.keys())
+        assert periods == ["1HR", "24HR", "3HR", "8HR", "PERIOD"]
+
+    def test_flatelev_1hr_max(self):
+        """FLATELEV 1HR max = 309.99382 at (5110, 70850)."""
+        filepath = OUTPUTS_DIR / "FLATELEV.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        hr1 = result.concentrations["1HR"]
+        assert hr1.max_value == pytest.approx(309.99382, abs=0.01)
+
+    def test_flatelev_period_max(self):
+        """FLATELEV PERIOD max = 3.14146."""
+        filepath = OUTPUTS_DIR / "FLATELEV.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        period = result.concentrations["PERIOD"]
+        assert period.max_value == pytest.approx(3.14146, abs=0.001)
+
+
+@pytest.mark.epa
+@requires_epa
+class TestDepositionOutputParsing:
+    """Deeper validation of TESTPART.SUM — particle deposition."""
+
+    def test_testpart_pollutant(self):
+        """TESTPART uses CHROMIUM pollutant."""
+        filepath = OUTPUTS_DIR / "TESTPART.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert result.run_info.pollutant_id == "CHROMIUM"
+
+    def test_testpart_source_receptor_counts(self):
+        filepath = OUTPUTS_DIR / "TESTPART.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        assert result.run_info.num_sources == 1
+        assert result.run_info.num_receptors == 46
+
+    def test_testpart_1hr_max(self):
+        """TESTPART 1HR max = 458.42077 at (0, 400)."""
+        filepath = OUTPUTS_DIR / "TESTPART.SUM"
+        parser = AERMODOutputParser(filepath)
+        result = parser.parse()
+        hr1 = result.concentrations["1HR"]
+        assert hr1.max_value == pytest.approx(458.42077, abs=0.01)
+        assert hr1.max_location[0] == pytest.approx(0.0, abs=1.0)
+        assert hr1.max_location[1] == pytest.approx(400.0, abs=1.0)
+
+
+# ============================================================================
 # 10. Auto-Detect Format Tests
 # ============================================================================
 
