@@ -5,6 +5,7 @@ on:
     types: [published]
 
 permissions:
+  contents: read   # Required to checkout private repos
   id-token: write  # Required for trusted publishing
 
 jobs:
