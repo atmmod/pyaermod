@@ -133,7 +133,7 @@ src/pyaermod/
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
     gui.py               # Streamlit web GUI
-tests/                   # 1158 tests, 95% coverage
+tests/                   # 1166 tests, 95% coverage
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
 ```

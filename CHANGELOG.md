@@ -7,14 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Binary POSTFILE deposition support** — `UnformattedPostfileParser` now handles deposition records with `has_deposition` parameter (auto-detect or explicit). Parses 3N floats into concentration, dry deposition, and wet deposition columns
-- **EPA v24142 integration tests** — 315 tests parsing official EPA AERMOD test case outputs (LOVETT, FLATELEV, TESTPART, etc.)
-- **End-to-end mock pipeline tests** — full chain: input generation → output parsing → visualization → postfile parsing, without requiring AERMOD executable
-- **Expanded test coverage** — 1158 tests, 95.0% code coverage (was 731 tests / 89%)
-- `test_init.py` — tests for `get_version()`, `print_info()`, `_check_dependencies()`
-
-## [0.2.0] - 2026-02-13
+## [1.0.0] - 2026-02-14
 
 ### Added
 
@@ -45,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SourcePathway.background` field generating `BACKGRND` and `BGSECTOR` keywords
 
 #### Deposition Modeling
-- `DepositionMethod` enum (`DRYDPLT`, `WETDPLT`, `DEPOS`, `DDEP`, `WDEP`)
+- `DepositionMethod` enum (`DRYDPLT`, `WETDPLT`, `GASDEPVD`, `GASDEPDF`)
 - `GasDepositionParams` and `ParticleDepositionParams` for gas and particle deposition settings
 - Deposition fields added to all 10 source types with shared `_deposition_to_aermod_lines()` helper
 - `OutputPathway.output_type` for selecting concentration vs. deposition output
@@ -72,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `_building_downwash_lines()` and `_set_building_from_bpip()` module-level helpers shared across source types
 - Terrain grid elevations via `CartesianGrid.terrain_elevations` and `PolarGrid.terrain_elevations`
 
+#### Binary POSTFILE Deposition
+- `UnformattedPostfileParser` now handles deposition records with `has_deposition` parameter (auto-detect or explicit)
+- Parses 3N floats into concentration, dry deposition, and wet deposition columns
+
 #### GUI Enhancements
 - **ProjectSerializer**: JSON save/load for complete session state with round-trip fidelity
 - **AreaCirc/AreaPoly forms** in SourceFormFactory
@@ -81,9 +78,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **POSTFILE viewer**: 4th tab in Results Viewer with timestep slider, receptor time-series, animation GIF
 - **Chemistry Options UI**: NO2 chemistry configuration with method, ozone data, and NOx file inputs
 - **Source Groups UI**: create/delete source groups, per-group PLOTFILE checkboxes
+- **Statistics helpers**: cross-period summary table, ranked receptor table, model complexity indicator
+- **Export format detection**: dynamic format list based on installed optional dependencies
 
 #### Testing & Quality
-- 1158 tests across 17 test files, 95% code coverage
+- 1166 tests across 18 test files, 95% code coverage
+- 315 EPA v24142 integration tests parsing official test case outputs
+- End-to-end mock pipeline tests (input generation → output parsing → visualization → postfile)
 - `conftest.py` with shared fixtures for all test files
 - Property-based testing with Hypothesis strategies for source types
 - `ruff` linting (replaced flake8) with comprehensive rule set
@@ -91,8 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Performance benchmarks in `benchmarks/` directory
 
 #### Documentation
-- 5 Jupyter tutorial notebooks (Getting Started through Visualization)
-- 6 example scripts (area sources, volume sources, line sources, BPIP, chemistry, end-to-end)
+- 7 Jupyter tutorial notebooks (Getting Started through Advanced Features)
+- 7 example scripts (area sources, volume sources, line sources, BPIP, chemistry, deposition, end-to-end)
 - MkDocs documentation site with Material theme and mkdocstrings API reference
 
 ### Changed
@@ -115,6 +116,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/atmmod/pyaermod/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/atmmod/pyaermod/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/atmmod/pyaermod/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/atmmod/pyaermod/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/atmmod/pyaermod/releases/tag/v0.1.0

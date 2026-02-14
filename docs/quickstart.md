@@ -464,7 +464,7 @@ EVENTPER, EVENTLOC
 
 PyAERMOD includes comprehensive testing validated against official EPA data:
 
-- **1158+ unit and integration tests** with 95% code coverage
+- **1166 unit and integration tests** with 95% code coverage
 - **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.)
 - End-to-end pipeline tests chaining input generation through visualization
 

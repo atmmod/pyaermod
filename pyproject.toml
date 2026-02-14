@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyaermod"
-version = "0.2.0"
+version = "1.0.0"
 description = "Python wrapper for EPA's AERMOD air dispersion model"
 readme = "README.md"
 license = {text = "MIT"}
