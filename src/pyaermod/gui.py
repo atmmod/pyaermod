@@ -5,9 +5,9 @@ Interactive web-based GUI for the full AERMOD workflow:
 project setup -> source/receptor editing on maps -> run AERMOD -> visualize -> export.
 
 Launch with:
-    streamlit run -m pyaermod.gui
-    # or
     pyaermod-gui
+    # or
+    streamlit run $(python -c "import pyaermod.gui; print(pyaermod.gui.__file__)")
 
 Requires: pip install pyaermod[gui]
 """
@@ -3066,12 +3066,8 @@ def page_export():
 # ============================================================================
 
 
-def main():
-    """Main Streamlit application entry point."""
-    if not HAS_STREAMLIT:
-        raise ImportError(
-            "Streamlit is required for the GUI. Install with: pip install pyaermod[gui]"
-        )
+def _app():
+    """Streamlit application logic (must be run inside a Streamlit server)."""
     st.set_page_config(
         page_title="PyAERMOD",
         page_icon=":wind_face:",
@@ -3120,5 +3116,19 @@ def main():
     pages[selection]()
 
 
+def main():
+    """CLI entry point: launches the Streamlit server to run this GUI."""
+    import sys
+    import subprocess
+
+    if not HAS_STREAMLIT:
+        raise ImportError(
+            "Streamlit is required for the GUI. Install with: pip install pyaermod[gui]"
+        )
+    # Get the path to this file so streamlit can run it
+    gui_path = str(Path(__file__).resolve())
+    sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", gui_path, *sys.argv[1:]]))
+
+
 if __name__ == "__main__":
-    main()
+    _app()

@@ -7,11 +7,11 @@ visualization and export -- without writing any Python code.
 ## Launching the GUI
 
 ```bash
-# Option 1: module invocation
-streamlit run -m pyaermod.gui
-
-# Option 2: console entry point (if installed)
+# Recommended
 pyaermod-gui
+
+# Alternative: run streamlit directly against the module file
+streamlit run $(python -c "import pyaermod.gui; print(pyaermod.gui.__file__)")
 ```
 
 Requires the GUI extras: `pip install pyaermod[gui]`
