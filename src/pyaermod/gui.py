@@ -3125,9 +3125,10 @@ def main():
         raise ImportError(
             "Streamlit is required for the GUI. Install with: pip install pyaermod[gui]"
         )
-    # Get the path to this file so streamlit can run it
-    gui_path = str(Path(__file__).resolve())
-    sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", gui_path, *sys.argv[1:]]))
+    # Point streamlit at the thin runner script (avoids relative-import errors
+    # that occur when streamlit executes gui.py as a standalone script).
+    runner_path = str(Path(__file__).with_name("_gui_runner.py"))
+    sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", runner_path, *sys.argv[1:]]))
 
 
 if __name__ == "__main__":
