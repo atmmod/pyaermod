@@ -41,6 +41,48 @@ class TestPrintInfo:
         assert pyaermod.__url__ in captured.out
 
 
+class TestPublicAPIExports:
+    """Verify all documented source types and key classes are importable from pyaermod."""
+
+    @pytest.mark.parametrize("name", [
+        "PointSource",
+        "AreaSource",
+        "AreaCircSource",
+        "AreaPolySource",
+        "VolumeSource",
+        "LineSource",
+        "RLineSource",
+        "RLineExtSource",
+        "BuoyLineSource",
+        "BuoyLineSegment",
+        "OpenPitSource",
+    ])
+    def test_source_types_exported(self, name):
+        assert hasattr(pyaermod, name), f"{name} not exported from pyaermod"
+        assert name in pyaermod.__all__, f"{name} not in pyaermod.__all__"
+
+    @pytest.mark.parametrize("name", [
+        "AERMODProject",
+        "ControlPathway",
+        "SourcePathway",
+        "ReceptorPathway",
+        "MeteorologyPathway",
+        "OutputPathway",
+        "CartesianGrid",
+        "PolarGrid",
+        "DiscreteReceptor",
+        "PollutantType",
+        "TerrainType",
+        "SourceType",
+        "DepositionMethod",
+        "ChemistryMethod",
+        "ChemistryOptions",
+    ])
+    def test_core_classes_exported(self, name):
+        assert hasattr(pyaermod, name), f"{name} not exported from pyaermod"
+        assert name in pyaermod.__all__, f"{name} not in pyaermod.__all__"
+
+
 class TestCheckDependencies:
     def test_no_warnings_when_all_installed(self):
         """All deps are installed in test env, so no warnings expected."""

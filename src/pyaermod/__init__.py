@@ -59,9 +59,15 @@ from .aermet import (
 from .input_generator import (
     # Main project class
     AERMODProject,
+    # Source types
+    AreaCircSource,
+    AreaPolySource,
+    AreaSource,
     # Background concentration
     BackgroundConcentration,
     BackgroundSector,
+    BuoyLineSegment,
+    BuoyLineSource,
     # Receptor types
     CartesianGrid,
     # NO2 chemistry options
@@ -72,25 +78,29 @@ from .input_generator import (
     # Deposition
     DepositionMethod,
     DiscreteReceptor,
-    EventPathway,
     # Event processing
+    EventPathway,
     EventPeriod,
     GasDepositionParams,
+    LineSource,
     MeteorologyPathway,
+    OpenPitSource,
     OutputPathway,
     OzoneData,
     ParticleDepositionParams,
-    # Source types
     PointSource,
     PolarGrid,
     # Enums
     PollutantType,
     ReceptorPathway,
+    RLineExtSource,
+    RLineSource,
     # Source group management
     SourceGroupDefinition,
     SourcePathway,
     SourceType,
     TerrainType,
+    VolumeSource,
 )
 from .output_parser import (
     # Parser classes
@@ -177,10 +187,23 @@ __all__ = [
     'ReceptorPathway',
     'MeteorologyPathway',
     'OutputPathway',
+    # Source types
     'PointSource',
+    'AreaSource',
+    'AreaCircSource',
+    'AreaPolySource',
+    'VolumeSource',
+    'LineSource',
+    'RLineSource',
+    'RLineExtSource',
+    'BuoyLineSource',
+    'BuoyLineSegment',
+    'OpenPitSource',
+    # Receptor types
     'CartesianGrid',
     'PolarGrid',
     'DiscreteReceptor',
+    # Enums
     'PollutantType',
     'TerrainType',
     'SourceType',

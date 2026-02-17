@@ -16,6 +16,8 @@ import dataclasses
 import json
 import math
 import os
+import subprocess
+import sys
 import tempfile
 from enum import Enum
 from pathlib import Path
@@ -1972,6 +1974,8 @@ def page_receptor_editor():
                         st.rerun()
                 except Exception as e:
                     st.error(f"Error parsing AERMAP receptor output: {e}")
+                finally:
+                    os.unlink(temp_path)
 
             # --- Source elevations ---
             st.markdown("---")
@@ -2000,6 +2004,8 @@ def page_receptor_editor():
                         st.rerun()
                 except Exception as e:
                     st.error(f"Error parsing AERMAP source output: {e}")
+                finally:
+                    os.unlink(temp_path)
 
     # Summary
     st.subheader("Receptor Summary")
@@ -2577,10 +2583,14 @@ def page_results_viewer():
         with tempfile.NamedTemporaryFile(suffix=".out", delete=False, mode="w") as f:
             f.write(uploaded_out.getvalue().decode("utf-8"))
             f.flush()
+            temp_out_path = f.name
+        try:
             if HAS_PARSER:
-                results = parse_aermod_output(f.name)
+                results = parse_aermod_output(temp_out_path)
                 st.session_state["parsed_results"] = results
                 st.success("Results loaded and parsed.")
+        finally:
+            os.unlink(temp_out_path)
 
     if results is None:
         st.info("No results available. Run AERMOD or upload an .out file.")
@@ -2746,15 +2756,18 @@ def _render_postfile_viewer():
         ) as tmp:
             tmp.write(uploaded_pst.getvalue())
             tmp.flush()
-            try:
-                pf_result = read_postfile(tmp.name)
-                st.session_state["postfile_results"] = pf_result
-                st.success(
-                    f"POSTFILE loaded: {len(pf_result.data)} data rows, "
-                    f"{pf_result.data['date'].nunique()} timesteps."
-                )
-            except Exception as e:
-                st.error(f"Failed to parse POSTFILE: {e}")
+            temp_pst_path = tmp.name
+        try:
+            pf_result = read_postfile(temp_pst_path)
+            st.session_state["postfile_results"] = pf_result
+            st.success(
+                f"POSTFILE loaded: {len(pf_result.data)} data rows, "
+                f"{pf_result.data['date'].nunique()} timesteps."
+            )
+        except Exception as e:
+            st.error(f"Failed to parse POSTFILE: {e}")
+        finally:
+            os.unlink(temp_pst_path)
 
     pf_result = st.session_state.get("postfile_results")
     if pf_result is None or pf_result.data.empty:
@@ -2888,10 +2901,9 @@ def _render_postfile_viewer():
                 st.warning("Animation requires gridded receptor data with at least 2 unique X and Y values.")
             else:
                 with st.spinner("Generating animation..."):
+                    gif_fd, gif_path = tempfile.mkstemp(suffix=".gif", prefix="postfile_anim_")
+                    os.close(gif_fd)
                     try:
-                        gif_path = os.path.join(
-                            tempfile.gettempdir(), "postfile_animation.gif"
-                        )
                         AdvancedVisualizer.plot_time_series_animation(
                             dataframes=frames,
                             timestamps=frame_dates,
@@ -2914,6 +2926,9 @@ def _render_postfile_viewer():
                             st.warning("Animation file was not generated.")
                     except Exception as e:
                         st.warning(f"Could not generate animation: {e}")
+                    finally:
+                        if os.path.exists(gif_path):
+                            os.unlink(gif_path)
 
 
 def page_export():
@@ -2963,17 +2978,21 @@ def page_export():
             conc_df = results.get_concentrations(period)
             if conc_df is not None and not conc_df.empty:
                 with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as f:
+                    temp_tif_path = f.name
+                try:
                     exporter = RasterExporter(transformer)
                     exporter.export_geotiff(
-                        conc_df, f.name, resolution=resolution, method=method,
+                        conc_df, temp_tif_path, resolution=resolution, method=method,
                     )
-                    with open(f.name, "rb") as tif:
+                    with open(temp_tif_path, "rb") as tif:
                         st.download_button(
                             "Download GeoTIFF",
                             tif.read(),
                             file_name=f"concentration_{period}.tif",
                             mime="image/tiff",
                         )
+                finally:
+                    os.unlink(temp_tif_path)
 
     elif fmt in ("GeoPackage (.gpkg)", "Shapefile (.shp)", "GeoJSON (.geojson)"):
         driver_map = {
@@ -3118,9 +3137,6 @@ def _app():
 
 def main():
     """CLI entry point: launches the Streamlit server to run this GUI."""
-    import sys
-    import subprocess
-
     if not HAS_STREAMLIT:
         raise ImportError(
             "Streamlit is required for the GUI. Install with: pip install pyaermod[gui]"
