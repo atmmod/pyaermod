@@ -53,6 +53,11 @@ from .aermet import (
     # Station metadata
     AERMETStation,
     UpperAirStation,
+    # Output file parsers
+    SurfaceFileHeader,
+    ProfileFileHeader,
+    read_profile_file,
+    read_surface_file,
     # Utility functions
     write_aermet_runfile,
 )
@@ -247,6 +252,10 @@ __all__ = [
     'AERMETStage2',
     'AERMETStage3',
     'write_aermet_runfile',
+    'SurfaceFileHeader',
+    'ProfileFileHeader',
+    'read_surface_file',
+    'read_profile_file',
 
     # POSTFILE parser
     'PostfileHeader',

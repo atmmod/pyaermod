@@ -1,7 +1,9 @@
 """
-PyAERMOD AERMET Input Generator
+PyAERMOD AERMET Input Generator and Output Parser
 
-Generates AERMET input files for meteorological data preprocessing.
+Generates AERMET input files for meteorological data preprocessing and
+parses AERMET output files (.SFC surface and .PFL profile).
+
 AERMET is the EPA's meteorological preprocessor for AERMOD.
 
 Processing stages:
@@ -10,8 +12,12 @@ Processing stages:
 3. Stage 3: Calculate boundary layer parameters
 """
 
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+
+import pandas as pd
 
 
 @dataclass
@@ -344,6 +350,257 @@ echo "AERMET Stage {stage} complete"
     os.chmod(script_file, 0o755)
 
     return script_file
+
+
+# ============================================================================
+# AERMET OUTPUT FILE PARSERS (.SFC and .PFL)
+# ============================================================================
+
+
+@dataclass
+class SurfaceFileHeader:
+    """Parsed header from an AERMET .SFC surface file."""
+
+    latitude: float = 0.0
+    longitude: float = 0.0
+    ua_id: str = ""
+    sf_id: str = ""
+    os_id: str = ""
+    version: str = ""
+    options: str = ""
+
+
+# .SFC column names based on AERMET v24142 Fortran FORMAT statements.
+# The exact set of columns varies slightly by version, but this covers
+# the standard output.
+SFC_COLUMNS = [
+    "year", "month", "day", "jday", "hour",
+    "H",             # Sensible heat flux (W/m^2)
+    "ustar",         # Friction velocity (m/s)
+    "wstar",         # Convective velocity scale (m/s)
+    "VPTG",          # Potential temperature gradient above PBL (K/m)
+    "Zic",           # Convective mixing height (m)
+    "Zim",           # Mechanical mixing height (m)
+    "L",             # Monin-Obukhov length (m)
+    "z0",            # Surface roughness length (m)
+    "BOWEN",         # Bowen ratio
+    "ALBEDO",        # Albedo
+    "wind_speed",    # Reference wind speed (m/s)
+    "wind_dir",      # Reference wind direction (degrees)
+    "zref_wind",     # Reference height for wind (m)
+    "temp",          # Ambient temperature (K)
+    "zref_temp",     # Reference height for temperature (m)
+    "ipcode",        # Precipitation code
+    "pamt",          # Precipitation amount (mm)
+    "rh",            # Relative humidity (%)
+    "pres",          # Station pressure (mb)
+    "ccvr",          # Cloud cover (tenths)
+    "method",        # Method flag
+    "subs",          # Substitution flag
+]
+
+
+def parse_sfc_header(header_line: str) -> SurfaceFileHeader:
+    """
+    Parse the header line of an AERMET .SFC file.
+
+    Parameters
+    ----------
+    header_line : str
+        First line of the .SFC file.
+
+    Returns
+    -------
+    SurfaceFileHeader
+        Parsed header metadata.
+    """
+    hdr = SurfaceFileHeader()
+
+    # Latitude: e.g. "42.750N" or "41.300S"
+    lat_match = re.search(r"([\d.]+)([NS])", header_line)
+    if lat_match:
+        hdr.latitude = float(lat_match.group(1))
+        if lat_match.group(2) == "S":
+            hdr.latitude = -hdr.latitude
+
+    # Longitude: e.g. "73.800W" or "158.042E"
+    lon_match = re.search(r"([\d.]+)([EW])", header_line)
+    if lon_match:
+        hdr.longitude = float(lon_match.group(1))
+        if lon_match.group(2) == "W":
+            hdr.longitude = -hdr.longitude
+
+    # Station IDs — use lookahead to stop before the next keyword
+    ua_match = re.search(r"UA_ID:\s*(.*?)(?=\s+SF_ID:)", header_line)
+    if ua_match:
+        hdr.ua_id = ua_match.group(1).strip()
+    sf_match = re.search(r"SF_ID:\s*(.*?)(?=\s+OS_ID:)", header_line)
+    if sf_match:
+        hdr.sf_id = sf_match.group(1).strip()
+    os_match = re.search(r"OS_ID:\s*(.*?)(?=\s+VERSION:)", header_line)
+    if os_match:
+        hdr.os_id = os_match.group(1).strip()
+
+    # Version
+    ver_match = re.search(r"VERSION:\s*(\S+)", header_line)
+    if ver_match:
+        hdr.version = ver_match.group(1).strip()
+
+    # Everything after VERSION field = options
+    opts_match = re.search(r"VERSION:\s*\S+\s+(.*)", header_line)
+    if opts_match:
+        hdr.options = opts_match.group(1).strip()
+
+    return hdr
+
+
+def read_surface_file(filepath: Union[str, Path]) -> Dict:
+    """
+    Parse an AERMET .SFC surface meteorology file.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the .SFC file.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys:
+        - ``"header"``: :class:`SurfaceFileHeader`
+        - ``"data"``: :class:`pandas.DataFrame` with hourly surface parameters
+    """
+    filepath = Path(filepath)
+    with open(filepath) as f:
+        header_line = f.readline()
+        data_lines = f.readlines()
+
+    header = parse_sfc_header(header_line)
+
+    rows = []
+    for line in data_lines:
+        parts = line.split()
+        if len(parts) < 20:
+            continue
+        try:
+            row = {
+                "year": int(parts[0]),
+                "month": int(parts[1]),
+                "day": int(parts[2]),
+                "jday": int(parts[3]),
+                "hour": int(parts[4]),
+                "H": float(parts[5]),
+                "ustar": float(parts[6]),
+                "wstar": float(parts[7]),
+                "VPTG": float(parts[8]),
+                "Zic": float(parts[9]),
+                "Zim": float(parts[10]),
+                "L": float(parts[11]),
+                "z0": float(parts[12]),
+                "BOWEN": float(parts[13]),
+                "ALBEDO": float(parts[14]),
+                "wind_speed": float(parts[15]),
+                "wind_dir": float(parts[16]),
+                "zref_wind": float(parts[17]),
+                "temp": float(parts[18]),
+                "zref_temp": float(parts[19]),
+            }
+            # Optional trailing columns (may be absent in older versions)
+            if len(parts) > 20:
+                row["ipcode"] = int(parts[20])
+            if len(parts) > 21:
+                row["pamt"] = float(parts[21])
+            if len(parts) > 22:
+                row["rh"] = float(parts[22])
+            if len(parts) > 23:
+                row["pres"] = float(parts[23])
+            if len(parts) > 24:
+                row["ccvr"] = int(parts[24])
+            if len(parts) > 25:
+                row["method"] = parts[25]
+            if len(parts) > 26:
+                row["subs"] = parts[26]
+            rows.append(row)
+        except (ValueError, IndexError):
+            continue
+
+    df = pd.DataFrame(rows)
+    return {"header": header, "data": df}
+
+
+@dataclass
+class ProfileFileHeader:
+    """Metadata for a .PFL file (no header line — metadata inferred from data)."""
+
+    num_hours: int = 0
+    num_levels: int = 0
+    heights: List[float] = field(default_factory=list)
+
+
+PFL_COLUMNS = [
+    "year", "month", "day", "hour",
+    "height",        # Measurement height (m AGL)
+    "top_flag",      # Top of profile flag (0 or 1)
+    "wind_dir",      # Wind direction (degrees)
+    "wind_speed",    # Wind speed (m/s)
+    "temp_diff",     # Temperature difference (K) or ambient temp
+    "sigma_theta",   # Standard deviation of wind direction (degrees)
+    "sigma_w",       # Standard deviation of vertical wind speed (m/s)
+]
+
+
+def read_profile_file(filepath: Union[str, Path]) -> Dict:
+    """
+    Parse an AERMET .PFL profile meteorology file.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the .PFL file.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys:
+        - ``"header"``: :class:`ProfileFileHeader` with summary metadata
+        - ``"data"``: :class:`pandas.DataFrame` with profile observations
+    """
+    filepath = Path(filepath)
+    rows = []
+    with open(filepath) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 9:
+                continue
+            try:
+                row = {
+                    "year": int(parts[0]),
+                    "month": int(parts[1]),
+                    "day": int(parts[2]),
+                    "hour": int(parts[3]),
+                    "height": float(parts[4]),
+                    "top_flag": int(parts[5]),
+                    "wind_dir": float(parts[6]),
+                    "wind_speed": float(parts[7]),
+                    "temp_diff": float(parts[8]),
+                }
+                if len(parts) > 9:
+                    row["sigma_theta"] = float(parts[9])
+                if len(parts) > 10:
+                    row["sigma_w"] = float(parts[10])
+                rows.append(row)
+            except (ValueError, IndexError):
+                continue
+
+    df = pd.DataFrame(rows)
+
+    header = ProfileFileHeader()
+    if not df.empty:
+        header.num_hours = df.groupby(["year", "month", "day", "hour"]).ngroups
+        header.heights = sorted(df["height"].unique().tolist())
+        header.num_levels = len(header.heights)
+
+    return {"header": header, "data": df}
 
 
 # Example usage

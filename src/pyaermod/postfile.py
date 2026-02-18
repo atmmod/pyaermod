@@ -299,13 +299,22 @@ class PostfileParser:
             header.source_group = src_match.group(1).strip()
             return
 
-        # Deposition format detection from FORMAT line
-        # FORMAT: (5(1X,F13.5),...) means 5 float columns (X,Y,CONC,DRY,WET)
-        # FORMAT: (3(1X,F13.5),...) means 3 float columns (X,Y,CONC) — standard
-        fmt_match = re.match(r"FORMAT:\s*\((\d+)\(", text, re.IGNORECASE)
+        # Deposition format detection from FORMAT line.
+        # Count wide float columns (F13 or E13) which hold X,Y,CONC[,DRY,WET].
+        # Narrow F8 columns (ZELEV, ZHILL, ZFLAG) are excluded.
+        # Examples:
+        #   (3(1X,F13.5),3(1X,F8.2),...) → 3 wide cols → standard
+        #   (5(1X,F13.5),3(1X,F8.2),...) → 5 wide cols → deposition
+        #   (2(1X,F13.5),3(1X,E13.6),3(1X,F8.2),...) → 2+3=5 wide cols → deposition
+        #   (2(1X,F13.5),1X,E13.6,3(1X,F8.2),...) → 2+1=3 wide cols → standard
+        fmt_match = re.match(r"FORMAT:\s*\(", text, re.IGNORECASE)
         if fmt_match:
-            num_float_cols = int(fmt_match.group(1))
-            if num_float_cols == 5:
+            # Match repeated groups like N(1X,F13.5) or N(1X,E13.6)
+            wide_groups = re.findall(r"(\d+)\(1X,[FE]13", text)
+            # Match standalone specs like 1X,E13.6 (implicit count of 1)
+            standalone = re.findall(r"(?<!\d\()1X,[FE]13", text)
+            num_wide_cols = sum(int(g) for g in wide_groups) + len(standalone)
+            if num_wide_cols >= 5:
                 self._is_deposition = True
             return
 

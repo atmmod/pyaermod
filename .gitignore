@@ -39,6 +39,10 @@ aermap/
 aermet/
 aermod_results/
 
+# EPA test case data (large, not committed)
+test_cases/
+aermet_test_cases/
+
 # mkdocs generated site
 site/
 
