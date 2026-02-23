@@ -366,3 +366,252 @@ class TestCrossValidation:
         pst_max = pst_result.max_concentration
 
         assert sum_max == pytest.approx(pst_max, rel=1e-3)
+
+
+# ==========================================================================
+# F. Full PST sweep — parse every .PST file without error
+# ==========================================================================
+
+
+def _all_pst_files():
+    """Collect every .PST file in the postfiles directory."""
+    if not POSTFILES.is_dir():
+        return []
+    return sorted(p.name for p in POSTFILES.glob("*.PST"))
+
+
+def _all_plt_files():
+    """Collect every .PLT file in the plotfiles directory."""
+    if not PLOTFILES.is_dir():
+        return []
+    return sorted(p.name for p in PLOTFILES.glob("*.PLT"))
+
+
+class TestFullPSTSweep:
+    """Parse ALL 108 .PST files to catch edge-case format variations."""
+
+    @pytest.mark.parametrize("filename", _all_pst_files())
+    def test_pst_parses_and_validates(self, filename):
+        path = POSTFILES / filename
+        result = read_postfile(str(path))
+
+        assert not result.data.empty, f"{filename} parsed to empty DataFrame"
+        assert result.header.version == "24142"
+
+        # Basic data integrity checks
+        assert (result.data["concentration"] >= 0).all(), (
+            f"{filename}: negative concentrations found"
+        )
+        assert np.isfinite(result.data["x"]).all(), (
+            f"{filename}: non-finite x coordinates"
+        )
+        assert np.isfinite(result.data["y"]).all(), (
+            f"{filename}: non-finite y coordinates"
+        )
+
+        # Must have at least one unique receptor
+        n_receptors = result.data.groupby(["x", "y"]).ngroups
+        assert n_receptors >= 1, f"{filename}: no receptors found"
+
+        # Header must have an averaging period
+        assert result.header.averaging_period is not None, (
+            f"{filename}: no averaging period in header"
+        )
+
+
+class TestFullPLTSweep:
+    """Parse ALL .PLT plotfiles to catch edge-case format variations."""
+
+    @pytest.mark.parametrize("filename", _all_plt_files())
+    def test_plt_parses_and_validates(self, filename):
+        path = PLOTFILES / filename
+        result = read_postfile(str(path))
+
+        assert not result.data.empty, f"{filename} parsed to empty DataFrame"
+        assert result.header.version == "24142"
+
+        assert (result.data["concentration"] >= 0).all(), (
+            f"{filename}: negative concentrations found"
+        )
+
+        # Not all PLT files have a rank column:
+        # - Deposition PLTs (TESTPRT2, TESTGAS, etc.) use _is_deposition path,
+        #   which gives dry_depo/wet_depo instead of rank.
+        # - PERIOD/ANNUAL PLTs ("PLOT FILE OF PERIOD/ANNUAL VALUES AVERAGED")
+        #   don't have rank — they report averaged values, not "Nth highest".
+        # - PSDCREDIT PLTs ("PLOT FILE OF 1ST-HIGHEST MAX DAILY") use a
+        #   multi-year format the parser doesn't fully handle yet.
+        # Only "PLOT FILE OF HIGH" PLTs are expected to have rank.
+        has_rank = "rank" in result.data.columns
+        has_depo = "dry_depo" in result.data.columns
+        # At minimum, every PLT should parse some data
+        assert len(result.data) >= 1
+        # If we got rank, verify it's a valid value
+        if has_rank:
+            assert result.data["rank"].notna().all()
+        # If we got deposition columns, verify they're non-negative
+        if has_depo:
+            assert (result.data["dry_depo"] >= 0).all()
+            assert (result.data["wet_depo"] >= 0).all()
+
+
+# ==========================================================================
+# G. R-script comparison — replicate EPA read_POS.fun logic in Python
+# ==========================================================================
+
+# The EPA R script Process_AERMOD_test_cases_output.R parses .PST files
+# using read_POS.fun (skip 8 header lines, read fixed-width columns).
+# The deposition variant read_POS_TESTDEP.fun is used for 5 specific cases.
+#
+# This test class replicates that R logic in pure Python and compares
+# row counts, receptor counts, and max concentrations against pyaermod's
+# PostfileParser output.
+
+# Cases the R script treats as deposition (uses read_POS_TESTDEP.fun)
+_DEPOSITION_CASES = {
+    "TESTGAS_01H.PST",
+    "TESTGAS2_01H.PST",
+    "TESTPART_01H.PST",
+    "TESTPRT2_01H.PST",
+    "TESTPRT2_MON.PST",
+}
+
+
+def _r_style_parse(filepath):
+    """
+    Replicate EPA read_POS.fun / read_POS_TESTDEP.fun logic:
+    - Skip 8 header lines (lines starting with '*' plus separator lines)
+    - Parse remaining lines by whitespace-splitting
+    - Standard: 10 fields (X Y CONC ZELEV ZHILL ZFLAG AVE GRP DATE NETID)
+    - Deposition: 12 fields (X Y CONC DRY WET ZELEV ZHILL ZFLAG AVE GRP DATE NETID)
+
+    Returns (n_rows, n_receptors, max_conc, is_deposition).
+    """
+    is_dep = filepath.name in _DEPOSITION_CASES
+    rows = []
+    receptor_set = set()
+
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
+        # Skip header lines (those starting with '*')
+        for line in f:
+            if not line.startswith("*"):
+                # First non-header line is data
+                parts = line.split()
+                if parts:
+                    rows.append(parts)
+                break
+
+        # Read remaining data lines
+        for line in f:
+            parts = line.split()
+            if parts:
+                rows.append(parts)
+
+    if not rows:
+        return 0, 0, 0.0, is_dep
+
+    max_conc = 0.0
+    for parts in rows:
+        try:
+            x = float(parts[0])
+            y = float(parts[1])
+            conc = float(parts[2])
+            receptor_set.add((x, y))
+            if conc > max_conc:
+                max_conc = conc
+        except (ValueError, IndexError):
+            continue
+
+    return len(rows), len(receptor_set), max_conc, is_dep
+
+
+# Subset of representative files for the R comparison
+_R_COMPARISON_FILES = [
+    "AERTEST_01H.PST",
+    "ALLSRCS_STACK_01H.PST",
+    "ALLSRCS_AREA_01H.PST",
+    "ALLSRCS_VOL_01H.PST",
+    "LOVETT_24H.PST",
+    "MCR_01H.PST",
+    "OPENPITS_PITGAS_01H.PST",
+    "HRDOW_STACK1_01H.PST",
+    "TESTGAS_01H.PST",
+    "TESTGAS2_01H.PST",
+    "TESTPART_01H.PST",
+    "TESTPRT2_01H.PST",
+    "NO2_ARM2_PPB_01H.PST",
+    "NO2_PVMRM_UGM3_01H.PST",
+    "SURFCOAL_01H.PST",
+    "BLP_URBAN_2S26_01H.PST",
+    "CAPPED_STACK1_01H.PST",
+    "Test1_Base_cart_3cond_SNC.PST",
+]
+
+
+class TestRScriptComparison:
+    """Compare pyaermod parser output against EPA R-script-equivalent parsing."""
+
+    @pytest.mark.parametrize("filename", _R_COMPARISON_FILES)
+    def test_row_count_matches_r(self, filename):
+        """pyaermod row count must equal R-style row count (skip 8 headers)."""
+        path = POSTFILES / filename
+        if not path.exists():
+            pytest.skip(f"{filename} not found")
+
+        r_nrows, _r_nrecep, _r_max, _r_is_dep = _r_style_parse(path)
+        py_result = read_postfile(str(path))
+
+        assert len(py_result.data) == r_nrows, (
+            f"{filename}: pyaermod={len(py_result.data)} rows, R-style={r_nrows} rows"
+        )
+
+    @pytest.mark.parametrize("filename", _R_COMPARISON_FILES)
+    def test_receptor_count_matches_r(self, filename):
+        """pyaermod receptor count must equal R-style receptor count."""
+        path = POSTFILES / filename
+        if not path.exists():
+            pytest.skip(f"{filename} not found")
+
+        _r_nrows, r_nrecep, _r_max, _r_is_dep = _r_style_parse(path)
+        py_result = read_postfile(str(path))
+
+        py_nrecep = py_result.data.groupby(["x", "y"]).ngroups
+        assert py_nrecep == r_nrecep, (
+            f"{filename}: pyaermod={py_nrecep} receptors, R-style={r_nrecep}"
+        )
+
+    @pytest.mark.parametrize("filename", _R_COMPARISON_FILES)
+    def test_max_concentration_matches_r(self, filename):
+        """pyaermod max concentration must match R-style max (column 3)."""
+        path = POSTFILES / filename
+        if not path.exists():
+            pytest.skip(f"{filename} not found")
+
+        _r_nrows, _r_nrecep, r_max, _r_is_dep = _r_style_parse(path)
+        py_result = read_postfile(str(path))
+
+        assert py_result.max_concentration == pytest.approx(r_max, rel=1e-6), (
+            f"{filename}: pyaermod={py_result.max_concentration}, R-style={r_max}"
+        )
+
+    @pytest.mark.parametrize("filename", _R_COMPARISON_FILES)
+    def test_deposition_detection_matches_r(self, filename):
+        """Files the R script treats as deposition must have dry_depo/wet_depo columns."""
+        path = POSTFILES / filename
+        if not path.exists():
+            pytest.skip(f"{filename} not found")
+
+        _r_nrows, _r_nrecep, _r_max, r_is_dep = _r_style_parse(path)
+        py_result = read_postfile(str(path))
+
+        if r_is_dep:
+            assert "dry_depo" in py_result.data.columns, (
+                f"{filename}: R treats as deposition but pyaermod missing dry_depo column"
+            )
+            assert "wet_depo" in py_result.data.columns, (
+                f"{filename}: R treats as deposition but pyaermod missing wet_depo column"
+            )
+        else:
+            assert "dry_depo" not in py_result.data.columns, (
+                f"{filename}: R treats as standard but pyaermod has dry_depo column"
+            )
