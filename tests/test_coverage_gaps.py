@@ -4,11 +4,15 @@ Tests for coverage gaps identified in audit.
 Priority 1: SRCGROUP/URBANSRC for all source types, ControlPathway options,
             grid validation edge cases.
 Priority 4 (item 4): TerrainProcessor.process() orchestration.
+Area 3: aermap.from_aermod_project(), advanced_viz import guards,
+        geospatial cubic NaN fallback.
 """
 
 import subprocess
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from pyaermod.input_generator import (
@@ -37,7 +41,6 @@ from pyaermod.input_generator import (
     create_example_project,
 )
 from pyaermod.validator import Validator
-
 
 # ============================================================================
 # Helpers: minimal source factories
@@ -753,3 +756,265 @@ class TestAERMAPRunnerTimeout:
 
         assert not result.success
         assert "timed out" in result.error_message.lower()
+
+
+# ============================================================================
+# Area 3A: aermap.py from_aermod_project() coverage gaps
+# ============================================================================
+
+
+class TestAERMAPFromAermodProject:
+    """Test AERMAPProject.from_aermod_project() edge cases."""
+
+    def _make_aermod_project(self, sources=None, grids=None, discrete_recs=None):
+        """Build a minimal AERMODProject with given sources/receptors."""
+        sp = SourcePathway()
+        if sources:
+            for s in sources:
+                sp.add_source(s)
+        rp = ReceptorPathway()
+        if grids:
+            for g in grids:
+                rp.add_cartesian_grid(g)
+        if discrete_recs:
+            for r in discrete_recs:
+                rp.add_discrete_receptor(r)
+        return AERMODProject(
+            control=ControlPathway(title_one="Test"),
+            sources=sp,
+            receptors=rp,
+            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
+            output=OutputPathway(),
+        )
+
+    def test_point_source_to_aermap(self):
+        """PointSource coordinates extracted into AERMAP sources."""
+        from pyaermod.aermap import AERMAPProject
+
+        project = self._make_aermod_project(
+            sources=[PointSource(
+                source_id="STK1", x_coord=500.0, y_coord=600.0,
+                emission_rate=1.0,
+            )],
+            discrete_recs=[DiscreteReceptor(x_coord=550, y_coord=650)],
+        )
+        aermap = AERMAPProject.from_aermod_project(project, dem_files=["dem.tif"])
+        assert len(aermap.sources) == 1
+        assert aermap.sources[0].source_id == "STK1"
+        assert aermap.sources[0].x_coord == 500.0
+
+    def test_line_source_uses_start_end(self):
+        """LineSource (x_start/x_end) is handled by the hasattr branch."""
+        from pyaermod.aermap import AERMAPProject
+
+        project = self._make_aermod_project(
+            sources=[LineSource(
+                source_id="LN1", x_start=100, y_start=200,
+                x_end=300, y_end=400,
+                emission_rate=0.001, release_height=2,
+                initial_lateral_dimension=5,
+            )],
+            discrete_recs=[DiscreteReceptor(x_coord=200, y_coord=300)],
+        )
+        aermap = AERMAPProject.from_aermod_project(project, dem_files=["dem.tif"])
+        assert len(aermap.sources) == 1
+        assert aermap.sources[0].x_coord == 100.0
+
+    def test_cartesian_grid_receptor(self):
+        """CartesianGrid is converted to AERMAP grid_receptor params."""
+        from pyaermod.aermap import AERMAPProject
+
+        grid = CartesianGrid(x_init=-500, x_num=11, x_delta=100,
+                             y_init=-500, y_num=11, y_delta=100)
+        project = self._make_aermod_project(
+            sources=[PointSource(source_id="S1", x_coord=0, y_coord=0,
+                                 emission_rate=1.0)],
+            grids=[grid],
+        )
+        aermap = AERMAPProject.from_aermod_project(project, dem_files=["dem.tif"])
+        assert aermap.grid_receptor is True
+        assert aermap.grid_x_init == -500
+        assert aermap.grid_x_num == 11
+        assert aermap.grid_spacing == 100
+
+    def test_discrete_receptors_to_aermap(self):
+        """Discrete receptors get sequential IDs R0001, R0002, ..."""
+        from pyaermod.aermap import AERMAPProject
+
+        recs = [
+            DiscreteReceptor(x_coord=100, y_coord=200),
+            DiscreteReceptor(x_coord=300, y_coord=400),
+        ]
+        project = self._make_aermod_project(
+            sources=[PointSource(source_id="S1", x_coord=0, y_coord=0,
+                                 emission_rate=1.0)],
+            discrete_recs=recs,
+        )
+        aermap = AERMAPProject.from_aermod_project(project, dem_files=["dem.tif"])
+        assert len(aermap.receptors) == 2
+        assert aermap.receptors[0].receptor_id == "R0001"
+        assert aermap.receptors[1].receptor_id == "R0002"
+        assert aermap.receptors[1].x_coord == 300.0
+
+    def test_empty_project_raises_value_error(self):
+        """No sources or receptors → ValueError."""
+        from pyaermod.aermap import AERMAPProject
+
+        project = self._make_aermod_project()
+        with pytest.raises(ValueError, match="No source or receptor coordinates"):
+            AERMAPProject.from_aermod_project(project, dem_files=["dem.tif"])
+
+
+# ============================================================================
+# Area 3B: advanced_viz.py import guard tests
+# ============================================================================
+
+
+class TestAdvancedVizImportGuards:
+    """Test that AdvancedVisualizer methods raise ImportError when matplotlib unavailable."""
+
+    def test_plot_3d_surface_requires_matplotlib(self):
+        import pyaermod.advanced_viz as adv_viz
+        original = adv_viz.HAS_MATPLOTLIB
+        try:
+            adv_viz.HAS_MATPLOTLIB = False
+            with pytest.raises(ImportError, match="matplotlib"):
+                adv_viz.AdvancedVisualizer.plot_3d_surface(
+                    pd.DataFrame({"X": [0], "Y": [0], "CONC": [1.0]})
+                )
+        finally:
+            adv_viz.HAS_MATPLOTLIB = original
+
+    def test_plot_wind_rose_requires_matplotlib(self):
+        import pyaermod.advanced_viz as adv_viz
+        original = adv_viz.HAS_MATPLOTLIB
+        try:
+            adv_viz.HAS_MATPLOTLIB = False
+            with pytest.raises(ImportError, match="matplotlib"):
+                adv_viz.AdvancedVisualizer.plot_wind_rose(
+                    np.array([1.0]), np.array([0.0])
+                )
+        finally:
+            adv_viz.HAS_MATPLOTLIB = original
+
+    def test_plot_concentration_profile_requires_matplotlib(self):
+        import pyaermod.advanced_viz as adv_viz
+        original = adv_viz.HAS_MATPLOTLIB
+        try:
+            adv_viz.HAS_MATPLOTLIB = False
+            with pytest.raises(ImportError, match="matplotlib"):
+                adv_viz.AdvancedVisualizer.plot_concentration_profile(
+                    pd.DataFrame({"X": [0], "Y": [0], "CONC": [1.0]})
+                )
+        finally:
+            adv_viz.HAS_MATPLOTLIB = original
+
+    def test_plot_time_series_animation_requires_matplotlib(self):
+        import pyaermod.advanced_viz as adv_viz
+        original = adv_viz.HAS_MATPLOTLIB
+        try:
+            adv_viz.HAS_MATPLOTLIB = False
+            with pytest.raises(ImportError, match="matplotlib"):
+                adv_viz.AdvancedVisualizer.plot_time_series_animation(
+                    [pd.DataFrame({"X": [0], "Y": [0], "CONC": [1.0]})],
+                    ["t0"],
+                )
+        finally:
+            adv_viz.HAS_MATPLOTLIB = original
+
+    def test_plot_time_series_animation_requires_animation(self):
+        """If matplotlib exists but animation does not, separate ImportError."""
+        import pyaermod.advanced_viz as adv_viz
+        orig_mpl = adv_viz.HAS_MATPLOTLIB
+        orig_anim = adv_viz.HAS_ANIMATION
+        try:
+            adv_viz.HAS_MATPLOTLIB = True
+            adv_viz.HAS_ANIMATION = False
+            with pytest.raises(ImportError, match="animation"):
+                adv_viz.AdvancedVisualizer.plot_time_series_animation(
+                    [pd.DataFrame({"X": [0], "Y": [0], "CONC": [1.0]})],
+                    ["t0"],
+                )
+        finally:
+            adv_viz.HAS_MATPLOTLIB = orig_mpl
+            adv_viz.HAS_ANIMATION = orig_anim
+
+
+# ============================================================================
+# Area 3C: geospatial.py cubic NaN fallback
+# ============================================================================
+
+
+class TestGeospatialCubicFallback:
+    """Test cubic interpolation NaN fallback in generate_contours()."""
+
+    def _make_contour_generator(self):
+        """Create a ContourGenerator with a mock transformer."""
+        import pyproj
+
+        from pyaermod.geospatial import ContourGenerator
+
+        mock_transformer = MagicMock()
+        mock_transformer.utm_crs = pyproj.CRS(proj="utm", zone=16, datum="WGS84")
+        # Bypass __init__ checks by constructing directly
+        gen = ContourGenerator.__new__(ContourGenerator)
+        gen.transformer = mock_transformer
+        return gen
+
+    def test_cubic_nan_fallback_to_linear(self):
+        """When cubic produces >30% NaN, method falls back to linear."""
+        scipy = pytest.importorskip("scipy")
+        pytest.importorskip("geopandas")
+
+        gen = self._make_contour_generator()
+
+        df = pd.DataFrame({
+            "x": [0, 100, 200, 0, 100, 200, 0, 100, 200],
+            "y": [0, 0, 0, 100, 100, 100, 200, 200, 200],
+            "concentration": [1.0, 5.0, 2.0, 3.0, 10.0, 4.0, 1.5, 6.0, 2.5],
+        })
+
+        call_count = {"n": 0}
+        original_griddata = scipy.interpolate.griddata
+
+        def mock_griddata(points, values, grid, method="linear"):
+            call_count["n"] += 1
+            if method == "cubic" and call_count["n"] == 1:
+                # Return mostly NaN to trigger fallback
+                result = np.full(grid[0].shape, np.nan)
+                result[0, 0] = 1.0  # Only 1 valid value out of many
+                return result
+            return original_griddata(points, values, grid, method=method)
+
+        with patch("pyaermod.geospatial.griddata", side_effect=mock_griddata):
+            result = gen.generate_contours(
+                df, value_col="concentration",
+                method="cubic", grid_resolution=50,
+            )
+
+        # If fallback occurred, griddata was called at least twice
+        assert call_count["n"] >= 2
+
+    def test_contour_codes_none_path(self):
+        """Contour path with codes=None still generates contours."""
+        pytest.importorskip("scipy")
+        geopandas = pytest.importorskip("geopandas")
+
+        gen = self._make_contour_generator()
+
+        # Simple regular grid that should produce clean contours
+        x = np.linspace(0, 100, 10)
+        y = np.linspace(0, 100, 10)
+        xx, yy = np.meshgrid(x, y)
+        df = pd.DataFrame({
+            "x": xx.ravel(),
+            "y": yy.ravel(),
+            "concentration": (xx**2 + yy**2).ravel() / 1000,
+        })
+
+        result = gen.generate_contours(
+            df, value_col="concentration",
+            method="linear", grid_resolution=50,
+        )
+        assert isinstance(result, geopandas.GeoDataFrame)
+        assert len(result) > 0

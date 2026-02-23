@@ -62,14 +62,17 @@ from .input_generator import (
     ChemistryMethod,
     ChemistryOptions,
     ControlPathway,
+    DepositionMethod,
     DiscreteReceptor,
     EventPathway,
     EventPeriod,
+    GasDepositionParams,
     LineSource,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
     OzoneData,
+    ParticleDepositionParams,
     PointSource,
     PolarGrid,
     PollutantType,
@@ -303,6 +306,12 @@ class ProjectSerializer:
                     bg_data = None
                     if obj.background is not None:
                         bg_data = dataclasses.asdict(obj.background)
+                        # Convert tuple keys in sector_values to lists for JSON
+                        if bg_data.get("sector_values"):
+                            bg_data["sector_values"] = [
+                                [k[0], k[1], v]
+                                for k, v in bg_data["sector_values"].items()
+                            ]
                     group_defs = [dataclasses.asdict(g) for g in obj.group_definitions]
                     data[key] = {
                         "sources": src_list,
@@ -470,6 +479,7 @@ class ProjectSerializer:
                 "TerrainType": TerrainType,
                 "SourceType": SourceType,
                 "ChemistryMethod": ChemistryMethod,
+                "DepositionMethod": DepositionMethod,
             }
             enum_cls = enum_classes.get(cls_name)
             if enum_cls:
@@ -533,6 +543,15 @@ class ProjectSerializer:
                 seg_data.pop("_type", None)
                 segments.append(BuoyLineSegment(**seg_data))
             d["line_segments"] = segments
+
+        # Reconstruct deposition parameter dataclasses
+        if d.get("gas_deposition") is not None and isinstance(d["gas_deposition"], dict):
+            d["gas_deposition"] = GasDepositionParams(**d["gas_deposition"])
+        if d.get("particle_deposition") is not None and isinstance(d["particle_deposition"], dict):
+            d["particle_deposition"] = ParticleDepositionParams(**d["particle_deposition"])
+        if d.get("deposition_method") is not None and isinstance(d["deposition_method"], list):
+            enum_val = cls._resolve_enum(d["deposition_method"][0])
+            d["deposition_method"] = (enum_val, d["deposition_method"][1])
 
         return src_cls(**d)
 
@@ -2515,7 +2534,7 @@ def _count_receptors(receptor_pathway):
     for g in getattr(receptor_pathway, "cartesian_grids", []):
         count += getattr(g, "x_num", 0) * getattr(g, "y_num", 0)
     for g in getattr(receptor_pathway, "polar_grids", []):
-        count += getattr(g, "num_rings", 0) * getattr(g, "num_radials", 0)
+        count += getattr(g, "dist_num", 0) * getattr(g, "dir_num", 0)
     count += len(getattr(receptor_pathway, "discrete_receptors", []))
     return count
 

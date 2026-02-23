@@ -21,18 +21,25 @@ from pyaermod.input_generator import (
     AreaCircSource,
     AreaPolySource,
     AreaSource,
+    BackgroundConcentration,
+    BackgroundSector,
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
     ChemistryMethod,
     ChemistryOptions,
     ControlPathway,
+    DepositionMethod,
     DiscreteReceptor,
+    EventPathway,
+    EventPeriod,
+    GasDepositionParams,
     LineSource,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
     OzoneData,
+    ParticleDepositionParams,
     PointSource,
     PolarGrid,
     PollutantType,
@@ -1726,3 +1733,237 @@ class TestStatisticsHelpers:
             assert len(formats) == 1
         finally:
             pyaermod_gui.HAS_GEO = original
+
+
+# ============================================================================
+# TestBackgroundSerializerRoundTrip
+# ============================================================================
+
+
+class TestBackgroundSerializerRoundTrip:
+    """Test serialization round-trips for BackgroundConcentration."""
+
+    def test_round_trip_uniform_background(self):
+        """Uniform background concentration survives round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.background = BackgroundConcentration(uniform_value=25.0)
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        bg = new_state["project_sources"].background
+        assert bg is not None
+        assert bg.uniform_value == 25.0
+        assert bg.period_values is None
+        assert bg.sectors is None
+
+    def test_round_trip_period_background(self):
+        """Period-specific background values survive round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sp.background = BackgroundConcentration(
+            period_values={"ANNUAL": 10.0, "1HR": 50.0}
+        )
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        bg = new_state["project_sources"].background
+        assert bg.period_values == {"ANNUAL": 10.0, "1HR": 50.0}
+        assert bg.uniform_value is None
+
+    def test_round_trip_sector_background(self):
+        """Sector-dependent background with tuple keys survives round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        sectors = [
+            BackgroundSector(sector_id=1, start_direction=0.0, end_direction=180.0),
+            BackgroundSector(sector_id=2, start_direction=180.0, end_direction=360.0),
+        ]
+        sector_values = {(1, "ANNUAL"): 12.0, (2, "ANNUAL"): 8.0}
+        sp.background = BackgroundConcentration(
+            sectors=sectors, sector_values=sector_values
+        )
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        bg = new_state["project_sources"].background
+        assert len(bg.sectors) == 2
+        assert bg.sectors[0].sector_id == 1
+        assert bg.sectors[1].end_direction == 360.0
+        assert bg.sector_values == {(1, "ANNUAL"): 12.0, (2, "ANNUAL"): 8.0}
+
+
+# ============================================================================
+# TestEventSerializerRoundTrip
+# ============================================================================
+
+
+class TestEventSerializerRoundTrip:
+    """Test serialization round-trips for EventPathway."""
+
+    def test_round_trip_with_events(self):
+        """EventPathway with events survives round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_events"] = EventPathway(
+            events=[
+                EventPeriod(
+                    event_name="EVT01",
+                    start_date="24010101",
+                    end_date="24010124",
+                    source_group="ALL",
+                ),
+                EventPeriod(
+                    event_name="EVT02",
+                    start_date="24070101",
+                    end_date="24070124",
+                    source_group="GRP1",
+                ),
+            ]
+        )
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        ep = new_state["project_events"]
+        assert ep is not None
+        assert len(ep.events) == 2
+        assert ep.events[0].event_name == "EVT01"
+        assert ep.events[1].source_group == "GRP1"
+
+    def test_round_trip_empty_events(self):
+        """Empty EventPathway round-trips correctly."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_events"] = EventPathway(events=[])
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        # Empty events list serializes as {"events": []} which is truthy dict
+        # but the event list itself is empty
+        ep = new_state.get("project_events")
+        if ep is not None:
+            assert len(ep.events) == 0
+
+
+# ============================================================================
+# TestDepositionSerializerRoundTrip
+# ============================================================================
+
+
+class TestDepositionSerializerRoundTrip:
+    """Test serialization round-trips for deposition parameters on sources."""
+
+    def test_round_trip_gas_deposition(self):
+        """PointSource with GasDepositionParams survives round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        src = PointSource(
+            source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0,
+            gas_deposition=GasDepositionParams(
+                diffusivity=0.1532, alpha_r=2.0, reactivity=8.0,
+                henry_constant=0.011,
+            ),
+        )
+        sp.add_source(src)
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        s = new_state["project_sources"].sources[0]
+        assert isinstance(s.gas_deposition, GasDepositionParams)
+        assert s.gas_deposition.diffusivity == pytest.approx(0.1532)
+        assert s.gas_deposition.henry_constant == pytest.approx(0.011)
+
+    def test_round_trip_particle_deposition(self):
+        """PointSource with ParticleDepositionParams survives round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        sp = pyaermod_gui.st.session_state["project_sources"]
+        src = PointSource(
+            source_id="S1", x_coord=0, y_coord=0, emission_rate=1.0,
+            particle_deposition=ParticleDepositionParams(
+                diameters=[1.0, 10.0], mass_fractions=[0.5, 0.5],
+                densities=[1.0, 2.5],
+            ),
+        )
+        sp.add_source(src)
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        s = new_state["project_sources"].sources[0]
+        assert isinstance(s.particle_deposition, ParticleDepositionParams)
+        assert s.particle_deposition.diameters == [1.0, 10.0]
+        assert s.particle_deposition.mass_fractions == [0.5, 0.5]
+
+
+# ============================================================================
+# TestOutputTypeSerializerRoundTrip
+# ============================================================================
+
+
+class TestOutputTypeSerializerRoundTrip:
+    """Test serialization round-trip for OutputPathway output_type field."""
+
+    def test_round_trip_ddep_output_type(self):
+        """OutputPathway with output_type='DDEP' survives round-trip."""
+        _fresh_session_state()
+        SessionStateManager.initialize()
+        pyaermod_gui.st.session_state["project_output"] = OutputPathway(
+            output_type="DDEP",
+        )
+
+        json_str = ProjectSerializer.serialize_session_state()
+        _fresh_session_state()
+        new_state = ProjectSerializer.deserialize_session_state(json_str)
+
+        out = new_state["project_output"]
+        assert out.output_type == "DDEP"
+
+
+# ============================================================================
+# TestHelperEdgeCases
+# ============================================================================
+
+
+class TestHelperEdgeCases:
+    """Test edge cases in GUI helper functions."""
+
+    def test_count_receptors_polar_only(self):
+        """_count_receptors correctly counts polar grid receptors."""
+        from pyaermod.gui import _count_receptors
+
+        recs = ReceptorPathway()
+        recs.add_polar_grid(PolarGrid(
+            x_origin=0, y_origin=0,
+            dist_num=5, dist_init=100, dist_delta=100,
+            dir_num=12, dir_init=0, dir_delta=30,
+        ))
+
+        count = _count_receptors(recs)
+        assert count == 5 * 12  # 60 polar receptors
+
+    def test_build_receptor_ranking_empty_df(self):
+        """_build_receptor_ranking handles empty DataFrame without error."""
+        from pyaermod.gui import _build_receptor_ranking
+
+        df = pd.DataFrame({"x": [], "y": [], "concentration": []})
+        result = _build_receptor_ranking(df, n=10)
+        assert len(result) == 0
+        assert "Rank" in result.columns

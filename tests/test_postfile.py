@@ -1137,6 +1137,107 @@ class TestEPAHeaderFormat:
         assert result.header.pollutant_id == "SO2"
 
 
+# ===========================================================================
+# TestDepositionPlotfilePostfile — combined deposition + plotfile branch
+# ===========================================================================
+
+# 13 fields: X Y CONC DRY WET ZELEV ZHILL ZFLAG AVE GRP RANK NETID DATE
+SAMPLE_DEPOSITION_PLOTFILE = """\
+* AERMOD ( 24142 ): Deposition Plotfile Test
+* MODELING OPTIONS USED: NonDFAULT CONC DDEP WDEP FLAT DRYDPLT WETDPLT
+* PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR SOURCE GROUP: ALL
+* FORMAT: (5(1X,F13.5),3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)
+*         X             Y      AVERAGE CONC    DRY DEPO    WET DEPO  ZELEV  ZHILL  ZFLAG    AVE     GRP     RANK   NETID       DATE
+* ____________  ____________  ____________  ____________  ____________   ______   ______   ______  ______  ________  ________  ________  ________
+      0.00000     100.00000      15.21444       0.55937       8.01199    0.00    0.00    0.00    1-HR  ALL         1ST    GC001    90010101
+    100.00000     100.00000      10.50000       0.30000       5.20000    0.00    0.00    0.00    1-HR  ALL         1ST    GC001    90010102
+      0.00000     200.00000       8.75000       0.25000       3.10000   10.00    5.00    0.00    1-HR  ALL         1ST    GC002    90010103
+"""
+
+# Blank NETID variant — 12 whitespace-split fields instead of 13
+SAMPLE_DEPOSITION_PLOTFILE_BLANK_NETID = """\
+* AERMOD ( 24142 ): Deposition Plotfile Blank NETID
+* MODELING OPTIONS USED: NonDFAULT CONC DDEP WDEP FLAT DRYDPLT WETDPLT
+* PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR SOURCE GROUP: ALL
+* FORMAT: (5(1X,F13.5),3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)
+*         X             Y      AVERAGE CONC    DRY DEPO    WET DEPO  ZELEV  ZHILL  ZFLAG    AVE     GRP     RANK               DATE
+* ____________  ____________  ____________  ____________  ____________   ______   ______   ______  ______  ________  ________  ________
+      0.00000     100.00000      15.21444       0.55937       8.01199    0.00    0.00    0.00    1-HR  ALL         1ST               90010101
+    100.00000     200.00000      10.50000       0.30000       5.20000    5.00    3.00    0.00    1-HR  ALL         1ST               90010102
+"""
+
+
+class TestDepositionPlotfilePostfile:
+    """Tests for the combined deposition + plotfile parsing branch."""
+
+    def test_deposition_plotfile_flags_detected(self, tmp_path):
+        """Both _is_deposition and _is_plotfile should be True."""
+        filepath = tmp_path / "dep_plt.plt"
+        filepath.write_text(SAMPLE_DEPOSITION_PLOTFILE)
+        parser = PostfileParser(filepath)
+        parser.parse()
+
+        assert parser._is_deposition is True
+        assert parser._is_plotfile is True
+
+    def test_deposition_plotfile_columns(self, tmp_path):
+        """Result has concentration, dry_depo, wet_depo, AND rank columns."""
+        filepath = tmp_path / "dep_plt.plt"
+        filepath.write_text(SAMPLE_DEPOSITION_PLOTFILE)
+        result = read_postfile(filepath)
+
+        expected_cols = {
+            "x", "y", "concentration", "dry_depo", "wet_depo",
+            "zelev", "zhill", "zflag", "ave", "grp", "rank", "date",
+        }
+        assert expected_cols.issubset(set(result.data.columns))
+
+    def test_deposition_plotfile_values(self, tmp_path):
+        """Verify row 0 values are correctly parsed."""
+        filepath = tmp_path / "dep_plt.plt"
+        filepath.write_text(SAMPLE_DEPOSITION_PLOTFILE)
+        result = read_postfile(filepath)
+
+        row0 = result.data.iloc[0]
+        assert row0["x"] == pytest.approx(0.0)
+        assert row0["y"] == pytest.approx(100.0)
+        assert row0["concentration"] == pytest.approx(15.21444)
+        assert row0["dry_depo"] == pytest.approx(0.55937)
+        assert row0["wet_depo"] == pytest.approx(8.01199)
+        assert row0["rank"] == "1ST"
+        assert row0["date"] == "90010101"
+
+    def test_deposition_plotfile_blank_netid(self, tmp_path):
+        """When NETID is blank, date is still correctly extracted via parts[-1]."""
+        filepath = tmp_path / "dep_plt_blank.plt"
+        filepath.write_text(SAMPLE_DEPOSITION_PLOTFILE_BLANK_NETID)
+        result = read_postfile(filepath)
+
+        assert len(result.data) == 2
+        assert result.data.iloc[0]["date"] == "90010101"
+        assert result.data.iloc[1]["date"] == "90010102"
+        assert (result.data["rank"] == "1ST").all()
+        # Elevation values on row 1
+        assert result.data.iloc[1]["zelev"] == pytest.approx(5.0)
+
+    def test_deposition_plotfile_empty_has_correct_columns(self, tmp_path):
+        """Header-only deposition plotfile produces empty df with correct columns."""
+        content = """\
+* AERMOD ( 24142 ): Empty Deposition Plotfile
+* MODELING OPTIONS USED: CONC DDEP WDEP FLAT
+* PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR SOURCE GROUP: ALL
+* FORMAT: (5(1X,F13.5),3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)
+"""
+        filepath = tmp_path / "empty_dep_plt.plt"
+        filepath.write_text(content)
+        result = read_postfile(filepath)
+
+        assert result.data.empty
+        assert "rank" in result.data.columns
+        assert "dry_depo" in result.data.columns
+        assert "wet_depo" in result.data.columns
+
+
 # Run tests
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

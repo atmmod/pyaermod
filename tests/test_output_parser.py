@@ -619,3 +619,327 @@ class TestOutputParserEdgeCases:
         assert "1-HR" in parser.run_info.averaging_periods
         assert "24-HR" in parser.run_info.averaging_periods
         assert "ANNUAL" in parser.run_info.averaging_periods
+
+
+# ===========================================================================
+# EPA Source Parsing — synthetic unit tests for _parse_sources_epa()
+# ===========================================================================
+
+EPA_SOURCE_SECTIONS = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: EPA_SOURCES
+
+*** POINT SOURCE DATA ***
+
+           SOURCE       NO.        EMISSION         X             Y       BASE       STACK     STACK     EXIT      STACK
+            ID        PART.         RATE                                  ELEV.      HGT.      TEMP.     VEL.     DIAM.
+          --------    ------    ----------    -------    -------    -------    -------    -------    ------    ------
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+          STACK1          0     1.50000E+00      0.00       0.00     10.00     50.00    400.00     15.00      2.00
+          STACK2          0     8.00000E-01    100.00       0.00    105.00     30.00    350.00     10.00      1.50
+
+*** VOLUME SOURCE DATA ***
+
+           SOURCE       NO.        EMISSION         X             Y       BASE
+            ID        PART.         RATE                                  ELEV.
+          --------    ------    ----------    -------    -------    -------
+- - - - - - - - - - - - - - - - - - - - - - - - - - -
+          VOL1            0     5.00000E-01    200.00     200.00    110.00
+
+*** AREA SOURCE DATA ***
+
+           SOURCE       NO.        EMISSION         X             Y       BASE
+            ID        PART.         RATE                                  ELEV.
+          --------    ------    ----------    -------    -------    -------
+- - - - - - - - - - - - - - - - - - - - - - - - - - -
+          AREA1           0     1.00000E-03    300.00     300.00    100.00
+"""
+
+EPA_SOURCE_WITH_PAGE_BREAK = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: PAGE_BREAK_TEST
+
+*** POINT SOURCE DATA ***
+
+           SOURCE       NO.        EMISSION         X             Y       BASE       STACK     STACK     EXIT      STACK
+            ID        PART.         RATE                                  ELEV.      HGT.      TEMP.     VEL.     DIAM.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+          STK1            0     1.00000E+00      0.00       0.00    100.00     50.00    400.00     15.00      2.00
+*** AERMOD - VERSION 24142 ***   *** Page break mid-section ***
+          STK2            0     2.00000E+00      0.00       0.00    100.00     30.00    350.00     10.00      1.50
+"""
+
+EPA_SOURCE_WITH_MODELOPTS = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: MODELOPTS_TEST
+
+*** POINT SOURCE DATA ***
+
+           SOURCE       NO.        EMISSION         X             Y       BASE       STACK     STACK     EXIT      STACK
+            ID        PART.         RATE                                  ELEV.      HGT.      TEMP.     VEL.     DIAM.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+          STK1            0     1.00000E+00      0.00       0.00    100.00     50.00    400.00     15.00      2.00
+ MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL                                                     PAGE   3
+          STK2            0     2.00000E+00      0.00       0.00    100.00     30.00    350.00     10.00      1.50
+"""
+
+
+class TestEPASourceParsing:
+    """Unit tests for _parse_sources_epa() and _parse_epa_source_section()."""
+
+    def test_epa_point_sources_parsed(self, tmp_path):
+        outfile = tmp_path / "epa_sources.out"
+        outfile.write_text(EPA_SOURCE_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        point_sources = [s for s in results.sources if s.source_type == "POINT"]
+        assert len(point_sources) == 2
+        assert point_sources[0].source_id == "STACK1"
+        assert point_sources[0].emission_rate == pytest.approx(1.5)
+        assert point_sources[0].x_coord == pytest.approx(0.0)
+        assert point_sources[0].y_coord == pytest.approx(0.0)
+        assert point_sources[0].base_elevation == pytest.approx(10.0)
+        assert point_sources[0].stack_height == pytest.approx(50.0)
+        assert point_sources[0].stack_temp == pytest.approx(400.0)
+        assert point_sources[0].exit_velocity == pytest.approx(15.0)
+        assert point_sources[0].stack_diameter == pytest.approx(2.0)
+
+    def test_epa_volume_source_parsed(self, tmp_path):
+        outfile = tmp_path / "epa_sources.out"
+        outfile.write_text(EPA_SOURCE_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        vol_sources = [s for s in results.sources if s.source_type == "VOLUME"]
+        assert len(vol_sources) == 1
+        assert vol_sources[0].source_id == "VOL1"
+        assert vol_sources[0].emission_rate == pytest.approx(0.5)
+        assert vol_sources[0].base_elevation == pytest.approx(110.0)
+        # Volume sources should not have stack params
+        assert vol_sources[0].stack_height is None
+
+    def test_epa_area_source_parsed(self, tmp_path):
+        outfile = tmp_path / "epa_sources.out"
+        outfile.write_text(EPA_SOURCE_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        area_sources = [s for s in results.sources if s.source_type == "AREA"]
+        assert len(area_sources) == 1
+        assert area_sources[0].source_id == "AREA1"
+
+    def test_epa_source_total_count(self, tmp_path):
+        outfile = tmp_path / "epa_sources.out"
+        outfile.write_text(EPA_SOURCE_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        assert len(results.sources) == 4  # 2 POINT + 1 VOL + 1 AREA
+
+    def test_epa_source_emission_rate_scientific(self, tmp_path):
+        """Scientific notation emission rates parsed correctly."""
+        outfile = tmp_path / "epa_sources.out"
+        outfile.write_text(EPA_SOURCE_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        stack2 = [s for s in results.sources if s.source_id == "STACK2"][0]
+        assert stack2.emission_rate == pytest.approx(0.8)
+        assert stack2.base_elevation == pytest.approx(105.0)
+
+    def test_epa_source_page_header_break(self, tmp_path):
+        """*** AERMOD mid-section causes parsing to stop for that section."""
+        outfile = tmp_path / "page_break.out"
+        outfile.write_text(EPA_SOURCE_WITH_PAGE_BREAK)
+        results = parse_aermod_output(str(outfile))
+
+        # Only STK1 should be parsed; STK2 is after the page break
+        assert len(results.sources) == 1
+        assert results.sources[0].source_id == "STK1"
+
+    def test_epa_source_modelopts_skip(self, tmp_path):
+        """MODELOPTs/PAGE lines mid-section are skipped, data continues."""
+        outfile = tmp_path / "modelopts.out"
+        outfile.write_text(EPA_SOURCE_WITH_MODELOPTS)
+        results = parse_aermod_output(str(outfile))
+
+        # Both STK1 and STK2 should be parsed
+        assert len(results.sources) == 2
+        ids = {s.source_id for s in results.sources}
+        assert ids == {"STK1", "STK2"}
+
+
+# ===========================================================================
+# EPA Receptor Parsing — synthetic unit tests for _parse_receptors_epa()
+# ===========================================================================
+
+EPA_RECEPTOR_SECTIONS = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: EPA_RECEPTORS
+
+*** DISCRETE CARTESIAN RECEPTORS ***
+                                         (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                         (METERS)
+
+     (   3500.0,  67750.0,  237.5,  239.3,    0.0);  (  3600.0,  69700.0,  319.3,  330.7,    0.0);
+     (   4520.0,  69780.0,  296.7,  296.7,    1.5);
+"""
+
+EPA_RECEPTOR_XY_ONLY = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: RECEPTS_XY
+
+*** DISCRETE CARTESIAN RECEPTORS ***
+
+     (   100.0,   200.0);
+"""
+
+
+class TestEPAReceptorParsing:
+    """Unit tests for _parse_receptors_epa()."""
+
+    def test_epa_discrete_receptors_parsed(self, tmp_path):
+        outfile = tmp_path / "epa_recepts.out"
+        outfile.write_text(EPA_RECEPTOR_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        assert len(results.receptors) == 3
+
+    def test_epa_receptor_coordinates(self, tmp_path):
+        outfile = tmp_path / "epa_recepts.out"
+        outfile.write_text(EPA_RECEPTOR_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        r0 = results.receptors[0]
+        assert r0.x_coord == pytest.approx(3500.0)
+        assert r0.y_coord == pytest.approx(67750.0)
+        assert r0.z_elev == pytest.approx(237.5)
+        assert r0.z_hill == pytest.approx(239.3)
+        assert r0.z_flag == pytest.approx(0.0)
+
+    def test_epa_receptor_with_zflag(self, tmp_path):
+        outfile = tmp_path / "epa_recepts.out"
+        outfile.write_text(EPA_RECEPTOR_SECTIONS)
+        results = parse_aermod_output(str(outfile))
+
+        # Third receptor has z_flag=1.5
+        r2 = results.receptors[2]
+        assert r2.z_flag == pytest.approx(1.5)
+
+    def test_epa_receptor_only_xy(self, tmp_path):
+        """Receptor with only x, y — elevations default to 0.0."""
+        outfile = tmp_path / "epa_recepts_xy.out"
+        outfile.write_text(EPA_RECEPTOR_XY_ONLY)
+        results = parse_aermod_output(str(outfile))
+
+        assert len(results.receptors) == 1
+        r0 = results.receptors[0]
+        assert r0.x_coord == pytest.approx(100.0)
+        assert r0.y_coord == pytest.approx(200.0)
+        assert r0.z_elev == pytest.approx(0.0)
+        assert r0.z_hill == pytest.approx(0.0)
+
+
+# ===========================================================================
+# Standard Pollutant ID format
+# ===========================================================================
+
+STANDARD_POLLUTANT_OUTPUT = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: STANDARD_POLL
+
+Pollutant/Gas ID: PM25
+"""
+
+
+class TestEPAPollutantStandard:
+    """Test standard Pollutant/Gas ID format (line 169)."""
+
+    def test_standard_pollutant_id_parsed(self, tmp_path):
+        outfile = tmp_path / "standard_poll.out"
+        outfile.write_text(STANDARD_POLLUTANT_OUTPUT)
+        parser = AERMODOutputParser(str(outfile))
+        parser._parse_header()
+
+        assert parser.run_info.pollutant_id == "PM25"
+
+
+# ===========================================================================
+# EPA VALUE IS edge cases
+# ===========================================================================
+
+EPA_VALUE_IS_MALFORMED = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: MALFORMED
+
+*** THE SUMMARY OF HIGHEST ANNUAL RESULTS ***
+
+   ALL   1ST HIGHEST VALUE IS  NOT_A_NUMBER AT (  433.01,  -250.00,  0.00,  0.00,  0.00)
+   ALL   2ND HIGHEST VALUE IS  20.00000 AT (  500.00,  -100.00,  0.00,  0.00,  0.00)
+"""
+
+EPA_VALUE_IS_ALL_BAD = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: ALL_BAD
+
+*** THE SUMMARY OF HIGHEST ANNUAL RESULTS ***
+
+   ALL   1ST HIGHEST VALUE IS  INVALID AT (  433.01,  -250.00,  0.00,  0.00,  0.00)
+   ALL   2ND HIGHEST VALUE IS  ALSO_BAD AT (  500.00,  -100.00,  0.00,  0.00,  0.00)
+"""
+
+
+class TestEPAValueIsEdgeCases:
+    """Test VALUE IS format with malformed concentration values."""
+
+    def test_epa_value_is_malformed_skipped(self, tmp_path):
+        """Non-numeric VALUE IS entries are skipped; valid ones still parsed."""
+        outfile = tmp_path / "malformed.out"
+        outfile.write_text(EPA_VALUE_IS_MALFORMED)
+        results = parse_aermod_output(str(outfile))
+
+        assert "ANNUAL" in results.concentrations
+        assert len(results.concentrations["ANNUAL"].data) == 1
+        assert results.concentrations["ANNUAL"].max_value == pytest.approx(20.0)
+
+    def test_epa_value_is_all_malformed_returns_none(self, tmp_path):
+        """When all VALUE IS entries are malformed, section is absent."""
+        outfile = tmp_path / "all_bad.out"
+        outfile.write_text(EPA_VALUE_IS_ALL_BAD)
+        results = parse_aermod_output(str(outfile))
+
+        assert "ANNUAL" not in results.concentrations
+
+
+# ===========================================================================
+# Receptor pyaermod format edge case
+# ===========================================================================
+
+RECEPTORS_NO_HEADER = """\
+*** AERMOD - VERSION 24142 ***
+
+Jobname: NO_HEADER
+
+*** RECEPTOR LOCATIONS ***
+
+   100.00       200.00
+   300.00       400.00
+
+*** END ***
+"""
+
+
+class TestReceptorPyaermodEdge:
+    """Test pyaermod receptor parsing edge cases."""
+
+    def test_receptors_no_header_line_skips_data(self, tmp_path):
+        """Without X-COORD/RECEPTOR header, data_started never True."""
+        outfile = tmp_path / "no_header.out"
+        outfile.write_text(RECEPTORS_NO_HEADER)
+        results = parse_aermod_output(str(outfile))
+
+        assert len(results.receptors) == 0
