@@ -9,9 +9,10 @@ committed to git.
 Tests are skipped when the test data directory is not present.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pyaermod.output_parser import parse_aermod_output
 from pyaermod.postfile import read_postfile
