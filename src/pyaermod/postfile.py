@@ -322,19 +322,23 @@ class PostfileParser:
         """
         Parse a single data line from the POSTFILE.
 
-        Handles three column layouts:
+        Handles four column layouts:
 
-        Standard (9+ columns)::
+        Standard postfile (9+ columns)::
 
             X  Y  CONC  ZELEV  ZHILL  ZFLAG  AVE  GRP  DATE  [NETID]
 
-        Deposition (11+ columns)::
+        Deposition postfile (11+ columns)::
 
             X  Y  CONC  DRY_DEPO  WET_DEPO  ZELEV  ZHILL  ZFLAG  AVE  GRP  DATE  [NETID]
 
-        Plotfile (10+ columns)::
+        Standard plotfile (10+ columns)::
 
             X  Y  CONC  ZELEV  ZHILL  ZFLAG  AVE  GRP  RANK  NETID  DATE(CONC)
+
+        Deposition plotfile (13+ columns)::
+
+            X  Y  CONC  DRY  WET  ZELEV  ZHILL  ZFLAG  AVE  GRP  RANK  NETID  DATE
 
         Parameters
         ----------
@@ -352,8 +356,29 @@ class PostfileParser:
             return None
 
         try:
+            if self._is_deposition and self._is_plotfile and len(parts) >= 12:
+                # Deposition plotfile:
+                # X Y CONC DRY WET ZELEV ZHILL ZFLAG AVE GRP RANK [NETID] DATE
+                # When NETID is blank, whitespace-split yields 12 parts;
+                # when non-blank (e.g. "POL1"), yields 13 parts.
+                return {
+                    "x": float(parts[0]),
+                    "y": float(parts[1]),
+                    "concentration": float(parts[2]),
+                    "dry_depo": float(parts[3]),
+                    "wet_depo": float(parts[4]),
+                    "zelev": float(parts[5]),
+                    "zhill": float(parts[6]),
+                    "zflag": float(parts[7]),
+                    "ave": parts[8],
+                    "grp": parts[9],
+                    "rank": parts[10],
+                    "date": parts[-1],
+                }
+
             if self._is_deposition and len(parts) >= 11:
-                # Deposition: X Y CONC DRY_DEPO WET_DEPO ZELEV ZHILL ZFLAG AVE GRP DATE
+                # Deposition postfile:
+                # X Y CONC DRY_DEPO WET_DEPO ZELEV ZHILL ZFLAG AVE GRP DATE
                 return {
                     "x": float(parts[0]),
                     "y": float(parts[1]),
@@ -369,7 +394,8 @@ class PostfileParser:
                 }
 
             if self._is_plotfile and len(parts) >= 10:
-                # Plotfile: X Y CONC ZELEV ZHILL ZFLAG AVE GRP RANK NETID [DATE]
+                # Standard plotfile:
+                # X Y CONC ZELEV ZHILL ZFLAG AVE GRP RANK NETID [DATE]
                 row = {
                     "x": float(parts[0]),
                     "y": float(parts[1]),
@@ -384,7 +410,7 @@ class PostfileParser:
                 }
                 return row
 
-            # Standard: X Y CONC ZELEV ZHILL ZFLAG AVE GRP DATE
+            # Standard postfile: X Y CONC ZELEV ZHILL ZFLAG AVE GRP DATE
             return {
                 "x": float(parts[0]),
                 "y": float(parts[1]),

@@ -146,18 +146,59 @@ class TestOutputParserRealOUT:
         assert results.run_info is not None
         assert results.run_info.version == "24142"
 
-    def test_aertest_out_sources_receptors_empty(self):
-        """Documents known limitation: real .out files use different section
-        headers than the parser expects, so sources/receptors are empty."""
+    def test_aertest_out_sources_parsed(self):
+        """EPA .out files use per-type section headers like
+        '*** POINT SOURCE DATA ***' which the parser now handles."""
         path = OUTPUTS / "aertest.out"
         if not path.exists():
             pytest.skip("aertest.out not found")
         results = parse_aermod_output(str(path))
 
-        # Known limitation: parser looks for "*** SOURCE LOCATIONS ***" but
-        # real files use "*** POINT SOURCE DATA ***" etc.
-        assert len(results.sources) == 0
+        # AERTEST has 1 point source (STACK1)
+        assert len(results.sources) >= 1
+        assert results.sources[0].source_type == "POINT"
+        assert results.sources[0].source_id == "STACK1"
+
+    def test_aertest_out_gridded_receptors(self):
+        """AERTEST uses a gridded polar receptor network — discrete receptor
+        parsing won't find individual receptors, but num_receptors from the
+        header should still be 144."""
+        path = OUTPUTS / "aertest.out"
+        if not path.exists():
+            pytest.skip("aertest.out not found")
+        results = parse_aermod_output(str(path))
+
+        # Gridded polar receptors aren't individually listed as discrete tuples
         assert len(results.receptors) == 0
+        # But the header "This Run Includes: ... 144 Receptor(s)" should be preserved
+        assert results.run_info.num_receptors == 144
+
+    def test_lovett_out_discrete_receptors_parsed(self):
+        """LOVETT uses discrete cartesian receptors with parenthesized tuples."""
+        path = OUTPUTS / "lovett.out"
+        if not path.exists():
+            pytest.skip("lovett.out not found")
+        results = parse_aermod_output(str(path))
+
+        # LOVETT has 11 discrete cartesian receptors
+        assert len(results.receptors) == 11
+        # First receptor: (3500.0, 67750.0, 237.5, 239.3, 0.0)
+        r0 = results.receptors[0]
+        assert r0.x_coord == pytest.approx(3500.0)
+        assert r0.y_coord == pytest.approx(67750.0)
+        assert r0.z_elev == pytest.approx(237.5)
+
+    def test_allsrcs_out_multiple_source_types(self):
+        """ALLSRCS has point, area, volume, openpit sources."""
+        path = OUTPUTS / "allsrcs.out"
+        if not path.exists():
+            pytest.skip("allsrcs.out not found")
+        results = parse_aermod_output(str(path))
+
+        source_types = {s.source_type for s in results.sources}
+        # Should have at least POINT and one other type
+        assert len(results.sources) >= 2
+        assert "POINT" in source_types
 
     def test_aertest_out_has_value_is_concentrations(self):
         """.out files also contain VALUE IS sections for summary results."""
@@ -307,6 +348,33 @@ class TestPlotfileParserRealPLT:
 
         # Dates should be 8-digit strings, not rank values
         assert result.data["date"].str.match(r"^\d{8}$").all()
+
+    def test_deposition_plt_has_rank(self):
+        """Deposition PLT files (TESTGAS, TESTPRT2, TESTPART) should have
+        rank column now that the combined deposition+plotfile path is fixed."""
+        for filename in ["TESTGAS_01H.PLT", "TESTPRT2_01H.PLT", "TESTPART_01H.PLT"]:
+            path = PLOTFILES / filename
+            if not path.exists():
+                pytest.skip(f"{filename} not found")
+            result = read_postfile(str(path))
+
+            assert "rank" in result.data.columns, (
+                f"{filename}: missing rank column"
+            )
+            assert "dry_depo" in result.data.columns, (
+                f"{filename}: missing dry_depo column"
+            )
+            assert "wet_depo" in result.data.columns, (
+                f"{filename}: missing wet_depo column"
+            )
+            # Rank should be "1ST" for first-highest PLT files
+            assert (result.data["rank"] == "1ST").all(), (
+                f"{filename}: unexpected rank values"
+            )
+            # Dates should be 8-digit strings
+            assert result.data["date"].str.match(r"^\d{8}$").all(), (
+                f"{filename}: date format incorrect"
+            )
 
     def test_aertest_plt_max_matches_pst(self):
         """Cross-validate: PLT max should match PST max."""

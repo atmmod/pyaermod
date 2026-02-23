@@ -211,32 +211,42 @@ class AERMODOutputParser:
         self.run_info = run_info
 
     def _parse_sources(self):
-        """Extract source information"""
-        # Find source summary section
+        """Extract source information from both pyaermod and EPA .out formats.
+
+        pyaermod format uses ``*** SOURCE LOCATIONS ***`` with columns:
+            SOURCE  TYPE  X  Y  ELEV  [stack params...]
+
+        EPA .out format uses per-type sections like
+        ``*** POINT SOURCE DATA ***``, ``*** VOLUME SOURCE DATA ***``, etc.
+        with columns: ID  NPART  EMISSION  X  Y  ELEV  [type-specific...]
+        """
+        # Try pyaermod format first
         sources_section = re.search(
             r'\*\*\*\s*SOURCE LOCATIONS\s*\*\*\*(.*?)(?:\*\*\*|\Z)',
             self.content,
             re.DOTALL
         )
 
-        if not sources_section or not sources_section.group(1):
-            return
+        if sources_section and sources_section.group(1):
+            self._parse_sources_pyaermod(sources_section.group(1))
+        else:
+            # Try EPA .out format — multiple per-type sections
+            self._parse_sources_epa()
 
-        lines = sources_section.group(1).strip().split('\n')
+        if self.run_info and self.sources:
+            self.run_info.num_sources = len(self.sources)
 
-        # Skip header lines
+    def _parse_sources_pyaermod(self, section_text: str):
+        """Parse sources from pyaermod ``*** SOURCE LOCATIONS ***`` section."""
+        lines = section_text.strip().split('\n')
         data_started = False
         for line in lines:
             if not line.strip():
                 continue
-
-            # Look for data lines (typically start with source ID)
             if not data_started:
                 if 'SOURCE' in line and 'TYPE' in line:
                     data_started = True
                 continue
-
-            # Parse source line
             parts = line.split()
             if len(parts) >= 5:
                 try:
@@ -247,48 +257,143 @@ class AERMODOutputParser:
                         y_coord=float(parts[3]),
                         base_elevation=float(parts[4])
                     )
-
-                    # Additional parameters if available
                     if len(parts) > 5 and parts[1] == 'POINT' and len(parts) >= 10:
                         source.stack_height = float(parts[5])
                         source.stack_temp = float(parts[6])
                         source.exit_velocity = float(parts[7])
                         source.stack_diameter = float(parts[8])
                         source.emission_rate = float(parts[9])
-
                     self.sources.append(source)
                 except (ValueError, IndexError):
                     continue
 
-        if self.run_info:
-            self.run_info.num_sources = len(self.sources)
+    def _parse_sources_epa(self):
+        """Parse sources from EPA .out per-type sections.
+
+        Each section header looks like ``*** POINT SOURCE DATA ***`` and
+        has a table with column layout that varies by source type.  The
+        common prefix columns are:
+            SOURCE_ID  NPART  EMISSION_RATE  X  Y  BASE_ELEV  ...
+
+        The source type is inferred from the section header.
+        """
+        # Map section header keywords to AERMOD source type names
+        type_map = [
+            (r'POINT SOURCE DATA', 'POINT'),
+            (r'VOLUME SOURCE DATA', 'VOLUME'),
+            (r'(?:AREA|AREAPOLY|AREACIRC) SOURCE DATA', 'AREA'),
+            (r'LINE SOURCE DATA', 'LINE'),
+            (r'RLINE/RLINEXT SOURCE DATA', 'RLINE'),
+            (r'OPENPIT SOURCE DATA', 'OPENPIT'),
+            (r'BUOYANT LINE SOURCE DATA', 'BUOYLINE'),
+        ]
+
+        for pattern, src_type in type_map:
+            for match in re.finditer(
+                rf'\*\*\*\s*{pattern}\s*\*\*\*(.*?)(?:\*\*\*|\Z)',
+                self.content, re.DOTALL
+            ):
+                self._parse_epa_source_section(match.group(1), src_type)
+
+    def _parse_epa_source_section(self, section_text: str, source_type: str):
+        """Parse one EPA source data section.
+
+        Data lines have the format::
+            ID  NPART  EMISSION  X  Y  BASE_ELEV  [type-specific columns...]
+
+        The separator line ``- - - -`` marks end of headers.
+        """
+        lines = section_text.strip().split('\n')
+        data_started = False
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Separator line marks start of data
+            if stripped.startswith('- - -'):
+                data_started = True
+                continue
+            if not data_started:
+                continue
+            # Skip page header lines that appear mid-section
+            if '*** AERMOD' in stripped or '*** AERMET' in stripped:
+                break
+            if 'MODELOPTs' in stripped or 'PAGE' in stripped:
+                continue
+
+            parts = stripped.split()
+            if len(parts) < 6:
+                continue
+
+            try:
+                source_id = parts[0]
+                # parts[1] = NPART (number of particle categories)
+                emission_str = parts[2]
+                x = float(parts[3])
+                y = float(parts[4])
+                base_elev = float(parts[5])
+
+                source = SourceSummary(
+                    source_id=source_id,
+                    source_type=source_type,
+                    x_coord=x,
+                    y_coord=y,
+                    base_elevation=base_elev,
+                    emission_rate=float(emission_str),
+                )
+
+                # POINT sources have stack params after base_elev
+                if source_type == 'POINT' and len(parts) >= 10:
+                    source.stack_height = float(parts[6])
+                    source.stack_temp = float(parts[7])
+                    source.exit_velocity = float(parts[8])
+                    source.stack_diameter = float(parts[9])
+
+                self.sources.append(source)
+            except (ValueError, IndexError):
+                continue
 
     def _parse_receptors(self):
-        """Extract receptor locations"""
-        # Find receptor section
+        """Extract receptor locations from both pyaermod and EPA .out formats.
+
+        pyaermod format uses ``*** RECEPTOR LOCATIONS ***`` with simple
+        ``X  Y  [ZELEV  ZHILL  ZFLAG]`` rows.
+
+        EPA .out format uses ``*** DISCRETE CARTESIAN RECEPTORS ***`` with
+        parenthesized tuples ``( x, y, zelev, zhill, zflag );`` and
+        ``*** GRIDDED RECEPTOR NETWORK SUMMARY ***`` sections (grid
+        definitions, not individual receptors — we extract counts from
+        the header instead).
+        """
+        # Try pyaermod format first
         receptor_section = re.search(
             r'\*\*\*\s*RECEPTOR LOCATIONS\s*\*\*\*(.*?)(?:\*\*\*|\Z)',
             self.content,
             re.DOTALL
         )
 
-        if not receptor_section or not receptor_section.group(1):
-            return
+        if receptor_section and receptor_section.group(1):
+            self._parse_receptors_pyaermod(receptor_section.group(1))
+        else:
+            # Try EPA .out format — discrete receptors in tuple format
+            self._parse_receptors_epa()
 
-        lines = receptor_section.group(1).strip().split('\n')
+        if self.run_info and self.receptors:
+            self.run_info.num_receptors = max(
+                len(self.receptors), self.run_info.num_receptors
+            )
 
-        # Skip header
+    def _parse_receptors_pyaermod(self, section_text: str):
+        """Parse receptors from pyaermod ``*** RECEPTOR LOCATIONS ***``."""
+        lines = section_text.strip().split('\n')
         data_started = False
         for line in lines:
             if not line.strip():
                 continue
-
             if not data_started:
                 if 'X-COORD' in line or 'RECEPTOR' in line:
                     data_started = True
                 continue
-
-            # Parse receptor line
             parts = line.split()
             if len(parts) >= 2:
                 try:
@@ -303,8 +408,41 @@ class AERMODOutputParser:
                 except (ValueError, IndexError):
                     continue
 
-        if self.run_info:
-            self.run_info.num_receptors = len(self.receptors)
+    def _parse_receptors_epa(self):
+        """Parse receptors from EPA .out discrete receptor sections.
+
+        EPA format uses parenthesized tuples, two per line::
+
+            (   3500.0,  67750.0,  237.5,  239.3,    0.0);  (  3600.0, ...)
+
+        Multiple section types are supported:
+        - ``*** DISCRETE CARTESIAN RECEPTORS ***``
+        - ``*** DISCRETE POLAR RECEPTORS ***``
+        """
+        # Match all discrete receptor sections
+        for match in re.finditer(
+            r'\*\*\*\s*DISCRETE\s+(?:CARTESIAN|POLAR)\s+RECEPTORS\s*\*\*\*'
+            r'(.*?)(?:\*\*\*|\Z)',
+            self.content, re.DOTALL
+        ):
+            section = match.group(1)
+            # Extract parenthesized tuples: ( x, y, zelev, zhill, zflag )
+            for tmatch in re.finditer(
+                r'\(\s*([^)]+)\)', section
+            ):
+                values = tmatch.group(1).split(',')
+                if len(values) >= 2:
+                    try:
+                        receptor = ReceptorInfo(
+                            x_coord=float(values[0]),
+                            y_coord=float(values[1]),
+                            z_elev=float(values[2]) if len(values) > 2 else 0.0,
+                            z_hill=float(values[3]) if len(values) > 3 else 0.0,
+                            z_flag=float(values[4]) if len(values) > 4 else 0.0
+                        )
+                        self.receptors.append(receptor)
+                    except (ValueError, IndexError):
+                        continue
 
     def _parse_concentration_results(self):
         """Parse concentration results for all averaging periods"""
