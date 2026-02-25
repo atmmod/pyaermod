@@ -1018,3 +1018,113 @@ class TestGeospatialCubicFallback:
         )
         assert isinstance(result, geopandas.GeoDataFrame)
         assert len(result) > 0
+
+
+# ============================================================================
+# Item 2A: AreaSource/VolumeSource set_building_from_bpip
+# ============================================================================
+
+
+class TestAreaVolumeSourceBPIP:
+    """Test set_building_from_bpip for AreaSource and VolumeSource."""
+
+    def _make_building(self):
+        from pyaermod.bpip import Building
+        return Building(
+            "BLDG1",
+            [(-20, -15), (20, -15), (20, 15), (-20, 15)],
+            height=25.0,
+        )
+
+    def test_area_source_set_building_from_bpip(self):
+        """AreaSource.set_building_from_bpip populates all 36-value arrays."""
+        bldg = self._make_building()
+        src = AreaSource(
+            source_id="AS1", x_coord=0, y_coord=0,
+            initial_lateral_dimension=25, initial_vertical_dimension=50,
+            emission_rate=0.001,
+        )
+        src.set_building_from_bpip(bldg)
+
+        assert isinstance(src.building_height, list)
+        assert len(src.building_height) == 36
+        assert len(src.building_width) == 36
+        assert len(src.building_length) == 36
+        assert len(src.building_x_offset) == 36
+        assert len(src.building_y_offset) == 36
+
+        output = src.to_aermod_input()
+        assert output.count("BUILDHGT") == 4
+        assert output.count("BUILDWID") == 4
+
+    def test_volume_source_set_building_from_bpip(self):
+        """VolumeSource.set_building_from_bpip populates all 36-value arrays."""
+        bldg = self._make_building()
+        src = VolumeSource(
+            source_id="VS1", x_coord=0, y_coord=0,
+            release_height=5, initial_lateral_dimension=10,
+            initial_vertical_dimension=5, emission_rate=0.001,
+        )
+        src.set_building_from_bpip(bldg)
+
+        assert isinstance(src.building_height, list)
+        assert len(src.building_height) == 36
+        assert len(src.building_width) == 36
+
+        output = src.to_aermod_input()
+        assert output.count("BUILDHGT") == 4
+        assert output.count("XBADJ") == 4
+
+
+# ============================================================================
+# Item 2B: MeteorologyPathway WDROTATE
+# ============================================================================
+
+
+class TestMeteorologyFeatures:
+    """Test optional MeteorologyPathway features."""
+
+    def test_wind_rotation_output(self):
+        """wind_rotation=15.5 produces WDROTATE keyword."""
+        met = MeteorologyPathway(
+            surface_file="t.sfc", profile_file="t.pfl",
+            wind_rotation=15.5,
+        )
+        output = met.to_aermod_input()
+        assert "WDROTATE  15.50" in output
+
+    def test_wind_rotation_none_omits_keyword(self):
+        """wind_rotation=None omits WDROTATE keyword."""
+        met = MeteorologyPathway(
+            surface_file="t.sfc", profile_file="t.pfl",
+        )
+        output = met.to_aermod_input()
+        assert "WDROTATE" not in output
+
+
+# ============================================================================
+# Item 2C: OutputPathway DAYTABLE / MAXIFILE
+# ============================================================================
+
+
+class TestOutputPathwayFeatures:
+    """Test optional OutputPathway features (day_table, max_file)."""
+
+    def test_day_table_output(self):
+        """day_table=True produces DAYTABLE keyword."""
+        out = OutputPathway(day_table=True)
+        output = out.to_aermod_input()
+        assert "DAYTABLE  ALLAVE" in output
+
+    def test_max_file_output(self):
+        """max_file produces MAXIFILE keyword."""
+        out = OutputPathway(max_file="maxconc.out")
+        output = out.to_aermod_input()
+        assert "MAXIFILE  maxconc.out" in output
+
+    def test_output_defaults_omit_optional(self):
+        """Default OutputPathway omits DAYTABLE and MAXIFILE."""
+        out = OutputPathway()
+        output = out.to_aermod_input()
+        assert "DAYTABLE" not in output
+        assert "MAXIFILE" not in output

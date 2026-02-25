@@ -9,7 +9,12 @@ from pyaermod.aermet import (
     AERMETStage2,
     AERMETStage3,
     AERMETStation,
+    ProfileFileHeader,
+    SurfaceFileHeader,
     UpperAirStation,
+    parse_sfc_header,
+    read_profile_file,
+    read_surface_file,
     write_aermet_runfile,
 )
 
@@ -444,3 +449,206 @@ class TestAERMETEdgeCases:
         )
         output = stage1.to_aermet_input()
         assert "ELEVATION  0.0" in output
+
+
+# ============================================================================
+# UpperAirStation validation
+# ============================================================================
+
+
+class TestUpperAirStationValidation:
+    """Test UpperAirStation __post_init__ validation."""
+
+    def test_upper_air_invalid_longitude(self):
+        """UpperAirStation rejects longitude outside -180..180."""
+        with pytest.raises(ValueError, match="longitude"):
+            UpperAirStation(
+                station_id="99999",
+                station_name="Bad",
+                latitude=40.0,
+                longitude=200.0,
+            )
+
+
+# ============================================================================
+# parse_sfc_header() tests
+# ============================================================================
+
+
+class TestParseSfcHeader:
+    """Test parsing of .SFC file header lines."""
+
+    def test_full_header_all_fields(self):
+        """Full header with all standard fields is parsed correctly."""
+        hdr_line = (
+            "  42.750N   73.800W  UA_ID: 72518  SF_ID: 14735"
+            "  OS_ID: 99999  VERSION: 21DRF  ADJ-U*"
+        )
+        hdr = parse_sfc_header(hdr_line)
+        assert hdr.latitude == pytest.approx(42.75)
+        assert hdr.longitude == pytest.approx(-73.8)
+        assert hdr.ua_id == "72518"
+        assert hdr.sf_id == "14735"
+        assert hdr.os_id == "99999"
+        assert hdr.version == "21DRF"
+        assert "ADJ-U*" in hdr.options
+
+    def test_southern_hemisphere_latitude(self):
+        """Southern hemisphere latitude is negative."""
+        hdr = parse_sfc_header("  33.500S  151.200E  UA_ID: 94767  SF_ID: 94767  OS_ID: 99999  VERSION: 21DRF")
+        assert hdr.latitude == pytest.approx(-33.5)
+
+    def test_eastern_longitude(self):
+        """Eastern longitude is positive."""
+        hdr = parse_sfc_header("  35.680N  139.770E  UA_ID: 47662  SF_ID: 47662  OS_ID: 99999  VERSION: 21DRF")
+        assert hdr.longitude == pytest.approx(139.77)
+
+    def test_partial_header_lat_lon_only(self):
+        """Header with only lat/lon — IDs and version stay as defaults."""
+        hdr = parse_sfc_header("  41.300N   72.100W")
+        assert hdr.latitude == pytest.approx(41.3)
+        assert hdr.longitude == pytest.approx(-72.1)
+        assert hdr.ua_id == ""
+        assert hdr.sf_id == ""
+        assert hdr.version == ""
+
+    def test_empty_header(self):
+        """Empty string produces all defaults."""
+        hdr = parse_sfc_header("")
+        assert hdr.latitude == 0.0
+        assert hdr.longitude == 0.0
+        assert hdr.ua_id == ""
+        assert hdr.version == ""
+
+
+# ============================================================================
+# read_surface_file() tests
+# ============================================================================
+
+
+class TestReadSurfaceFile:
+    """Test reading of AERMET .SFC surface meteorology files."""
+
+    def _write_sfc(self, tmp_path, header, data_lines):
+        """Helper: write header + data lines to a .sfc file."""
+        sfc = tmp_path / "test.sfc"
+        content = header + "\n" + "\n".join(data_lines) + "\n"
+        sfc.write_text(content)
+        return sfc
+
+    def test_basic_20_column_sfc(self, tmp_path):
+        """Parse a standard 20-column .SFC file."""
+        header = "  42.750N   73.800W  UA_ID: 72518  SF_ID: 14735  OS_ID: 99999  VERSION: 21DRF"
+        # year month day jday hour H ustar wstar VPTG Zic Zim L z0 BOWEN ALBEDO ws wd zrw temp zrt
+        row1 = "2020  1  1   1  1  -28.3  0.234  -9.000  0.005  -999.  121.  -28.4  0.300  1.00  0.20  3.10  280.  10.0  268.2  2.0"
+        row2 = "2020  1  1   1  2  -15.1  0.310  -9.000  0.005  -999.  150.  -40.0  0.300  1.00  0.20  4.50  290.  10.0  267.8  2.0"
+        sfc = self._write_sfc(tmp_path, header, [row1, row2])
+
+        result = read_surface_file(sfc)
+        assert result["header"].latitude == pytest.approx(42.75)
+        assert result["header"].ua_id == "72518"
+
+        df = result["data"]
+        assert len(df) == 2
+        assert df.iloc[0]["year"] == 2020
+        assert df.iloc[0]["wind_speed"] == pytest.approx(3.1)
+        assert df.iloc[1]["wind_dir"] == pytest.approx(290.0)
+
+    def test_sfc_with_optional_columns(self, tmp_path):
+        """Parse a 27-column .SFC file with optional trailing columns."""
+        header = "  42.750N   73.800W  UA_ID: 72518  SF_ID: 14735  OS_ID: 99999  VERSION: 21DRF"
+        # 20 standard cols + ipcode pamt rh pres ccvr method subs
+        row = (
+            "2020  1  1   1  1  -28.3  0.234  -9.000  0.005  -999.  121.  -28.4"
+            "  0.300  1.00  0.20  3.10  280.  10.0  268.2  2.0"
+            "  0  0.00  55.0  1013.0  8  NAD  SUB"
+        )
+        sfc = self._write_sfc(tmp_path, header, [row])
+
+        result = read_surface_file(sfc)
+        df = result["data"]
+        assert len(df) == 1
+        assert df.iloc[0]["ipcode"] == 0
+        assert df.iloc[0]["rh"] == pytest.approx(55.0)
+        assert df.iloc[0]["pres"] == pytest.approx(1013.0)
+        assert df.iloc[0]["ccvr"] == 8
+        assert df.iloc[0]["method"] == "NAD"
+        assert df.iloc[0]["subs"] == "SUB"
+
+    def test_sfc_malformed_line_skipped(self, tmp_path):
+        """Malformed lines (short or non-numeric) are silently skipped."""
+        header = "  42.750N   73.800W  UA_ID: 72518  SF_ID: 14735  OS_ID: 99999  VERSION: 21DRF"
+        good = "2020  1  1   1  1  -28.3  0.234  -9.000  0.005  -999.  121.  -28.4  0.300  1.00  0.20  3.10  280.  10.0  268.2  2.0"
+        short = "2020  1  1   1  2"  # < 20 columns → skipped
+        bad = "2020  1  1   1  3  BADVAL  0.234  -9.000  X  -999.  121.  -28.4  0.300  1.00  0.20  3.10  280.  10.0  268.2  2.0"
+        sfc = self._write_sfc(tmp_path, header, [good, short, bad])
+
+        result = read_surface_file(sfc)
+        df = result["data"]
+        assert len(df) == 1  # only the good row survived
+
+    def test_sfc_empty_data(self, tmp_path):
+        """Header only, no data lines → empty DataFrame."""
+        header = "  42.750N   73.800W  UA_ID: 72518  SF_ID: 14735  OS_ID: 99999  VERSION: 21DRF"
+        sfc = self._write_sfc(tmp_path, header, [])
+
+        result = read_surface_file(sfc)
+        assert len(result["data"]) == 0
+        assert result["header"].latitude == pytest.approx(42.75)
+
+
+# ============================================================================
+# read_profile_file() tests
+# ============================================================================
+
+
+class TestReadProfileFile:
+    """Test reading of AERMET .PFL profile files."""
+
+    def _write_pfl(self, tmp_path, data_lines):
+        """Helper: write data lines to a .pfl file (no header line)."""
+        pfl = tmp_path / "test.pfl"
+        pfl.write_text("\n".join(data_lines) + "\n")
+        return pfl
+
+    def test_basic_9_column_pfl(self, tmp_path):
+        """Parse a standard 9-column .PFL file."""
+        # year month day hour height top_flag wind_dir wind_speed temp_diff
+        row1 = "2020  1  1  1   10.0  0  280.0  3.10  268.2"
+        row2 = "2020  1  1  1   50.0  1  285.0  4.20  267.5"
+        row3 = "2020  1  1  2   10.0  0  290.0  4.50  267.8"
+        pfl = self._write_pfl(tmp_path, [row1, row2, row3])
+
+        result = read_profile_file(pfl)
+        df = result["data"]
+        assert len(df) == 3
+        assert df.iloc[0]["height"] == pytest.approx(10.0)
+        assert df.iloc[1]["wind_speed"] == pytest.approx(4.2)
+        assert df.iloc[2]["wind_dir"] == pytest.approx(290.0)
+
+        hdr = result["header"]
+        assert hdr.num_hours == 2  # 2 distinct (year,month,day,hour) groups
+        assert hdr.num_levels == 2  # heights: 10.0, 50.0
+        assert sorted(hdr.heights) == [10.0, 50.0]
+
+    def test_pfl_with_optional_columns(self, tmp_path):
+        """Parse an 11-column .PFL file with sigma_theta and sigma_w."""
+        row = "2020  1  1  1   10.0  0  280.0  3.10  268.2  15.3  0.45"
+        pfl = self._write_pfl(tmp_path, [row])
+
+        result = read_profile_file(pfl)
+        df = result["data"]
+        assert len(df) == 1
+        assert df.iloc[0]["sigma_theta"] == pytest.approx(15.3)
+        assert df.iloc[0]["sigma_w"] == pytest.approx(0.45)
+
+    def test_pfl_empty_file(self, tmp_path):
+        """Empty .PFL file → empty DataFrame, header defaults."""
+        pfl = tmp_path / "empty.pfl"
+        pfl.write_text("")
+
+        result = read_profile_file(pfl)
+        assert len(result["data"]) == 0
+        assert result["header"].num_hours == 0
+        assert result["header"].num_levels == 0
+        assert result["header"].heights == []
