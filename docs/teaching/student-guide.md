@@ -1,7 +1,7 @@
 # Introduction to Air Dispersion Modeling with PyAERMOD
 
 A hands-on guide for students who have never used a dispersion model before.
-No programming is required — all three tutorials use the PyAERMOD graphical
+No programming is required — all five tutorials use the PyAERMOD graphical
 interface (GUI) in your web browser.
 
 ---
@@ -14,8 +14,10 @@ interface (GUI) in your web browser.
 4. [Tutorial 1 — Your First Point Source](#4-tutorial-1--your-first-point-source)
 5. [Tutorial 2 — Comparing Stack Heights](#5-tutorial-2--comparing-stack-heights)
 6. [Tutorial 3 — Running AERMOD and Reading Results](#6-tutorial-3--running-aermod-and-reading-results)
-7. [What's Next?](#7-whats-next)
-8. [Glossary](#8-glossary)
+7. [Tutorial 4 — Area Sources: Modeling a Facility with Fugitive Emissions](#7-tutorial-4--area-sources-modeling-a-facility-with-fugitive-emissions)
+8. [Tutorial 5 — Processing Meteorological Data with AERMET](#8-tutorial-5--processing-meteorological-data-with-aermet)
+9. [What's Next?](#9-whats-next)
+10. [Glossary](#10-glossary)
 
 ---
 
@@ -617,21 +619,559 @@ At this point you should understand:
 
 ---
 
-## 7. What's Next?
+## 7. Tutorial 4 — Area Sources: Modeling a Facility with Fugitive Emissions
 
-Now that you understand the basics, here are some directions to explore:
+**Goal:** Model a construction site with three types of area sources —
+a rectangular stockpile, a circular staging area, and an irregular polygon
+site boundary — alongside a point source (generator exhaust).
 
-### More Source Types
+**Time:** 25--30 minutes
 
-Try adding **area sources** (Source Editor > Area) to model a parking lot or
-storage pile. Area sources use emission rates per unit area (g/s/m2) rather
-than total emission rate (g/s), so the numbers will be much smaller.
+**What you'll learn:**
+- The difference between point source and area source emission rates
+- How to add rectangular, circular, and polygonal area sources in the GUI
+- How to combine point and area sources in one model
+- How source groups let you analyze contributions separately
 
-### Multiple Sources
+### Conceptual Background
 
-Add several stacks to the same project and see how their plumes overlap.
-Use **source groups** (Source Editor > Source Groups) to separate contributions
-from different parts of a facility.
+Not all emissions come from smokestacks. Many facilities also have **fugitive
+emissions** — pollutants that escape from ground-level or low-height sources
+rather than through a defined stack. Examples include:
+
+| Source | Why It Emits |
+|---|---|
+| Dirt stockpile | Wind blows dust off exposed surfaces |
+| Parking lot | Vehicle exhaust, tire/brake wear, re-entrained road dust |
+| Construction site | Earth-moving equipment, exposed soil |
+| Tank farm | Vapors escape through tank vents and seals |
+| Landfill | Gases seep through the surface over a large area |
+
+These sources are modeled as **area sources** in AERMOD. The key difference
+from point sources is how emission rates are specified:
+
+- **Point source**: total mass emitted per second (**g/s**)
+- **Area source**: mass emitted per second *per unit area* (**g/s/m2**)
+
+Because area sources spread emissions over a large surface, the per-square-meter
+rate is typically a very small number (e.g., 0.0001 g/s/m2).
+
+> **Example calculation:**
+> A 100 m x 50 m stockpile emits 0.5 g/s total.
+> Area = 100 x 50 = 5,000 m2.
+> Emission rate = 0.5 / 5,000 = **0.0001 g/s/m2**.
+
+### Step 1: Project Setup
+
+1. Launch the GUI (`pyaermod-gui`).
+2. On the **Project Setup** page:
+   - **Title Line 1:** `Tutorial 4 - Area Source Facility`
+   - **Title Line 2:** `Construction site with mixed source types`
+   - **Pollutant Type:** `PM10`
+   - **Averaging Periods:** Select `24` and `ANNUAL`
+   - **Terrain Type:** `FLAT`
+
+### Step 2: Add a Point Source (Generator)
+
+1. Click **Source Editor** in the sidebar.
+2. Select source type: **Point**.
+3. Fill in the form:
+
+   | Parameter | Value | What It Represents |
+   |---|---|---|
+   | Source ID | `GENSET` | Diesel generator exhaust |
+   | X Coordinate | `500050` | UTM meters (or click the map) |
+   | Y Coordinate | `3870050` | UTM meters (or click the map) |
+   | Base Elevation | `0` | |
+   | Stack Height | `5` | Short exhaust stack |
+   | Exit Temperature | `700` | Diesel exhaust is very hot (K) |
+   | Exit Velocity | `10` | |
+   | Stack Diameter | `0.3` | Small pipe |
+   | Emission Rate | `0.3` | 0.3 g/s of PM10 |
+
+4. Click **Add Source**.
+
+> **Why start with the point source?** It gives you a reference marker on the
+> map. You'll place the area sources around it.
+
+### Step 3: Add a Rectangular Area Source (Stockpile)
+
+1. In the source type selector, choose **Area (Rectangular)**.
+2. Fill in the form:
+
+   | Parameter | Value | What It Represents |
+   |---|---|---|
+   | Source ID | `PILE1` | Dirt/gravel stockpile |
+   | X Coordinate | `500000` | Southwest corner X |
+   | Y Coordinate | `3870000` | Southwest corner Y |
+   | Base Elevation | `0` | |
+   | Release Height | `2.0` | Dust lifts off ~2 m above the pile surface |
+   | Half-Width Y | `25.0` | 50 m total in the Y direction |
+   | Half-Width X | `50.0` | 100 m total in the X direction |
+   | Rotation Angle | `0` | Aligned with the grid (no rotation) |
+   | Emission Rate | `0.000100` | 0.0001 g/s/m2 (see calculation above) |
+
+3. Click **Add Area Source**.
+
+> **Understanding half-widths:** AERMOD defines rectangular area sources by
+> their *half-widths* from the source coordinate. A "Half-Width X" of 50 means
+> the source extends 50 m from the center in each X direction (100 m total
+> width). This can be confusing at first — just remember to enter **half** the
+> actual dimension.
+
+### Step 4: Add a Circular Area Source (Staging Area)
+
+1. Select source type: **Area (Circular)**.
+2. Fill in the form:
+
+   | Parameter | Value | What It Represents |
+   |---|---|---|
+   | Source ID | `STAGING` | Equipment staging / laydown area |
+   | X Coordinate | `500200` | Center of the circle |
+   | Y Coordinate | `3870100` | |
+   | Base Elevation | `0` | |
+   | Release Height | `1.0` | Low-level dust from vehicle traffic |
+   | Radius | `60` | 60 m radius circle |
+   | Num Vertices | `20` | How many sides to approximate the circle |
+   | Emission Rate | `0.000050` | Lower rate — less disturbed surface |
+
+3. Click **Add Circular Area Source**.
+
+> **Num Vertices:** AERMOD approximates circles as polygons. 20 vertices gives
+> a smooth-enough circle for most purposes. More vertices is more accurate but
+> takes slightly longer to compute.
+
+### Step 5: Add a Polygonal Area Source (Site Boundary)
+
+1. Select source type: **Area (Polygon)**.
+2. Set **Number of Vertices** to `5` (this selector appears *above* the form).
+3. Fill in the form:
+
+   | Parameter | Value |
+   |---|---|
+   | Source ID | `SITEBND` |
+   | Base Elevation | `0` |
+   | Release Height | `0.5` |
+   | Emission Rate | `0.000020` |
+
+4. Enter vertex coordinates (these define the irregular site boundary):
+
+   | Vertex | X | Y |
+   |---|---|---|
+   | V1 | `499900` | `3869900` |
+   | V2 | `500350` | `3869900` |
+   | V3 | `500400` | `3870100` |
+   | V4 | `500300` | `3870250` |
+   | V5 | `499900` | `3870200` |
+
+5. Click **Add Polygon Source**.
+
+> **Vertex order matters:** The vertices should trace the outline of the area
+> in order (clockwise or counterclockwise). AERMOD closes the polygon
+> automatically — you don't need to repeat the first vertex.
+
+### Step 6: Set Up Receptors
+
+1. Click **Receptor Editor** in the sidebar.
+2. On the **Cartesian Grid** tab:
+
+   | Parameter | Value |
+   |---|---|
+   | X Min | `499500` |
+   | X Max | `500800` |
+   | Y Min | `3869500` |
+   | Y Max | `3870700` |
+   | Spacing | `50` |
+
+3. Click **Add Grid**. You should get roughly 600+ receptors covering the
+   site and a buffer zone around it.
+
+### Step 7: Meteorology and Preview
+
+1. Click **Meteorology** > **Use Existing Files** > enter paths to `.sfc`
+   and `.pfl` files (or placeholder names for now).
+2. Click **Run AERMOD** to preview the generated input file.
+
+Expand the **Generated Input File** section and look for the `SO` pathway.
+You should see four sources — one POINT and three area types:
+
+```
+SO LOCATION  GENSET   POINT   500050.00  3870050.00  0.00
+SO LOCATION  PILE1    AREA    500000.00  3870000.00  0.00
+SO LOCATION  STAGING  AREAPOL 500200.00  3870100.00  0.00
+SO LOCATION  SITEBND  AREAPOL 499900.00  3869900.00  0.00
+```
+
+Notice how each source type generates different `SO SRCPARAM` lines:
+- **POINT**: emission rate, stack height, temperature, velocity, diameter
+- **AREA**: emission rate, release height, half-width-Y, half-width-X
+- **AREAPOL**: emission rate, release height, number of vertices
+
+### Step 8: Interpret Area Source Results (After Running)
+
+When you eventually run this model, look for these patterns in the Results
+Viewer:
+
+- **The generator (point source)** produces a concentrated plume downwind of
+  the stack — a narrow elongated shape.
+- **The stockpile (rectangular area)** produces a broader, lower-concentration
+  pattern centered on the pile. Concentrations are highest at the downwind
+  edge of the pile.
+- **The site boundary (polygon)** produces the most diffuse pattern — low
+  concentrations spread over a wide area.
+- **Combined impact** is highest where plumes from multiple sources overlap.
+
+### Checkpoint
+
+At this point you should understand:
+
+- [x] Area source emission rates are per unit area (g/s/m2), not total (g/s)
+- [x] Rectangular area sources are defined by half-widths, not full dimensions
+- [x] Circular sources are approximated by polygons (Num Vertices)
+- [x] Polygon sources are defined by a list of corner coordinates
+- [x] Different source types produce different spatial patterns in results
+
+---
+
+## 8. Tutorial 5 — Processing Meteorological Data with AERMET
+
+**Goal:** Use the GUI's AERMET configuration page to generate the three-stage
+AERMET input files needed to process raw weather station data into AERMOD-ready
+meteorological files.
+
+**Time:** 30--40 minutes
+
+**What you'll learn:**
+- What AERMET does and why AERMOD needs it
+- How the three AERMET stages work
+- How to configure each stage in the GUI
+- What the monthly surface parameters mean and how to choose values
+
+### Conceptual Background
+
+AERMOD cannot use raw weather data directly. Raw data from weather stations
+comes in formats designed for archival and general forecasting — not
+atmospheric dispersion modeling. AERMOD needs specially processed files that
+contain:
+
+- **Hourly surface data** (`.sfc` file): wind speed, wind direction, ambient
+  temperature, atmospheric stability class, mixing height, friction velocity,
+  Monin-Obukhov length, and other boundary-layer parameters.
+- **Hourly profile data** (`.pfl` file): vertical profiles of wind speed, wind
+  direction, and temperature at multiple heights above ground.
+
+**AERMET** is the preprocessor that transforms raw weather station observations
+into these two files. It runs in three stages:
+
+```
+Raw weather data (NOAA archives)
+          |
+   Stage 1: Extract & QA/QC
+          |
+   Extracted hourly data
+          |
+   Stage 2: Merge surface + upper air
+          |
+   Merged dataset
+          |
+   Stage 3: Compute boundary-layer parameters
+          |
+   aermod.sfc  +  aermod.pfl   (ready for AERMOD)
+```
+
+### What Data Does AERMET Need?
+
+AERMET requires two types of weather observations:
+
+1. **Surface observations** — hourly weather data from a ground-level station
+   (typically an airport). Includes wind speed, wind direction, temperature,
+   cloud cover, and ceiling height. In the U.S., this data is available from
+   NOAA's Integrated Surface Hourly Data (ISHD) archive.
+
+2. **Upper air soundings** — twice-daily vertical profiles of temperature,
+   humidity, and wind measured by weather balloons (radiosondes). Available
+   from NOAA's Radiosonde Database. The closest upper air station may be
+   100+ km away — that's normal.
+
+> **Your instructor should provide** the station IDs, data files, and date
+> ranges for your region. If you need to download your own data, NOAA's
+> archives are at https://www.ncei.noaa.gov/.
+
+### Step 1: Navigate to the AERMET Page
+
+1. Launch the GUI (`pyaermod-gui`).
+2. First, set up your **Project Setup** page with the correct UTM zone and
+   map center for your area (see Tutorial 1). AERMET Stage 3 may use these
+   coordinates.
+3. Click **Meteorology** in the sidebar.
+4. Select the **Configure AERMET** radio button (not "Use existing files").
+
+You'll see three tabs: **Stage 1**, **Stage 2**, and **Stage 3**.
+
+### Step 2: Configure Stage 1 — Extract & QA/QC
+
+Click the **Stage 1: Data Extract** tab.
+
+**Purpose:** Stage 1 reads raw weather station data, performs quality assurance
+checks (flagging missing or suspicious values), and extracts the variables
+AERMET needs.
+
+#### Surface Station
+
+Fill in the surface station information. Your instructor should provide these
+values. Example for Atlanta, GA:
+
+| Parameter | Example Value | What It Means |
+|---|---|---|
+| Station ID | `KATL` | ICAO airport code or WBAN number |
+| Station Name | `Atlanta Hartsfield` | Descriptive name (for your reference) |
+| Latitude | `33.6300` | Station latitude (decimal degrees, negative = south) |
+| Longitude | `-84.4400` | Station longitude (decimal degrees, negative = west) |
+| Time Zone (UTC offset) | `-5` | Eastern Standard Time = UTC-5 |
+| Elevation (m) | `315.0` | Station elevation above sea level |
+| Anemometer Height (m) | `10.0` | Height of the wind sensor (usually 10 m) |
+| Data Format | `ISHD` | NOAA Integrated Surface Hourly Data (most common) |
+
+> **Data Format options:**
+> - **ISHD** — Integrated Surface Hourly Data (NOAA, post-2006). This is the
+>   most common format for recent U.S. data.
+> - **HUSWO** — Hourly US Weather Observations (legacy NCDC format).
+> - **SCRAM** — EPA SCRAM format (older pre-processed data).
+> - **SAMSON** — Solar and Meteorological Surface Observational Network.
+
+#### Upper Air Station
+
+Fill in the upper air (radiosonde) station. Example:
+
+| Parameter | Example Value | What It Means |
+|---|---|---|
+| Station ID | `72215` | WMO station number |
+| Station Name | `Peachtree City` | Closest radiosonde launch site |
+| Latitude | `33.3600` | |
+| Longitude | `-84.5700` | |
+
+> **Finding your upper air station:** The closest radiosonde station may be
+> far from your surface station. In the U.S., there are only about 90 upper
+> air stations (compared to thousands of surface stations). Use the one that
+> is most representative of your area's upper-atmosphere conditions.
+
+#### Data Files and Date Range
+
+| Parameter | Example Value | What It Means |
+|---|---|---|
+| Surface Data File | `72219013874.dat` | Path to the raw ISHD surface data file |
+| Upper Air Data File | `72215.dat` | Path to the raw upper air data file |
+| Start Date | `2020/01/01` | First day of the period to process |
+| End Date | `2020/12/31` | Last day (typically 1--5 years of data) |
+
+Click **Save Stage 1 Configuration**.
+
+#### Preview and Download
+
+Expand **Preview Stage 1 Input** to see the generated AERMET input file. It
+will contain keywords like:
+
+- `JOB` — identifies the processing job
+- `SURFACE DATA` — points to the surface data file and specifies the format
+- `UPPERAIR DATA` — points to the upper air data file
+- `XDATES` — specifies the date range to extract
+
+Click **Download Stage 1 Input File** to save it as `aermet_stage1.inp`.
+
+### Step 3: Configure Stage 2 — Merge
+
+Click the **Stage 2: Merge** tab.
+
+**Purpose:** Stage 2 takes the extracted surface and upper air data from
+Stage 1 and merges them into a single hourly dataset, aligning timestamps and
+interpolating upper air soundings to each hour.
+
+| Parameter | Example Value | What It Means |
+|---|---|---|
+| Surface Extract File | `stage1.ext` | Output from Stage 1 (surface data) |
+| Upper Air Extract File | `stage1_ua.ext` | Output from Stage 1 (upper air) |
+| Start Date | `2020/01/01` | Should match Stage 1 |
+| End Date | `2020/12/31` | Should match Stage 1 |
+| Merge Output File | `stage2.mrg` | Where to write the merged dataset |
+
+Click **Save Stage 2 Configuration**, then preview and download.
+
+### Step 4: Configure Stage 3 — Boundary Layer Parameters
+
+Click the **Stage 3: Boundary Layer** tab.
+
+**Purpose:** This is the most important stage. Stage 3 reads the merged data
+and computes the **planetary boundary layer parameters** that AERMOD needs:
+friction velocity, Monin-Obukhov length, convective velocity scale, mixing
+height, and more. These parameters depend on both the meteorological data and
+the **surface characteristics** around the station.
+
+#### File Paths
+
+| Parameter | Example Value |
+|---|---|
+| Merge File | `stage2.mrg` |
+| Start Date | `2020/01/01` |
+| End Date | `2020/12/31` |
+| Surface Output (.sfc) | `aermod.sfc` |
+| Profile Output (.pfl) | `aermod.pfl` |
+
+#### Monthly Surface Parameters
+
+This is the part that requires the most judgment. The GUI shows an editable
+table with three parameters for each month:
+
+| Parameter | What It Controls | Typical Range |
+|---|---|---|
+| **Albedo** | Surface reflectivity (fraction of sunlight reflected). Snow-covered ground has high albedo; dark pavement has low albedo. | 0.10 -- 0.60 |
+| **Bowen Ratio** | Ratio of sensible heat to latent heat. Dry surfaces (deserts, cities) have high Bowen ratios; moist surfaces (wetlands, irrigated fields) have low values. | 0.1 -- 10.0 |
+| **Roughness (m)** | Aerodynamic roughness length — how "bumpy" the surface is to wind flow. Open water is very smooth (~0.001 m); a city center is very rough (~1.0 m). | 0.001 -- 2.0 |
+
+The GUI pre-fills **suburban defaults** — these are reasonable starting values
+for an area with moderate development (residential neighborhoods, scattered
+trees):
+
+| Month | Albedo | Bowen Ratio | Roughness (m) |
+|---|---|---|---|
+| Jan | 0.35 | 1.5 | 0.30 |
+| Feb | 0.35 | 1.5 | 0.30 |
+| Mar | 0.25 | 1.0 | 0.30 |
+| Apr | 0.18 | 0.8 | 0.30 |
+| May | 0.15 | 0.6 | 0.50 |
+| Jun | 0.15 | 0.5 | 0.50 |
+| Jul | 0.15 | 0.5 | 0.50 |
+| Aug | 0.15 | 0.5 | 0.50 |
+| Sep | 0.18 | 0.6 | 0.50 |
+| Oct | 0.25 | 0.8 | 0.30 |
+| Nov | 0.35 | 1.0 | 0.30 |
+| Dec | 0.35 | 1.5 | 0.30 |
+
+> **How to customize these values:**
+>
+> - **If your site is in a rural/agricultural area:** Lower roughness
+>   (0.05--0.15 m), albedo varies by crop/season, Bowen ratio varies by
+>   irrigation.
+> - **If your site is in a dense urban area:** Higher roughness
+>   (0.5--1.5 m), higher Bowen ratio (dry impervious surfaces), lower albedo
+>   (dark pavement).
+> - **If there's winter snow cover:** Increase albedo to 0.50--0.70 during
+>   snowy months.
+> - **When in doubt:** Use the pre-filled suburban defaults. They're
+>   conservative and widely used in regulatory work.
+
+Click in any cell in the table to edit it. The values update in real time.
+
+#### Site Location
+
+The **Use Stage 1 surface station** checkbox (checked by default) tells
+AERMET to use the latitude and longitude you entered in Stage 1. If you
+uncheck it, AERMET will use the project center coordinates from the Project
+Setup page.
+
+Click **Save Stage 3 Configuration**.
+
+### Step 5: Download All Three Input Files
+
+You now have three AERMET input files:
+
+| File | Stage | What It Does |
+|---|---|---|
+| `aermet_stage1.inp` | Extract & QA/QC | Reads raw data, checks quality |
+| `aermet_stage2.inp` | Merge | Combines surface + upper air |
+| `aermet_stage3.inp` | Boundary Layer | Computes AERMOD-ready parameters |
+
+Download all three from their respective preview sections.
+
+### Step 6: Run AERMET (Outside the GUI)
+
+AERMET itself must be run separately (it's a different executable from AERMOD).
+In a terminal:
+
+```bash
+# Stage 1
+aermet < aermet_stage1.inp
+
+# Stage 2
+aermet < aermet_stage2.inp
+
+# Stage 3
+aermet < aermet_stage3.inp
+```
+
+Each stage reads the output of the previous stage, so they must be run **in
+order**. When Stage 3 completes, you'll have your `aermod.sfc` and
+`aermod.pfl` files — the meteorological inputs AERMOD needs.
+
+> **Troubleshooting common errors:**
+>
+> - *"File not found"*: Check that the data file paths in Stage 1 are correct
+>   and the files exist in the working directory.
+> - *"Missing data exceeds threshold"*: Your raw data has too many gaps.
+>   AERMET flags this in the Stage 1 output. You may need to use a different
+>   station or a year with more complete records.
+> - *"Upper air sounding missing"*: The upper air station may not have data
+>   for all dates. A few missing soundings are normal; AERMET interpolates.
+
+### Step 7: Use the Processed Met Data in AERMOD
+
+Once you have `aermod.sfc` and `aermod.pfl`:
+
+1. Go back to the **Meteorology** page in the GUI.
+2. Switch to **Use existing .sfc/.pfl files** mode.
+3. Enter the paths to your new `aermod.sfc` and `aermod.pfl` files.
+4. Continue with your AERMOD run (Tutorial 3).
+
+Alternatively, Stage 3's **Save** button automatically updates the
+Meteorology Pathway to point to the `.sfc` and `.pfl` files you specified,
+so you may already be set.
+
+### Understanding What AERMET Produced
+
+The `.sfc` file contains one line per hour with columns including:
+
+- Year, month, day, hour
+- Sensible heat flux (W/m2) — energy driving vertical mixing
+- Friction velocity (m/s) — a measure of wind turbulence near the ground
+- Monin-Obukhov length (m) — characterizes atmospheric stability
+  (negative = unstable, positive = stable)
+- Mixing height (m) — the depth of the turbulent boundary layer
+- Wind speed, direction, and temperature
+
+The `.pfl` file contains vertical wind and temperature profiles for each
+hour — the information AERMOD uses to model how the plume disperses at
+different heights.
+
+You don't need to read these files directly — AERMOD reads them
+automatically — but understanding what's in them helps you interpret your
+results. For example, if your maximum concentrations all occur during
+nighttime hours, it's likely because stable conditions (high Monin-Obukhov
+length, low mixing height) trapped the plume near the ground.
+
+### Checkpoint
+
+At this point you should understand:
+
+- [x] Why AERMOD needs preprocessed meteorological data (not raw observations)
+- [x] The three AERMET stages: Extract, Merge, Boundary Layer
+- [x] That surface characteristics (albedo, Bowen ratio, roughness) vary by
+  land use and season
+- [x] How to generate the three AERMET input files using the GUI
+- [x] That AERMET must be run in order (Stage 1 → 2 → 3) to produce `.sfc`
+  and `.pfl` files
+
+---
+
+## 9. What's Next?
+
+Now that you've completed all five tutorials, here are some directions to
+explore:
+
+### Multiple Sources and Source Groups
+
+Add several stacks and area sources to the same project and see how their
+plumes overlap. Use **source groups** (Source Editor > Source Groups) to
+separate contributions from different parts of a facility — for example,
+"STACKS" vs. "FUGITIVE" — and compare their relative impact.
 
 ### Terrain Effects
 
@@ -639,6 +1179,13 @@ Change the terrain type from FLAT to ELEVATED. Elevated terrain can
 significantly increase concentrations on hilltops that are close to the
 effective plume height. This requires terrain elevation data processed by
 AERMAP.
+
+### Background Concentrations
+
+Real-world air quality is never zero — there's always some background
+pollution from regional sources, traffic, and natural sources. AERMOD can add
+a background concentration to its predictions using the **Background** option
+in the Source Editor (see Notebook 07 for the Python API approach).
 
 ### The Python API
 
@@ -653,13 +1200,15 @@ analysis.
   The official 300+ page reference for all AERMOD options.
 - [AERMOD Model Formulation Document (EPA)](https://www.epa.gov/scram) —
   The mathematical basis behind the model.
+- [AERMET User's Guide (EPA)](https://www.epa.gov/scram) —
+  Detailed documentation of all AERMET options and data formats.
 - [40 CFR Part 51, Appendix W](https://www.ecfr.gov/current/title-40/chapter-I/subchapter-C/part-51/appendix-Appendix%20W%20to%20Part%2051) —
   EPA's Guideline on Air Quality Models (the regulatory framework for when
   and how to use AERMOD).
 
 ---
 
-## 8. Glossary
+## 10. Glossary
 
 | Term | Definition |
 |---|---|
@@ -687,4 +1236,15 @@ analysis.
 | **Source group** | A named subset of emission sources whose combined impact is reported separately |
 | **Stability** | A measure of atmospheric turbulence: unstable (strong mixing), neutral, or stable (weak mixing) |
 | **Steady-state** | An assumption that conditions (wind, stability) are constant during each simulation hour |
+| **Albedo** | The fraction of incoming sunlight reflected by the ground surface (0 = absorbs all, 1 = reflects all). Fresh snow ~0.7, dark pavement ~0.1 |
+| **Bowen ratio** | Ratio of sensible heat flux to latent heat flux at the surface. High values (dry/urban), low values (moist/vegetated) |
+| **Friction velocity** | A measure of wind-driven turbulence near the ground surface (m/s). Higher values mean more mechanical mixing |
+| **Fugitive emissions** | Pollutants released from diffuse, ground-level sources (piles, lots, open areas) rather than through defined stacks |
+| **Half-width** | AERMOD defines rectangular area sources by half the dimension in each direction from the source coordinate |
+| **ISHD** | Integrated Surface Hourly Data — NOAA's standard format for recent U.S. surface weather observations |
+| **Mixing height** | The depth of the atmospheric boundary layer (meters). Pollutants released below this height mix vertically within it |
+| **Monin-Obukhov length** | A parameter characterizing atmospheric stability. Negative = unstable (good mixing), positive = stable (poor mixing) |
+| **Radiosonde** | An instrument carried aloft by a weather balloon to measure vertical profiles of temperature, humidity, and wind |
+| **Roughness length** | Aerodynamic parameter describing how rough the ground surface is to wind flow. Open water ~0.001 m, city center ~1.0 m |
+| **Surface characteristics** | Albedo, Bowen ratio, and roughness length — the three land-surface parameters AERMET needs for each month |
 | **UTM** | Universal Transverse Mercator — a coordinate system that measures position in meters (easting, northing) within numbered zones |
