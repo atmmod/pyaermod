@@ -85,6 +85,7 @@ dev = [
 ]
 
 [project.scripts]
+pyaermod = "pyaermod:print_info"
 pyaermod-gui = "pyaermod.gui:main"
 
 [tool.setuptools.packages.find]

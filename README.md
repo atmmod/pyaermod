@@ -1,5 +1,9 @@
 # PyAERMOD
 
+[![Tests](https://github.com/atmmod/pyaermod/actions/workflows/tests.yml/badge.svg)](https://github.com/atmmod/pyaermod/actions/workflows/tests.yml)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
 PyAERMOD automates input file generation, model execution, output parsing, and result visualization — replacing manual text-file editing with a type-safe Python API.
@@ -133,7 +137,7 @@ src/pyaermod/
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
     gui.py               # Streamlit web GUI
-tests/                   # 1166 tests, 95% coverage
+tests/                   # 1383 tests, 98% coverage
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
 ```
