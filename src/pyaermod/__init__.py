@@ -31,7 +31,7 @@ Website: https://github.com/atmmod/pyaermod
 Documentation: https://github.com/atmmod/pyaermod/blob/main/docs/quickstart.md
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Shannon Capps"
 __email__ = "shannon.capps@gmail.com"
 __license__ = "MIT"

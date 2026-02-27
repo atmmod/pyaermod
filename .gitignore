@@ -39,6 +39,9 @@ aermap/
 aermet/
 aermod_results/
 
+# Compiled binaries (build with scripts/build_aermod.sh)
+bin/
+
 # EPA test case data (large, not committed)
 test_cases/
 aermet_test_cases/
