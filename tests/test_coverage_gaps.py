@@ -549,9 +549,11 @@ class TestTerrainProcessorProcessFull:
             error_message="AERMAP failed with return code 1",
         )
 
-        with patch.object(AERMAPRunner, "__init__", return_value=None), \
-             patch.object(AERMAPRunner, "run", return_value=mock_result):
-            with pytest.raises(RuntimeError, match="AERMAP failed"):
+        with (
+            patch.object(AERMAPRunner, "__init__", return_value=None),
+            patch.object(AERMAPRunner, "run", return_value=mock_result),
+            pytest.raises(RuntimeError, match="AERMAP failed"),
+        ):
                 processor.process(
                     project,
                     bounds=(-88, 40, -87, 41),

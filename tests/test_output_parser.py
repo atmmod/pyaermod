@@ -742,7 +742,7 @@ class TestEPASourceParsing:
         outfile.write_text(EPA_SOURCE_SECTIONS)
         results = parse_aermod_output(str(outfile))
 
-        stack2 = [s for s in results.sources if s.source_id == "STACK2"][0]
+        stack2 = next(s for s in results.sources if s.source_id == "STACK2")
         assert stack2.emission_rate == pytest.approx(0.8)
         assert stack2.base_elevation == pytest.approx(105.0)
 

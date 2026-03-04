@@ -8,9 +8,10 @@ committed to git.
 Tests are skipped when the test data directory is not present.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pyaermod.aermet import (
     AERMETStage1,

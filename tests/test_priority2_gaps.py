@@ -40,9 +40,8 @@ from pyaermod.input_generator import (
     VolumeSource,
 )
 from pyaermod.output_parser import AERMODOutputParser
-from pyaermod.runner import AERMODRunResult, AERMODRunner
+from pyaermod.runner import AERMODRunner, AERMODRunResult
 from pyaermod.validator import Validator
-
 
 # ============================================================================
 # Helper: quickly build a validatable project with a given source
