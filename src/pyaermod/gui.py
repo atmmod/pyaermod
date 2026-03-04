@@ -1510,6 +1510,23 @@ def page_source_editor():
         st.session_state["source_clicked_x"] = 0.0
         st.session_state["source_clicked_y"] = 0.0
 
+    # Determine map center: use last click location if available, else project center
+    map_center_lat = st.session_state["center_lat"]
+    map_center_lon = st.session_state["center_lon"]
+    if transformer and (
+        st.session_state["source_clicked_x"] != 0.0
+        or st.session_state["source_clicked_y"] != 0.0
+    ):
+        try:
+            click_lat, click_lon = transformer.utm_to_latlon(
+                st.session_state["source_clicked_x"],
+                st.session_state["source_clicked_y"],
+            )
+            map_center_lat = click_lat
+            map_center_lon = click_lon
+        except Exception:
+            pass
+
     # Map and form in columns
     map_col, form_col = st.columns([3, 2])
 
@@ -1518,7 +1535,7 @@ def page_source_editor():
         if HAS_FOLIUM and transformer:
             editor = MapEditor(
                 transformer=transformer,
-                center=(st.session_state["center_lat"], st.session_state["center_lon"]),
+                center=(map_center_lat, map_center_lon),
             )
             clicked_utm = editor.render_source_editor(
                 sources, st.session_state.get("buildings", []),
