@@ -192,7 +192,77 @@ pyaermod
 
 You should see version information and a feature list.
 
-### 3.2 Launch the GUI
+### 3.2 Install the AERMOD and AERMET Executables
+
+Tutorials 1–2 only generate input files, so you can skip this step initially.
+However, **Tutorial 3** (running AERMOD) and **Tutorial 5** (AERMET processing)
+require the actual Fortran executables on your computer.
+
+#### Option A: Download pre-compiled binaries (macOS Apple Silicon)
+
+1. Go to the [latest PyAERMOD release](https://github.com/atmmod/pyaermod/releases/latest).
+2. Under **Assets**, download `aermod` and `aermap`.
+3. Move them to a permanent location and make them executable:
+
+```bash
+mkdir -p ~/bin
+mv ~/Downloads/aermod ~/Downloads/aermap ~/bin/
+chmod +x ~/bin/aermod ~/bin/aermap
+```
+
+4. Add `~/bin` to your PATH so PyAERMOD can find them. Add this line to your
+   `~/.zshrc` (or `~/.bashrc` on Linux):
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+Then restart your terminal, or run `source ~/.zshrc`.
+
+5. Verify they work:
+
+```bash
+aermod
+```
+
+You should see AERMOD print its version header and then exit (it will show an
+error about missing input — that's normal).
+
+#### Option B: Compile from source (macOS Intel, Linux)
+
+This requires `gfortran`. On macOS, install it with Homebrew:
+
+```bash
+brew install gcc
+```
+
+Then clone the repository and run the build script:
+
+```bash
+git clone https://github.com/atmmod/pyaermod.git
+cd pyaermod
+./scripts/build_aermod.sh all
+```
+
+This creates `bin/aermod` and `bin/aermap`. Move them to your PATH as in
+Option A above:
+
+```bash
+cp bin/aermod bin/aermap ~/bin/
+```
+
+#### Option C: Windows
+
+Download the official AERMOD executable from the
+[EPA SCRAM website](https://www.epa.gov/scram/air-quality-dispersion-modeling-preferred-and-recommended-models).
+Place `aermod.exe` in a folder that's on your system PATH, or note the full
+path to enter in the GUI when prompted.
+
+> **Note:** The GUI's "Run AERMOD" page will automatically search your PATH
+> for the executable. If it can't find it, you can browse to the file location
+> directly.
+
+### 3.3 Launch the GUI
 
 ```bash
 pyaermod-gui
@@ -205,7 +275,7 @@ page in the main area.
 > **Tip:** The GUI runs as a local web app. It never sends your data to the
 > internet — everything stays on your computer.
 
-### 3.3 GUI Layout
+### 3.4 GUI Layout
 
 - **Sidebar (left):** Navigation between the 7 workflow pages, plus a progress
   checklist showing which steps are complete.
@@ -1165,6 +1235,27 @@ At this point you should understand:
 
 Now that you've completed all five tutorials, here are some directions to
 explore:
+
+### Advanced Tutorials: Houston Refinery Modeling (Tutorials 6--8)
+
+The **[Houston Refinery Modeling Assignments](refinery-assignments.md)**
+extend this guide with three advanced tutorials that take you through a
+realistic industrial modeling project:
+
+- **Tutorial 6** — Process meteorological data with AERMET for a specific
+  Gulf Coast location (Houston Ship Channel), with site-appropriate surface
+  parameters for a coastal/industrial area.
+- **Tutorial 7** — Use AERMAP to process digital elevation data and assign
+  terrain elevations to all receptors and sources, even in a relatively
+  flat area like Houston.
+- **Tutorial 8** — Build a complete AERMOD model for a simplified 150,000
+  barrel-per-day petroleum refinery with 10 emission sources (point, area,
+  and volume), multi-scale receptors, source groups, regulatory compliance
+  analysis, and sensitivity studies. Includes a technical report assignment.
+
+These tutorials build directly on the skills from Tutorials 1--5 and
+include assignment deliverables and a grading rubric suitable for a
+university course.
 
 ### Multiple Sources and Source Groups
 

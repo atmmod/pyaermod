@@ -885,7 +885,7 @@ class SourceFormFactory:
 
     @staticmethod
     def render_source_type_selector() -> str:
-        return st.selectbox("Source Type", SourceFormFactory.SOURCE_TYPES)
+        return st.selectbox("Source Type", SourceFormFactory.SOURCE_TYPES, key="source_type_selector")
 
     @staticmethod
     def render_point_source_form(
@@ -895,20 +895,21 @@ class SourceFormFactory:
             st.subheader("Point Source Parameters")
             col1, col2 = st.columns(2)
             with col1:
-                sid = st.text_input("Source ID", value="STACK1")
-                x = st.number_input("X Coordinate (UTM m)", value=default_x, format="%.2f")
-                y = st.number_input("Y Coordinate (UTM m)", value=default_y, format="%.2f")
-                elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f")
+                sid = st.text_input("Source ID", value="STACK1", key="pt_sid")
+                x = st.number_input("X Coordinate (UTM m)", value=default_x, format="%.2f", key="pt_x")
+                y = st.number_input("Y Coordinate (UTM m)", value=default_y, format="%.2f", key="pt_y")
+                elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f", key="pt_elev")
             with col2:
-                height = st.number_input("Stack Height (m)", value=50.0, min_value=0.0)
-                temp = st.number_input("Stack Temperature (K)", value=450.0, min_value=0.0)
-                vel = st.number_input("Exit Velocity (m/s)", value=15.0, min_value=0.0)
-                diam = st.number_input("Stack Diameter (m)", value=2.5, min_value=0.0)
-            erate = st.number_input("Emission Rate (g/s)", value=1.0, min_value=0.0, format="%.6f")
+                height = st.number_input("Stack Height (m)", value=50.0, min_value=0.0, key="pt_height")
+                temp = st.number_input("Stack Temperature (K)", value=450.0, min_value=0.0, key="pt_temp")
+                vel = st.number_input("Exit Velocity (m/s)", value=15.0, min_value=0.0, key="pt_vel")
+                diam = st.number_input("Stack Diameter (m)", value=2.5, min_value=0.0, key="pt_diam")
+            erate = st.number_input("Emission Rate (g/s)", value=1.0, min_value=0.0, format="%.6f", key="pt_erate")
             no2_r = st.number_input(
                 "NO2/NOx Ratio (optional, 0-1)", value=0.0,
                 min_value=0.0, max_value=1.0, step=0.01, format="%.2f",
                 help="Per-source NO2/NOx ratio. Leave at 0 to use default.",
+                key="pt_no2r",
             )
 
             if st.form_submit_button("Add Point Source"):
@@ -929,16 +930,16 @@ class SourceFormFactory:
             st.subheader("Rectangular Area Source")
             col1, col2 = st.columns(2)
             with col1:
-                sid = st.text_input("Source ID", value="AREA1")
-                x = st.number_input("X Coordinate (UTM m)", value=default_x, format="%.2f")
-                y = st.number_input("Y Coordinate (UTM m)", value=default_y, format="%.2f")
-                elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f")
+                sid = st.text_input("Source ID", value="AREA1", key="area_sid")
+                x = st.number_input("X Coordinate (UTM m)", value=default_x, format="%.2f", key="area_x")
+                y = st.number_input("Y Coordinate (UTM m)", value=default_y, format="%.2f", key="area_y")
+                elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f", key="area_elev")
             with col2:
-                rh = st.number_input("Release Height (m)", value=2.0, min_value=0.0)
-                lat_dim = st.number_input("Half-Width Y (m)", value=25.0, min_value=0.0)
-                vert_dim = st.number_input("Half-Width X (m)", value=50.0, min_value=0.0)
-                angle = st.number_input("Rotation Angle (deg)", value=0.0)
-            erate = st.number_input("Emission Rate (g/s/m2)", value=0.0001, format="%.6f")
+                rh = st.number_input("Release Height (m)", value=2.0, min_value=0.0, key="area_rh")
+                lat_dim = st.number_input("Half-Width Y (m)", value=25.0, min_value=0.0, key="area_lat_dim")
+                vert_dim = st.number_input("Half-Width X (m)", value=50.0, min_value=0.0, key="area_vert_dim")
+                angle = st.number_input("Rotation Angle (deg)", value=0.0, key="area_angle")
+            erate = st.number_input("Emission Rate (g/s/m2)", value=0.0001, format="%.6f", key="area_erate")
 
             if st.form_submit_button("Add Area Source"):
                 return AreaSource(
@@ -1504,10 +1505,14 @@ def page_source_editor():
     sources = st.session_state["project_sources"].sources
     transformer = SessionStateManager.get_transformer()
 
+    # Persist clicked coordinates across reruns
+    if "source_clicked_x" not in st.session_state:
+        st.session_state["source_clicked_x"] = 0.0
+        st.session_state["source_clicked_y"] = 0.0
+
     # Map and form in columns
     map_col, form_col = st.columns([3, 2])
 
-    clicked_utm = None
     with map_col:
         st.subheader("Source Map")
         if HAS_FOLIUM and transformer:
@@ -1519,6 +1524,8 @@ def page_source_editor():
                 sources, st.session_state.get("buildings", []),
             )
             if clicked_utm:
+                st.session_state["source_clicked_x"] = clicked_utm[0]
+                st.session_state["source_clicked_y"] = clicked_utm[1]
                 st.info(f"Clicked: UTM ({clicked_utm[0]:.2f}, {clicked_utm[1]:.2f})")
         else:
             st.info("Install pyproj and streamlit-folium for interactive map editing.")
@@ -1527,8 +1534,8 @@ def page_source_editor():
         st.subheader("Add Source")
         source_type = SourceFormFactory.render_source_type_selector()
 
-        default_x = clicked_utm[0] if clicked_utm else 0.0
-        default_y = clicked_utm[1] if clicked_utm else 0.0
+        default_x = st.session_state["source_clicked_x"]
+        default_y = st.session_state["source_clicked_y"]
 
         new_source = None
         if source_type == "Point":
@@ -2352,6 +2359,12 @@ def page_run_aermod():
         inp_text = project.to_aermod_input(validate=False)
         with st.expander("View AERMOD Input File", expanded=False):
             st.code(inp_text, language="text")
+        st.download_button(
+            label="Download Input File",
+            data=inp_text,
+            file_name="aermod.inp",
+            mime="text/plain",
+        )
     except Exception as e:
         st.error(f"Error generating input: {e}")
         inp_text = None
