@@ -1355,8 +1355,15 @@ def page_project_setup():
 
     avg_options = ["1-HR", "2-HR", "3-HR", "4-HR", "6-HR", "8-HR", "12-HR", "24-HR",
                    "ANNUAL", "MONTH", "PERIOD"]
-    current_avg = st.session_state["project_control"].averaging_periods
-    avg_periods = st.multiselect("Averaging Periods", avg_options, default=current_avg)
+    # Convert stored values (e.g. "24") to display labels (e.g. "24-HR")
+    _numeric_periods = {"1", "2", "3", "4", "6", "8", "12", "24"}
+    current_avg = [
+        f"{p}-HR" if p in _numeric_periods else p
+        for p in (st.session_state["project_control"].averaging_periods or [])
+    ]
+    avg_display = st.multiselect("Averaging Periods", avg_options, default=current_avg)
+    # Convert display labels back to backend values (strip "-HR" suffix)
+    avg_periods = [p.replace("-HR", "") if p.endswith("-HR") else p for p in avg_display]
 
     # Deposition options
     with st.expander("Deposition Options"):
