@@ -34,6 +34,7 @@ from pyaermod.input_generator import (
     RLineExtSource,
     RLineSource,
     SourcePathway,
+    StreetCanyon,
     TerrainType,
     VolumeSource,
 )
@@ -493,6 +494,48 @@ class TestLineSourceValidation:
             initial_vertical_dimension=1.5,
         ))
         assert any("emission_rate" in e.field for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# Street canyon validation
+# ---------------------------------------------------------------------------
+
+class TestStreetCanyonValidation:
+
+    def _project_with_rline_canyon(self, building_height, street_width):
+        sources = SourcePathway()
+        sources.add_source(RLineSource(
+            source_id="HWY1", x_start=0, y_start=0,
+            x_end=1000, y_end=0, emission_rate=0.002,
+            street_canyon=StreetCanyon(
+                building_height=building_height,
+                street_width=street_width,
+            ),
+        ))
+        return _make_valid_project(sources=sources)
+
+    def test_valid_canyon(self):
+        result = Validator.validate(self._project_with_rline_canyon(20.0, 15.0))
+        assert not any("street_canyon" in e.field for e in result.errors)
+
+    def test_invalid_building_height(self):
+        result = Validator.validate(self._project_with_rline_canyon(-5.0, 15.0))
+        assert any("building_height" in e.field for e in result.errors)
+
+    def test_invalid_street_width(self):
+        result = Validator.validate(self._project_with_rline_canyon(20.0, 0.0))
+        assert any("street_width" in e.field for e in result.errors)
+
+    def test_rlinext_canyon_validation(self):
+        sources = SourcePathway()
+        sources.add_source(RLineExtSource(
+            source_id="REXT1",
+            x_start=0, y_start=0, z_start=1.5,
+            x_end=500, y_end=0, z_end=1.5,
+            street_canyon=StreetCanyon(building_height=-1.0, street_width=20.0),
+        ))
+        result = Validator.validate(_make_valid_project(sources=sources))
+        assert any("building_height" in e.field for e in result.errors)
 
 
 # ---------------------------------------------------------------------------

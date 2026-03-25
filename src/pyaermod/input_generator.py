@@ -896,6 +896,67 @@ class LineSource:
 
 
 @dataclass
+class StreetCanyon:
+    """Street canyon geometry for RLINE/RLINEXT sources.
+
+    Approximates canyon effects by adjusting initial vertical dispersion
+    and applying a concentration scaling factor based on the canyon
+    aspect ratio (building_height / street_width).
+
+    The approach uses three flow regimes (Oke, 1988):
+      - AR < 0.65: isolated roughness — minimal canyon trapping
+      - 0.65 <= AR < 1.5: wake interference / skimming flow
+      - AR >= 1.5: deep canyon with persistent vortex
+
+    The adjusted sigma-z reflects reduced ventilation inside the canyon,
+    and the concentration factor accounts for pollutant trapping that
+    cannot be captured by sigma-z alone.
+    """
+    building_height: float       # average building height flanking the road (m)
+    street_width: float          # wall-to-wall street width (m)
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Canyon aspect ratio H/W."""
+        if self.street_width <= 0:
+            return 0.0
+        return self.building_height / self.street_width
+
+    def adjusted_sigma_z(self, base_sigma_z: float) -> float:
+        """Return sigma-z adjusted for canyon trapping.
+
+        In the recirculation zone the effective mixing height is limited
+        to the canyon depth, which increases initial sigma-z (more
+        vertical mixing within the confined space).
+        """
+        ar = self.aspect_ratio
+        if ar < 0.65:
+            # Isolated roughness — minimal effect
+            return base_sigma_z
+        # Recirculation zone height ≈ min(H, W) (Johnson & Hunter, 1999)
+        recirc_height = min(self.building_height, self.street_width)
+        # Scale sigma-z: the canyon traps pollutants within recirc_height.
+        # Use sqrt(base² + (f·recirc_height)²) so the effect layers on.
+        # f increases with aspect ratio: 0.3 at AR=0.65 → ~0.7 for deep canyons
+        f = min(0.3 + 0.25 * (ar - 0.65), 0.7)
+        return (base_sigma_z**2 + (f * recirc_height) ** 2) ** 0.5
+
+    def concentration_factor(self) -> float:
+        """Multiplicative factor on emission rate to represent canyon trapping.
+
+        Derived from the OSPM box-model concept: reduced ventilation in
+        the canyon raises concentrations relative to open-road dispersion.
+        The factor equals 1.0 (no effect) for isolated roughness and
+        increases with aspect ratio up to a cap of 3.0 for deep canyons.
+        """
+        ar = self.aspect_ratio
+        if ar < 0.65:
+            return 1.0
+        # Linear ramp: factor = 1 + slope*(AR - 0.65), capped at 3.0
+        return min(1.0 + 1.5 * (ar - 0.65), 3.0)
+
+
+@dataclass
 class RLineSource:
     """
     AERMOD RLINE source (roadway source)
@@ -918,6 +979,9 @@ class RLineSource:
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m (per unit length)
 
+    # Street canyon (optional)
+    street_canyon: Optional[StreetCanyon] = None
+
     # Source groups
     source_groups: List[str] = field(default_factory=list)
 
@@ -934,6 +998,13 @@ class RLineSource:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
 
+        # Apply street canyon adjustments
+        erate = self.emission_rate
+        vert_dim = self.initial_vertical_dimension
+        if self.street_canyon is not None:
+            erate *= self.street_canyon.concentration_factor()
+            vert_dim = self.street_canyon.adjusted_sigma_z(vert_dim)
+
         # LOCATION keyword - RLINE sources need two coordinate pairs
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINE   "
@@ -949,8 +1020,8 @@ class RLineSource:
         # SRCPARAM keyword - RLINE has different parameters than LINE
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-            f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
+            f"{erate:10.6f} {self.release_height:8.2f} "
+            f"{self.initial_lateral_dimension:8.2f} {vert_dim:8.2f}"
         )
 
         # Deposition parameters
@@ -1006,6 +1077,9 @@ class RLineExtSource:
     depression_wtop: Optional[float] = None    # top width of depression (meters, >= 0)
     depression_wbottom: Optional[float] = None # bottom width of depression (meters, [0, wtop])
 
+    # Street canyon (optional)
+    street_canyon: Optional[StreetCanyon] = None
+
     # Source groups
     source_groups: List[str] = field(default_factory=list)
 
@@ -1022,6 +1096,13 @@ class RLineExtSource:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
 
+        # Apply street canyon adjustments
+        erate = self.emission_rate
+        sigma_z = self.init_sigma_z
+        if self.street_canyon is not None:
+            erate *= self.street_canyon.concentration_factor()
+            sigma_z = self.street_canyon.adjusted_sigma_z(sigma_z)
+
         # LOCATION keyword - RLINEXT has 6 coordinates (XSB YSB ZSB XSE YSE ZSE)
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINEXT "
@@ -1033,8 +1114,8 @@ class RLineExtSource:
         # SRCPARAM keyword: Qemis DCL Width InitSigmaZ
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.dcl:8.2f} "
-            f"{self.road_width:8.2f} {self.init_sigma_z:8.2f}"
+            f"{erate:10.6f} {self.dcl:8.2f} "
+            f"{self.road_width:8.2f} {sigma_z:8.2f}"
         )
 
         # Optional RBARRIER

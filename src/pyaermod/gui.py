@@ -82,6 +82,7 @@ from .input_generator import (
     SourceGroupDefinition,
     SourcePathway,
     SourceType,
+    StreetCanyon,
     TerrainType,
     VolumeSource,
 )
@@ -552,6 +553,10 @@ class ProjectSerializer:
         if d.get("deposition_method") is not None and isinstance(d["deposition_method"], list):
             enum_val = cls._resolve_enum(d["deposition_method"][0])
             d["deposition_method"] = (enum_val, d["deposition_method"][1])
+
+        # Reconstruct StreetCanyon if present
+        if d.get("street_canyon") is not None and isinstance(d["street_canyon"], dict):
+            d["street_canyon"] = StreetCanyon(**d["street_canyon"])
 
         return src_cls(**d)
 
@@ -1093,6 +1098,20 @@ class SourceFormFactory:
                 vert_dim = st.number_input("Initial Mixing (m)", value=1.5, min_value=0.0)
             erate = st.number_input("Emission Rate (g/s/m)", value=0.001, format="%.6f")
 
+            st.markdown("**Street Canyon (optional)**")
+            use_canyon = st.checkbox("Enable street canyon approximation", key="rline_canyon")
+            canyon_kwargs = {}
+            if use_canyon:
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    bh = st.number_input("Building Height (m)", value=15.0, min_value=0.1, key="rline_bh")
+                with cc2:
+                    sw = st.number_input("Street Width (m)", value=20.0, min_value=0.1, key="rline_sw")
+                canyon_kwargs["street_canyon"] = StreetCanyon(building_height=bh, street_width=sw)
+                ar = bh / sw
+                factor = canyon_kwargs["street_canyon"].concentration_factor()
+                st.caption(f"Aspect ratio H/W = {ar:.2f} — concentration factor = {factor:.2f}x")
+
             if st.form_submit_button("Add Roadway Source"):
                 return RLineSource(
                     source_id=sid, x_start=xs, y_start=ys,
@@ -1100,6 +1119,7 @@ class SourceFormFactory:
                     initial_lateral_dimension=lat_dim,
                     initial_vertical_dimension=vert_dim,
                     emission_rate=erate,
+                    **canyon_kwargs,
                 )
         return None
 
@@ -1136,6 +1156,20 @@ class SourceFormFactory:
             with col6:
                 wbot = st.number_input("Depression Bottom Width (m)", value=0.0, min_value=0.0)
 
+            st.markdown("**Street Canyon (optional)**")
+            use_canyon = st.checkbox("Enable street canyon approximation", key="rlinext_canyon")
+            canyon_obj = None
+            if use_canyon:
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    bh = st.number_input("Building Height (m)", value=15.0, min_value=0.1, key="rlinext_bh")
+                with cc2:
+                    sw = st.number_input("Street Width (m)", value=20.0, min_value=0.1, key="rlinext_sw")
+                canyon_obj = StreetCanyon(building_height=bh, street_width=sw)
+                ar = bh / sw
+                factor = canyon_obj.concentration_factor()
+                st.caption(f"Aspect ratio H/W = {ar:.2f} — concentration factor = {factor:.2f}x")
+
             if st.form_submit_button("Add RLINEXT Source"):
                 kwargs = dict(
                     source_id=sid, x_start=xs, y_start=ys, z_start=zs,
@@ -1146,6 +1180,8 @@ class SourceFormFactory:
                 if depth < 0:
                     kwargs.update(depression_depth=depth, depression_wtop=wtop,
                                   depression_wbottom=wbot)
+                if canyon_obj is not None:
+                    kwargs["street_canyon"] = canyon_obj
                 return RLineExtSource(**kwargs)
         return None
 
@@ -2544,7 +2580,7 @@ def page_run_aermod():
                 inp_path.write_text(inp_text)
 
                 if HAS_RUNNER:
-                    result = run_aermod(str(inp_path), aermod_executable=aermod_exe)
+                    result = run_aermod(str(inp_path), executable_path=aermod_exe)
                     st.session_state["run_result"] = result
 
                     if result.success:

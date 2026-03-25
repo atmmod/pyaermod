@@ -104,6 +104,8 @@ from .input_generator import (
     SourceGroupDefinition,
     SourcePathway,
     SourceType,
+    # Street canyon approximation
+    StreetCanyon,
     TerrainType,
     VolumeSource,
 )
@@ -204,6 +206,7 @@ __all__ = [
     'BuoyLineSource',
     'BuoyLineSegment',
     'OpenPitSource',
+    'StreetCanyon',
     # Receptor types
     'CartesianGrid',
     'PolarGrid',

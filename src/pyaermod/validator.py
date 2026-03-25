@@ -604,6 +604,23 @@ class Validator:
                 "start and end points are identical (zero-length line)"
             ))
 
+        # Street canyon validation (RLineSource only — LineSource has no canyon)
+        if isinstance(src, RLineSource) and src.street_canyon is not None:
+            cls._validate_street_canyon(name, src.street_canyon, result)
+
+    @classmethod
+    def _validate_street_canyon(cls, name: str, canyon, result: ValidationResult):
+        if canyon.building_height <= 0:
+            result.errors.append(ValidationError(
+                name, "street_canyon.building_height",
+                f"must be > 0, got {canyon.building_height}"
+            ))
+        if canyon.street_width <= 0:
+            result.errors.append(ValidationError(
+                name, "street_canyon.street_width",
+                f"must be > 0, got {canyon.street_width}"
+            ))
+
     @classmethod
     def _validate_rline_ext_source(cls, src, result: ValidationResult):
         name = f"RLineExtSource({src.source_id})"
@@ -667,6 +684,10 @@ class Validator:
                     name, "depression_wbottom",
                     f"must be <= depression_wtop ({src.depression_wtop}), got {src.depression_wbottom}"
                 ))
+
+        # Street canyon validation
+        if src.street_canyon is not None:
+            cls._validate_street_canyon(name, src.street_canyon, result)
 
     @classmethod
     def _validate_buoyline_source(cls, src, result: ValidationResult):

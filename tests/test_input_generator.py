@@ -33,6 +33,7 @@ from pyaermod.input_generator import (
     RLineExtSource,
     RLineSource,
     SourcePathway,
+    StreetCanyon,
     TerrainType,
     VolumeSource,
 )
@@ -427,6 +428,109 @@ class TestRLineExtSource:
         srcparam_line = next(l for l in output.split("\n") if "SRCPARAM" in l)
         assert "0.001360" in srcparam_line
         assert "30.00" in srcparam_line
+
+
+class TestStreetCanyon:
+    """Test street canyon approximation for RLINE sources"""
+
+    def test_aspect_ratio(self):
+        canyon = StreetCanyon(building_height=20.0, street_width=10.0)
+        assert canyon.aspect_ratio == 2.0
+
+    def test_aspect_ratio_zero_width(self):
+        canyon = StreetCanyon(building_height=20.0, street_width=0.0)
+        assert canyon.aspect_ratio == 0.0
+
+    def test_isolated_roughness_no_effect(self):
+        """AR < 0.65 should leave sigma-z unchanged"""
+        canyon = StreetCanyon(building_height=6.0, street_width=20.0)  # AR = 0.3
+        assert canyon.aspect_ratio < 0.65
+        assert canyon.adjusted_sigma_z(1.5) == 1.5
+        assert canyon.concentration_factor() == 1.0
+
+    def test_skimming_flow_increases_sigma_z(self):
+        """AR ~1.0 should increase sigma-z"""
+        canyon = StreetCanyon(building_height=20.0, street_width=20.0)  # AR = 1.0
+        base_sz = 1.5
+        adj_sz = canyon.adjusted_sigma_z(base_sz)
+        assert adj_sz > base_sz
+
+    def test_deep_canyon_larger_concentration_factor(self):
+        """Higher AR should produce a larger concentration factor"""
+        shallow = StreetCanyon(building_height=20.0, street_width=20.0)  # AR = 1.0
+        deep = StreetCanyon(building_height=30.0, street_width=10.0)     # AR = 3.0
+        assert deep.concentration_factor() > shallow.concentration_factor()
+
+    def test_wider_canyon_same_height_more_sigma_z(self):
+        """With same height, wider canyon has larger recirc zone → more sigma-z"""
+        narrow = StreetCanyon(building_height=20.0, street_width=10.0)
+        wide = StreetCanyon(building_height=20.0, street_width=20.0)
+        base_sz = 1.5
+        assert wide.adjusted_sigma_z(base_sz) > narrow.adjusted_sigma_z(base_sz)
+
+    def test_concentration_factor_cap(self):
+        """Factor should be capped at 3.0"""
+        canyon = StreetCanyon(building_height=100.0, street_width=10.0)  # AR = 10
+        assert canyon.concentration_factor() == 3.0
+
+    def test_rline_with_canyon_modifies_output(self):
+        """RLINE source with canyon should have adjusted emission rate and sigma-z"""
+        canyon = StreetCanyon(building_height=20.0, street_width=20.0)
+        source_plain = RLineSource(
+            source_id="HWY1", x_start=0.0, y_start=0.0,
+            x_end=1000.0, y_end=0.0, emission_rate=0.002,
+        )
+        source_canyon = RLineSource(
+            source_id="HWY2", x_start=0.0, y_start=0.0,
+            x_end=1000.0, y_end=0.0, emission_rate=0.002,
+            street_canyon=canyon,
+        )
+        plain_out = source_plain.to_aermod_input()
+        canyon_out = source_canyon.to_aermod_input()
+
+        # Extract SRCPARAM lines
+        plain_sp = next(l for l in plain_out.split("\n") if "SRCPARAM" in l)
+        canyon_sp = next(l for l in canyon_out.split("\n") if "SRCPARAM" in l)
+
+        # Canyon version should have higher emission rate
+        plain_erate = float(plain_sp.split()[2])
+        canyon_erate = float(canyon_sp.split()[2])
+        assert canyon_erate > plain_erate
+
+        # Canyon version should have larger sigma-z (last field, index 5)
+        plain_sz = float(plain_sp.split()[5])
+        canyon_sz = float(canyon_sp.split()[5])
+        assert canyon_sz > plain_sz
+
+    def test_rlinext_with_canyon_modifies_output(self):
+        """RLINEXT source with canyon should have adjusted emission rate and sigma-z"""
+        canyon = StreetCanyon(building_height=15.0, street_width=15.0)
+        source = RLineExtSource(
+            source_id="REXT1",
+            x_start=0.0, y_start=0.0, z_start=1.5,
+            x_end=500.0, y_end=0.0, z_end=1.5,
+            emission_rate=0.001, init_sigma_z=1.5,
+            street_canyon=canyon,
+        )
+        output = source.to_aermod_input()
+        srcparam_line = next(l for l in output.split("\n") if "SRCPARAM" in l)
+        parts = srcparam_line.split()
+        erate = float(parts[2])
+        sigma_z = float(parts[5])
+        assert erate > 0.001
+        assert sigma_z > 1.5
+
+    def test_rline_no_canyon_default(self):
+        """Without canyon, output should be unchanged"""
+        source = RLineSource(
+            source_id="HWY1", x_start=0.0, y_start=0.0,
+            x_end=1000.0, y_end=0.0, emission_rate=0.002,
+            initial_vertical_dimension=1.5,
+        )
+        output = source.to_aermod_input()
+        srcparam_line = next(l for l in output.split("\n") if "SRCPARAM" in l)
+        assert "0.002000" in srcparam_line
+        assert "1.50" in srcparam_line
 
 
 class TestBuoyLineSource:
