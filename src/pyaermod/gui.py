@@ -1530,15 +1530,21 @@ def page_project_setup():
     with col_load:
         uploaded = st.file_uploader("Load Project", type=["json"], key="project_load")
         if uploaded:
-            raw = uploaded.getvalue().decode("utf-8")
-            try:
-                new_state = ProjectSerializer.deserialize_session_state(raw)
-                for key, value in new_state.items():
-                    st.session_state[key] = value
-                st.success("Project loaded successfully.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to load project: {e}")
+            # Guard against infinite rerun: only load if this is a new file
+            file_id = f"{uploaded.name}_{uploaded.size}"
+            if st.session_state.get("_last_loaded_project") == file_id:
+                st.info("Project already loaded. Upload a different file or clear the uploader to reload.")
+            else:
+                raw = uploaded.getvalue().decode("utf-8")
+                try:
+                    new_state = ProjectSerializer.deserialize_session_state(raw)
+                    for key, value in new_state.items():
+                        st.session_state[key] = value
+                    st.session_state["_last_loaded_project"] = file_id
+                    st.success("Project loaded successfully.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to load project: {e}")
 
 
 def page_source_editor():
@@ -2593,6 +2599,8 @@ def page_run_aermod():
                             st.info("Results parsed automatically. Go to Results Viewer.")
                     else:
                         st.error(f"AERMOD failed. Return code: {result.return_code}")
+                        if result.error_message:
+                            st.error(result.error_message)
                         if result.stderr:
                             st.code(result.stderr)
                 else:
