@@ -1627,6 +1627,7 @@ class DiscreteReceptor:
     z_elev: float = 0.0
     z_hill: float = 0.0
     z_flag: float = 0.0
+    label: str = ""  # Optional user-friendly name (not sent to AERMOD)
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD DISCCART line"""

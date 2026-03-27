@@ -394,7 +394,7 @@ PM2.5, and understand what each setting means.
    - **Map Center Longitude:** `-80.0` (or your local longitude)
    - **Pollutant Type:** `PM25`
    - **Terrain Type:** `FLAT`
-   - **Averaging Periods:** Select `ANNUAL` and `24`
+   - **Averaging Periods:** Select `ANNUAL` and `24-HR`
 
 > **What you just did:** You told AERMOD what pollutant you're modeling (PM2.5),
 > that the terrain is flat (no hills), and that you want annual and 24-hour
@@ -526,7 +526,7 @@ Follow the same steps as Tutorial 1, but with these settings:
 **Project Setup:**
 - Title: `Tutorial 2 - Stack Height Comparison (20m)`
 - Pollutant: `SO2`
-- Averaging Periods: `1`, `24`, and `ANNUAL`
+- Averaging Periods: `1-HR`, `24-HR`, and `ANNUAL`
 - Terrain: `FLAT`
 
 **Source (Point):**
@@ -650,7 +650,7 @@ Load one of your Tutorial 2 project files, or create a new project:
 **Project Setup:**
 - Title: `Tutorial 3 - Full AERMOD Run`
 - Pollutant: `PM25`
-- Averaging Periods: `ANNUAL` and `24`
+- Averaging Periods: `ANNUAL` and `24-HR`
 - Terrain: `FLAT`
 
 **Source:**

@@ -906,10 +906,10 @@ class SourceFormFactory:
                 elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f", key="pt_elev")
             with col2:
                 height = st.number_input("Stack Height (m)", value=50.0, min_value=0.0, key="pt_height")
-                temp = st.number_input("Stack Temperature (K)", value=450.0, min_value=0.0, key="pt_temp")
+                temp = st.number_input("Stack Temperature (K)", value=400.0, min_value=0.0, key="pt_temp")
                 vel = st.number_input("Exit Velocity (m/s)", value=15.0, min_value=0.0, key="pt_vel")
-                diam = st.number_input("Stack Diameter (m)", value=2.5, min_value=0.0, key="pt_diam")
-            erate = st.number_input("Emission Rate (g/s)", value=1.0, min_value=0.0, format="%.6f", key="pt_erate")
+                diam = st.number_input("Stack Diameter (m)", value=2.0, min_value=0.0, key="pt_diam")
+            erate = st.number_input("Emission Rate (g/s)", value=1.5, min_value=0.0, format="%.6f", key="pt_erate")
             no2_r = st.number_input(
                 "NO2/NOx Ratio (optional, 0-1)", value=0.0,
                 min_value=0.0, max_value=1.0, step=0.01, format="%.2f",
@@ -1521,10 +1521,14 @@ def page_project_setup():
 
     with col_save:
         json_str = ProjectSerializer.serialize_session_state()
+        # Derive filename from project title (sanitize for filesystem)
+        _title = st.session_state["project_control"].title_one or "pyaermod_project"
+        _safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in _title).strip()
+        _safe_name = _safe_name.replace(" ", "_")[:60] or "pyaermod_project"
         st.download_button(
             "Download Project (.json)",
             json_str.encode("utf-8"),
-            file_name="pyaermod_project.json",
+            file_name=f"{_safe_name}.json",
             mime="application/json",
         )
 
@@ -1661,15 +1665,79 @@ def page_source_editor():
             rows.append(row)
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-        # Delete source
-        delete_idx = st.selectbox(
-            "Select source to delete",
-            range(len(sources)),
-            format_func=lambda i: f"{sources[i].source_id} ({type(sources[i]).__name__})",
-        )
-        if st.button("Delete Selected Source", type="secondary"):
-            del st.session_state["project_sources"].sources[delete_idx]
-            st.rerun()
+        # Edit / Delete source
+        edit_col, del_col = st.columns(2)
+        with del_col:
+            delete_idx = st.selectbox(
+                "Select source to delete",
+                range(len(sources)),
+                format_func=lambda i: f"{sources[i].source_id} ({type(sources[i]).__name__})",
+                key="src_del_idx",
+            )
+            if st.button("Delete Selected Source", type="secondary"):
+                del st.session_state["project_sources"].sources[delete_idx]
+                st.rerun()
+
+        with edit_col:
+            edit_idx = st.selectbox(
+                "Select source to edit",
+                range(len(sources)),
+                format_func=lambda i: f"{sources[i].source_id} ({type(sources[i]).__name__})",
+                key="src_edit_idx",
+            )
+            src = sources[edit_idx]
+            with st.expander(f"Edit {src.source_id} ({type(src).__name__})", expanded=False):
+                _edited = False
+                if hasattr(src, "emission_rate"):
+                    new_er = st.number_input(
+                        "Emission Rate", value=float(src.emission_rate),
+                        min_value=0.0, format="%.6f", key=f"edit_er_{edit_idx}",
+                    )
+                    if new_er != src.emission_rate:
+                        src.emission_rate = new_er
+                        _edited = True
+                if hasattr(src, "stack_height"):
+                    new_h = st.number_input(
+                        "Stack Height (m)", value=float(src.stack_height),
+                        min_value=0.0, key=f"edit_h_{edit_idx}",
+                    )
+                    if new_h != src.stack_height:
+                        src.stack_height = new_h
+                        _edited = True
+                if hasattr(src, "stack_temp"):
+                    new_t = st.number_input(
+                        "Stack Temperature (K)", value=float(src.stack_temp),
+                        min_value=0.0, key=f"edit_t_{edit_idx}",
+                    )
+                    if new_t != src.stack_temp:
+                        src.stack_temp = new_t
+                        _edited = True
+                if hasattr(src, "exit_velocity"):
+                    new_v = st.number_input(
+                        "Exit Velocity (m/s)", value=float(src.exit_velocity),
+                        min_value=0.0, key=f"edit_v_{edit_idx}",
+                    )
+                    if new_v != src.exit_velocity:
+                        src.exit_velocity = new_v
+                        _edited = True
+                if hasattr(src, "stack_diameter"):
+                    new_d = st.number_input(
+                        "Stack Diameter (m)", value=float(src.stack_diameter),
+                        min_value=0.0, key=f"edit_d_{edit_idx}",
+                    )
+                    if new_d != src.stack_diameter:
+                        src.stack_diameter = new_d
+                        _edited = True
+                if hasattr(src, "release_height"):
+                    new_rh = st.number_input(
+                        "Release Height (m)", value=float(src.release_height),
+                        min_value=0.0, key=f"edit_rh_{edit_idx}",
+                    )
+                    if new_rh != src.release_height:
+                        src.release_height = new_rh
+                        _edited = True
+                if _edited:
+                    st.success("Source updated.")
     else:
         st.info("No sources defined yet. Use the form above or click on the map to add sources.")
 
@@ -2011,6 +2079,11 @@ def page_receptor_editor():
                 st.info(f"Clicked: UTM ({clicked[0]:.2f}, {clicked[1]:.2f})")
 
         with st.form("discrete_receptor_form"):
+            dlabel = st.text_input(
+                "Label (optional)", value="",
+                help="Descriptive name (e.g., School, Hospital). Not sent to AERMOD.",
+                key="disc_label",
+            )
             col1, col2, col3 = st.columns(3)
             with col1:
                 dx = st.number_input("X (UTM m)", value=0.0, format="%.2f", key="disc_x")
@@ -2020,8 +2093,9 @@ def page_receptor_editor():
                 dz = st.number_input("Z Elevation (m)", value=0.0, format="%.2f", key="disc_z")
 
             if st.form_submit_button("Add Discrete Receptor"):
-                receptors.add_discrete_receptor(DiscreteReceptor(dx, dy, dz))
-                st.success(f"Added receptor at ({dx:.2f}, {dy:.2f})")
+                receptors.add_discrete_receptor(DiscreteReceptor(dx, dy, dz, label=dlabel))
+                display = f" '{dlabel}'" if dlabel else ""
+                st.success(f"Added receptor{display} at ({dx:.2f}, {dy:.2f})")
                 st.rerun()
 
     with tab_import:
@@ -2070,19 +2144,45 @@ def page_receptor_editor():
                     st.success(f"Parsed {len(rec_df)} receptor elevations.")
                     st.dataframe(rec_df.head(20), use_container_width=True)
 
-                    if not receptors.discrete_receptors:
-                        st.warning(
-                            "No discrete receptors to update. AERMAP elevation "
-                            "import applies to discrete receptors only."
-                        )
+                    has_discrete = bool(receptors.discrete_receptors)
+                    has_grids = bool(receptors.cartesian_grids)
+                    if not has_discrete and not has_grids:
+                        st.warning("No receptors defined to update.")
                     elif st.button("Apply Receptor Elevations"):
-                        updated = _apply_aermap_receptor_elevations(
-                            receptors.discrete_receptors, rec_df,
-                        )
-                        st.success(
-                            f"Updated {updated} of "
-                            f"{len(receptors.discrete_receptors)} discrete receptors."
-                        )
+                        msgs = []
+                        # Apply to discrete receptors
+                        if has_discrete:
+                            updated = _apply_aermap_receptor_elevations(
+                                receptors.discrete_receptors, rec_df,
+                            )
+                            msgs.append(
+                                f"Discrete: updated {updated} of "
+                                f"{len(receptors.discrete_receptors)}"
+                            )
+                        # Apply to Cartesian grids
+                        if has_grids:
+                            import numpy as np
+                            for grid in receptors.cartesian_grids:
+                                elevs = np.zeros((grid.y_num, grid.x_num))
+                                hills = np.zeros((grid.y_num, grid.x_num))
+                                matched = 0
+                                for row_i in range(grid.y_num):
+                                    y = grid.y_init + row_i * grid.y_delta
+                                    for col_i in range(grid.x_num):
+                                        x = grid.x_init + col_i * grid.x_delta
+                                        dists = (rec_df["x"] - x)**2 + (rec_df["y"] - y)**2
+                                        nearest = dists.idxmin()
+                                        if dists[nearest] < 1.0:  # 1m tolerance
+                                            elevs[row_i, col_i] = rec_df.loc[nearest, "zelev"]
+                                            hills[row_i, col_i] = rec_df.loc[nearest, "zhill"]
+                                            matched += 1
+                                grid.grid_elevations = elevs.tolist()
+                                grid.grid_hills = hills.tolist()
+                                msgs.append(
+                                    f"Grid '{grid.grid_name}': {matched} of "
+                                    f"{grid.x_num * grid.y_num} receptors matched"
+                                )
+                        st.success("Elevations applied. " + "; ".join(msgs))
                         st.rerun()
                 except Exception as e:
                     st.error(f"Error parsing AERMAP receptor output: {e}")
@@ -2118,6 +2218,20 @@ def page_receptor_editor():
                     st.error(f"Error parsing AERMAP source output: {e}")
                 finally:
                     os.unlink(temp_path)
+
+    # Show discrete receptor table with labels
+    if receptors.discrete_receptors:
+        st.subheader("Discrete Receptors")
+        disc_rows = []
+        for i, r in enumerate(receptors.discrete_receptors):
+            disc_rows.append({
+                "#": i + 1,
+                "Label": getattr(r, "label", "") or "",
+                "X": r.x_coord,
+                "Y": r.y_coord,
+                "Z Elev": r.z_elev,
+            })
+        st.dataframe(pd.DataFrame(disc_rows), use_container_width=True, hide_index=True)
 
     # Summary
     st.subheader("Receptor Summary")
@@ -2210,8 +2324,16 @@ def _render_met_files_mode():
             pass
 
     st.subheader("Station & Profile Information")
-    st.caption("AERMOD requires station IDs, data start year, and profile base elevation. "
-               "These are auto-detected from the .sfc file header when available.")
+    if sfc_path_obj and not sfc_path_obj.exists() and auto_sf_id == 0:
+        st.info(
+            "The .sfc file was not found, so station IDs could not be auto-detected. "
+            "If you are only previewing the input file (not running AERMOD), you can "
+            "leave these at 0. When you provide real .sfc/.pfl files, the IDs will be "
+            "detected automatically from the file header."
+        )
+    else:
+        st.caption("AERMOD requires station IDs, data start year, and profile base elevation. "
+                   "These are auto-detected from the .sfc file header when available.")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         sf_id = st.number_input("Surface Station ID", value=auto_sf_id, step=1,

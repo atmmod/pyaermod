@@ -370,7 +370,7 @@ a script or notebook for this. The downloader needs:
    - Map Center: Lat `29.735`, Lon `-95.105`
    - Pollutant: `SO2` (we will use this in Tutorial 8)
    - **Terrain Type: `ELEVATED`** (this is the key change from previous tutorials)
-   - Averaging Periods: `1`, `24`, `ANNUAL`
+   - Averaging Periods: `1-HR`, `24-HR`, `ANNUAL`
 
 3. Go to **Source Editor** and add a placeholder point source at the
    refinery center. We will replace this with the full source inventory in
@@ -564,7 +564,7 @@ other pollutant — only the emission rates and standards change.
    | Map Center Lon | `-95.105` |
    | Pollutant | `SO2` |
    | Terrain Type | `ELEVATED` |
-   | Averaging Periods | `1`, `3`, `24`, `ANNUAL` |
+   | Averaging Periods | `1-HR`, `3-HR`, `24-HR`, `ANNUAL` |
 
 > **Why these averaging periods?** The SO2 NAAQS is a 1-hour standard
 > (75 ppb = 196 ug/m3). We also include 3-hour, 24-hour, and annual for
