@@ -74,7 +74,9 @@ class TestSourcePathwayGroups:
         sp = SourcePathway()
         sp.add_source(valid_point_source)
         output = sp.to_aermod_input()
-        assert "SRCGROUP  ALL      STK1" in output
+        # AERMOD auto-includes all sources when group is ALL; no IDs listed
+        assert "SRCGROUP  ALL" in output
+        assert "SRCGROUP  ALL      STK1" not in output
 
     def test_srcgroup_all_multiple_sources(self):
         sp = SourcePathway()
@@ -87,7 +89,9 @@ class TestSourcePathwayGroups:
             stack_height=30, stack_diameter=1, stack_temp=400, exit_velocity=10,
         ))
         output = sp.to_aermod_input()
-        assert "SRCGROUP  ALL      STK1 STK2" in output
+        # AERMOD auto-includes all sources when group is ALL; no IDs listed
+        assert "SRCGROUP  ALL" in output
+        assert "STK1 STK2" not in output
 
     def test_srcgroup_all_with_buoyline(self):
         sp = SourcePathway()
@@ -103,8 +107,9 @@ class TestSourcePathwayGroups:
         )
         sp.add_source(bl)
         output = sp.to_aermod_input()
-        # BUOYLINE segment IDs should appear in SRCGROUP ALL
-        assert "SRCGROUP  ALL      SEG1 SEG2" in output
+        # SRCGROUP ALL auto-includes all sources; no IDs listed
+        assert "SRCGROUP  ALL" in output
+        assert "SEG1 SEG2" not in output.split("SRCGROUP  ALL")[1]
 
     def test_custom_group_emitted(self, valid_point_source):
         sp = SourcePathway()

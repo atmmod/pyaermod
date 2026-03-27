@@ -1472,8 +1472,8 @@ class SourcePathway:
         # Centralized SRCGROUP definitions
         all_ids = self._collect_all_source_ids()
         if all_ids:
-            # SRCGROUP ALL — includes all sources
-            lines.append(f"   SRCGROUP  ALL      {' '.join(all_ids)}")
+            # SRCGROUP ALL — AERMOD auto-includes all sources; no IDs listed
+            lines.append("   SRCGROUP  ALL")
 
         # Custom group definitions
         for group in self.group_definitions:
@@ -1538,11 +1538,18 @@ class CartesianGrid:
         )
 
     def to_aermod_input(self) -> str:
-        """Generate AERMOD RE pathway text"""
+        """Generate AERMOD RE pathway text.
+
+        AERMOD requires GRIDCART blocks wrapped in STA/END:
+            GRIDCART  name  STA
+                            XYINC  ...
+            GRIDCART  name  END
+        """
         lines = [
-            f"   GRIDCART  {self.grid_name:<8} XYINC  "
+            f"   GRIDCART  {self.grid_name:<8} STA",
+            f"                       XYINC  "
             f"{self.x_init:10.2f} {self.x_num:5d} {self.x_delta:8.2f}  "
-            f"{self.y_init:10.2f} {self.y_num:5d} {self.y_delta:8.2f}"
+            f"{self.y_init:10.2f} {self.y_num:5d} {self.y_delta:8.2f}",
         ]
 
         # Per-receptor elevations (from AERMAP output)
@@ -1568,6 +1575,7 @@ class CartesianGrid:
                         f"{row_idx + 1:5d}  {val_str}"
                     )
 
+        lines.append(f"   GRIDCART  {self.grid_name:<8} END")
         return "\n".join(lines)
 
 
@@ -1595,20 +1603,20 @@ class PolarGrid:
     dir_delta: float = 10.0
 
     def to_aermod_input(self) -> str:
-        """Generate AERMOD RE pathway text"""
-        lines = []
-        lines.append(
+        """Generate AERMOD RE pathway text.
+
+        AERMOD requires GRIDPOLR blocks wrapped in STA/END.
+        """
+        lines = [
+            f"   GRIDPOLR  {self.grid_name:<8} STA",
             f"   GRIDPOLR  {self.grid_name:<8} ORIG  "
-            f"{self.x_origin:10.2f} {self.y_origin:10.2f}"
-        )
-        lines.append(
+            f"{self.x_origin:10.2f} {self.y_origin:10.2f}",
             f"   GRIDPOLR  {self.grid_name:<8} DIST  "
-            f"{self.dist_init:10.2f} {self.dist_num:5d} {self.dist_delta:8.2f}"
-        )
-        lines.append(
+            f"{self.dist_init:10.2f} {self.dist_num:5d} {self.dist_delta:8.2f}",
             f"   GRIDPOLR  {self.grid_name:<8} GDIR  "
-            f"{self.dir_init:6.1f} {self.dir_num:5d} {self.dir_delta:6.1f}"
-        )
+            f"{self.dir_init:6.1f} {self.dir_num:5d} {self.dir_delta:6.1f}",
+            f"   GRIDPOLR  {self.grid_name:<8} END",
+        ]
         return "\n".join(lines)
 
 
@@ -1683,9 +1691,24 @@ class MeteorologyPathway:
     AERMOD Meteorology (ME) pathway
 
     Defines meteorological data files and processing options.
+
+    AERMOD requires five mandatory ME keywords:
+      SURFFILE  — path to the .sfc file
+      PROFFILE  — path to the .pfl file
+      SURFDATA  — surface station ID + start year
+      UAIRDATA  — upper-air station ID + start year
+      PROFBASE  — base elevation (m MSL) of the profile data
     """
     surface_file: str
     profile_file: str
+
+    # Station identification (mandatory for AERMOD)
+    surface_station_id: int = 0          # SURFDATA station ID (e.g. WBAN or numeric)
+    upper_air_station_id: int = 0        # UAIRDATA station ID
+    data_start_year: int = 2020          # Start year for SURFDATA/UAIRDATA
+
+    # Profile base elevation (mandatory)
+    profile_base_elevation: float = 0.0  # meters MSL
 
     # Optional parameters
     start_year: Optional[int] = None
@@ -1706,9 +1729,10 @@ class MeteorologyPathway:
         lines.append(f"   SURFFILE  {self.surface_file}")
         lines.append(f"   PROFFILE  {self.profile_file}")
 
-        # Data processing
-        lines.append("   SURFDATA  ")
-        lines.append("   UAIRDATA  ")
+        # Station data (mandatory)
+        lines.append(f"   SURFDATA  {self.surface_station_id}  {self.data_start_year}")
+        lines.append(f"   UAIRDATA  {self.upper_air_station_id}  {self.data_start_year}")
+        lines.append(f"   PROFBASE  {self.profile_base_elevation:.1f}  METERS")
 
         # Date range (if specified)
         if all(x is not None for x in [self.start_year, self.start_month, self.start_day,

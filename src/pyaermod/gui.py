@@ -2159,9 +2159,58 @@ def _render_met_files_mode():
         pfl_file = str(pfl_path)
         st.success(f"Saved: {pfl_path}")
 
+    # Auto-detect station IDs from .sfc header if available
+    auto_sf_id = met.surface_station_id
+    auto_ua_id = met.upper_air_station_id
+    auto_year = met.data_start_year
+    auto_base_elev = met.profile_base_elevation
+    sfc_path_obj = Path(sfc_file) if sfc_file else None
+    if sfc_path_obj and sfc_path_obj.exists():
+        try:
+            header = sfc_path_obj.read_text(encoding="utf-8", errors="replace").split("\n")[0]
+            import re as _re
+            ua_match = _re.search(r"UA_ID:\s*(\d+)", header)
+            sf_match = _re.search(r"SF_ID:\s*(\w+)", header)
+            if ua_match:
+                auto_ua_id = int(ua_match.group(1))
+            if sf_match:
+                # SF_ID may be alphanumeric like KHOU; try numeric parse
+                try:
+                    auto_sf_id = int(sf_match.group(1))
+                except ValueError:
+                    auto_sf_id = met.surface_station_id
+            # Parse start year from second line (first data record)
+            lines_all = sfc_path_obj.read_text(encoding="utf-8", errors="replace").split("\n")
+            if len(lines_all) > 1:
+                fields = lines_all[1].split()
+                if fields:
+                    yr = int(fields[0])
+                    auto_year = yr if yr > 99 else yr + 2000
+        except Exception:
+            pass
+
+    st.subheader("Station & Profile Information")
+    st.caption("AERMOD requires station IDs, data start year, and profile base elevation. "
+               "These are auto-detected from the .sfc file header when available.")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        sf_id = st.number_input("Surface Station ID", value=auto_sf_id, step=1,
+                                help="Numeric station ID from SURFDATA keyword")
+        ua_id = st.number_input("Upper Air Station ID", value=auto_ua_id, step=1,
+                                help="Numeric station ID from UAIRDATA keyword")
+    with col_s2:
+        data_year = st.number_input("Data Start Year", value=auto_year, min_value=1900, max_value=2100, step=1)
+        prof_base = st.number_input("Profile Base Elevation (m MSL)", value=auto_base_elev,
+                                    format="%.1f",
+                                    help="Base elevation of the met profile data (meters above sea level)")
+
     st.session_state["project_meteorology"] = MeteorologyPathway(
         surface_file=sfc_file,
         profile_file=pfl_file,
+        surface_station_id=int(sf_id),
+        upper_air_station_id=int(ua_id),
+        data_start_year=int(data_year),
+        profile_base_elevation=float(prof_base),
     )
     st.success("Meteorology settings saved.")
 
@@ -2373,9 +2422,32 @@ def _render_aermet_stage3():
             st.session_state["aermet_stage3"] = stage3
 
             # Also update the meteorology pathway so AERMOD can find the files
+            # Try to extract numeric station IDs and elevation from AERMET config
+            _sf_id = 0
+            _ua_id = 0
+            _base_elev = 0.0
+            _data_yr = start_date.year if start_date else 2020
+            s1 = st.session_state.get("aermet_stage1")
+            if s1:
+                if s1.surface_station:
+                    try:
+                        _sf_id = int(s1.surface_station.station_id)
+                    except ValueError:
+                        pass
+                    if s1.surface_station.elevation is not None:
+                        _base_elev = s1.surface_station.elevation
+                if s1.upper_air_station:
+                    try:
+                        _ua_id = int(s1.upper_air_station.station_id)
+                    except ValueError:
+                        pass
             st.session_state["project_meteorology"] = MeteorologyPathway(
                 surface_file=sfc_out,
                 profile_file=pfl_out,
+                surface_station_id=_sf_id,
+                upper_air_station_id=_ua_id,
+                data_start_year=_data_yr,
+                profile_base_elevation=_base_elev,
             )
             st.success("Stage 3 configuration saved. Meteorology pathway updated.")
         except ValueError as e:
@@ -2713,7 +2785,12 @@ def page_results_viewer():
     # Get available averaging periods
     avail_periods = list(getattr(results, "concentrations", {}).keys())
     if not avail_periods:
-        avail_periods = ["ANNUAL"]
+        st.warning(
+            "No concentration results were parsed from the AERMOD output. "
+            "This may indicate AERMOD reported errors during the run. "
+            "Check the output (.out) file for details."
+        )
+        return
 
     with tab_map:
         st.subheader("Concentration Map")
