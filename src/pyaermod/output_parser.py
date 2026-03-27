@@ -642,7 +642,7 @@ class AERMODResults:
         parser = AERMODOutputParser(output_file)
         return parser.parse()
 
-    def get_concentrations(self, averaging_period: str = 'ANNUAL') -> pd.DataFrame:
+    def get_concentrations(self, averaging_period: str = 'ANNUAL') -> Optional[pd.DataFrame]:
         """
         Get concentration DataFrame for specific averaging period
 
@@ -650,18 +650,15 @@ class AERMODResults:
             averaging_period: Averaging period (e.g., 'ANNUAL', '24HR', '1HR')
 
         Returns:
-            DataFrame with x, y, concentration columns
+            DataFrame with x, y, concentration columns, or None if period
+            not found.
         """
         if averaging_period not in self.concentrations:
-            available = ', '.join(self.concentrations.keys())
-            raise ValueError(
-                f"Averaging period '{averaging_period}' not found. "
-                f"Available periods: {available}"
-            )
+            return None
 
         return self.concentrations[averaging_period].data.copy()
 
-    def get_max_concentration(self, averaging_period: str = 'ANNUAL') -> Dict:
+    def get_max_concentration(self, averaging_period: str = 'ANNUAL') -> Optional[Dict]:
         """
         Get maximum concentration and its location
 
@@ -669,10 +666,11 @@ class AERMODResults:
             averaging_period: Averaging period
 
         Returns:
-            Dictionary with 'value', 'x', 'y', 'units'
+            Dictionary with 'value', 'x', 'y', 'units', or None if period
+            not found.
         """
         if averaging_period not in self.concentrations:
-            raise ValueError(f"Averaging period '{averaging_period}' not found")
+            return None
 
         result = self.concentrations[averaging_period]
         return {
@@ -699,6 +697,8 @@ class AERMODResults:
             Concentration value or None if no receptor found
         """
         df = self.get_concentrations(averaging_period)
+        if df is None:
+            return None
 
         # Find closest receptor
         distances = np.sqrt((df['x'] - x)**2 + (df['y'] - y)**2)

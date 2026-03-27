@@ -177,8 +177,8 @@ class TestAERMODResults:
         assert len(df) > 0
 
     def test_get_concentrations_missing_period(self, sample_results):
-        with pytest.raises(ValueError, match="not found"):
-            sample_results.get_concentrations("24HR")
+        # Returns None for missing periods instead of raising
+        assert sample_results.get_concentrations("24HR") is None
 
     def test_get_max_concentration(self, sample_results):
         max_info = sample_results.get_max_concentration("ANNUAL")
@@ -189,8 +189,7 @@ class TestAERMODResults:
         assert max_info["value"] > 0
 
     def test_get_max_concentration_missing_period(self, sample_results):
-        with pytest.raises(ValueError, match="not found"):
-            sample_results.get_max_concentration("1HR")
+        assert sample_results.get_max_concentration("1HR") is None
 
     def test_get_concentration_at_point(self, sample_results):
         """Test querying concentration at a known receptor"""
