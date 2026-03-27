@@ -27,11 +27,15 @@ OUTPUTS = TEST_DATA_ROOT / "Outputs"
 POSTFILES = TEST_DATA_ROOT / "postfiles"
 PLOTFILES = TEST_DATA_ROOT / "plotfiles"
 
-# Skip all tests in this module if test data is missing
-pytestmark = pytest.mark.skipif(
-    not TEST_DATA_ROOT.exists(),
-    reason=f"EPA test case directory not found: {TEST_DATA_ROOT}",
-)
+# Skip all tests in this module if test data is missing;
+# also mark as slow so they are excluded from default runs.
+pytestmark = [
+    pytest.mark.skipif(
+        not TEST_DATA_ROOT.exists(),
+        reason=f"EPA test case directory not found: {TEST_DATA_ROOT}",
+    ),
+    pytest.mark.slow,
+]
 
 # --------------------------------------------------------------------------
 # Representative file lists for parametrized tests

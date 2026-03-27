@@ -41,6 +41,9 @@ requires_epa = pytest.mark.skipif(
     reason="EPA v24142 test-case directory not found",
 )
 
+# Mark entire module as slow + epa so default test runs skip it
+pytestmark = [pytest.mark.slow, pytest.mark.epa]
+
 # Convenience sub-dirs
 POSTFILES_DIR = EPA_TEST_DIR / "postfiles"
 PLOTFILES_DIR = EPA_TEST_DIR / "plotfiles"
