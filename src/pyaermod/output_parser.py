@@ -454,11 +454,15 @@ class AERMODOutputParser:
         period_patterns = [
             (r'ANNUAL', 'ANNUAL'),
             (r'24-HOUR|24HR|24-HR', '24HR'),
-            (r'1-HOUR|1HR|1-HR', '1HR'),
-            (r'3-HOUR|3HR|3-HR', '3HR'),
+            (r'12-HOUR|12HR|12-HR', '12HR'),
             (r'8-HOUR|8HR|8-HR', '8HR'),
+            (r'6-HOUR|6HR|6-HR', '6HR'),
+            (r'4-HOUR|4HR|4-HR', '4HR'),
+            (r'3-HOUR|3HR|3-HR', '3HR'),
+            (r'2-HOUR|2HR|2-HR', '2HR'),
+            (r'1-HOUR|1HR|1-HR', '1HR'),
             (r'MONTH', 'MONTH'),
-            (r'PERIOD', 'PERIOD')
+            (r'PERIOD', 'PERIOD'),
         ]
 
         for pattern, period_name in period_patterns:

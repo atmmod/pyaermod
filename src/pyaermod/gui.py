@@ -1491,23 +1491,24 @@ def page_project_setup():
                 nox_file=nox_file,
             )
 
-    # Save to session state
+    # Save to session state — update the existing ControlPathway in-place
+    # to preserve advanced fields (eventfil, urban_option, low_wind_option, etc.)
+    # that are set on other pages.
     st.session_state["utm_zone"] = utm_zone
     st.session_state["hemisphere"] = hemisphere
     st.session_state["datum"] = datum
     st.session_state["center_lat"] = center_lat
     st.session_state["center_lon"] = center_lon
-    st.session_state["project_control"] = ControlPathway(
-        title_one=title1,
-        title_two=title2 if title2 else None,
-        pollutant_id=PollutantType[pollutant],
-        averaging_periods=avg_periods if avg_periods else ["ANNUAL"],
-        terrain_type=TerrainType[terrain],
-        calculate_dry_deposition=calc_ddep,
-        calculate_wet_deposition=calc_wdep,
-        calculate_deposition=calc_depos,
-        chemistry=chemistry_config,
-    )
+    ctrl = st.session_state["project_control"]
+    ctrl.title_one = title1
+    ctrl.title_two = title2 if title2 else None
+    ctrl.pollutant_id = PollutantType[pollutant]
+    ctrl.averaging_periods = avg_periods if avg_periods else ["ANNUAL"]
+    ctrl.terrain_type = TerrainType[terrain]
+    ctrl.calculate_dry_deposition = calc_ddep
+    ctrl.calculate_wet_deposition = calc_wdep
+    ctrl.calculate_deposition = calc_depos
+    ctrl.chemistry = chemistry_config
 
     st.success("Project settings saved automatically.")
 
@@ -1642,7 +1643,7 @@ def page_source_editor():
             elif hasattr(s, "x_start"):
                 row["X"] = s.x_start
                 row["Y"] = s.y_start
-            row["Emission Rate"] = s.emission_rate
+            row["Emission Rate"] = getattr(s, "emission_rate", "N/A")
             rows.append(row)
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
@@ -1944,11 +1945,16 @@ def page_receptor_editor():
                 y_max = st.number_input("Y Max (UTM m)", value=2000.0, format="%.2f")
 
             if st.form_submit_button("Add Cartesian Grid"):
-                grid = CartesianGrid.from_bounds(x_min, x_max, y_min, y_max, spacing, name)
-                receptors.add_cartesian_grid(grid)
-                n_pts = grid.x_num * grid.y_num
-                st.success(f"Added grid '{name}' ({grid.x_num} x {grid.y_num} = {n_pts} receptors)")
-                st.rerun()
+                if x_max <= x_min or y_max <= y_min:
+                    st.error("Max coordinates must be greater than Min coordinates.")
+                elif spacing > (x_max - x_min) or spacing > (y_max - y_min):
+                    st.error("Spacing is larger than the grid extent. Use a smaller spacing.")
+                else:
+                    grid = CartesianGrid.from_bounds(x_min, x_max, y_min, y_max, spacing, name)
+                    receptors.add_cartesian_grid(grid)
+                    n_pts = grid.x_num * grid.y_num
+                    st.success(f"Added grid '{name}' ({grid.x_num} x {grid.y_num} = {n_pts} receptors)")
+                    st.rerun()
 
     with tab_polar:
         st.subheader("Polar Receptor Grid")
@@ -2540,19 +2546,18 @@ def page_run_aermod():
             help="Type of output: concentration (CONC) or deposition flux",
         )
 
-    out_kwargs = dict(
-        receptor_table=receptor_table,
-        max_table=max_table,
-        output_type=output_type,
-    )
+    # Update existing OutputPathway in-place to preserve fields set elsewhere
+    out = st.session_state["project_output"]
+    out.receptor_table = receptor_table
+    out.max_table = max_table
+    out.output_type = output_type
     if postfile_enabled:
-        out_kwargs.update(
-            postfile="postfile.pst",
-            postfile_averaging=postfile_avg,
-            postfile_source_group="ALL",
-            postfile_format=postfile_format,
-        )
-    st.session_state["project_output"] = OutputPathway(**out_kwargs)
+        out.postfile = "postfile.pst"
+        out.postfile_averaging = postfile_avg
+        out.postfile_source_group = "ALL"
+        out.postfile_format = postfile_format
+    else:
+        out.postfile = None
 
     # Per-group PLOTFILE options
     groups = st.session_state["project_sources"].group_definitions
@@ -3186,6 +3191,7 @@ def page_export():
             ["Sources", "Receptors", "Concentrations (points)", "Concentrations (contours)"],
         )
 
+        period = None
         if "Concentrations (points)" in export_what or "Concentrations (contours)" in export_what:
             if avail_periods:
                 period = st.selectbox("Averaging Period", avail_periods, key="vec_period")
@@ -3211,7 +3217,7 @@ def page_export():
                     VectorExporter(factory).export_receptors(recs, path, driver)
                     files_to_download["receptors"] = path
 
-                if results and avail_periods:
+                if results and avail_periods and period is not None:
                     conc_df = results.get_concentrations(period)
                     if conc_df is not None and not conc_df.empty:
                         if "Concentrations (points)" in export_what:
