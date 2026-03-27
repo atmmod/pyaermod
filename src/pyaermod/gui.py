@@ -1064,6 +1064,7 @@ class SourceFormFactory:
                 xe = st.number_input("X End (UTM m)", value=default_x + 500, format="%.2f")
                 ye = st.number_input("Y End (UTM m)", value=default_y, format="%.2f")
                 rh = st.number_input("Release Height (m)", value=0.0, min_value=0.0)
+            elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f", key="line_elev")
             lat_dim = st.number_input("Initial Sigma-Y (m)", value=1.0, min_value=0.0)
             erate = st.number_input("Emission Rate (g/s/m)", value=0.001, format="%.6f")
 
@@ -1071,6 +1072,7 @@ class SourceFormFactory:
                 return LineSource(
                     source_id=sid, x_start=xs, y_start=ys,
                     x_end=xe, y_end=ye, release_height=rh,
+                    base_elevation=elev,
                     initial_lateral_dimension=lat_dim,
                     emission_rate=erate,
                 )
@@ -1091,6 +1093,7 @@ class SourceFormFactory:
                 xe = st.number_input("X End (UTM m)", value=default_x + 1000, format="%.2f")
                 ye = st.number_input("Y End (UTM m)", value=default_y, format="%.2f")
                 rh = st.number_input("Release Height (m)", value=0.5, min_value=0.0)
+            elev = st.number_input("Base Elevation (m)", value=0.0, format="%.2f", key="rline_elev")
             col3, col4 = st.columns(2)
             with col3:
                 lat_dim = st.number_input("Lane Half-Width (m)", value=3.0, min_value=0.0)
@@ -1116,6 +1119,7 @@ class SourceFormFactory:
                 return RLineSource(
                     source_id=sid, x_start=xs, y_start=ys,
                     x_end=xe, y_end=ye, release_height=rh,
+                    base_elevation=elev,
                     initial_lateral_dimension=lat_dim,
                     initial_vertical_dimension=vert_dim,
                     emission_rate=erate,
@@ -2100,17 +2104,32 @@ def page_receptor_editor():
 
     with tab_import:
         st.subheader("Import Receptors from CSV")
-        st.info("Upload a CSV with columns: x, y (and optionally z_elev)")
+        st.info("Upload a CSV with columns: **x**, **y** (and optionally z_elev, z_hill, label). "
+                "Column names are case-insensitive.")
         uploaded = st.file_uploader("Upload CSV", type=["csv"], key="receptor_csv")
         if uploaded:
             df = pd.read_csv(uploaded)
+            # Normalize column names to lowercase
+            df.columns = [c.strip().lower() for c in df.columns]
             st.dataframe(df.head(10))
-            if st.button("Import Receptors"):
+
+            # Validate required columns
+            if "x" not in df.columns or "y" not in df.columns:
+                st.error(
+                    f"CSV must have 'x' and 'y' columns. "
+                    f"Found: {', '.join(df.columns)}"
+                )
+            elif st.button("Import Receptors"):
                 count = 0
                 for _, row in df.iterrows():
-                    z = row.get("z_elev", 0.0)
+                    z = float(row.get("z_elev", 0.0))
+                    zh = float(row.get("z_hill", 0.0))
+                    lbl = str(row.get("label", "")) if "label" in df.columns else ""
                     receptors.add_discrete_receptor(
-                        DiscreteReceptor(float(row["x"]), float(row["y"]), float(z))
+                        DiscreteReceptor(
+                            float(row["x"]), float(row["y"]),
+                            z_elev=z, z_hill=zh, label=lbl,
+                        )
                     )
                     count += 1
                 st.success(f"Imported {count} discrete receptors")
@@ -2620,11 +2639,13 @@ def page_run_aermod():
 
     # Validation
     st.subheader("Validation")
+    has_validation_errors = False
     if HAS_VALIDATOR:
         try:
             validator = Validator()
             result = validator.validate(project)
             if result.errors:
+                has_validation_errors = True
                 for err in result.errors:
                     st.error(f"{err.field}: {err.message}")
             if result.warnings:
@@ -2768,6 +2789,10 @@ def page_run_aermod():
             )
         else:
             st.session_state["project_events"] = None
+            # Clear stale eventfil reference when events are disabled
+            ctrl = st.session_state["project_control"]
+            if getattr(ctrl, "eventfil", None):
+                ctrl.eventfil = None
 
     # Run
     st.subheader("Execute AERMOD")
@@ -2796,11 +2821,20 @@ def page_run_aermod():
         if not inp_text:
             st.error("Cannot run: input file generation failed.")
             return
+        if has_validation_errors:
+            st.error("Cannot run: fix validation errors above before running AERMOD.")
+            return
 
         with st.spinner("Running AERMOD..."):
             try:
                 inp_path = Path(work_dir) / "aermod.inp"
                 inp_path.write_text(inp_text)
+
+                # Write event file if event processing is enabled
+                ev_pathway = st.session_state.get("project_events")
+                if ev_pathway is not None:
+                    ev_path = Path(work_dir) / "events.inp"
+                    ev_path.write_text(ev_pathway.to_aermod_input())
 
                 if HAS_RUNNER:
                     result = run_aermod(str(inp_path), executable_path=aermod_exe)
@@ -2897,17 +2931,23 @@ def page_results_viewer():
     st.subheader("Load Results")
     uploaded_out = st.file_uploader("Upload AERMOD .out file", type=["out"], key="out_upload")
     if uploaded_out:
-        with tempfile.NamedTemporaryFile(suffix=".out", delete=False, mode="w") as f:
-            f.write(uploaded_out.getvalue().decode("utf-8"))
-            f.flush()
-            temp_out_path = f.name
-        try:
-            if HAS_PARSER:
-                results = parse_aermod_output(temp_out_path)
-                st.session_state["parsed_results"] = results
-                st.success("Results loaded and parsed.")
-        finally:
-            os.unlink(temp_out_path)
+        # Guard against re-parsing on every rerun
+        out_file_id = f"{uploaded_out.name}_{uploaded_out.size}"
+        if st.session_state.get("_last_loaded_out") != out_file_id:
+            with tempfile.NamedTemporaryFile(suffix=".out", delete=False, mode="w") as f:
+                f.write(uploaded_out.getvalue().decode("utf-8"))
+                f.flush()
+                temp_out_path = f.name
+            try:
+                if HAS_PARSER:
+                    results = parse_aermod_output(temp_out_path)
+                    st.session_state["parsed_results"] = results
+                    st.session_state["_last_loaded_out"] = out_file_id
+                    st.success("Results loaded and parsed.")
+            finally:
+                os.unlink(temp_out_path)
+        else:
+            st.info("Results already loaded.")
 
     if results is None:
         st.info("No results available. Run AERMOD or upload an .out file.")

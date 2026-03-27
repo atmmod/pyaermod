@@ -74,6 +74,11 @@ class AERMODVisualizer:
 
         # Get concentration data
         df = self.results.get_concentrations(averaging_period)
+        if df is None or df.empty:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, "No concentration data available",
+                    ha="center", va="center", transform=ax.transAxes)
+            return fig
         max_info = self.results.get_max_concentration(averaging_period)
 
         # Create figure
@@ -83,6 +88,12 @@ class AERMODVisualizer:
         x = df['x'].values
         y = df['y'].values
         conc = df['concentration'].values
+
+        # Guard: need at least 4 non-collinear points for cubic interpolation
+        if len(x) < 4:
+            ax.scatter(x, y, c=conc, cmap=colormap, s=20)
+            ax.set_title(title or f"{averaging_period} Concentration")
+            return fig
 
         # Create grid for interpolation
         xi = np.linspace(x.min(), x.max(), 200)
@@ -96,6 +107,11 @@ class AERMODVisualizer:
         # Generate contour levels if not provided
         if levels is None:
             max_conc = conc.max()
+            if max_conc <= 0:
+                # All-zero or negative — fall back to scatter plot
+                ax.scatter(x, y, c=conc, cmap=colormap, s=20)
+                ax.set_title(title or f"{averaging_period} Concentration (all zero)")
+                return fig
             levels = np.linspace(0, max_conc, 11)
 
         # Create filled contour plot
@@ -227,12 +243,17 @@ class AERMODVisualizer:
         # Add source markers
         if show_sources and self.results.sources:
             for source in self.results.sources:
+                popup_parts = [
+                    f"<b>{source.source_id}</b>",
+                    f"Type: {source.source_type}",
+                ]
+                if source.stack_height is not None:
+                    popup_parts.append(f"Height: {source.stack_height:.1f}m")
+                if source.emission_rate is not None:
+                    popup_parts.append(f"Rate: {source.emission_rate:.2f} g/s")
                 folium.Marker(
                     location=[source.y_coord, source.x_coord],
-                    popup=f"<b>{source.source_id}</b><br>"
-                          f"Type: {source.source_type}<br>"
-                          f"Height: {source.stack_height:.1f}m<br>"
-                          f"Rate: {source.emission_rate:.2f} g/s",
+                    popup="<br>".join(popup_parts),
                     icon=folium.Icon(color='red', icon='industry', prefix='fa'),
                     tooltip=source.source_id
                 ).add_to(m)

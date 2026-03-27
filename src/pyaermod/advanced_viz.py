@@ -345,7 +345,11 @@ class AdvancedVisualizer:
 
         # Find global bounds
         all_conc = np.concatenate([df['CONC'].values for df in dataframes])
-        vmin, vmax = np.min(all_conc[all_conc > 0]), np.max(all_conc)
+        positive = all_conc[all_conc > 0]
+        if len(positive) == 0:
+            vmin, vmax = 0.0, 1.0  # fallback for all-zero data
+        else:
+            vmin, vmax = np.min(positive), np.max(all_conc)
 
         # Get first frame data
         df = dataframes[0]
