@@ -272,7 +272,7 @@ class ProjectSerializer:
     GEO_FIELDS = ["utm_zone", "hemisphere", "datum", "center_lat", "center_lon"]
 
     class _Encoder(json.JSONEncoder):
-        """Custom JSON encoder for dataclasses and Enums."""
+        """Custom JSON encoder for dataclasses, Enums, and numpy types."""
 
         def default(self, obj):
             if isinstance(obj, Enum):
@@ -281,6 +281,19 @@ class ProjectSerializer:
                 d = dataclasses.asdict(obj)
                 d["_type"] = type(obj).__name__
                 return d
+            # Handle numpy scalar types (int64, float64, bool_)
+            try:
+                import numpy as np
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                if isinstance(obj, np.floating):
+                    return float(obj)
+                if isinstance(obj, np.bool_):
+                    return bool(obj)
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+            except ImportError:
+                pass
             return super().default(obj)
 
     @classmethod
@@ -1635,9 +1648,13 @@ def page_source_editor():
             new_source = SourceFormFactory.render_openpit_source_form(default_x, default_y)
 
         if new_source:
-            # Check for duplicate source ID
+            # Validate source ID
             existing_ids = [s.source_id for s in st.session_state["project_sources"].sources]
-            if new_source.source_id in existing_ids:
+            if len(new_source.source_id) > 12:
+                st.error(f"Source ID '{new_source.source_id}' exceeds 12-character AERMOD limit.")
+            elif not new_source.source_id.strip():
+                st.error("Source ID cannot be empty.")
+            elif new_source.source_id in existing_ids:
                 st.error(f"Source ID '{new_source.source_id}' already exists. Use a unique ID.")
             else:
                 st.session_state["project_sources"].add_source(new_source)
@@ -2365,14 +2382,15 @@ def _render_met_files_mode():
                                     format="%.1f",
                                     help="Base elevation of the met profile data (meters above sea level)")
 
-    st.session_state["project_meteorology"] = MeteorologyPathway(
-        surface_file=sfc_file,
-        profile_file=pfl_file,
-        surface_station_id=int(sf_id),
-        upper_air_station_id=int(ua_id),
-        data_start_year=int(data_year),
-        profile_base_elevation=float(prof_base),
-    )
+    # Update existing MeteorologyPathway in-place to preserve optional fields
+    # (start_year, start_month, etc.) that may have been set by project load
+    met_obj = st.session_state["project_meteorology"]
+    met_obj.surface_file = sfc_file
+    met_obj.profile_file = pfl_file
+    met_obj.surface_station_id = int(sf_id)
+    met_obj.upper_air_station_id = int(ua_id)
+    met_obj.data_start_year = int(data_year)
+    met_obj.profile_base_elevation = float(prof_base)
     st.success("Meteorology settings saved.")
 
 

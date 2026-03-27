@@ -857,15 +857,10 @@ class LineSource:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
 
-        # LOCATION keyword - LINE sources need two coordinate pairs
+        # LOCATION keyword — LINE: srcid LINE X1 Y1 X2 Y2 [Zelev]
         lines.append(
             f"   LOCATION  {self.source_id:<8} LINE    "
-            f"{self.x_start:12.4f} {self.y_start:12.4f} {self.base_elevation:8.2f}"
-        )
-
-        # Second coordinate pair for end point
-        lines.append(
-            f"   LOCATION  {self.source_id:<8} LINE    "
+            f"{self.x_start:12.4f} {self.y_start:12.4f} "
             f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
         )
 
@@ -1004,15 +999,10 @@ class RLineSource:
             erate *= self.street_canyon.concentration_factor()
             vert_dim = self.street_canyon.adjusted_sigma_z(vert_dim)
 
-        # LOCATION keyword - RLINE sources need two coordinate pairs
+        # LOCATION keyword — RLINE: srcid RLINE XSB YSB XSE YSE [Zelev]
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINE   "
-            f"{self.x_start:12.4f} {self.y_start:12.4f} {self.base_elevation:8.2f}"
-        )
-
-        # Second coordinate pair for end point
-        lines.append(
-            f"   LOCATION  {self.source_id:<8} RLINE   "
+            f"{self.x_start:12.4f} {self.y_start:12.4f} "
             f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
         )
 
@@ -1102,12 +1092,12 @@ class RLineExtSource:
             erate *= self.street_canyon.concentration_factor()
             sigma_z = self.street_canyon.adjusted_sigma_z(sigma_z)
 
-        # LOCATION keyword - RLINEXT has 6 coordinates (XSB YSB ZSB XSE YSE ZSE)
+        # LOCATION keyword — RLINEXT: srcid RLINEXT XSB YSB ZSB XSE YSE ZSE
+        # (no base_elevation — ZSB/ZSE are the heights at each endpoint)
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINEXT "
             f"{self.x_start:12.4f} {self.y_start:12.4f} {self.z_start:8.2f} "
-            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.z_end:8.2f} "
-            f"{self.base_elevation:8.2f}"
+            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.z_end:8.2f}"
         )
 
         # SRCPARAM keyword: Qemis DCL Width InitSigmaZ
@@ -1223,7 +1213,7 @@ class BuoyLineSource:
         # LOCATION and SRCPARAM for each line segment
         for seg in self.line_segments:
             lines.append(
-                f"   LOCATION  {seg.source_id:<8} BUOYLINE"
+                f"   LOCATION  {seg.source_id:<8} BUOYLINE "
                 f"{seg.x_start:12.4f} {seg.y_start:12.4f} "
                 f"{seg.x_end:12.4f} {seg.y_end:12.4f} {self.base_elevation:8.2f}"
             )
@@ -1774,6 +1764,7 @@ class OutputPathway:
     summary_file: Optional[str] = None
     max_file: Optional[str] = None
     plot_file: Optional[str] = None
+    plot_file_averaging: str = "ANNUAL"  # Averaging period for default PLOTFILE
 
     # POSTFILE outputs
     postfile: Optional[str] = None  # Output file path
@@ -1814,7 +1805,7 @@ class OutputPathway:
         # Plot file
         if self.plot_file:
             lines.append(
-                f"   PLOTFILE  ANNUAL  ALL  {self.output_type}  FIRST  {self.plot_file}"
+                f"   PLOTFILE  {self.plot_file_averaging}  ALL  {self.output_type}  FIRST  {self.plot_file}"
             )
 
         # Per-group plot files

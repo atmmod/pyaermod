@@ -213,7 +213,10 @@ class TestLineSource:
         output = source.to_aermod_input()
         assert "ROAD1" in output
         assert "LINE" in output
-        assert output.count("LOCATION") == 2  # Two location keywords
+        # Single LOCATION line with both endpoints
+        assert output.count("LOCATION") == 1
+        assert "-100.0000" in output
+        assert "100.0000" in output
 
 
 class TestRLineSource:
@@ -233,7 +236,8 @@ class TestRLineSource:
         output = source.to_aermod_input()
         assert "HWY1" in output
         assert "RLINE" in output
-        assert output.count("LOCATION") == 2
+        # Single LOCATION line with both endpoints
+        assert output.count("LOCATION") == 1
 
 
 class TestReceptorPathway:
