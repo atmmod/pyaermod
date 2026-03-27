@@ -221,7 +221,7 @@ class AERMETStage3:
     time_zone: Optional[int] = None
 
     # Surface characteristics
-    freq_sect: List[float] = field(default_factory=lambda: [0.0])  # Wind direction sectors
+    num_sectors: int = 1  # Number of wind direction sectors for surface characteristics
     site_char: List[str] = field(default_factory=list)  # Monthly surface characteristics
 
     # Albedo, Bowen ratio, roughness length (12 months)
@@ -271,13 +271,9 @@ class AERMETStage3:
         lines.append(f"   MESSAGES   {self.messages}")
         lines.append("")
 
-        # SURFACE pathway
-        lines.append("SURFACE")
-        lines.append(f"   INPUT      {self.merge_file}")
-        lines.append("")
-
-        # METPREP pathway
+        # METPREP pathway — Stage 3 reads merged data and produces .sfc/.pfl
         lines.append("METPREP")
+        lines.append(f"   DATA       {self.merge_file}")
         lines.append(f"   OUTPUT     {self.surface_file}")
         lines.append(f"   PROFILE    {self.profile_file}")
         lines.append(f"   XDATES     {self.start_date} TO {self.end_date}")
@@ -291,10 +287,8 @@ class AERMETStage3:
             lines.append(f"   LOCATION   SITE {self.latitude:.4f} " +
                         f"{self.longitude:.4f} {self.time_zone}")
 
-        # Surface characteristics
-        if self.freq_sect:
-            freq_str = " ".join(f"{f:.1f}" for f in self.freq_sect)
-            lines.append(f"   FREQ_SECT  {freq_str}")
+        # Surface characteristics — FREQ_SECT ANNUAL n_sectors
+        lines.append(f"   FREQ_SECT  ANNUAL  {self.num_sectors}")
 
         # Monthly parameters (Albedo, Bowen, Roughness)
         if len(self.albedo) == 12:

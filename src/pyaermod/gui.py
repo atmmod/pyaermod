@@ -1627,9 +1627,14 @@ def page_source_editor():
             new_source = SourceFormFactory.render_openpit_source_form(default_x, default_y)
 
         if new_source:
-            st.session_state["project_sources"].add_source(new_source)
-            st.success(f"Added {type(new_source).__name__}: {new_source.source_id}")
-            st.rerun()
+            # Check for duplicate source ID
+            existing_ids = [s.source_id for s in st.session_state["project_sources"].sources]
+            if new_source.source_id in existing_ids:
+                st.error(f"Source ID '{new_source.source_id}' already exists. Use a unique ID.")
+            else:
+                st.session_state["project_sources"].add_source(new_source)
+                st.success(f"Added {type(new_source).__name__}: {new_source.source_id}")
+                st.rerun()
 
     # Source table
     st.subheader("Current Sources")
@@ -1643,6 +1648,15 @@ def page_source_editor():
             elif hasattr(s, "x_start"):
                 row["X"] = s.x_start
                 row["Y"] = s.y_start
+            elif hasattr(s, "vertices") and s.vertices:
+                # AreaPolySource — show first vertex as reference location
+                row["X"] = s.vertices[0][0]
+                row["Y"] = s.vertices[0][1]
+            elif hasattr(s, "line_segments") and s.line_segments:
+                # BuoyLineSource — show first segment start
+                seg = s.line_segments[0]
+                row["X"] = seg.x_start
+                row["Y"] = seg.y_start
             row["Emission Rate"] = getattr(s, "emission_rate", "N/A")
             rows.append(row)
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
@@ -2432,7 +2446,11 @@ def _render_aermet_stage3():
             _sf_id = 0
             _ua_id = 0
             _base_elev = 0.0
-            _data_yr = start_date.year if start_date else 2020
+            # start_date is a string like "2020/01/01" from st.text_input
+            try:
+                _data_yr = int(start_date.split("/")[0]) if start_date else 2020
+            except (ValueError, IndexError):
+                _data_yr = 2020
             s1 = st.session_state.get("aermet_stage1")
             if s1:
                 if s1.surface_station:

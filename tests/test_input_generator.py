@@ -134,8 +134,10 @@ class TestAreaSource:
         )
 
         output = source.to_aermod_input()
-        assert "AREAVERT" in output
+        # Rotation angle is the 5th param on SRCPARAM, not AREAVERT
+        assert "SRCPARAM" in output
         assert "45.00" in output
+        assert "AREAVERT" not in output
 
 
 class TestAreaCircSource:

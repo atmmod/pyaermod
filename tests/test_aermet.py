@@ -210,10 +210,11 @@ class TestAERMETStage3:
 
         assert "** AERMET Stage 3 Input" in output
         assert "JOB" in output
-        assert "SURFACE" in output
         assert "METPREP" in output
+        assert "DATA" in output
         assert "OUTPUT" in output
         assert "PROFILE" in output
+        assert "FREQ_SECT  ANNUAL" in output
 
     def test_stage3_with_station(self):
         """Test Stage 3 with station location"""
@@ -255,10 +256,10 @@ class TestAERMETStage3:
         assert "0.50" in output
 
     def test_stage3_freq_sect(self):
-        """Test frequency sector"""
-        stage3 = AERMETStage3(freq_sect=[0.0, 90.0, 180.0, 270.0])
+        """Test frequency sector — uses ANNUAL + num_sectors format"""
+        stage3 = AERMETStage3(num_sectors=4)
         output = stage3.to_aermet_input()
-        assert "FREQ_SECT  0.0 90.0 180.0 270.0" in output
+        assert "FREQ_SECT  ANNUAL  4" in output
 
     def test_stage3_output_files(self):
         """Test output file names"""
@@ -271,10 +272,10 @@ class TestAERMETStage3:
         assert "PROFILE    custom.pfl" in output
 
     def test_stage3_merge_input(self):
-        """Test merge file input"""
+        """Test merge file input — Stage 3 uses DATA keyword under METPREP"""
         stage3 = AERMETStage3(merge_file="custom_merge.mrg")
         output = stage3.to_aermet_input()
-        assert "INPUT      custom_merge.mrg" in output
+        assert "DATA       custom_merge.mrg" in output
 
     def test_stage3_date_range(self):
         """Test date range"""

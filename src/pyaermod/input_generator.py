@@ -560,16 +560,15 @@ class AreaSource:
             f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
         )
 
-        # SRCPARAM keyword
-        lines.append(
+        # SRCPARAM keyword — angle is optional 5th parameter for AREA sources
+        srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
         )
-
-        # Optional angle
         if self.angle != 0.0:
-            lines.append(f"   AREAVERT  {self.source_id:<8}  {self.angle:8.2f}")
+            srcparam += f" {self.angle:8.2f}"
+        lines.append(srcparam)
 
         # Building downwash parameters
         lines.extend(_building_downwash_lines(self.source_id, self))
