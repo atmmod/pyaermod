@@ -1783,8 +1783,8 @@ class TestBackgroundSerializerRoundTrip:
         SessionStateManager.initialize()
         sp = pyaermod_gui.st.session_state["project_sources"]
         sectors = [
-            BackgroundSector(sector_id=1, start_direction=0.0, end_direction=180.0),
-            BackgroundSector(sector_id=2, start_direction=180.0, end_direction=360.0),
+            BackgroundSector(sector_id=1, start_direction=0.0),
+            BackgroundSector(sector_id=2, start_direction=180.0),
         ]
         sector_values = {(1, "ANNUAL"): 12.0, (2, "ANNUAL"): 8.0}
         sp.background = BackgroundConcentration(
@@ -1798,7 +1798,7 @@ class TestBackgroundSerializerRoundTrip:
         bg = new_state["project_sources"].background
         assert len(bg.sectors) == 2
         assert bg.sectors[0].sector_id == 1
-        assert bg.sectors[1].end_direction == 360.0
+        assert bg.sectors[1].start_direction == 180.0
         assert bg.sector_values == {(1, "ANNUAL"): 12.0, (2, "ANNUAL"): 8.0}
 
 

@@ -275,7 +275,7 @@ class TestChemistryControlPathway:
             chemistry=ChemistryOptions(method=ChemistryMethod.ARM2),
         )
         output = ctrl.to_aermod_input()
-        assert "MODELOPT  CONC FLAT ARM2" in output
+        assert "MODELOPT  CONC FLAT DFAULT ARM2" in output
 
     def test_modelopt_olm(self):
         ctrl = ControlPathway(
@@ -287,7 +287,7 @@ class TestChemistryControlPathway:
             ),
         )
         output = ctrl.to_aermod_input()
-        assert "MODELOPT  CONC FLAT OLM" in output
+        assert "MODELOPT  CONC FLAT DFAULT OLM" in output
 
     def test_modelopt_pvmrm(self):
         ctrl = ControlPathway(
@@ -562,7 +562,7 @@ class TestChemistryFullProject:
             output=OutputPathway(),
         )
         output = proj.to_aermod_input()
-        assert "MODELOPT  CONC FLAT OLM" in output
+        assert "MODELOPT  CONC FLAT DFAULT OLM" in output
         assert "O3VALUES  ozone.dat" in output
         assert "NO2STACK  0.5000" in output
         assert "NO2RATIO  STK1     0.8000" in output

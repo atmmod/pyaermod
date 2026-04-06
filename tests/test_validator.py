@@ -946,7 +946,7 @@ class TestBackgroundValidation:
         assert len(bg_errors) >= 1
 
     def test_too_many_sectors(self):
-        sectors = [BackgroundSector(i, i*30.0, (i+1)*30.0) for i in range(13)]
+        sectors = [BackgroundSector(i, i*30.0) for i in range(13)]
         result = Validator.validate(self._project_with_background(
             BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
         ))
@@ -954,7 +954,7 @@ class TestBackgroundValidation:
         assert len(bg_errors) >= 1
 
     def test_invalid_sector_direction(self):
-        sectors = [BackgroundSector(1, -10.0, 90.0)]
+        sectors = [BackgroundSector(1, -10.0)]
         result = Validator.validate(self._project_with_background(
             BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
         ))
@@ -962,7 +962,7 @@ class TestBackgroundValidation:
         assert len(bg_errors) >= 1
 
     def test_invalid_sector_id_in_values(self):
-        sectors = [BackgroundSector(1, 0.0, 180.0)]
+        sectors = [BackgroundSector(1, 0.0)]
         result = Validator.validate(self._project_with_background(
             BackgroundConcentration(
                 sectors=sectors,

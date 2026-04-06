@@ -254,11 +254,6 @@ class Validator:
                         pathway, "sectors",
                         f"sector {s.sector_id} start_direction must be 0-360"
                     ))
-                if not (0 <= s.end_direction <= 360):
-                    result.errors.append(ValidationError(
-                        pathway, "sectors",
-                        f"sector {s.sector_id} end_direction must be 0-360"
-                    ))
 
         if background.sectors and background.sector_values:
             valid_ids = {s.sector_id for s in background.sectors}

@@ -675,20 +675,17 @@ class TestBackgroundConcentration:
 
     def test_sector_dependent_background(self):
         sectors = [
-            BackgroundSector(1, 0.0, 90.0),
-            BackgroundSector(2, 90.0, 180.0),
+            BackgroundSector(1, 0.0),
+            BackgroundSector(2, 90.0),
         ]
         bg = BackgroundConcentration(
             sectors=sectors,
             sector_values={(1, "ANNUAL"): 5.0, (2, "ANNUAL"): 8.0},
         )
         output = bg.to_aermod_input()
-        assert "BGSECTOR" in output
-        assert "0.0" in output
-        assert "90.0" in output
-        assert "180.0" in output
-        assert "BACKGRND  1  ANNUAL  5" in output
-        assert "BACKGRND  2  ANNUAL  8" in output
+        assert "BGSECTOR  0.0 90.0" in output
+        assert "BACKGRND  SECT1  ANNUAL  5" in output
+        assert "BACKGRND  SECT2  ANNUAL  8" in output
 
     def test_source_pathway_with_background(self):
         sp = SourcePathway()

@@ -82,7 +82,7 @@ class TestBackgroundSectorValidation:
 
     def test_invalid_averaging_period(self):
         bg = BackgroundConcentration(
-            sectors=[BackgroundSector(sector_id=1, start_direction=0, end_direction=90)],
+            sectors=[BackgroundSector(sector_id=1, start_direction=0)],
             sector_values={(1, "BOGUS"): 10.0},
         )
         project = _project_with_source(_point(), background=bg)
@@ -94,7 +94,7 @@ class TestBackgroundSectorValidation:
 
     def test_negative_sector_value(self):
         bg = BackgroundConcentration(
-            sectors=[BackgroundSector(sector_id=1, start_direction=0, end_direction=90)],
+            sectors=[BackgroundSector(sector_id=1, start_direction=0)],
             sector_values={(1, "ANNUAL"): -5.0},
         )
         project = _project_with_source(_point(), background=bg)

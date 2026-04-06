@@ -3503,7 +3503,11 @@ def _app():
     has_met = bool(st.session_state["project_meteorology"].surface_file)
     has_results = st.session_state.get("parsed_results") is not None
 
-    st.sidebar.checkbox("Project configured", value=True, disabled=True)
+    has_project = bool(
+        st.session_state["project_control"].title_one
+        and st.session_state["project_control"].title_one != "New AERMOD Project"
+    )
+    st.sidebar.checkbox("Project configured", value=has_project, disabled=True)
     st.sidebar.checkbox("Sources defined", value=has_sources, disabled=True)
     st.sidebar.checkbox("Receptors defined", value=has_receptors, disabled=True)
     st.sidebar.checkbox("Meteorology set", value=has_met, disabled=True)

@@ -135,8 +135,12 @@ class ControlPathway:
     half_life: Optional[float] = None  # hours, for decay
     decay_coefficient: Optional[float] = None  # 1/seconds
 
+    # Regulatory default mode
+    regulatory_default: bool = True  # Include DFAULT in MODELOPT
+
     # Urban/rural
     urban_option: Optional[str] = None  # Urban area name if urban
+    urban_population: Optional[float] = None  # Required population for URBANOPT
 
     # Low wind options
     low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
@@ -171,6 +175,10 @@ class ControlPathway:
         terrain = self.terrain_type.value if isinstance(self.terrain_type, TerrainType) else self.terrain_type
         model_opts.append(terrain)
 
+        # Regulatory default mode
+        if self.regulatory_default:
+            model_opts.append("DFAULT")
+
         # Append chemistry method to MODELOPT
         if self.chemistry is not None:
             model_opts.append(self.chemistry.method.value)
@@ -198,7 +206,9 @@ class ControlPathway:
             lines.append(f"   FLAGPOLE  {self.flag_pole_height:.2f}")
 
         if self.urban_option:
-            lines.append(f"   URBANOPT  {self.urban_option}")
+            # URBANOPT format: UrbanID Population [Name] [Roughness]
+            pop = self.urban_population or 1000000.0
+            lines.append(f"   URBANOPT  {self.urban_option}  {pop:.1f}")
 
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
@@ -1341,10 +1351,14 @@ class OpenPitSource:
 
 @dataclass
 class BackgroundSector:
-    """A wind direction sector for direction-dependent background concentrations."""
+    """A wind direction sector for direction-dependent background concentrations.
+
+    Each sector is defined by its starting direction (degrees clockwise from
+    north). AERMOD allows up to 6 sectors. The ending direction is implicitly
+    the starting direction of the next sector (or the first sector for wrap-around).
+    """
     sector_id: int
     start_direction: float
-    end_direction: float
 
 
 @dataclass
@@ -1366,13 +1380,13 @@ class BackgroundConcentration:
         """Generate AERMOD BACKGRND / BGSECTOR keywords."""
         lines = []
         if self.sectors and self.sector_values:
-            sector_parts = []
-            for s in sorted(self.sectors, key=lambda s: s.sector_id):
-                sector_parts.append(f"{s.start_direction:.1f}")
-                sector_parts.append(f"{s.end_direction:.1f}")
-            lines.append(f"   BGSECTOR  {' '.join(sector_parts)}")
+            # BGSECTOR takes starting directions only (up to 6)
+            sorted_sectors = sorted(self.sectors, key=lambda s: s.sector_id)
+            dir_parts = [f"{s.start_direction:.1f}" for s in sorted_sectors]
+            lines.append(f"   BGSECTOR  {' '.join(dir_parts)}")
+            # BACKGRND with sectors: BACKGRND SECTn period value
             for (sid, period), value in sorted(self.sector_values.items()):
-                lines.append(f"   BACKGRND  {sid}  {period}  {value:.6g}")
+                lines.append(f"   BACKGRND  SECT{sid}  {period}  {value:.6g}")
         elif self.period_values:
             for period, value in self.period_values.items():
                 lines.append(f"   BACKGRND  {period}  {value:.6g}")
