@@ -12,6 +12,7 @@ Launch with:
 Requires: pip install pyaermod[gui]
 """
 
+import contextlib
 import dataclasses
 import json
 import math
@@ -2613,17 +2614,13 @@ def _render_aermet_stage3():
             s1 = st.session_state.get("aermet_stage1")
             if s1:
                 if s1.surface_station:
-                    try:
+                    with contextlib.suppress(ValueError):
                         _sf_id = int(s1.surface_station.station_id)
-                    except ValueError:
-                        pass
                     if s1.surface_station.elevation is not None:
                         _base_elev = s1.surface_station.elevation
                 if s1.upper_air_station:
-                    try:
+                    with contextlib.suppress(ValueError):
                         _ua_id = int(s1.upper_air_station.station_id)
-                    except ValueError:
-                        pass
             st.session_state["project_meteorology"] = MeteorologyPathway(
                 surface_file=sfc_out,
                 profile_file=pfl_out,
