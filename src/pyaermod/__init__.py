@@ -160,6 +160,20 @@ from .met_ingest import (
     parse_igra_v2,
 )
 from .validator_advanced import advanced_validate
+from .runner_utils import (
+    ERRMSGInfo,
+    LoggingProgress,
+    NoOpProgress,
+    ProgressReporter,
+    RunManifest,
+    RunManifestEntry,
+    TqdmProgress,
+    extract_errmsg,
+    generate_slurm_script,
+    resume_batch,
+    summarize_failure,
+    tail_output,
+)
 from .terrain_utils import (
     DatumTransformer,
     EPSG_NAD27,
@@ -346,6 +360,20 @@ __all__ = [
 
     # Advanced validator (cross-field AERMOD checks)
     'advanced_validate',
+
+    # Runner UX (progress, failure diagnostics, resume, SLURM)
+    'ERRMSGInfo',
+    'extract_errmsg',
+    'tail_output',
+    'summarize_failure',
+    'ProgressReporter',
+    'NoOpProgress',
+    'LoggingProgress',
+    'TqdmProgress',
+    'resume_batch',
+    'RunManifest',
+    'RunManifestEntry',
+    'generate_slurm_script',
 
     # Terrain utilities (datums, SRTM, mosaic, reproject, diagnostics)
     'DatumTransformer',
