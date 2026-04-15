@@ -32,6 +32,15 @@ coverage.xml
 *.sfc
 *.pfl
 *.msg
+# Exception: vendored EPA test fixtures
+!tests/fixtures/epa_official/*.inp
+!tests/fixtures/epa_official/*.out
+!tests/fixtures/epa_official/*.sfc
+!tests/fixtures/epa_official/*.pfl
+!tests/fixtures/epa_official/*.SFC
+!tests/fixtures/epa_official/*.PFL
+!tests/fixtures/epa_style/*.inp
+!tests/fixtures/epa_style/*.inp.expected
 
 # Fortran source directories (download separately)
 aermod/
