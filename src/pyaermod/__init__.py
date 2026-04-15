@@ -159,6 +159,7 @@ from .met_ingest import (
     parse_asos_1min_line,
     parse_igra_v2,
 )
+from .validator_advanced import advanced_validate
 from .met_qaqc import (
     QAQCFinding,
     QAQCReport,
@@ -305,6 +306,9 @@ __all__ = [
     'check_low_wind_bias',
     'check_profile_monotonic',
     'run_all_qaqc',
+
+    # Advanced validator (cross-field AERMOD checks)
+    'advanced_validate',
 
     # POSTFILE parser
     'PostfileHeader',
