@@ -55,3 +55,7 @@ site/
 
 # Claude Code local config
 .claude/
+
+# AERMOD runtime artifacts
+ERRMSG.TMP
+--help_*
