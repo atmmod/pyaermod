@@ -52,3 +52,6 @@ site/
 # Archives
 *.tar.gz
 *.zip
+
+# Claude Code local config
+.claude/
