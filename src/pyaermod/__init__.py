@@ -159,6 +159,17 @@ from .met_ingest import (
     parse_asos_1min_line,
     parse_igra_v2,
 )
+from .met_qaqc import (
+    QAQCFinding,
+    QAQCReport,
+    check_extremes,
+    check_low_wind_bias,
+    check_missing_data,
+    check_profile_monotonic,
+    check_stability_consistency,
+    find_missing_runs,
+    run_all_qaqc,
+)
 
 # Geospatial utilities (optional - requires pyproj, geopandas, rasterio, shapely)
 try:
@@ -283,6 +294,17 @@ __all__ = [
     'parse_igra_v2',
     'IGRAFetcher',
     'MMIFConfig',
+
+    # Met QA/QC
+    'QAQCFinding',
+    'QAQCReport',
+    'find_missing_runs',
+    'check_missing_data',
+    'check_extremes',
+    'check_stability_consistency',
+    'check_low_wind_bias',
+    'check_profile_monotonic',
+    'run_all_qaqc',
 
     # POSTFILE parser
     'PostfileHeader',
