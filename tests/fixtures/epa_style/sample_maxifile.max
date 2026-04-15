@@ -1,0 +1,6 @@
+* AERMOD (23132):   Regression case: single SO2 point source              MAXIFILE   07/01/2023
+* AVERAGING PERIOD:    24-HR        SOURCE GROUP:    ALL      HIGH-1ST
+* RANK        X           Y         CONC         DATE      RECEPTOR
+    1     1000.00       0.00      25.4500    2020061524        001
+    2     1000.00     200.00      22.8100    2020061524        002
+    3     1200.00       0.00      19.4500    2020061524        003

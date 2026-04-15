@@ -29,6 +29,23 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional
 
 
+_TERRAIN_ALIASES = {
+    "ELEV": {"ELEV", "ELEVATED"},
+    "ELEVATED": {"ELEV", "ELEVATED"},
+    "FLAT": {"FLAT"},
+    "FLATSRCS": {"FLATSRCS"},
+}
+
+
+def _terrain_matches(current: str, expected: str) -> bool:
+    """Return True if `current` satisfies the profile's `expected` value.
+
+    AERMOD accepts both "ELEV" and "ELEVATED" for the same model
+    option, so we treat them as equivalent.
+    """
+    return current.upper() in _TERRAIN_ALIASES.get(expected.upper(), {expected.upper()})
+
+
 @dataclass
 class RegulatoryProfile:
     """A named bundle of AERMOD regulatory settings.
@@ -42,8 +59,9 @@ class RegulatoryProfile:
     regulatory_default : bool
         Whether to require DFAULT in MODELOPT.
     terrain_type : str
-        Required TerrainType ("ELEV" / "FLAT"). Profiles usually mandate
-        "ELEV" since it subsumes flat cases.
+        Required TerrainType value ("ELEVATED" / "FLAT"). Profiles usually
+        mandate "ELEVATED" since it subsumes flat cases (AERMOD also
+        accepts the short form "ELEV").
     allowed_low_wind : tuple of str
         Which LOWWIND options are acceptable.  Appendix W (2017) allows
         LOWWIND3 for specific documented cases.
@@ -58,7 +76,7 @@ class RegulatoryProfile:
     name: str
     description: str
     regulatory_default: bool = True
-    terrain_type: str = "ELEV"
+    terrain_type: str = "ELEVATED"
     allowed_low_wind: tuple = ("LOWWIND3",)
     allow_chemistry_methods: tuple = ("OLM", "PVMRM", "GRSM")
     forbid_nondefault_flags: tuple = (
@@ -91,7 +109,7 @@ class RegulatoryProfile:
             if hasattr(ctrl.terrain_type, "value")
             else ctrl.terrain_type
         )
-        if current_terrain != self.terrain_type:
+        if not _terrain_matches(current_terrain, self.terrain_type):
             ctrl.terrain_type = self.terrain_type
             changes.append(f"terrain_type {current_terrain} -> {self.terrain_type}")
 
@@ -125,7 +143,7 @@ class RegulatoryProfile:
             if hasattr(ctrl.terrain_type, "value")
             else ctrl.terrain_type
         )
-        if current_terrain != self.terrain_type:
+        if not _terrain_matches(current_terrain, self.terrain_type):
             warnings.append(
                 f"{self.name}: terrain_type='{current_terrain}' but profile "
                 f"expects '{self.terrain_type}'"
