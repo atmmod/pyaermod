@@ -24,7 +24,8 @@ before removal.
 
 from __future__ import annotations
 
-from .__init__ import __version__
+# Package metadata
+__version__ = "1.3.0"
 
 # --- Project building -----------------------------------------------------
 from .input_generator import (
@@ -72,10 +73,12 @@ from .validator_advanced import advanced_validate
 # --- Execution ------------------------------------------------------------
 from .runner import AERMODRunner, AERMODRunResult, BatchRunner, run_aermod
 from .runner_utils import (
+    ERRMSGInfo,
     LoggingProgress,
     NoOpProgress,
     ProgressReporter,
     RunManifest,
+    RunManifestEntry,
     TqdmProgress,
     extract_errmsg,
     generate_slurm_script,
@@ -90,7 +93,10 @@ from .output_parser import (
     AERMODResults,
     ConcentrationResult,
     ModelRunInfo,
+    ReceptorInfo,
+    SourceSummary,
     parse_aermod_output,
+    quick_summary,
 )
 from .postfile import (
     PostfileHeader,
@@ -102,6 +108,7 @@ from .postfile import (
 from .aermod_outputs import (
     AERMODAuxResult,
     AERMODFileHeader,
+    parse_aermod_header,
     read_aermod_aux_file,
     read_deposition,
     read_maxifile,
@@ -120,9 +127,12 @@ from .aermet import (
     AERMETStage2,
     AERMETStage3,
     AERMETStation,
+    ProfileFileHeader,
+    SurfaceFileHeader,
     UpperAirStation,
     read_profile_file,
     read_surface_file,
+    write_aermet_runfile,
 )
 from .met_ingest import (
     ASOS1MinRecord,
@@ -144,12 +154,16 @@ from .met_qaqc import (
     check_missing_data,
     check_profile_monotonic,
     check_stability_consistency,
+    find_missing_runs,
     run_all_qaqc,
 )
 
 # --- Terrain --------------------------------------------------------------
 from .aermap import AERMAPDomain, AERMAPProject, AERMAPReceptor, AERMAPSource
 from .terrain_utils import (
+    EPSG_NAD27,
+    EPSG_NAD83,
+    EPSG_WGS84,
     DatumTransformer,
     HillHeightAnomaly,
     SRTMTileInfo,
@@ -174,6 +188,7 @@ from .regulatory import (
 # --- PRIME / downwash -----------------------------------------------------
 from .bpip import BPIPCalculator, BPIPResult, Building
 from .prime import (
+    GEP_FLOOR_M,
     DownwashAssessment,
     apply_bpip_to_project,
     assess_source_downwash,
@@ -183,6 +198,54 @@ from .prime import (
     in_cavity_region,
     suggest_downwash_config,
 )
+
+# --- Chemistry / deposition presets ---------------------------------------
+from .chemistry_presets import (
+    DEPOSITION_DEFAULTS,
+    PollutantDepositionDefaults,
+    arm2_preset,
+    deposition_defaults_for,
+    deposition_diagnostics,
+    grsm_preset,
+    olm_preset,
+    pvmrm_preset,
+    suggest_chemistry_for,
+)
+
+# --- Optional-dependency surface -----------------------------------------
+# These are only importable when the underlying extras are installed. We
+# still list them in `__all__` so users discover them via tab-completion
+# and IDEs; at import time the flags below advertise availability.
+
+try:
+    from .geospatial import (
+        ContourGenerator,
+        CoordinateTransformer,
+        GeoDataFrameFactory,
+        RasterExporter,
+        VectorExporter,
+        export_concentration_geotiff,
+        export_concentration_shapefile,
+        latlon_to_utm,
+        utm_to_latlon,
+    )
+    HAS_GEOSPATIAL = True
+except ImportError:
+    HAS_GEOSPATIAL = False
+
+try:
+    from .terrain import (
+        AERMAPOutputParser,
+        AERMAPRunner,
+        AERMAPRunResult,
+        DEMDownloader,
+        DEMTileInfo,
+        TerrainProcessor,
+        run_aermap,
+    )
+    HAS_TERRAIN = True
+except ImportError:
+    HAS_TERRAIN = False
 
 __all__ = [
     "__version__",
@@ -202,38 +265,62 @@ __all__ = [
     # execution
     "AERMODRunner", "AERMODRunResult", "BatchRunner", "run_aermod",
     "ProgressReporter", "NoOpProgress", "LoggingProgress", "TqdmProgress",
+    "ERRMSGInfo", "RunManifestEntry",
     "extract_errmsg", "tail_output", "summarize_failure",
     "resume_batch", "RunManifest", "generate_slurm_script",
     # outputs
     "AERMODResults", "ModelRunInfo", "ConcentrationResult", "AERMODOutputParser",
-    "parse_aermod_output",
+    "ReceptorInfo", "SourceSummary", "parse_aermod_output", "quick_summary",
     "PostfileHeader", "PostfileResult", "PostfileParser",
     "UnformattedPostfileParser", "read_postfile",
-    "AERMODFileHeader", "AERMODAuxResult", "read_aermod_aux_file",
+    "AERMODFileHeader", "AERMODAuxResult", "parse_aermod_header", "read_aermod_aux_file",
     "read_plotfile", "read_maxifile", "read_rankfile", "read_seasonhr",
     "read_toxxfile", "read_deposition",
     # visualization
     "AERMODVisualizer", "quick_plot", "quick_map",
     # meteorology
     "AERMETStation", "UpperAirStation", "AERMETStage1", "AERMETStage2",
-    "AERMETStage3", "read_surface_file", "read_profile_file",
+    "AERMETStage3", "SurfaceFileHeader", "ProfileFileHeader",
+    "write_aermet_runfile", "read_surface_file", "read_profile_file",
     "ASOS1MinRecord", "parse_asos_1min_line", "parse_asos_1min_file",
     "aggregate_1min_to_hourly", "ISDStationId", "ISDFetcher", "IGRASounding",
     "parse_igra_v2", "IGRAFetcher", "MMIFConfig",
-    "QAQCFinding", "QAQCReport", "check_missing_data", "check_extremes",
+    "QAQCFinding", "QAQCReport", "find_missing_runs",
+    "check_missing_data", "check_extremes",
     "check_stability_consistency", "check_low_wind_bias",
     "check_profile_monotonic", "run_all_qaqc",
     # terrain
     "AERMAPProject", "AERMAPDomain", "AERMAPReceptor", "AERMAPSource",
     "DatumTransformer", "utm_zone_for_lon", "utm_epsg",
+    "EPSG_WGS84", "EPSG_NAD83", "EPSG_NAD27",
     "SRTMTileInfo", "srtm_tile_name", "srtm_tiles_for_bbox",
     "async_fetch_tiles", "HillHeightAnomaly", "hill_height_diagnostics",
     # regulatory
     "RegulatoryProfile", "EPA_APPENDIX_W_2017", "EPA_APPENDIX_W_2023",
     "SCREENING_PROFILE", "ALL_PROFILES", "get_profile",
     # PRIME
-    "Building", "BPIPCalculator", "BPIPResult",
+    "Building", "BPIPCalculator", "BPIPResult", "GEP_FLOOR_M",
     "gep_stack_height", "gep_from_building", "cavity_length", "in_cavity_region",
     "DownwashAssessment", "assess_source_downwash", "apply_bpip_to_project",
     "suggest_downwash_config",
+    # chemistry presets
+    "olm_preset", "pvmrm_preset", "arm2_preset", "grsm_preset",
+    "suggest_chemistry_for", "PollutantDepositionDefaults",
+    "DEPOSITION_DEFAULTS", "deposition_defaults_for", "deposition_diagnostics",
+    # optional-dep availability flags
+    "HAS_GEOSPATIAL", "HAS_TERRAIN",
 ]
+
+# Optional-dep symbols (only added to __all__ when the extras are installed)
+if HAS_GEOSPATIAL:
+    __all__.extend([
+        "ContourGenerator", "CoordinateTransformer", "GeoDataFrameFactory",
+        "RasterExporter", "VectorExporter",
+        "export_concentration_geotiff", "export_concentration_shapefile",
+        "latlon_to_utm", "utm_to_latlon",
+    ])
+if HAS_TERRAIN:
+    __all__.extend([
+        "AERMAPOutputParser", "AERMAPRunner", "AERMAPRunResult",
+        "DEMDownloader", "DEMTileInfo", "TerrainProcessor", "run_aermap",
+    ])
