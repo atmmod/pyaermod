@@ -25,6 +25,13 @@ DataFrames, and exports results to geospatial formats.
 - [API Reference](api/index.md) -- module-by-module documentation
 - [Architecture](architecture.md) -- technical design overview
 
+### Practitioner guides
+
+- [AERMET Tuning Guide](aermet-tuning-guide.md) -- data sources, stages, QA/QC
+- [AERMAP Troubleshooting](aermap-troubleshooting.md) -- datums, DEMs, hill heights
+- [Common Errors and Fixes](common-errors.md) -- cryptic crashes decoded
+- [Regulatory Compliance Matrix](regulatory-matrix.md) -- Appendix W / screening profiles
+
 ## Installation
 
 ```bash
