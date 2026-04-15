@@ -160,6 +160,20 @@ from .met_ingest import (
     parse_igra_v2,
 )
 from .validator_advanced import advanced_validate
+from .terrain_utils import (
+    DatumTransformer,
+    EPSG_NAD27,
+    EPSG_NAD83,
+    EPSG_WGS84,
+    HillHeightAnomaly,
+    SRTMTileInfo,
+    async_fetch_tiles,
+    hill_height_diagnostics,
+    srtm_tile_name,
+    srtm_tiles_for_bbox,
+    utm_epsg,
+    utm_zone_for_lon,
+)
 from .aermod_outputs import (
     AERMODAuxResult,
     AERMODFileHeader,
@@ -332,6 +346,20 @@ __all__ = [
 
     # Advanced validator (cross-field AERMOD checks)
     'advanced_validate',
+
+    # Terrain utilities (datums, SRTM, mosaic, reproject, diagnostics)
+    'DatumTransformer',
+    'EPSG_WGS84',
+    'EPSG_NAD83',
+    'EPSG_NAD27',
+    'utm_zone_for_lon',
+    'utm_epsg',
+    'SRTMTileInfo',
+    'srtm_tile_name',
+    'srtm_tiles_for_bbox',
+    'async_fetch_tiles',
+    'HillHeightAnomaly',
+    'hill_height_diagnostics',
 
     # AERMOD auxiliary output readers (PLOTFILE, MAXIFILE, RANKFILE, SEASONHR, TOXXFILE, deposition)
     'AERMODFileHeader',
