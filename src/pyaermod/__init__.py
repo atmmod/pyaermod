@@ -160,6 +160,18 @@ from .met_ingest import (
     parse_igra_v2,
 )
 from .validator_advanced import advanced_validate
+from .aermod_outputs import (
+    AERMODAuxResult,
+    AERMODFileHeader,
+    parse_aermod_header,
+    read_aermod_aux_file,
+    read_deposition,
+    read_maxifile,
+    read_plotfile,
+    read_rankfile,
+    read_seasonhr,
+    read_toxxfile,
+)
 from .prime import (
     DownwashAssessment,
     GEP_FLOOR_M,
@@ -320,6 +332,18 @@ __all__ = [
 
     # Advanced validator (cross-field AERMOD checks)
     'advanced_validate',
+
+    # AERMOD auxiliary output readers (PLOTFILE, MAXIFILE, RANKFILE, SEASONHR, TOXXFILE, deposition)
+    'AERMODFileHeader',
+    'AERMODAuxResult',
+    'parse_aermod_header',
+    'read_aermod_aux_file',
+    'read_plotfile',
+    'read_maxifile',
+    'read_rankfile',
+    'read_seasonhr',
+    'read_toxxfile',
+    'read_deposition',
 
     # PRIME / GEP downwash helpers
     'GEP_FLOOR_M',
