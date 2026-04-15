@@ -30,22 +30,27 @@ order: each pathway must appear once, inside ``XX STARTING`` and
 from __future__ import annotations
 
 import contextlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .input_generator import (
     AERMODProject,
+    AreaCircSource,
     AreaSource,
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
+    LineSource,
     MeteorologyPathway,
+    OpenPitSource,
     OutputPathway,
     PointSource,
     PolarGrid,
     PollutantType,
     ReceptorPathway,
+    RLineSource,
     SourceGroupDefinition,
     SourcePathway,
     TerrainType,
@@ -110,18 +115,47 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
     return blocks
 
 
-def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
-    """Return (keyword, tokens, lineno) tuples.
+_REPEAT_RE = re.compile(r"^(\d+)\s*\*\s*(.+)$")
 
-    AERMOD allows continuation by indentation, but for the common case
-    each keyword is a single line. We join continuation lines (those
-    whose first token isn't a known pathway keyword) with the previous.
+
+def _expand_shorthand(tokens: List[str]) -> List[str]:
+    """Expand AERMOD ``N*VALUE`` tokens into repeated values.
+
+    ``36*50.`` -> ``['50.', '50.', ...]`` (36 copies). Leaves tokens
+    without the shorthand pattern unchanged.
+    """
+    out: List[str] = []
+    for tok in tokens:
+        m = _REPEAT_RE.match(tok)
+        if m:
+            n = int(m.group(1))
+            val = m.group(2)
+            out.extend([val] * n)
+        else:
+            out.append(tok)
+    return out
+
+
+def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
+    """Return (keyword, tokens, lineno) tuples for a pathway block.
+
+    Handles two AERMOD conventions inside a block:
+    - Lines may start with the pathway code (e.g. ``SO BUILDHGT ...``);
+      the prefix is stripped so the canonical keyword is the first
+      output token.
+    - Repeated values in shorthand form (``36*50.``) are expanded so
+      downstream parsers see the full list.
     """
     out: List[Tuple[str, List[str], int]] = []
+    pathway_upper = block.name.upper()
     for lineno, line in block.lines:
         toks = line.split()
         if not toks:
             continue
+        # Strip leading pathway code if present (e.g. "SO BUILDHGT ..." -> "BUILDHGT ...")
+        if toks[0].upper() == pathway_upper and len(toks) > 1:
+            toks = toks[1:]
+        toks = _expand_shorthand(toks)
         out.append((toks[0].upper(), toks[1:], lineno))
     return out
 
@@ -223,10 +257,20 @@ def _coerce_pollutant(name: str) -> Union[PollutantType, str]:
         return name
 
 
+_BUILDING_KW_TO_FIELD = {
+    "BUILDHGT": "building_height",
+    "BUILDWID": "building_width",
+    "BUILDLEN": "building_length",
+    "XBADJ": "building_x_offset",
+    "YBADJ": "building_y_offset",
+}
+
+
 def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     # LOCATION gives us each source's type and coordinates; SRCPARAM fills
-    # in emission + physical parameters. We collect the pieces in dicts
-    # keyed by source_id then construct the dataclass at the end.
+    # in emission + physical parameters. Building-downwash keywords
+    # (BUILDHGT, BUILDWID, ...) may appear on multiple lines per source
+    # to cover 36 wind sectors; values accumulate in lists.
     locs: Dict[str, Dict[str, Any]] = {}
     src_types: Dict[str, str] = {}
     group_defs: List[SourceGroupDefinition] = []
@@ -235,17 +279,46 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
         if kw == "LOCATION":
             if len(toks) < 4:
                 continue
-            sid, stype, x, y = toks[0], toks[1].upper(), float(toks[2]), float(toks[3])
-            z = float(toks[4]) if len(toks) > 4 else 0.0
+            sid, stype = toks[0], toks[1].upper()
+            x, y = float(toks[2]), float(toks[3])
             src_types[sid] = stype
             locs.setdefault(sid, {})
-            locs[sid].update(x_coord=x, y_coord=y, z_elev=z)
+            locs[sid]["x_coord"] = x
+            locs[sid]["y_coord"] = y
+            # LINE / RLINE / RLINEXT LOCATION format is:
+            #   srcid TYPE x_start y_start x_end y_end [elev]  (LINE/RLINE)
+            #   srcid TYPE x_start y_start z_start x_end y_end z_end (RLINEXT)
+            # Non-LINE sources use the 5th token as base_elevation.
+            if stype in ("LINE", "RLINE") and len(toks) >= 6:
+                locs[sid]["extra_loc"] = [float(toks[4]), float(toks[5])]
+                if len(toks) > 6:
+                    locs[sid]["z_elev"] = float(toks[6])
+            elif stype == "RLINEXT" and len(toks) >= 8:
+                locs[sid]["extra_loc"] = [
+                    float(toks[4]), float(toks[5]),
+                    float(toks[6]), float(toks[7]),
+                ]
+            else:
+                z = float(toks[4]) if len(toks) > 4 else 0.0
+                locs[sid]["z_elev"] = z
         elif kw == "SRCPARAM":
             if not toks:
                 continue
             sid = toks[0]
             params = [float(t) for t in toks[1:]]
             locs.setdefault(sid, {})["params"] = params
+        elif kw in _BUILDING_KW_TO_FIELD:
+            # Accumulate values across multiple BUILDHGT/WID/LEN/XBADJ/YBADJ lines
+            if not toks:
+                continue
+            sid = toks[0]
+            try:
+                values = [float(t) for t in toks[1:]]
+            except ValueError:
+                continue
+            field_name = _BUILDING_KW_TO_FIELD[kw]
+            bucket = locs.setdefault(sid, {}).setdefault("_building", {})
+            bucket.setdefault(field_name, []).extend(values)
         elif kw == "SRCGROUP":
             if not toks:
                 continue
@@ -268,44 +341,110 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             x_coord=data.get("x_coord", 0.0),
             y_coord=data.get("y_coord", 0.0),
         )
+        src = None
         if stype == "POINT":
             # SRCPARAM POINT: emission stackht stacktemp velocity diameter
             if len(params) < 5:
                 continue
-            sources.append(PointSource(
+            src = PointSource(
                 **common,
                 emission_rate=params[0],
                 stack_height=params[1],
                 stack_temp=params[2],
                 exit_velocity=params[3],
                 stack_diameter=params[4],
-            ))
+            )
         elif stype == "AREA":
             # SRCPARAM AREA: emission relhgt xinit yinit [angle]
             if not params:
                 continue
-            sources.append(AreaSource(
+            src = AreaSource(
                 **common,
                 emission_rate=params[0],
                 release_height=params[1] if len(params) > 1 else 0.0,
                 initial_lateral_dimension=params[2] if len(params) > 2 else 10.0,
                 initial_vertical_dimension=params[3] if len(params) > 3 else 10.0,
                 angle=params[4] if len(params) > 4 else 0.0,
-            ))
+            )
         elif stype == "VOLUME":
             # SRCPARAM VOLUME: emission relhgt sylinit szinit
             if not params:
                 continue
-            sources.append(VolumeSource(
+            src = VolumeSource(
                 **common,
                 emission_rate=params[0],
                 release_height=params[1] if len(params) > 1 else 0.0,
                 initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
                 initial_vertical_dimension=params[3] if len(params) > 3 else 1.0,
-            ))
-        # Other source types (LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT,
-        # AREACIRC, AREAPOLY) intentionally unsupported in this v1; users
-        # should use programmatic construction for those.
+            )
+        elif stype == "LINE":
+            # LOCATION LINE: x_start y_start x_end y_end [elev]
+            # SRCPARAM:      emission release_height sy_init
+            extra = data.get("extra_loc", [])
+            if len(extra) < 2 or not params:
+                # Treat as best-effort: require at least x_end,y_end
+                continue
+            src = LineSource(
+                source_id=sid,
+                x_start=common["x_coord"], y_start=common["y_coord"],
+                x_end=extra[0], y_end=extra[1],
+                emission_rate=params[0],
+                release_height=params[1] if len(params) > 1 else 0.0,
+                initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
+            )
+        elif stype == "RLINE":
+            extra = data.get("extra_loc", [])
+            if len(extra) < 2 or not params:
+                continue
+            src = RLineSource(
+                source_id=sid,
+                x_start=common["x_coord"], y_start=common["y_coord"],
+                x_end=extra[0], y_end=extra[1],
+                emission_rate=params[0],
+                release_height=params[1] if len(params) > 1 else 0.0,
+                initial_lateral_dimension=params[2] if len(params) > 2 else 3.0,
+                initial_vertical_dimension=params[3] if len(params) > 3 else 1.5,
+            )
+        elif stype == "OPENPIT":
+            # SRCPARAM: emission relhgt xinit yinit volume [angle]
+            if len(params) < 5:
+                continue
+            src = OpenPitSource(
+                **common,
+                emission_rate=params[0],
+                release_height=params[1],
+                x_dimension=params[2],
+                y_dimension=params[3],
+                pit_volume=params[4],
+                angle=params[5] if len(params) > 5 else 0.0,
+            )
+        elif stype == "AREACIRC":
+            # SRCPARAM: emission relhgt radius [nverts]
+            if not params:
+                continue
+            src = AreaCircSource(
+                **common,
+                emission_rate=params[0],
+                release_height=params[1] if len(params) > 1 else 0.0,
+                radius=params[2] if len(params) > 2 else 100.0,
+                num_vertices=int(params[3]) if len(params) > 3 else 20,
+            )
+        # AREAPOLY, BUOYLINE, RLINEXT: require additional multi-line
+        # constructs (AREAVERT vertex lists, BLPINPUT parameter blocks,
+        # per-endpoint z values) that we don't yet reconstruct. Skipped
+        # with a soft-warning path so the rest of the project still parses.
+
+        if src is None:
+            continue
+
+        # Apply accumulated BUILDHGT/WID/LEN/XBADJ/YBADJ arrays, if any
+        building = data.get("_building")
+        if building:
+            for attr, values in building.items():
+                if hasattr(src, attr):
+                    setattr(src, attr, values)
+
+        sources.append(src)
 
     return SourcePathway(sources=sources, group_definitions=group_defs)
 
@@ -430,24 +569,69 @@ def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
 def _parse_output(block: _PathwayBlock) -> OutputPathway:
     receptor_table = False
     max_table = False
+    day_table = False
     rect_rank = 10
     max_rank = 10
+    summary_file: Optional[str] = None
+    max_file: Optional[str] = None
+    plot_file: Optional[str] = None
+    plot_file_averaging = "ANNUAL"
+    plot_file_groups: List[Tuple[str, str, str]] = []
+    postfile: Optional[str] = None
+    postfile_averaging: Optional[str] = None
+    postfile_source_group = "ALL"
+    postfile_format = "PLOT"
 
     for kw, toks, _ln in _group_keywords(block):
         if kw == "RECTABLE" and len(toks) >= 2:
             receptor_table = True
+            # AERMOD accepts either a numeric rank or the special keyword
+            # form "FIRST-THIRD" (still represented as rank 3).
+            rank_tok = toks[1]
             with contextlib.suppress(ValueError):
-                rect_rank = int(toks[1])
+                rect_rank = int(rank_tok)
         elif kw == "MAXTABLE" and len(toks) >= 2:
             max_table = True
             with contextlib.suppress(ValueError):
                 max_rank = int(toks[1])
+        elif kw == "DAYTABLE":
+            day_table = True
+        elif kw == "SUMMFILE" and toks:
+            summary_file = toks[0]
+        elif kw == "MAXIFILE" and toks:
+            max_file = toks[0]
+        elif kw == "PLOTFILE":
+            # PLOTFILE <avg_period> <source_group> <rank> <filename>
+            if len(toks) >= 4:
+                period, group, _rank, fname = toks[0], toks[1], toks[2], toks[3]
+                if group.upper() == "ALL" and plot_file is None:
+                    plot_file = fname
+                    plot_file_averaging = period
+                else:
+                    plot_file_groups.append((period, group, fname))
+        elif kw == "POSTFILE":
+            # POSTFILE <avg_period> <source_group> <format> <filename>
+            if len(toks) >= 4:
+                postfile_averaging = toks[0]
+                postfile_source_group = toks[1]
+                postfile_format = toks[2].upper()
+                postfile = toks[3]
 
     return OutputPathway(
         receptor_table=receptor_table,
         receptor_table_rank=rect_rank,
         max_table=max_table,
         max_table_rank=max_rank,
+        day_table=day_table,
+        summary_file=summary_file,
+        max_file=max_file,
+        plot_file=plot_file,
+        plot_file_averaging=plot_file_averaging,
+        plot_file_groups=plot_file_groups,
+        postfile=postfile,
+        postfile_averaging=postfile_averaging,
+        postfile_source_group=postfile_source_group,
+        postfile_format=postfile_format,
     )
 
 

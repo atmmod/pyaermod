@@ -1,0 +1,74 @@
+**
+****************************************
+** AERMOD TEST CASE
+** TESTING NO2 BACKGROUND OLM W/ BACKUNIT PPB
+** USING AERMET2 METEOROLOGY
+****************************************
+
+****************************************
+** AERMOD Control Pathway
+****************************************
+CO STARTING
+   TITLEONE BG Test Run
+   TITLETWO NO2 with Background
+   MODELOPT NOCHKD CONC OLM
+   AVERTIME 1 
+   POLLUTID NO2  
+   NO2EQUIL 0.90
+   NO2STACK 0.10
+   OZONEVAL 0 UG/M3
+   RUNORNOT RUN
+   ERRORFIL ../Outputs/BG_NO2_OLM_PPB.err
+CO FINISHED
+
+****************************************
+** AERMOD Source Pathway
+****************************************
+SO STARTING
+** Source Location **
+** Source ID - Type - X Coord. - Y Coord. **
+   LOCATION 01        POINT      00  00       2.300
+   BACKGRND HOURLY BG1.dat
+   BACKUNIT PPB
+**   BACKUNIT UG/M3
+** Source Parameters **
+   SRCPARAM 01          0.01    1.000   270.000  1.000     0.0001    
+**   EMISUNIT 1.0E3 GRAMS/SEC MILLIGRAMS/M**3     
+   SRCGROUP ALL      BACKGROUND
+   SRCGROUP BACKGRND BACKGROUND
+   SRCGROUP SRCSS 01
+SO FINISHED
+
+****************************************
+** AERMOD Receptor Pathway
+****************************************
+RE STARTING
+   GRIDPOLR POL1 STA
+   GRIDPOLR POL1 ORIG 0 0
+   GRIDPOLR POL1 DIST 10 100
+   GRIDPOLR POL1 GDIR 36 10 10
+   GRIDPOLR POL1 END
+RE FINISHED
+
+****************************************
+** AERMOD Meteorology Pathway
+****************************************
+ME STARTING
+   SURFFILE ../meteorology/AERMET2.SFC
+   PROFFILE ../meteorology/AERMET2.PFL
+   SURFDATA 608 1988
+   UAIRDATA 99999 1988
+   PROFBASE 25.0 METERS
+ME FINISHED
+
+****************************************
+** AERMOD Output Pathway
+****************************************
+OU STARTING
+   RECTABLE ALLAVE 1ST
+   PLOTFILE 1 ALL      FIRST ../plotfiles/NO2_OLM_PPB_01H.PLT
+   POSTFILE 1 ALL      PLOT   ../postfiles/NO2_OLM_PPB_01H.PST
+   POSTFILE 1 SRCSS    PLOT   ../postfiles/NO2_OLM_PPB_SRC.PST
+   POSTFILE 1 BACKGRND PLOT   ../postfiles/NO2_OLM_PPB_BKG.PST
+   SUMMFILE ../Outputs/BG-NO2_OLM_PPB.sum
+OU FINISHED

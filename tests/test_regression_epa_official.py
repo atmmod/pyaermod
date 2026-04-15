@@ -25,6 +25,7 @@ What the always-on tests cover:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 import pytest
 
@@ -94,6 +95,46 @@ class TestAertestPlotfile:
         assert 500 < peak < 1500, f"unexpected peak {peak}; EPA AERTEST ~750"
 
 
+class TestBgNo2OlmPpbInputFile:
+    """Second vendored EPA case: NO2 background + OLM chemistry.
+
+    Exercises features beyond AERTEST — OZONEVAL, NO2STACK, NO2EQUIL,
+    BACKGRND, multiple SRCGROUP definitions, polar receptor grid,
+    multi-group POSTFILE keywords."""
+
+    INP = FIXT / "bg_no2_olm_ppb.inp"
+
+    def test_parses(self):
+        project = read_aermod_input(self.INP)
+        assert project.control.title_one == "BG Test Run"
+        assert project.control.pollutant_id.value == "NO2"
+
+    def test_polar_grid_captured(self):
+        """Note: AERMOD's GRIDPOLR DIST / GDIR have two syntactic forms
+        (init/num/delta vs. N/explicit-list); the EPA file uses a
+        terser variant. We assert the grid parses and we capture at
+        least the origin + name rather than exact field assignments."""
+        project = read_aermod_input(self.INP)
+        grids = project.receptors.polar_grids
+        assert len(grids) == 1
+        assert grids[0].grid_name == "POL1"
+        assert grids[0].x_origin == 0.0
+        assert grids[0].y_origin == 0.0
+
+    def test_plotfile_captured(self):
+        project = read_aermod_input(self.INP)
+        assert project.output.plot_file is not None
+        assert "01H.PLT" in project.output.plot_file
+
+    def test_source_group_definitions_preserved(self):
+        project = read_aermod_input(self.INP)
+        names = {g.group_name for g in project.sources.group_definitions}
+        # SRCGROUP ALL BACKGROUND, SRCGROUP BACKGRND BACKGROUND, SRCGROUP SRCSS 01
+        # "ALL BACKGROUND" is a custom group (not the bare ALL), so it's kept.
+        assert "SRCSS" in names
+        assert "BACKGRND" in names
+
+
 class TestAertestSum:
     def test_nonempty_and_mentions_title(self):
         text = (FIXT / "AERTEST.SUM").read_text(encoding="latin-1")
@@ -132,21 +173,26 @@ class TestFullArchive:
             root = FULL / "aermet_23132_aermod_23132" / "inputs"
         return sorted(root.glob("*.inp"))
 
-    def test_at_least_half_parse_without_error(self):
+    # Gate: at least 90% of the ~138 EPA cases must parse. Last measured
+    # baseline: 129/138 = 93% (v1.4 reader, after A.1-A.3 expansions).
+    # Raise this threshold as the reader's keyword coverage improves;
+    # drops below the gate should cause a CI failure you need to debug.
+    PARSE_RATE_FLOOR = 0.90
+
+    def test_parse_rate_meets_floor(self):
         inputs = self._collect_inputs()
         assert inputs, "no .inp files found under full archive"
         ok = 0
-        fail = 0
+        failures: List[str] = []
         for inp in inputs:
             try:
                 read_aermod_input(inp)
                 ok += 1
-            except Exception:
-                fail += 1
-        # Our v1 reader intentionally punts on advanced source types;
-        # aiming for "at least half the cases parse" is a floor, not a
-        # ceiling. Raise this threshold as reader coverage improves.
-        assert ok >= len(inputs) // 2, (
-            f"reader coverage regressed: {ok}/{len(inputs)} parsed; "
-            f"v1 reader should handle at least half."
+            except Exception as e:
+                failures.append(f"{inp.name}: {type(e).__name__}: {e}")
+        rate = ok / len(inputs)
+        assert rate >= self.PARSE_RATE_FLOOR, (
+            f"Reader parse-rate regressed to {rate:.0%} "
+            f"({ok}/{len(inputs)}); floor is {self.PARSE_RATE_FLOOR:.0%}. "
+            f"First few failures:\n" + "\n".join(failures[:5])
         )
