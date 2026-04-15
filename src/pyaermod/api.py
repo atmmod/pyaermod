@@ -28,6 +28,7 @@ from __future__ import annotations
 __version__ = "1.3.0"
 
 # --- Project building -----------------------------------------------------
+from .input_reader import parse_aermod_input, read_aermod_input
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -307,6 +308,8 @@ __all__ = [
     "olm_preset", "pvmrm_preset", "arm2_preset", "grsm_preset",
     "suggest_chemistry_for", "PollutantDepositionDefaults",
     "DEPOSITION_DEFAULTS", "deposition_defaults_for", "deposition_diagnostics",
+    # .inp file reader
+    "parse_aermod_input", "read_aermod_input",
     # optional-dep availability flags
     "HAS_GEOSPATIAL", "HAS_TERRAIN",
 ]
