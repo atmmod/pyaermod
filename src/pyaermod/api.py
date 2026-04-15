@@ -25,7 +25,7 @@ before removal.
 from __future__ import annotations
 
 # Package metadata
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # --- Project building -----------------------------------------------------
 from .input_reader import parse_aermod_input, read_aermod_input
