@@ -160,6 +160,17 @@ from .met_ingest import (
     parse_igra_v2,
 )
 from .validator_advanced import advanced_validate
+from .chemistry_presets import (
+    DEPOSITION_DEFAULTS,
+    PollutantDepositionDefaults,
+    arm2_preset,
+    deposition_defaults_for,
+    deposition_diagnostics,
+    grsm_preset,
+    olm_preset,
+    pvmrm_preset,
+    suggest_chemistry_for,
+)
 from .regulatory import (
     ALL_PROFILES,
     EPA_APPENDIX_W_2017,
@@ -368,6 +379,17 @@ __all__ = [
 
     # Advanced validator (cross-field AERMOD checks)
     'advanced_validate',
+
+    # Chemistry / deposition presets
+    'olm_preset',
+    'pvmrm_preset',
+    'arm2_preset',
+    'grsm_preset',
+    'suggest_chemistry_for',
+    'PollutantDepositionDefaults',
+    'DEPOSITION_DEFAULTS',
+    'deposition_defaults_for',
+    'deposition_diagnostics',
 
     # Regulatory profiles
     'RegulatoryProfile',
