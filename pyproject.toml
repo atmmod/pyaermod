@@ -63,6 +63,13 @@ gui = [
 terrain = [
     "requests>=2.25.0",
 ]
+met = [
+    "requests>=2.25.0",
+]
+hpc = [
+    "tqdm>=4.60.0",
+    "requests>=2.25.0",
+]
 all = [
     "matplotlib>=3.3.0",
     "scipy>=1.7.0",
@@ -74,6 +81,7 @@ all = [
     "streamlit>=1.28.0",
     "streamlit-folium>=0.15.0",
     "requests>=2.25.0",
+    "tqdm>=4.60.0",
 ]
 dev = [
     "pytest>=7.0",

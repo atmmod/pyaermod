@@ -1,0 +1,65 @@
+{% set name = "pyaermod" %}
+{% set version = "1.2.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  # For conda-forge submission: point at a PyPI sdist.
+  # During local testing, use path: .. instead.
+  url: https://pypi.io/packages/source/p/pyaermod/pyaermod-{{ version }}.tar.gz
+  # sha256 placeholder — regenerate on release with:
+  #   curl -L <url> | sha256sum
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+build:
+  noarch: python
+  number: 0
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - pyaermod = pyaermod:print_info
+    - pyaermod-gui = pyaermod.gui:main
+
+requirements:
+  host:
+    - python >=3.11
+    - pip
+    - setuptools >=64
+    - wheel
+  run:
+    - python >=3.11
+    - numpy >=1.20
+    - pandas >=1.3
+
+test:
+  imports:
+    - pyaermod
+    - pyaermod.api
+    - pyaermod.input_generator
+    - pyaermod.validator
+    - pyaermod.output_parser
+    - pyaermod.regulatory
+    - pyaermod.met_ingest
+    - pyaermod.met_qaqc
+    - pyaermod.terrain_utils
+  commands:
+    - pyaermod --help || true
+
+about:
+  home: https://github.com/atmmod/pyaermod
+  license: MIT
+  license_file: LICENSE
+  summary: Python wrapper for EPA's AERMOD atmospheric dispersion model
+  description: |
+    pyaermod automates AERMOD input generation, execution, output parsing,
+    and visualization. It bundles helpers for AERMET meteorological
+    preprocessing, AERMAP terrain handling, BPIP/PRIME downwash,
+    chemistry presets, regulatory profile lints, and batch/SLURM
+    execution.
+  doc_url: https://atmmod.github.io/pyaermod/
+  dev_url: https://github.com/atmmod/pyaermod
+
+extra:
+  recipe-maintainers:
+    - atmmod
