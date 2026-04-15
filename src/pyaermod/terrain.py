@@ -15,19 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
-try:
-    import requests
-    HAS_REQUESTS = True
-except ImportError:
-    HAS_REQUESTS = False
+from ._optional import optional_import, require
+
+requests = optional_import("requests")
+HAS_REQUESTS = requests is not None
 
 
 def _require_requests():
-    if not HAS_REQUESTS:
-        raise ImportError(
-            "requests is required for DEM downloading. "
-            "Install with: pip install pyaermod[terrain]"
-        )
+    require(requests, "requests", pip_extra="terrain")
 
 
 # ============================================================================

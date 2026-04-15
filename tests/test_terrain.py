@@ -443,13 +443,16 @@ class TestRequireRequests:
 
     def test_raises_when_requests_missing(self):
         from pyaermod import terrain
-        original = terrain.HAS_REQUESTS
+        original_requests = terrain.requests
+        original_flag = terrain.HAS_REQUESTS
         try:
+            terrain.requests = None
             terrain.HAS_REQUESTS = False
-            with pytest.raises(ImportError, match="requests is required"):
+            with pytest.raises(ImportError, match="requests"):
                 terrain._require_requests()
         finally:
-            terrain.HAS_REQUESTS = original
+            terrain.requests = original_requests
+            terrain.HAS_REQUESTS = original_flag
 
 
 class TestDEMDownloaderEdgeCases:

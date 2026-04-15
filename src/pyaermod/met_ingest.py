@@ -24,19 +24,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-try:
-    import requests  # type: ignore
-    HAS_REQUESTS = True
-except ImportError:
-    HAS_REQUESTS = False
+from ._optional import optional_import, require
+
+requests = optional_import("requests")
+HAS_REQUESTS = requests is not None
 
 
 def _require_requests() -> None:
-    if not HAS_REQUESTS:
-        raise ImportError(
-            "The `requests` package is required for network fetchers. "
-            "Install with: pip install requests"
-        )
+    require(requests, "requests", pip_extra="met")
 
 
 # ---------------------------------------------------------------------------

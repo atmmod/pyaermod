@@ -25,19 +25,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple, Union
 
-try:
-    from pyproj import Transformer  # type: ignore
-    HAS_PYPROJ = True
-except ImportError:
-    HAS_PYPROJ = False
+from ._optional import optional_import, require
 
-try:
-    import rasterio  # type: ignore
+_pyproj = optional_import("pyproj")
+HAS_PYPROJ = _pyproj is not None
+Transformer = getattr(_pyproj, "Transformer", None) if _pyproj else None
+
+rasterio = optional_import("rasterio")
+HAS_RASTERIO = rasterio is not None
+if HAS_RASTERIO:
     from rasterio.merge import merge as rio_merge  # type: ignore
-    from rasterio.warp import Resampling, calculate_default_transform, reproject  # type: ignore
-    HAS_RASTERIO = True
-except ImportError:
-    HAS_RASTERIO = False
+    from rasterio.warp import (  # type: ignore
+        Resampling,
+        calculate_default_transform,
+        reproject,
+    )
+else:  # pragma: no cover - type stubs for when rasterio is absent
+    rio_merge = None  # type: ignore[assignment]
+    Resampling = None  # type: ignore[assignment]
+    calculate_default_transform = None  # type: ignore[assignment]
+    reproject = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -51,11 +58,7 @@ EPSG_NAD27 = 4267
 
 
 def _require_pyproj() -> None:
-    if not HAS_PYPROJ:
-        raise ImportError(
-            "pyproj is required for coordinate-datum transforms. "
-            "Install with: pip install pyproj"
-        )
+    require(_pyproj, "pyproj", pip_extra="geo")
 
 
 class DatumTransformer:
@@ -164,11 +167,7 @@ def srtm_tiles_for_bbox(
 # ---------------------------------------------------------------------------
 
 def _require_rasterio() -> None:
-    if not HAS_RASTERIO:
-        raise ImportError(
-            "rasterio is required for DEM mosaic/reproject. "
-            "Install with: pip install rasterio"
-        )
+    require(rasterio, "rasterio", pip_extra="geo")
 
 
 def mosaic_dem_tiles(

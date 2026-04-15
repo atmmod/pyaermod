@@ -23,11 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-try:
-    import pandas as pd  # type: ignore
-    HAS_PANDAS = True
-except ImportError:
-    HAS_PANDAS = False
+from ._optional import optional_import, require
+
+pd = optional_import("pandas")
+HAS_PANDAS = pd is not None
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +165,7 @@ class AERMODAuxResult:
         return self.header.column_names
 
     def to_dataframe(self):
-        if not HAS_PANDAS:
-            raise ImportError("pandas is required for to_dataframe()")
+        require(pd, "pandas")
         return pd.DataFrame(self.records)
 
 

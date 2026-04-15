@@ -24,11 +24,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Union
 
-try:
-    from tqdm import tqdm  # type: ignore
-    HAS_TQDM = True
-except ImportError:
-    HAS_TQDM = False
+from ._optional import optional_import, require
+
+_tqdm_mod = optional_import("tqdm")
+HAS_TQDM = _tqdm_mod is not None
+tqdm = getattr(_tqdm_mod, "tqdm", None) if _tqdm_mod else None
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +148,7 @@ class LoggingProgress:
 class TqdmProgress:
     """Progress reporter using `tqdm`. Only works if tqdm is installed."""
     def __init__(self) -> None:
-        if not HAS_TQDM:
-            raise ImportError("tqdm is not installed; install with `pip install tqdm`")
+        require(tqdm, "tqdm", pip_extra="hpc")
         self.bar = None
 
     def start(self, total: int, description: str = "") -> None:
