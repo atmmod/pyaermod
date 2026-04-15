@@ -1,0 +1,152 @@
+"""
+Regression tests against EPA's official AERMOD test cases (v24142).
+
+Two test tiers:
+
+1. **Always-on** tests use the three small fixtures vendored under
+   `tests/fixtures/epa_official/` (public-domain EPA outputs for the
+   canonical AERTEST case). These run on every CI invocation.
+
+2. **Opt-in** tests use the full 234 MB EPA archive fetched by
+   `tests/fixtures/epa_official/download_all.py`. They skip cleanly
+   when that archive is absent — local devs populate the cache once
+   and get wide coverage; CI stays fast by default.
+
+What the always-on tests cover:
+- `aertest.inp` parses with the .inp reader and headline metadata
+  (title, pollutant, averaging periods, source count, terrain mode,
+  building-downwash sector arrays) matches known values.
+- `AERTEST_01H.PLT` parses with `read_plotfile` into the expected
+  number of receptors (144) and headline peak concentration.
+- `AERTEST.SUM` non-empty; key strings present (trivial but catches
+  an accidental truncation).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pyaermod import PollutantType, TerrainType, read_plotfile
+from pyaermod.input_reader import read_aermod_input
+
+FIXT = Path(__file__).parent / "fixtures" / "epa_official"
+FULL = FIXT / "full"
+
+
+# ---------------------------------------------------------------------------
+# Always-on: tests against vendored small fixtures
+# ---------------------------------------------------------------------------
+
+class TestAertestInputFile:
+    def test_parses(self):
+        project = read_aermod_input(FIXT / "aertest.inp")
+        assert project.control.title_one == (
+            "A Simple Example Problem for the AERMOD Model with PRIME"
+        )
+
+    def test_headline_metadata(self):
+        project = read_aermod_input(FIXT / "aertest.inp")
+        assert project.control.pollutant_id == PollutantType.SO2
+        assert project.control.terrain_type == TerrainType.FLAT
+        assert "1" in project.control.averaging_periods
+        assert "24" in project.control.averaging_periods
+        assert "PERIOD" in project.control.averaging_periods
+
+    def test_has_point_source(self):
+        project = read_aermod_input(FIXT / "aertest.inp")
+        srcs = project.sources.sources
+        assert len(srcs) == 1
+        src = srcs[0]
+        assert src.source_id == "STACK1"
+        # Canonical AERTEST values: emission 500 g/s, height 65 m,
+        # temp 425 K, velocity 15 m/s, diameter 5 m
+        assert src.emission_rate == pytest.approx(500.0)
+        assert src.stack_height == pytest.approx(65.0)
+        assert src.stack_temp == pytest.approx(425.0)
+        assert src.exit_velocity == pytest.approx(15.0)
+        assert src.stack_diameter == pytest.approx(5.0)
+
+
+class TestAertestPlotfile:
+    def test_parses(self):
+        result = read_plotfile(FIXT / "AERTEST_01H.PLT")
+        assert result.header.file_type == "PLOTFILE"
+        # AERTEST domain has exactly 144 receptors (3 rings x 48 directions
+        # / similar; count is an EPA invariant we pin).
+        assert result.n_records == 144
+
+    def test_peak_concentration_in_expected_range(self):
+        """The AERTEST 1-HR HIGH-1st peak is publicly documented around
+        750 ug/m^3 on the 250 m ring. Pin a broad tolerance so this
+        catches regressions without being brittle to pyaermod's output
+        scaling choices."""
+        result = read_plotfile(FIXT / "AERTEST_01H.PLT")
+        # Column name: third column after X, Y holds the concentration
+        # (AERMOD labels it "AVERAGE CONC" and we tokenize as AVERAGE).
+        conc_col = next(
+            c for c in result.column_names
+            if c in ("CONC", "AVERAGE")
+        )
+        peaks = [r[conc_col] for r in result.records if isinstance(r[conc_col], (int, float))]
+        peak = max(peaks)
+        assert 500 < peak < 1500, f"unexpected peak {peak}; EPA AERTEST ~750"
+
+
+class TestAertestSum:
+    def test_nonempty_and_mentions_title(self):
+        text = (FIXT / "AERTEST.SUM").read_text(encoding="latin-1")
+        assert len(text) > 1000
+        assert "AERTEST" in text or "AERMOD" in text
+
+
+# ---------------------------------------------------------------------------
+# Opt-in: tests against the full EPA archive (populated by download_all.py)
+# ---------------------------------------------------------------------------
+
+def _full_archive_present() -> bool:
+    candidates = [
+        FULL / "aermet_24142_aermod_24142",
+        FULL / "aermet_23132_aermod_23132",
+    ]
+    return any(p.exists() for p in candidates)
+
+
+@pytest.mark.skipif(
+    not _full_archive_present(),
+    reason="Full EPA archive not downloaded; run download_all.py to populate",
+)
+class TestFullArchive:
+    """Runs against every .inp file in the full archive.
+
+    For each input, assert the .inp reader doesn't crash on the common
+    subset it supports. Files using advanced features (AREACIRC /
+    RLINEXT / deposition blocks) are allowed to raise — we report the
+    pass/fail count as an indicator of reader coverage.
+    """
+
+    def _collect_inputs(self):
+        root = FULL / "aermet_24142_aermod_24142" / "inputs"
+        if not root.exists():
+            root = FULL / "aermet_23132_aermod_23132" / "inputs"
+        return sorted(root.glob("*.inp"))
+
+    def test_at_least_half_parse_without_error(self):
+        inputs = self._collect_inputs()
+        assert inputs, "no .inp files found under full archive"
+        ok = 0
+        fail = 0
+        for inp in inputs:
+            try:
+                read_aermod_input(inp)
+                ok += 1
+            except Exception:
+                fail += 1
+        # Our v1 reader intentionally punts on advanced source types;
+        # aiming for "at least half the cases parse" is a floor, not a
+        # ceiling. Raise this threshold as reader coverage improves.
+        assert ok >= len(inputs) // 2, (
+            f"reader coverage regressed: {ok}/{len(inputs)} parsed; "
+            f"v1 reader should handle at least half."
+        )

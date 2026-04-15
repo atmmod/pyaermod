@@ -46,8 +46,25 @@ class AERMODFileHeader:
     raw_lines: List[str] = field(default_factory=list)
 
 
-_TYPE_RE = re.compile(r"\b(PLOTFILE|MAXIFILE|RANKFILE|SEASONHR|TOXXFILE|DDEP|WDEP|TOTDEP)\b")
-_AVG_RE = re.compile(r"Averaging\s+Period:\s*([A-Z0-9\-]+)", re.IGNORECASE)
+_TYPE_RE = re.compile(
+    r"\b(PLOT\s*FILE|PLOTFILE|MAXI\s*FILE|MAXIFILE|RANK\s*FILE|RANKFILE|"
+    r"SEASONHR|TOXX\s*FILE|TOXXFILE|DDEP|WDEP|TOTDEP)\b",
+    re.IGNORECASE,
+)
+
+# Map possibly-spaced variants to canonical single-word forms.
+_TYPE_NORMALIZE = {
+    "PLOT FILE": "PLOTFILE",
+    "MAXI FILE": "MAXIFILE",
+    "RANK FILE": "RANKFILE",
+    "TOXX FILE": "TOXXFILE",
+}
+
+_AVG_RE = re.compile(
+    r"(?:Averaging\s+Period|AVERAGE|\bOF\b)\s*[:\s]\s*"
+    r"(ANNUAL|PERIOD|\d+\s*-?\s*HR|\d+-hr|\d+HR)",
+    re.IGNORECASE,
+)
 _GRP_RE = re.compile(r"Source\s+Group:\s*(\S+)", re.IGNORECASE)
 _RANK_RE = re.compile(r"(HIGH|H)[- ]?(\d+)(?:ST|ND|RD|TH)?", re.IGNORECASE)
 _VER_RE = re.compile(r"AERMOD[^\d]*(\d{5}|\d{2}\d{3})")
@@ -63,7 +80,8 @@ def parse_aermod_header(lines: List[str]) -> AERMODFileHeader:
         if h.file_type is None:
             m = _TYPE_RE.search(stripped)
             if m:
-                h.file_type = m.group(1).upper()
+                raw_type = re.sub(r"\s+", " ", m.group(1).upper())
+                h.file_type = _TYPE_NORMALIZE.get(raw_type, raw_type)
         if h.averaging_period is None:
             m = _AVG_RE.search(stripped)
             if m:
@@ -85,8 +103,13 @@ def parse_aermod_header(lines: List[str]) -> AERMODFileHeader:
                 h.model_version = m.group(1)
         # Column-name hint: many AERMOD outputs have a header line like
         # "*        X              Y       CONC        DATE"
-        # We take the last comment line preceding numeric rows.
-        if not h.column_names and set(stripped.split()) & {"X", "Y", "CONC", "RANK", "DATE"}:
+        # Require at least TWO column-ish tokens to avoid picking up
+        # "MODELING OPTIONS USED: ... CONC ..." lines that happen to
+        # mention one of them. Take the *last* matching comment line so
+        # column headers closer to the data rows win.
+        tokens = set(stripped.split())
+        column_hints = tokens & {"X", "Y", "CONC", "RANK", "DATE"}
+        if len(column_hints) >= 2:
             h.column_names = [c.upper() for c in stripped.split()]
     return h
 
