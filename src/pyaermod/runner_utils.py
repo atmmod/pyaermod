@@ -22,7 +22,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Union
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Union
 
 from ._optional import optional_import, require
 
@@ -223,7 +223,7 @@ class RunManifest:
     entries: Dict[str, RunManifestEntry] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: Union[str, Path]) -> "RunManifest":
+    def load(cls, path: Union[str, Path]) -> RunManifest:
         p = Path(path)
         if not p.exists():
             return cls(path=p)
@@ -346,18 +346,18 @@ def generate_slurm_script(
 
 
 __all__ = [
-    "ERRMSGInfo",
-    "extract_errmsg",
-    "tail_output",
-    "summarize_failure",
-    "ProgressReporter",
-    "NoOpProgress",
-    "LoggingProgress",
-    "TqdmProgress",
     "HAS_TQDM",
-    "resume_batch",
+    "SLURM_TEMPLATE",
+    "ERRMSGInfo",
+    "LoggingProgress",
+    "NoOpProgress",
+    "ProgressReporter",
     "RunManifest",
     "RunManifestEntry",
-    "SLURM_TEMPLATE",
+    "TqdmProgress",
+    "extract_errmsg",
     "generate_slurm_script",
+    "resume_batch",
+    "summarize_failure",
+    "tail_output",
 ]

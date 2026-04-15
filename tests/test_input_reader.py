@@ -23,7 +23,6 @@ from pyaermod import (
 )
 from pyaermod.input_reader import parse_aermod_input, read_aermod_input
 
-
 FIXT = Path(__file__).parent / "fixtures" / "epa_style"
 
 

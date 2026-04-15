@@ -14,7 +14,7 @@ pytest.importorskip("streamlit")
 
 
 def test_gui_module_imports():
-    import pyaermod.gui  # noqa: F401
+    import pyaermod.gui
 
 
 def test_page_functions_are_callables():

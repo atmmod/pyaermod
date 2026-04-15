@@ -25,10 +25,10 @@ from pathlib import Path
 import pytest
 
 from pyaermod import (
+    EPA_APPENDIX_W_2017,
     AERMODProject,
     CartesianGrid,
     ControlPathway,
-    EPA_APPENDIX_W_2017,
     MeteorologyPathway,
     OutputPathway,
     PointSource,

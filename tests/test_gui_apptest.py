@@ -22,7 +22,7 @@ AppTest = pytest.importorskip("streamlit.testing.v1").AppTest
 # streamlit-folium imports pyarrow; skip gracefully if the local
 # environment has a pyarrow/numpy ABI mismatch (common on conda).
 try:
-    import pyarrow  # type: ignore  # noqa: F401
+    import pyarrow  # type: ignore
 except Exception:  # pragma: no cover - env-specific
     pytest.skip(
         "pyarrow unavailable in this environment; skipping GUI AppTest",

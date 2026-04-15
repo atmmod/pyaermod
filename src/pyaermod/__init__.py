@@ -39,8 +39,9 @@ __url__ = "https://github.com/atmmod/pyaermod"
 # Single source of truth for the public surface.
 # Everything listed in api.__all__ is re-exported unchanged.
 # ---------------------------------------------------------------------------
+from . import api
 from . import api as _api
-from .api import *  # noqa: F401,F403  -- intentional wildcard re-export
+from .api import *  # noqa: F403  -- intentional wildcard re-export
 
 # Expose the same names via an explicit __all__ for type-checkers and
 # linters. The list is kept in sync automatically.

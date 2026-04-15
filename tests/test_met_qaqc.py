@@ -19,7 +19,7 @@ from pyaermod.met_qaqc import (
 
 def _make_records(n, ws=5.0, wd=180.0, temp=15.0, **overrides):
     records = []
-    for i in range(n):
+    for _ in range(n):
         r = {
             "wind_speed_ms": ws,
             "wind_dir": wd,

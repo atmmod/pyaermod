@@ -29,6 +29,7 @@ order: each pathway must appear once, inside ``XX STARTING`` and
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -50,7 +51,6 @@ from .input_generator import (
     TerrainType,
     VolumeSource,
 )
-
 
 # ---------------------------------------------------------------------------
 # Lexer / pathway splitter
@@ -145,7 +145,7 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     urban_pop: Optional[float] = None
     low_wind: Optional[str] = None
 
-    for kw, toks, ln in _group_keywords(block):
+    for kw, toks, _ln in _group_keywords(block):
         if kw == "TITLEONE":
             title_one = " ".join(toks)
         elif kw == "TITLETWO":
@@ -231,7 +231,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     src_types: Dict[str, str] = {}
     group_defs: List[SourceGroupDefinition] = []
 
-    for kw, toks, ln in _group_keywords(block):
+    for kw, toks, _ln in _group_keywords(block):
         if kw == "LOCATION":
             if len(toks) < 4:
                 continue
@@ -316,9 +316,8 @@ def _parse_receptors(block: _PathwayBlock) -> ReceptorPathway:
     discretes: List[DiscreteReceptor] = []
     elev_units = "METERS"
     last_gridcart: Optional[str] = None
-    last_gridpolr: Optional[str] = None
 
-    for kw, toks, ln in _group_keywords(block):
+    for kw, toks, _ln in _group_keywords(block):
         if kw == "ELEVUNIT":
             elev_units = toks[0].upper() if toks else "METERS"
 
@@ -398,7 +397,7 @@ def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
     dates: Dict[str, Any] = {}
     wind_rotation = None
 
-    for kw, toks, ln in _group_keywords(block):
+    for kw, toks, _ln in _group_keywords(block):
         if kw == "SURFFILE" and toks:
             kw_map["surface_file"] = toks[0]
         elif kw == "PROFFILE" and toks:
@@ -434,19 +433,15 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
     rect_rank = 10
     max_rank = 10
 
-    for kw, toks, ln in _group_keywords(block):
+    for kw, toks, _ln in _group_keywords(block):
         if kw == "RECTABLE" and len(toks) >= 2:
             receptor_table = True
-            try:
+            with contextlib.suppress(ValueError):
                 rect_rank = int(toks[1])
-            except ValueError:
-                pass
         elif kw == "MAXTABLE" and len(toks) >= 2:
             max_table = True
-            try:
+            with contextlib.suppress(ValueError):
                 max_rank = int(toks[1])
-            except ValueError:
-                pass
 
     return OutputPathway(
         receptor_table=receptor_table,

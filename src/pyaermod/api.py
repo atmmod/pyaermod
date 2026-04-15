@@ -28,7 +28,50 @@ from __future__ import annotations
 __version__ = "1.4.0"
 
 # --- Project building -----------------------------------------------------
-from .input_reader import parse_aermod_input, read_aermod_input
+# --- Terrain --------------------------------------------------------------
+from .aermap import AERMAPDomain, AERMAPProject, AERMAPReceptor, AERMAPSource
+
+# --- Meteorology ----------------------------------------------------------
+from .aermet import (
+    AERMETStage1,
+    AERMETStage2,
+    AERMETStage3,
+    AERMETStation,
+    ProfileFileHeader,
+    SurfaceFileHeader,
+    UpperAirStation,
+    read_profile_file,
+    read_surface_file,
+    write_aermet_runfile,
+)
+from .aermod_outputs import (
+    AERMODAuxResult,
+    AERMODFileHeader,
+    parse_aermod_header,
+    read_aermod_aux_file,
+    read_deposition,
+    read_maxifile,
+    read_plotfile,
+    read_rankfile,
+    read_seasonhr,
+    read_toxxfile,
+)
+
+# --- PRIME / downwash -----------------------------------------------------
+from .bpip import BPIPCalculator, BPIPResult, Building
+
+# --- Chemistry / deposition presets ---------------------------------------
+from .chemistry_presets import (
+    DEPOSITION_DEFAULTS,
+    PollutantDepositionDefaults,
+    arm2_preset,
+    deposition_defaults_for,
+    deposition_diagnostics,
+    grsm_preset,
+    olm_preset,
+    pvmrm_preset,
+    suggest_chemistry_for,
+)
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -66,75 +109,7 @@ from .input_generator import (
     TerrainType,
     VolumeSource,
 )
-
-# --- Validation -----------------------------------------------------------
-from .validator import ValidationError, ValidationResult, Validator
-from .validator_advanced import advanced_validate
-
-# --- Execution ------------------------------------------------------------
-from .runner import AERMODRunner, AERMODRunResult, BatchRunner, run_aermod
-from .runner_utils import (
-    ERRMSGInfo,
-    LoggingProgress,
-    NoOpProgress,
-    ProgressReporter,
-    RunManifest,
-    RunManifestEntry,
-    TqdmProgress,
-    extract_errmsg,
-    generate_slurm_script,
-    resume_batch,
-    summarize_failure,
-    tail_output,
-)
-
-# --- Outputs --------------------------------------------------------------
-from .output_parser import (
-    AERMODOutputParser,
-    AERMODResults,
-    ConcentrationResult,
-    ModelRunInfo,
-    ReceptorInfo,
-    SourceSummary,
-    parse_aermod_output,
-    quick_summary,
-)
-from .postfile import (
-    PostfileHeader,
-    PostfileParser,
-    PostfileResult,
-    UnformattedPostfileParser,
-    read_postfile,
-)
-from .aermod_outputs import (
-    AERMODAuxResult,
-    AERMODFileHeader,
-    parse_aermod_header,
-    read_aermod_aux_file,
-    read_deposition,
-    read_maxifile,
-    read_plotfile,
-    read_rankfile,
-    read_seasonhr,
-    read_toxxfile,
-)
-
-# --- Visualization --------------------------------------------------------
-from .visualization import AERMODVisualizer, quick_map, quick_plot
-
-# --- Meteorology ----------------------------------------------------------
-from .aermet import (
-    AERMETStage1,
-    AERMETStage2,
-    AERMETStage3,
-    AERMETStation,
-    ProfileFileHeader,
-    SurfaceFileHeader,
-    UpperAirStation,
-    read_profile_file,
-    read_surface_file,
-    write_aermet_runfile,
-)
+from .input_reader import parse_aermod_input, read_aermod_input
 from .met_ingest import (
     ASOS1MinRecord,
     IGRAFetcher,
@@ -159,8 +134,62 @@ from .met_qaqc import (
     run_all_qaqc,
 )
 
-# --- Terrain --------------------------------------------------------------
-from .aermap import AERMAPDomain, AERMAPProject, AERMAPReceptor, AERMAPSource
+# --- Outputs --------------------------------------------------------------
+from .output_parser import (
+    AERMODOutputParser,
+    AERMODResults,
+    ConcentrationResult,
+    ModelRunInfo,
+    ReceptorInfo,
+    SourceSummary,
+    parse_aermod_output,
+    quick_summary,
+)
+from .postfile import (
+    PostfileHeader,
+    PostfileParser,
+    PostfileResult,
+    UnformattedPostfileParser,
+    read_postfile,
+)
+from .prime import (
+    GEP_FLOOR_M,
+    DownwashAssessment,
+    apply_bpip_to_project,
+    assess_source_downwash,
+    cavity_length,
+    gep_from_building,
+    gep_stack_height,
+    in_cavity_region,
+    suggest_downwash_config,
+)
+
+# --- Regulatory -----------------------------------------------------------
+from .regulatory import (
+    ALL_PROFILES,
+    EPA_APPENDIX_W_2017,
+    EPA_APPENDIX_W_2023,
+    SCREENING_PROFILE,
+    RegulatoryProfile,
+    get_profile,
+)
+
+# --- Execution ------------------------------------------------------------
+from .runner import AERMODRunner, AERMODRunResult, BatchRunner, run_aermod
+from .runner_utils import (
+    ERRMSGInfo,
+    LoggingProgress,
+    NoOpProgress,
+    ProgressReporter,
+    RunManifest,
+    RunManifestEntry,
+    TqdmProgress,
+    extract_errmsg,
+    generate_slurm_script,
+    resume_batch,
+    summarize_failure,
+    tail_output,
+)
 from .terrain_utils import (
     EPSG_NAD27,
     EPSG_NAD83,
@@ -176,42 +205,12 @@ from .terrain_utils import (
     utm_zone_for_lon,
 )
 
-# --- Regulatory -----------------------------------------------------------
-from .regulatory import (
-    ALL_PROFILES,
-    EPA_APPENDIX_W_2017,
-    EPA_APPENDIX_W_2023,
-    SCREENING_PROFILE,
-    RegulatoryProfile,
-    get_profile,
-)
+# --- Validation -----------------------------------------------------------
+from .validator import ValidationError, ValidationResult, Validator
+from .validator_advanced import advanced_validate
 
-# --- PRIME / downwash -----------------------------------------------------
-from .bpip import BPIPCalculator, BPIPResult, Building
-from .prime import (
-    GEP_FLOOR_M,
-    DownwashAssessment,
-    apply_bpip_to_project,
-    assess_source_downwash,
-    cavity_length,
-    gep_from_building,
-    gep_stack_height,
-    in_cavity_region,
-    suggest_downwash_config,
-)
-
-# --- Chemistry / deposition presets ---------------------------------------
-from .chemistry_presets import (
-    DEPOSITION_DEFAULTS,
-    PollutantDepositionDefaults,
-    arm2_preset,
-    deposition_defaults_for,
-    deposition_diagnostics,
-    grsm_preset,
-    olm_preset,
-    pvmrm_preset,
-    suggest_chemistry_for,
-)
+# --- Visualization --------------------------------------------------------
+from .visualization import AERMODVisualizer, quick_map, quick_plot
 
 # --- Optional-dependency surface -----------------------------------------
 # These are only importable when the underlying extras are installed. We
@@ -324,6 +323,11 @@ if HAS_GEOSPATIAL:
     ])
 if HAS_TERRAIN:
     __all__.extend([
-        "AERMAPOutputParser", "AERMAPRunner", "AERMAPRunResult",
-        "DEMDownloader", "DEMTileInfo", "TerrainProcessor", "run_aermap",
+        "AERMAPOutputParser",
+        "AERMAPRunResult",
+        "AERMAPRunner",
+        "DEMDownloader",
+        "DEMTileInfo",
+        "TerrainProcessor",
+        "run_aermap",
     ])

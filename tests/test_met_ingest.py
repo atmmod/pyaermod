@@ -23,7 +23,6 @@ from pyaermod.met_ingest import (
     parse_igra_v2,
 )
 
-
 # ---------------------------------------------------------------------------
 # ASOS 1-minute
 # ---------------------------------------------------------------------------
@@ -187,9 +186,8 @@ class TestISDFetcher:
 
     def test_full_isd_read_hourly_not_implemented(self):
         fetcher = ISDFetcher(use_lite=False)
-        with patch.object(fetcher, "fetch", return_value=b""):
-            with pytest.raises(NotImplementedError):
-                fetcher.read_hourly(ISDStationId("723010", "13880"), 2020)
+        with patch.object(fetcher, "fetch", return_value=b""), pytest.raises(NotImplementedError):
+            fetcher.read_hourly(ISDStationId("723010", "13880"), 2020)
 
 
 # ---------------------------------------------------------------------------

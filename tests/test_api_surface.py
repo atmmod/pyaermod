@@ -6,7 +6,6 @@ import importlib
 
 import pytest
 
-
 PUBLIC_NAMES = [
     # project
     "AERMODProject", "ControlPathway", "SourcePathway", "ReceptorPathway",
@@ -43,7 +42,7 @@ PUBLIC_NAMES = [
 
 
 def test_api_module_imports():
-    import pyaermod.api  # noqa: F401
+    import pyaermod.api
 
 
 @pytest.mark.parametrize("name", PUBLIC_NAMES)
@@ -66,7 +65,8 @@ def test_version_string_available():
 
 
 def test_py_typed_marker_present():
-    import pyaermod
     from pathlib import Path
+
+    import pyaermod
     marker = Path(pyaermod.__file__).parent / "py.typed"
     assert marker.exists(), "py.typed PEP 561 marker missing"

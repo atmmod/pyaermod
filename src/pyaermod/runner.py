@@ -160,12 +160,10 @@ class AERMODRunner:
 
         # Create symlink: aermod.inp -> <input_name>.inp
         aermod_inp = work_dir / "aermod.inp"
-        symlink_created = False
         try:
             if aermod_inp.exists() or aermod_inp.is_symlink():
                 aermod_inp.unlink()
             aermod_inp.symlink_to(input_path.name)
-            symlink_created = True
         except OSError:
             # Fallback: copy the file
             import shutil
@@ -259,11 +257,10 @@ class AERMODRunner:
 
         finally:
             # Clean up the aermod.inp symlink/copy
+            import contextlib
             if aermod_inp.exists() or aermod_inp.is_symlink():
-                try:
+                with contextlib.suppress(OSError):
                     aermod_inp.unlink()
-                except OSError:
-                    pass
 
     def _extract_error_message(self,
                                result: subprocess.CompletedProcess,

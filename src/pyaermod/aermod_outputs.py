@@ -18,6 +18,7 @@ return either a pandas DataFrame (preferred) or a list of dicts.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,10 +94,8 @@ def parse_aermod_header(lines: List[str]) -> AERMODFileHeader:
         if h.rank is None:
             m = _RANK_RE.search(stripped)
             if m:
-                try:
+                with contextlib.suppress(ValueError):
                     h.rank = int(m.group(2))
-                except ValueError:
-                    pass
         if h.model_version is None:
             m = _VER_RE.search(stripped)
             if m:
@@ -158,7 +157,7 @@ def _infer_columns(n_tokens: int, file_type: Optional[str]) -> List[str]:
     elif ft == "SEASONHR":
         # X, Y + 96 seasonal-hour slots
         slots = [f"{s}_{h:02d}" for s in ("WIN", "SPR", "SUM", "FAL") for h in range(1, 25)]
-        names = ["X", "Y"] + slots
+        names = ["X", "Y", *slots]
     else:
         names = [f"COL{i + 1}" for i in range(n_tokens)]
     # Pad or trim to match tokens
@@ -255,14 +254,14 @@ def read_deposition(filepath: Union[str, Path]) -> AERMODAuxResult:
 
 
 __all__ = [
-    "AERMODFileHeader",
     "AERMODAuxResult",
+    "AERMODFileHeader",
     "parse_aermod_header",
     "read_aermod_aux_file",
-    "read_plotfile",
+    "read_deposition",
     "read_maxifile",
+    "read_plotfile",
     "read_rankfile",
     "read_seasonhr",
     "read_toxxfile",
-    "read_deposition",
 ]

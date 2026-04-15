@@ -43,8 +43,10 @@ class TestCompare:
         path.write_text(json.dumps(data))
 
     def test_no_regression_passes(self, tmp_path):
-        a = tmp_path / "a.json"; b = tmp_path / "b.json"
-        self._write(a, {"x": 1.0}); self._write(b, {"x": 1.05})
+        a = tmp_path / "a.json"
+        b = tmp_path / "b.json"
+        self._write(a, {"x": 1.0})
+        self._write(b, {"x": 1.05})
         r = subprocess.run(
             [sys.executable, str(CMP), "--baseline", str(a), "--current", str(b),
              "--fail-on-regression"],
@@ -54,8 +56,10 @@ class TestCompare:
         assert b"No changes" in r.stdout or b"REGRESSIONS" not in r.stdout
 
     def test_regression_fails_when_flag_set(self, tmp_path):
-        a = tmp_path / "a.json"; b = tmp_path / "b.json"
-        self._write(a, {"x": 1.0}); self._write(b, {"x": 2.0})
+        a = tmp_path / "a.json"
+        b = tmp_path / "b.json"
+        self._write(a, {"x": 1.0})
+        self._write(b, {"x": 2.0})
         r = subprocess.run(
             [sys.executable, str(CMP), "--baseline", str(a), "--current", str(b),
              "--fail-on-regression"],

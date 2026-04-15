@@ -22,7 +22,6 @@ findings in isolation (e.g. for custom reporting).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 from .validator import ValidationError
@@ -292,11 +291,11 @@ def advanced_validate(project: Any) -> List[ValidationError]:
 
 
 __all__ = [
-    "advanced_validate",
-    "MIN_PLAUSIBLE_STACK_DIAM_M",
-    "MAX_PLAUSIBLE_STACK_DIAM_M",
     "MAX_PLAUSIBLE_EXIT_V_MS",
+    "MAX_PLAUSIBLE_STACK_DIAM_M",
+    "MIN_PLAUSIBLE_STACK_DIAM_M",
+    "NONDEFAULT_OPTION_FLAGS",
     "RECEPTOR_GRID_HARD_LIMIT",
     "RECEPTOR_GRID_WARN_LIMIT",
-    "NONDEFAULT_OPTION_FLAGS",
+    "advanced_validate",
 ]

@@ -19,7 +19,6 @@ from pyaermod.terrain_utils import (
     utm_zone_for_lon,
 )
 
-
 # ---------------------------------------------------------------------------
 # UTM helpers (pure math, no deps)
 # ---------------------------------------------------------------------------
@@ -172,8 +171,9 @@ class TestMosaicReproject:
         assert out.exists()
 
     def test_reproject_changes_crs(self, tmp_path):
-        from pyaermod.terrain_utils import reproject_dem
         import rasterio
+
+        from pyaermod.terrain_utils import reproject_dem
         src = tmp_path / "src.tif"
         self._make_tile(src, epsg=4326)
         out = reproject_dem(src, tmp_path / "utm.tif", dst_epsg=32613)

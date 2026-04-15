@@ -87,15 +87,15 @@ class DatumTransformer:
         return list(zip(out_x, out_y))
 
     @classmethod
-    def nad27_to_nad83(cls) -> "DatumTransformer":
+    def nad27_to_nad83(cls) -> DatumTransformer:
         return cls(EPSG_NAD27, EPSG_NAD83)
 
     @classmethod
-    def nad27_to_wgs84(cls) -> "DatumTransformer":
+    def nad27_to_wgs84(cls) -> DatumTransformer:
         return cls(EPSG_NAD27, EPSG_WGS84)
 
     @classmethod
-    def nad83_to_wgs84(cls) -> "DatumTransformer":
+    def nad83_to_wgs84(cls) -> DatumTransformer:
         return cls(EPSG_NAD83, EPSG_WGS84)
 
 
@@ -103,7 +103,7 @@ def utm_zone_for_lon(lon: float) -> int:
     """Return the UTM zone number (1-60) containing a given longitude."""
     if not (-180 <= lon <= 180):
         raise ValueError(f"lon must be in [-180, 180], got {lon}")
-    return int(math.floor((lon + 180) / 6)) + 1
+    return math.floor((lon + 180) / 6) + 1
 
 
 def utm_epsg(lon: float, lat: float) -> int:
@@ -130,8 +130,8 @@ def srtm_tile_name(lat: float, lon: float) -> str:
 
     Example: (35.5, -105.2) -> 'N35W106'
     """
-    lat_f = int(math.floor(lat))
-    lon_f = int(math.floor(lon))
+    lat_f = math.floor(lat)
+    lon_f = math.floor(lon)
     lat_s = f"{'N' if lat_f >= 0 else 'S'}{abs(lat_f):02d}"
     lon_s = f"{'E' if lon_f >= 0 else 'W'}{abs(lon_f):03d}"
     return f"{lat_s}{lon_s}"
@@ -148,8 +148,8 @@ def srtm_tiles_for_bbox(
     """
     west, south, east, north = bounds
     tiles: List[SRTMTileInfo] = []
-    for lat_f in range(int(math.floor(south)), int(math.floor(north)) + 1):
-        for lon_f in range(int(math.floor(west)), int(math.floor(east)) + 1):
+    for lat_f in range(math.floor(south), math.floor(north) + 1):
+        for lon_f in range(math.floor(west), math.floor(east) + 1):
             name = srtm_tile_name(lat_f + 0.5, lon_f + 0.5)
             url = (
                 f"https://e4ftl01.cr.usgs.gov/MEASURES/SRTMGL1.003/2000.02.11/"
@@ -357,16 +357,18 @@ def hill_height_diagnostics(
 
 
 __all__ = [
-    "EPSG_WGS84", "EPSG_NAD83", "EPSG_NAD27",
+    "EPSG_NAD27",
+    "EPSG_NAD83",
+    "EPSG_WGS84",
     "DatumTransformer",
-    "utm_zone_for_lon",
-    "utm_epsg",
+    "HillHeightAnomaly",
     "SRTMTileInfo",
-    "srtm_tile_name",
-    "srtm_tiles_for_bbox",
+    "async_fetch_tiles",
+    "hill_height_diagnostics",
     "mosaic_dem_tiles",
     "reproject_dem",
-    "async_fetch_tiles",
-    "HillHeightAnomaly",
-    "hill_height_diagnostics",
+    "srtm_tile_name",
+    "srtm_tiles_for_bbox",
+    "utm_epsg",
+    "utm_zone_for_lon",
 ]

@@ -21,7 +21,6 @@ from pyaermod.runner_utils import (
     tail_output,
 )
 
-
 # ---------------------------------------------------------------------------
 # ERRMSG / failure summary
 # ---------------------------------------------------------------------------
@@ -62,7 +61,9 @@ class TestSummarizeFailure:
 class TestProgress:
     def test_noop_progress_smoke(self):
         p = NoOpProgress()
-        p.start(10, "x"); p.update(1); p.finish()
+        p.start(10, "x")
+        p.update(1)
+        p.finish()
 
     def test_logging_progress_emits_info(self, caplog):
         p = LoggingProgress(logger=logging.getLogger("testprogress"))
@@ -78,7 +79,9 @@ class TestProgress:
     @pytest.mark.skipif(not HAS_TQDM, reason="tqdm not installed")
     def test_tqdm_progress_runs(self):
         p = TqdmProgress()
-        p.start(5, "x"); p.update(2, "halfway"); p.finish()
+        p.start(5, "x")
+        p.update(2, "halfway")
+        p.finish()
 
 
 # ---------------------------------------------------------------------------
@@ -87,21 +90,27 @@ class TestProgress:
 
 class TestResumeBatch:
     def test_no_outputs_all_todo(self, tmp_path):
-        inp1 = tmp_path / "a.inp"; inp1.touch()
-        inp2 = tmp_path / "b.inp"; inp2.touch()
+        inp1 = tmp_path / "a.inp"
+        inp1.touch()
+        inp2 = tmp_path / "b.inp"
+        inp2.touch()
         split = resume_batch([inp1, inp2], tmp_path / "out")
         assert split["done"] == [] and len(split["todo"]) == 2
 
     def test_existing_success_marker_moves_to_done(self, tmp_path):
-        inp = tmp_path / "a.inp"; inp.touch()
-        out_dir = tmp_path / "out"; out_dir.mkdir()
+        inp = tmp_path / "a.inp"
+        inp.touch()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
         (out_dir / "a.out").write_text("stuff\nAERMOD FINISHES SUCCESSFULLY\n")
         split = resume_batch([inp], out_dir)
         assert split["done"] == [inp] and split["todo"] == []
 
     def test_output_without_marker_still_todo(self, tmp_path):
-        inp = tmp_path / "a.inp"; inp.touch()
-        out_dir = tmp_path / "out"; out_dir.mkdir()
+        inp = tmp_path / "a.inp"
+        inp.touch()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
         (out_dir / "a.out").write_text("incomplete run")
         split = resume_batch([inp], out_dir)
         assert split["todo"] == [inp]
@@ -122,13 +131,17 @@ class TestRunManifest:
 
     def test_summary_counts(self, tmp_path):
         m = RunManifest.load(tmp_path / "m.json")
-        m.mark("1", "success"); m.mark("2", "success"); m.mark("3", "failed")
+        m.mark("1", "success")
+        m.mark("2", "success")
+        m.mark("3", "failed")
         s = m.summary()
         assert s["success"] == 2 and s["failed"] == 1
 
     def test_pending_list(self, tmp_path):
         m = RunManifest.load(tmp_path / "m.json")
-        m.mark("a", "success"); m.mark("b", "failed"); m.mark("c", "pending")
+        m.mark("a", "success")
+        m.mark("b", "failed")
+        m.mark("c", "pending")
         assert set(m.pending()) == {"b", "c"}
 
 
@@ -139,7 +152,8 @@ class TestRunManifest:
 class TestSlurm:
     def test_generates_script_and_list(self, tmp_path):
         inputs = [tmp_path / f"run_{i}.inp" for i in range(3)]
-        for p in inputs: p.touch()
+        for p in inputs:
+            p.touch()
         script = generate_slurm_script(
             inputs,
             output_dir=tmp_path / "out",

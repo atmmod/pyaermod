@@ -41,17 +41,17 @@ class TestModuleLevelConsistency:
 
     def test_terrain_utils(self):
         from pyaermod import terrain_utils
-        assert terrain_utils.HAS_PYPROJ == (terrain_utils._pyproj is not None)
-        assert terrain_utils.HAS_RASTERIO == (terrain_utils.rasterio is not None)
+        assert (terrain_utils._pyproj is not None) == terrain_utils.HAS_PYPROJ
+        assert (terrain_utils.rasterio is not None) == terrain_utils.HAS_RASTERIO
 
     def test_met_ingest(self):
         from pyaermod import met_ingest
-        assert met_ingest.HAS_REQUESTS == (met_ingest.requests is not None)
+        assert (met_ingest.requests is not None) == met_ingest.HAS_REQUESTS
 
     def test_runner_utils(self):
         from pyaermod import runner_utils
-        assert runner_utils.HAS_TQDM == (runner_utils.tqdm is not None)
+        assert (runner_utils.tqdm is not None) == runner_utils.HAS_TQDM
 
     def test_aermod_outputs(self):
         from pyaermod import aermod_outputs
-        assert aermod_outputs.HAS_PANDAS == (aermod_outputs.pd is not None)
+        assert (aermod_outputs.pd is not None) == aermod_outputs.HAS_PANDAS

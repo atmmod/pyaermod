@@ -80,7 +80,7 @@ class QAQCReport:
     def by_category(self, category: str) -> List[QAQCFinding]:
         return [f for f in self.findings if f.category == category]
 
-    def extend(self, other: "QAQCReport") -> None:
+    def extend(self, other: QAQCReport) -> None:
         self.findings.extend(other.findings)
         self.n_records += other.n_records
         self.n_missing += other.n_missing
@@ -392,20 +392,20 @@ def run_all_qaqc(records: Sequence[Dict[str, Any]]) -> QAQCReport:
 
 
 __all__ = [
-    "QAQCFinding",
-    "QAQCReport",
-    "find_missing_runs",
-    "check_missing_data",
-    "check_extremes",
-    "check_stability_consistency",
-    "check_low_wind_bias",
-    "check_profile_monotonic",
-    "run_all_qaqc",
     "AIR_TEMP_LIMITS_C",
-    "WIND_SPEED_LIMITS_MS",
+    "LOW_WIND_FRACTION_WARN",
+    "LOW_WIND_THRESHOLD_MS",
+    "L_ABS_LIMITS_M",
     "MIXING_HEIGHT_LIMITS_M",
     "USTAR_LIMITS_MS",
-    "L_ABS_LIMITS_M",
-    "LOW_WIND_THRESHOLD_MS",
-    "LOW_WIND_FRACTION_WARN",
+    "WIND_SPEED_LIMITS_MS",
+    "QAQCFinding",
+    "QAQCReport",
+    "check_extremes",
+    "check_low_wind_bias",
+    "check_missing_data",
+    "check_profile_monotonic",
+    "check_stability_consistency",
+    "find_missing_runs",
+    "run_all_qaqc",
 ]
