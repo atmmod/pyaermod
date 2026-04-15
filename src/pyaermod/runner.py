@@ -141,7 +141,9 @@ class AERMODRunner:
 
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        # AERMOD expects input file name without extension
+        # AERMOD reads from a fixed filename (aermod.inp) in its working directory.
+        # We symlink the user's .inp file to aermod.inp, run AERMOD, then rename
+        # the output files back to the user's naming convention.
         input_name = input_path.stem
 
         self.logger.info(f"Running AERMOD: {input_name}")
@@ -149,25 +151,47 @@ class AERMODRunner:
         self.logger.debug(f"  Working dir: {work_dir}")
         self.logger.debug(f"  Timeout: {timeout}s")
 
-        # Expected output files
+        # Expected output files (will be renamed from aermod.* after run)
         output_files = {
             'output': work_dir / f"{input_name}.out",
             'error': work_dir / f"{input_name}.err",
             'summary': work_dir / f"{input_name}.sum"
         }
 
+        # Create symlink: aermod.inp -> <input_name>.inp
+        aermod_inp = work_dir / "aermod.inp"
+        symlink_created = False
+        try:
+            if aermod_inp.exists() or aermod_inp.is_symlink():
+                aermod_inp.unlink()
+            aermod_inp.symlink_to(input_path.name)
+            symlink_created = True
+        except OSError:
+            # Fallback: copy the file
+            import shutil
+            shutil.copy2(str(input_path), str(aermod_inp))
+
         start_time = datetime.now()
 
         try:
-            # Execute AERMOD
+            # Execute AERMOD (reads aermod.inp automatically)
             result = subprocess.run(
-                [str(self.executable), input_name],
+                [str(self.executable)],
                 cwd=str(work_dir),
                 capture_output=capture_output,
                 text=True,
                 timeout=timeout,
                 check=False
             )
+
+            # Rename AERMOD's default output files to match the input name
+            for suffix in ['.out', '.err', '.sum']:
+                aermod_file = work_dir / f"aermod{suffix}"
+                target_file = work_dir / f"{input_name}{suffix}"
+                if aermod_file.exists():
+                    if target_file.exists():
+                        target_file.unlink()
+                    aermod_file.rename(target_file)
 
             end_time = datetime.now()
             runtime = (end_time - start_time).total_seconds()
@@ -232,6 +256,14 @@ class AERMODRunner:
                 start_time=start_time,
                 end_time=end_time
             )
+
+        finally:
+            # Clean up the aermod.inp symlink/copy
+            if aermod_inp.exists() or aermod_inp.is_symlink():
+                try:
+                    aermod_inp.unlink()
+                except OSError:
+                    pass
 
     def _extract_error_message(self,
                                result: subprocess.CompletedProcess,

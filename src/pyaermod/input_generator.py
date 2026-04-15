@@ -1635,10 +1635,14 @@ class DiscreteReceptor:
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD DISCCART line"""
-        return (
+        line = (
             f"   DISCCART  {self.x_coord:12.4f} {self.y_coord:12.4f} "
-            f"{self.z_elev:8.2f} {self.z_hill:8.2f} {self.z_flag:8.2f}"
+            f"{self.z_elev:8.2f}"
         )
+        # Only include z_hill and z_flag for ELEVATED terrain (non-zero values)
+        if self.z_hill != 0.0 or self.z_flag != 0.0:
+            line += f" {self.z_hill:8.2f} {self.z_flag:8.2f}"
+        return line
 
 
 @dataclass
