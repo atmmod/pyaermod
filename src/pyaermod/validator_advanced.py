@@ -13,9 +13,11 @@ wrong results:
 - Emission-rate plausibility for the declared pollutant.
 - Met date range vs. ControlPathway date range.
 
-Call `advanced_validate(project)` in addition to `Validator.validate`.
-Findings are returned as a plain list of `ValidationError` objects so
-they can be merged with base-validator output.
+As of v1.3.0 these checks are **integrated into `Validator.validate()`**
+by default — findings land in the returned `ValidationResult.errors`
+list with the appropriate severity. Call the standalone
+`advanced_validate(project)` only when you need the cross-field
+findings in isolation (e.g. for custom reporting).
 """
 
 from __future__ import annotations
