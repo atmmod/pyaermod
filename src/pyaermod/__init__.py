@@ -160,6 +160,14 @@ from .met_ingest import (
     parse_igra_v2,
 )
 from .validator_advanced import advanced_validate
+from .regulatory import (
+    ALL_PROFILES,
+    EPA_APPENDIX_W_2017,
+    EPA_APPENDIX_W_2023,
+    SCREENING_PROFILE,
+    RegulatoryProfile,
+    get_profile,
+)
 from .runner_utils import (
     ERRMSGInfo,
     LoggingProgress,
@@ -360,6 +368,14 @@ __all__ = [
 
     # Advanced validator (cross-field AERMOD checks)
     'advanced_validate',
+
+    # Regulatory profiles
+    'RegulatoryProfile',
+    'EPA_APPENDIX_W_2017',
+    'EPA_APPENDIX_W_2023',
+    'SCREENING_PROFILE',
+    'ALL_PROFILES',
+    'get_profile',
 
     # Runner UX (progress, failure diagnostics, resume, SLURM)
     'ERRMSGInfo',
