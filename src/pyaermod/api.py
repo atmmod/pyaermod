@@ -69,6 +69,8 @@ from .bpip import BPIPCalculator, BPIPResult, Building
 from .chemistry_presets import (
     DEPOSITION_DEFAULTS,
     PollutantDepositionDefaults,
+    apply_chemistry,
+    apply_deposition_defaults,
     arm2_preset,
     deposition_defaults_for,
     deposition_diagnostics,
@@ -313,6 +315,7 @@ __all__ = [
     "olm_preset", "pvmrm_preset", "arm2_preset", "grsm_preset",
     "suggest_chemistry_for", "PollutantDepositionDefaults",
     "DEPOSITION_DEFAULTS", "deposition_defaults_for", "deposition_diagnostics",
+    "apply_chemistry", "apply_deposition_defaults",
     # .inp file reader
     "parse_aermod_input", "read_aermod_input",
     # optional-dep availability flags

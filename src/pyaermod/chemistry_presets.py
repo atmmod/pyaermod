@@ -292,9 +292,115 @@ def deposition_diagnostics(project: Any) -> List[str]:
     return warns
 
 
+def apply_chemistry(
+    project: Any,
+    options: ChemistryOptions,
+    *,
+    olm_source_group_names: Optional[List[str]] = None,
+) -> List[str]:
+    """Install a ChemistryOptions on a project's ControlPathway.
+
+    Returns a human-readable list of changes made — useful for logging
+    / CI diffs — following the same convention as
+    :meth:`RegulatoryProfile.apply`.
+
+    If ``olm_source_group_names`` is provided and the chemistry method
+    is OLM (or PVMRM), the listed source groups are wired into
+    ``options.olm_groups``; existing `SourceGroupDefinition` objects on
+    the project are reused when the name matches so we don't duplicate.
+    """
+    changes: List[str] = []
+    ctrl = project.control
+    if getattr(ctrl, "chemistry", None) is None:
+        ctrl.chemistry = options
+        changes.append(f"installed chemistry={options.method.value}")
+    else:
+        # Replace wholesale; caller can copy-then-mutate to preserve
+        # any existing fields.
+        ctrl.chemistry = options
+        changes.append(f"replaced chemistry -> {options.method.value}")
+
+    if olm_source_group_names:
+        if not options.olm_groups:
+            options.olm_groups = []
+        existing = {g.group_name: g for g in project.sources.group_definitions}
+        for name in olm_source_group_names:
+            if name in existing:
+                options.olm_groups.append(existing[name])
+                changes.append(f"wired olm_group {name}")
+            else:
+                changes.append(
+                    f"WARN: olm_group '{name}' not defined in project; skipped"
+                )
+    return changes
+
+
+def apply_deposition_defaults(
+    project: Any,
+    pollutant: Optional[str] = None,
+    *,
+    include_source_ids: Optional[List[str]] = None,
+    exclude_source_ids: Optional[List[str]] = None,
+    overwrite: bool = False,
+) -> List[str]:
+    """Auto-populate per-source deposition parameters from DEPOSITION_DEFAULTS.
+
+    Looks up the pollutant (defaults to the project's ``control.pollutant_id``)
+    and sets ``gas_deposition`` OR ``particle_deposition`` + ``deposition_method``
+    on each applicable source. Sources that already have one of those fields
+    populated are left alone unless ``overwrite=True``.
+
+    ``include_source_ids`` / ``exclude_source_ids`` restrict the set of
+    sources touched; pass either one, not both.
+
+    Returns a change-log list.
+    """
+    if include_source_ids and exclude_source_ids:
+        raise ValueError("pass include_source_ids OR exclude_source_ids, not both")
+
+    if pollutant is None:
+        pid = project.control.pollutant_id
+        pollutant = pid.value if hasattr(pid, "value") else str(pid)
+
+    try:
+        defaults = deposition_defaults_for(pollutant)
+    except KeyError:
+        return [f"no deposition defaults for pollutant '{pollutant}'"]
+
+    changes: List[str] = []
+    for src in getattr(project.sources, "sources", []) or []:
+        sid = getattr(src, "source_id", None) or getattr(src, "building_id", "?")
+        if include_source_ids is not None and sid not in include_source_ids:
+            continue
+        if exclude_source_ids is not None and sid in exclude_source_ids:
+            continue
+
+        has_dep = (
+            getattr(src, "gas_deposition", None) is not None
+            or getattr(src, "particle_deposition", None) is not None
+        )
+        if has_dep and not overwrite:
+            continue
+
+        if defaults.gas is not None:
+            src.gas_deposition = defaults.gas
+            src.deposition_method = defaults.method
+            changes.append(f"{sid}: gas_deposition defaults applied ({pollutant})")
+        if defaults.particle is not None:
+            src.particle_deposition = defaults.particle
+            # For particle sources DRYDPLT is the usual method
+            src.deposition_method = defaults.method
+            changes.append(
+                f"{sid}: particle_deposition defaults applied ({pollutant})"
+            )
+    return changes
+
+
 __all__ = [
     "DEPOSITION_DEFAULTS",
     "PollutantDepositionDefaults",
+    "apply_chemistry",
+    "apply_deposition_defaults",
     "arm2_preset",
     "deposition_defaults_for",
     "deposition_diagnostics",
