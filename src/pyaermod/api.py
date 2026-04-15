@@ -44,6 +44,11 @@ from .aermet import (
     read_surface_file,
     write_aermet_runfile,
 )
+from .aermet_runner import (
+    AERMETRunner,
+    AERMETRunResult,
+    run_aermet_pipeline,
+)
 from .aermod_outputs import (
     AERMODAuxResult,
     AERMODFileHeader,
@@ -282,6 +287,7 @@ __all__ = [
     "AERMETStation", "UpperAirStation", "AERMETStage1", "AERMETStage2",
     "AERMETStage3", "SurfaceFileHeader", "ProfileFileHeader",
     "write_aermet_runfile", "read_surface_file", "read_profile_file",
+    "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
     "ASOS1MinRecord", "parse_asos_1min_line", "parse_asos_1min_file",
     "aggregate_1min_to_hourly", "ISDStationId", "ISDFetcher", "IGRASounding",
     "parse_igra_v2", "IGRAFetcher", "MMIFConfig",
