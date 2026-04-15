@@ -160,6 +160,17 @@ from .met_ingest import (
     parse_igra_v2,
 )
 from .validator_advanced import advanced_validate
+from .prime import (
+    DownwashAssessment,
+    GEP_FLOOR_M,
+    apply_bpip_to_project,
+    assess_source_downwash,
+    cavity_length,
+    gep_from_building,
+    gep_stack_height,
+    in_cavity_region,
+    suggest_downwash_config,
+)
 from .met_qaqc import (
     QAQCFinding,
     QAQCReport,
@@ -309,6 +320,17 @@ __all__ = [
 
     # Advanced validator (cross-field AERMOD checks)
     'advanced_validate',
+
+    # PRIME / GEP downwash helpers
+    'GEP_FLOOR_M',
+    'gep_stack_height',
+    'gep_from_building',
+    'cavity_length',
+    'in_cavity_region',
+    'DownwashAssessment',
+    'assess_source_downwash',
+    'apply_bpip_to_project',
+    'suggest_downwash_config',
 
     # POSTFILE parser
     'PostfileHeader',
