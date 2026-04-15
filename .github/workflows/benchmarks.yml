@@ -1,0 +1,53 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run benchmarks (current)
+        run: |
+          python benchmarks/run_benchmarks.py --output bench_current.json --quiet
+          echo "=== Current run summary ==="
+          python -c "import json; [print(f'{r[\"name\"]:<40s} {r[\"ms_per_call\"]:.3f} ms') for r in json.load(open('bench_current.json'))['results']]"
+
+      - name: Run benchmarks (main baseline)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin main --depth=1
+          git worktree add /tmp/main-tree origin/main
+          (cd /tmp/main-tree && pip install -e . && \
+           python benchmarks/run_benchmarks.py --output /tmp/bench_base.json --quiet)
+
+      - name: Compare vs. baseline
+        if: github.event_name == 'pull_request'
+        run: |
+          python benchmarks/compare_benchmarks.py \
+            --baseline /tmp/bench_base.json \
+            --current bench_current.json \
+            --threshold 0.25
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: bench_current.json
