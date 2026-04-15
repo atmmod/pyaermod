@@ -214,6 +214,45 @@ class TestMetDates:
 # End-to-end
 # ---------------------------------------------------------------------------
 
+class TestIntegrationWithValidator:
+    """Verify Validator.validate() picks up advanced findings by default
+    (and only the base checks when advanced=False)."""
+
+    def _make_project(self, **src_kw):
+        g = CartesianGrid(
+            grid_name="G1",
+            x_init=-500, x_num=5, x_delta=100,
+            y_init=-500, y_num=4, y_delta=100,
+        )
+        return AERMODProject(
+            control=_good_control(),
+            sources=SourcePathway(sources=[_good_point(**src_kw)]),
+            receptors=ReceptorPathway(cartesian_grids=[g]),
+            meteorology=_good_met(),
+            output=OutputPathway(),
+        )
+
+    def test_advanced_on_by_default(self):
+        from pyaermod.validator import Validator
+        project = self._make_project(emission_rate=0.0)
+        result = Validator.validate(project)
+        assert any(
+            "emission_rate" in e.field and e.severity == "warning"
+            for e in result.errors
+        )
+
+    def test_advanced_off_skips_cross_field(self):
+        from pyaermod.validator import Validator
+        project = self._make_project(emission_rate=0.0)
+        result = Validator.validate(project, advanced=False)
+        # No cross-field warning about emission_rate
+        cross = [
+            e for e in result.errors
+            if "emission_rate" in e.field and e.severity == "warning"
+        ]
+        assert cross == []
+
+
 class TestAdvancedValidateEnd2End:
     def _project(self, **src_kw):
         g = CartesianGrid(

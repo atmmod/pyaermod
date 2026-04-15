@@ -80,7 +80,8 @@ class Validator:
     """
 
     @classmethod
-    def validate(cls, project, check_files: bool = False) -> ValidationResult:
+    def validate(cls, project, check_files: bool = False,
+                 advanced: bool = True) -> ValidationResult:
         """
         Validate an entire AERMODProject.
 
@@ -90,6 +91,12 @@ class Validator:
             The project to validate.
         check_files : bool
             If True, verify that meteorology files exist on disk.
+        advanced : bool
+            If True (default), also run the cross-field checks from
+            :mod:`validator_advanced` (stack-parameter consistency,
+            receptor-domain extent, DFAULT consistency, ANNUAL met
+            coverage). Pass ``advanced=False`` to restrict output to
+            only the base per-field checks.
 
         Returns
         -------
@@ -103,6 +110,12 @@ class Validator:
         cls._validate_output(project.output, result)
         if getattr(project, "events", None) is not None:
             cls._validate_events(project.events, project.control, result)
+
+        if advanced:
+            # Lazy import to avoid circulars: validator_advanced uses
+            # ValidationError from this module.
+            from .validator_advanced import advanced_validate
+            result.errors.extend(advanced_validate(project))
         return result
 
     # ------------------------------------------------------------------

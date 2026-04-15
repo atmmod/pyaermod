@@ -255,9 +255,13 @@ class TestPointSourceValidation:
         assert any("exit_velocity" in e.field for e in result.errors)
 
     def test_zero_exit_velocity_ok(self):
-        """Zero exit velocity is valid (passive stack)."""
+        """Zero exit velocity is valid (passive stack); advanced validator
+        may emit a *warning* but there should be no error-severity finding."""
         result = Validator.validate(self._project_with_point(exit_velocity=0.0))
-        vel_errors = [e for e in result.errors if "exit_velocity" in e.field]
+        vel_errors = [
+            e for e in result.errors
+            if "exit_velocity" in e.field and e.severity == "error"
+        ]
         assert len(vel_errors) == 0
 
     def test_negative_emission_rate(self):
@@ -265,9 +269,13 @@ class TestPointSourceValidation:
         assert any("emission_rate" in e.field for e in result.errors)
 
     def test_zero_emission_rate_ok(self):
-        """Zero emission is valid (placeholder source)."""
+        """Zero emission is valid (placeholder source); advanced validator
+        emits a warning but no error."""
         result = Validator.validate(self._project_with_point(emission_rate=0.0))
-        er_errors = [e for e in result.errors if "emission_rate" in e.field]
+        er_errors = [
+            e for e in result.errors
+            if "emission_rate" in e.field and e.severity == "error"
+        ]
         assert len(er_errors) == 0
 
     def test_building_array_wrong_length(self):
