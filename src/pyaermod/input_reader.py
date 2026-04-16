@@ -46,13 +46,20 @@ from .input_generator import (
     AERMODProject,
     AreaCircSource,
     AreaSource,
+    BackgroundConcentration,
+    BackgroundSector,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    GasDepositionParams,
     LineSource,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
+    OzoneData,
+    ParticleDepositionParams,
     PointSource,
     PolarGrid,
     PollutantType,
@@ -171,6 +178,14 @@ def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
 # Pathway parsers
 # ---------------------------------------------------------------------------
 
+_CHEM_METHODS: Dict[str, ChemistryMethod] = {
+    "OLM": ChemistryMethod.OLM,
+    "PVMRM": ChemistryMethod.PVMRM,
+    "ARM2": ChemistryMethod.ARM2,
+    "GRSM": ChemistryMethod.GRSM,
+}
+
+
 def _parse_control(block: _PathwayBlock) -> ControlPathway:
     title_one = title_two = ""
     avertime: List[str] = []
@@ -185,6 +200,12 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     urban: Optional[str] = None
     urban_pop: Optional[float] = None
     low_wind: Optional[str] = None
+
+    # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
+    chem_method: Optional[ChemistryMethod] = None
+    no2_ratio: Optional[float] = None
+    ozone_uniform: Optional[float] = None
+    ozone_file: Optional[str] = None
 
     for kw, toks, _ln in _group_keywords(block):
         if kw == "TITLEONE":
@@ -202,7 +223,7 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                     calc_ddep = True
                 elif up == "WDEP":
                     calc_wdep = True
-                elif up in ("FLAT",):
+                elif up == "FLAT":
                     terrain = TerrainType.FLAT
                 elif up in ("ELEV", "ELEVATED"):
                     terrain = TerrainType.ELEVATED
@@ -210,8 +231,10 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                     terrain = TerrainType.FLATSRCS
                 elif up == "DFAULT":
                     reg_default = True
-                # Chemistry methods (OLM, PVMRM, etc.) are handled elsewhere
-                # via ChemistryOptions; we drop them here for now.
+                elif up in _CHEM_METHODS:
+                    chem_method = _CHEM_METHODS[up]
+                elif up == "NOCHKD":
+                    pass  # Recognized; no structural field
         elif kw == "AVERTIME":
             avertime = [t.upper() for t in toks]
         elif kw == "POLLUTID":
@@ -229,12 +252,47 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         elif kw == "URBANOPT":
             urban = toks[0] if toks else None
             if len(toks) > 1:
-                try:
+                with contextlib.suppress(ValueError):
                     urban_pop = float(toks[1])
-                except ValueError:
-                    urban_pop = None
         elif kw == "LOW_WIND":
             low_wind = toks[0] if toks else None
+        elif kw == "NO2STACK" and toks:
+            with contextlib.suppress(ValueError):
+                no2_ratio = float(toks[0])
+        elif kw == "NO2EQUIL":
+            pass  # Recognized; equilibrium NO2/NOx ratio has no structural field yet
+        elif kw in ("OZONEVAL", "O3VALUES"):
+            # Forms: "OZONEVAL <value> [units]",  "O3VALUES UNIFORM <value>",
+            # "O3VALUES <filename>"
+            if not toks:
+                pass
+            elif toks[0].upper() == "UNIFORM" and len(toks) >= 2:
+                with contextlib.suppress(ValueError):
+                    ozone_uniform = float(toks[1])
+            else:
+                # First token may be a numeric value (possibly followed by units)
+                try:
+                    ozone_uniform = float(toks[0])
+                except ValueError:
+                    # Non-numeric → treat as a file path
+                    ozone_file = toks[0]
+        elif kw == "OZONEFIL" and toks:
+            ozone_file = toks[0]
+        elif kw in ("ERRORFIL", "DEBUGOPT"):
+            pass  # Recognized; no structural field
+
+    # Build ChemistryOptions if any chemistry-related keywords were found
+    chemistry: Optional[ChemistryOptions] = None
+    if chem_method is not None or no2_ratio is not None \
+            or ozone_uniform is not None or ozone_file is not None:
+        ozone_data: Optional[OzoneData] = None
+        if ozone_uniform is not None or ozone_file is not None:
+            ozone_data = OzoneData(ozone_file=ozone_file, uniform_value=ozone_uniform)
+        chemistry = ChemistryOptions(
+            method=chem_method or ChemistryMethod.ARM2,
+            ozone_data=ozone_data,
+            default_no2_ratio=no2_ratio if no2_ratio is not None else 0.5,
+        )
 
     return ControlPathway(
         title_one=title_one,
@@ -254,6 +312,7 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         urban_option=urban,
         urban_population=urban_pop,
         low_wind_option=low_wind,
+        chemistry=chemistry,
     )
 
 
@@ -281,6 +340,17 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     locs: Dict[str, Dict[str, Any]] = {}
     src_types: Dict[str, str] = {}
     group_defs: List[SourceGroupDefinition] = []
+
+    # Deposition data accumulated by source ID before source objects exist
+    gas_dep_data: Dict[str, GasDepositionParams] = {}
+    part_dep_data: Dict[str, Dict[str, List[float]]] = {}  # srcid -> {diameters/fractions/densities}
+    urbansrc_data: Dict[str, str] = {}  # srcid -> urban_area_name
+
+    # Background concentration accumulation
+    bg_uniform: Optional[float] = None
+    bg_period_values: Dict[str, float] = {}
+    bg_sectors: List[BackgroundSector] = []
+    bg_sector_values: Dict[Tuple[int, str], float] = {}
 
     for kw, toks, _ln in _group_keywords(block):
         if kw == "LOCATION":
@@ -339,6 +409,110 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 group_name=grp_name, member_source_ids=members,
             ))
 
+        # ------------------------------------------------------------------
+        # Background concentration keywords
+        # ------------------------------------------------------------------
+        elif kw == "BACKGRND":
+            # Forms:
+            #   BACKGRND <uniform_value>
+            #   BACKGRND <period> <value>
+            #   BACKGRND SECT<n> <period> <value>
+            #   BACKGRND <period> <filename>  (file-based, not stored structurally)
+            if not toks:
+                pass
+            elif len(toks) == 1:
+                with contextlib.suppress(ValueError):
+                    bg_uniform = float(toks[0])
+            elif toks[0].upper().startswith("SECT") and len(toks) >= 3:
+                sect_str = toks[0].upper().lstrip("SECT")
+                with contextlib.suppress(ValueError):
+                    sect_id = int(sect_str)
+                    value = float(toks[2])
+                    bg_sector_values[(sect_id, toks[1].upper())] = value
+            else:
+                # "PERIOD VALUE" or "PERIOD FILENAME"
+                try:
+                    value = float(toks[1])
+                    bg_period_values[toks[0].upper()] = value
+                except (ValueError, IndexError):
+                    pass  # File-based background; not stored structurally
+        elif kw == "BGSECTOR":
+            # BGSECTOR <dir1> <dir2> ...  — sector starting directions (degrees)
+            for idx, tok in enumerate(toks, start=1):
+                with contextlib.suppress(ValueError):
+                    bg_sectors.append(BackgroundSector(
+                        sector_id=idx, start_direction=float(tok)
+                    ))
+        elif kw == "BACKUNIT":
+            pass  # Recognized (PPB/UG/M3); no structural field
+
+        # ------------------------------------------------------------------
+        # Deposition keywords
+        # ------------------------------------------------------------------
+        elif kw == "GASDEPOS":
+            # GASDEPOS srcid diffusivity alpha_r reactivity [henry_or_vd]
+            if len(toks) < 4:
+                continue
+            sid = toks[0]
+            try:
+                diff = float(toks[1])
+                alpha = float(toks[2])
+                react = float(toks[3])
+                last = float(toks[4]) if len(toks) > 4 else None
+            except ValueError:
+                continue
+            gas_dep_data[sid] = GasDepositionParams(
+                diffusivity=diff,
+                alpha_r=alpha,
+                reactivity=react,
+                henry_constant=last,
+            )
+        elif kw == "PARTDIAM":
+            # PARTDIAM srcid d1 d2 d3 ...
+            if not toks:
+                continue
+            sid = toks[0]
+            try:
+                diameters = [float(t) for t in toks[1:]]
+            except ValueError:
+                continue
+            part_dep_data.setdefault(sid, {})["diameters"] = diameters
+        elif kw == "MASSFRAX":
+            # MASSFRAX srcid f1 f2 f3 ...
+            if not toks:
+                continue
+            sid = toks[0]
+            try:
+                fractions = [float(t) for t in toks[1:]]
+            except ValueError:
+                continue
+            part_dep_data.setdefault(sid, {})["mass_fractions"] = fractions
+        elif kw == "PARTDENS":
+            # PARTDENS srcid r1 r2 r3 ...
+            if not toks:
+                continue
+            sid = toks[0]
+            try:
+                densities = [float(t) for t in toks[1:]]
+            except ValueError:
+                continue
+            part_dep_data.setdefault(sid, {})["densities"] = densities
+
+        # ------------------------------------------------------------------
+        # Urban source designation
+        # ------------------------------------------------------------------
+        elif kw == "URBANSRC":
+            # URBANSRC srcid urban_area_name
+            if len(toks) >= 2:
+                urbansrc_data[toks[0]] = toks[1]
+
+        # ------------------------------------------------------------------
+        # Recognized but not structurally stored
+        # ------------------------------------------------------------------
+        elif kw in ("EMISFACT", "HOUREMIS", "INCLUDED", "ELEVUNIT"):
+            pass  # Recognized keyword; no structural field in SourcePathway
+
+    # Build source objects
     sources = []
     for sid, data in locs.items():
         stype = src_types.get(sid, "POINT")
@@ -451,9 +625,38 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 if hasattr(src, attr):
                     setattr(src, attr, values)
 
+        # Apply gas deposition parameters
+        if sid in gas_dep_data and hasattr(src, "gas_deposition"):
+            src.gas_deposition = gas_dep_data[sid]
+
+        # Apply particle deposition parameters
+        if sid in part_dep_data and hasattr(src, "particle_deposition"):
+            pd = part_dep_data[sid]
+            src.particle_deposition = ParticleDepositionParams(
+                diameters=pd.get("diameters", []),
+                mass_fractions=pd.get("mass_fractions", []),
+                densities=pd.get("densities", []),
+            )
+
+        # Apply URBANSRC designation
+        if sid in urbansrc_data and hasattr(src, "is_urban"):
+            src.is_urban = True
+            src.urban_area_name = urbansrc_data[sid]
+
         sources.append(src)
 
-    return SourcePathway(sources=sources, group_definitions=group_defs)
+    # Build BackgroundConcentration if any BACKGRND keywords were found
+    background: Optional[BackgroundConcentration] = None
+    if bg_sectors and bg_sector_values:
+        background = BackgroundConcentration(
+            sectors=bg_sectors, sector_values=bg_sector_values,
+        )
+    elif bg_period_values:
+        background = BackgroundConcentration(period_values=bg_period_values)
+    elif bg_uniform is not None:
+        background = BackgroundConcentration(uniform_value=bg_uniform)
+
+    return SourcePathway(sources=sources, group_definitions=group_defs, background=background)
 
 
 def _parse_receptors(block: _PathwayBlock) -> ReceptorPathway:
@@ -523,6 +726,9 @@ def _parse_receptors(block: _PathwayBlock) -> ReceptorPathway:
                 z_hill=z_hill, z_flag=z_flag,
             ))
 
+        elif kw in ("EVALCART", "DISCPOLR", "INCLUDED"):
+            pass  # Recognized; no structural field in ReceptorPathway
+
     return ReceptorPathway(
         cartesian_grids=[CartesianGrid(**d) for d in carts.values()],
         polar_grids=[PolarGrid(**d) for d in polars.values()],
@@ -566,6 +772,8 @@ def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
             )
         elif kw == "WDROTATE" and toks:
             wind_rotation = float(toks[0])
+        elif kw == "SITEDATA":
+            pass  # Recognized; site-specific met data; no structural field
 
     return MeteorologyPathway(
         **kw_map, **dates,

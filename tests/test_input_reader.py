@@ -544,3 +544,257 @@ OU FINISHED
 """
         p = parse_aermod_input(text)
         assert p.control.title_one == "t"
+
+
+# ---------------------------------------------------------------------------
+# New keyword tests (v1.4)
+# ---------------------------------------------------------------------------
+
+_MINIMAL_WRAPPER = """\
+CO STARTING
+   TITLEONE  t
+   MODELOPT  CONC ELEVATED DFAULT {co_extra}
+   AVERTIME  ANNUAL
+   POLLUTID  NO2
+{co_kw}
+CO FINISHED
+SO STARTING
+{so_body}
+SO FINISHED
+RE STARTING
+{re_body}
+RE FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  2020
+   UAIRDATA  1  2020
+   PROFBASE  0.0
+ME FINISHED
+OU STARTING
+OU FINISHED
+"""
+
+_DEFAULT_SO = """\
+   LOCATION S1 POINT 0 0 0
+   SRCPARAM S1 1 30 400 10 2
+"""
+
+_DEFAULT_RE = "   DISCCART 0 0 0\n"
+
+
+def _wrap(co_kw="", co_extra="", so_body=_DEFAULT_SO, re_body=_DEFAULT_RE):
+    return parse_aermod_input(
+        _MINIMAL_WRAPPER.format(
+            co_extra=co_extra, co_kw=co_kw, so_body=so_body, re_body=re_body,
+        )
+    )
+
+
+class TestCOChemistryKeywords:
+    """Tests for new CO pathway keywords added in v1.4."""
+
+    def test_olm_in_modelopt_sets_chemistry_method(self):
+        from pyaermod.input_generator import ChemistryMethod
+        p = _wrap(co_extra="OLM")
+        assert p.control.chemistry is not None
+        assert p.control.chemistry.method == ChemistryMethod.OLM
+
+    def test_pvmrm_in_modelopt(self):
+        from pyaermod.input_generator import ChemistryMethod
+        p = _wrap(co_extra="PVMRM")
+        assert p.control.chemistry.method == ChemistryMethod.PVMRM
+
+    def test_nochkd_in_modelopt_does_not_crash(self):
+        """NOCHKD is recognized and silently ignored (no structural field)."""
+        p = _wrap(co_extra="NOCHKD")
+        # Should parse cleanly; chemistry is None because no chemistry kwds present
+        assert p.control.chemistry is None
+
+    def test_no2stack_parsed(self):
+        p = _wrap(co_extra="OLM", co_kw="   NO2STACK 0.10")
+        assert p.control.chemistry is not None
+        assert p.control.chemistry.default_no2_ratio == pytest.approx(0.10)
+
+    def test_no2equil_recognized_does_not_crash(self):
+        """NO2EQUIL is recognized and silently ignored; no structural field."""
+        p = _wrap(co_extra="OLM", co_kw="   NO2EQUIL 0.90\n   NO2STACK 0.10")
+        assert p.control.chemistry is not None
+
+    def test_ozoneval_uniform_numeric(self):
+        from pyaermod.input_generator import OzoneData
+        p = _wrap(co_extra="OLM", co_kw="   OZONEVAL 60.0 UG/M3")
+        assert isinstance(p.control.chemistry.ozone_data, OzoneData)
+        assert p.control.chemistry.ozone_data.uniform_value == pytest.approx(60.0)
+
+    def test_ozoneval_uniform_keyword(self):
+        from pyaermod.input_generator import OzoneData
+        p = _wrap(co_extra="OLM", co_kw="   O3VALUES UNIFORM 40.0")
+        assert p.control.chemistry.ozone_data.uniform_value == pytest.approx(40.0)
+
+    def test_ozonefil_parsed(self):
+        p = _wrap(co_extra="OLM", co_kw="   OZONEFIL ozone.dat")
+        assert p.control.chemistry.ozone_data.ozone_file == "ozone.dat"
+
+    def test_errorfil_recognized_does_not_crash(self):
+        p = _wrap(co_kw="   ERRORFIL run.err")
+        assert p.control.chemistry is None  # no chemistry from this alone
+
+    def test_debugopt_recognized_does_not_crash(self):
+        p = _wrap(co_kw="   DEBUGOPT 2")
+        assert p.control.chemistry is None
+
+    def test_bg_no2_olm_fixture_parses(self):
+        """The vendored EPA bg_no2_olm_ppb.inp fixture must parse without error."""
+        from pyaermod.input_generator import ChemistryMethod
+        p = read_aermod_input(FIXT.parent / "epa_official" / "bg_no2_olm_ppb.inp")
+        assert p.control.chemistry is not None
+        assert p.control.chemistry.method == ChemistryMethod.OLM
+
+
+class TestSOBackgroundKeywords:
+    """Tests for SO BACKGRND / BGSECTOR / BACKUNIT keywords."""
+
+    def _with_so(self, so_extra: str):
+        return _wrap(so_body=_DEFAULT_SO + so_extra)
+
+    def test_backgrnd_uniform_value(self):
+        from pyaermod.input_generator import BackgroundConcentration
+        p = self._with_so("   BACKGRND 5.0\n")
+        assert isinstance(p.sources.background, BackgroundConcentration)
+        assert p.sources.background.uniform_value == pytest.approx(5.0)
+
+    def test_backgrnd_period_values(self):
+        p = self._with_so(
+            "   BACKGRND ANNUAL 3.5\n"
+            "   BACKGRND 1 1.2\n"
+        )
+        bg = p.sources.background
+        assert bg is not None
+        assert bg.period_values["ANNUAL"] == pytest.approx(3.5)
+        assert bg.period_values["1"] == pytest.approx(1.2)
+
+    def test_backgrnd_sector_values(self):
+        p = self._with_so(
+            "   BGSECTOR 0.0 60.0 120.0\n"
+            "   BACKGRND SECT1 ANNUAL 2.0\n"
+            "   BACKGRND SECT2 ANNUAL 3.0\n"
+        )
+        bg = p.sources.background
+        assert bg is not None
+        assert len(bg.sectors) == 3
+        assert bg.sector_values[(1, "ANNUAL")] == pytest.approx(2.0)
+
+    def test_backgrnd_file_based_does_not_crash(self):
+        """File-based BACKGRND (HOURLY filename) is recognized but not stored structurally."""
+        p = self._with_so("   BACKGRND HOURLY bg.dat\n   BACKUNIT PPB\n")
+        # background may be None (file-based not stored) — must not raise
+        assert p.sources is not None
+
+    def test_backunit_recognized_does_not_crash(self):
+        p = self._with_so("   BACKUNIT PPB\n")
+        assert p.sources.background is None  # no BACKGRND value
+
+
+class TestSODepositionKeywords:
+    """Tests for SO GASDEPOS / PARTDIAM / MASSFRAX / PARTDENS keywords."""
+
+    def _with_so(self, so_extra: str):
+        return _wrap(so_body=_DEFAULT_SO + so_extra)
+
+    def test_gasdepos_parsed(self):
+        from pyaermod.input_generator import GasDepositionParams
+        p = self._with_so(
+            "   GASDEPOS S1 0.25 0.01 0.5 0.001\n"
+        )
+        src = p.sources.sources[0]
+        assert isinstance(src.gas_deposition, GasDepositionParams)
+        assert src.gas_deposition.diffusivity == pytest.approx(0.25)
+        assert src.gas_deposition.alpha_r == pytest.approx(0.01)
+        assert src.gas_deposition.reactivity == pytest.approx(0.5)
+        assert src.gas_deposition.henry_constant == pytest.approx(0.001)
+
+    def test_particle_deposition_parsed(self):
+        from pyaermod.input_generator import ParticleDepositionParams
+        p = self._with_so(
+            "   PARTDIAM S1 1.0 2.5 5.0\n"
+            "   MASSFRAX S1 0.3 0.5 0.2\n"
+            "   PARTDENS S1 1.5 1.5 1.5\n"
+        )
+        src = p.sources.sources[0]
+        assert isinstance(src.particle_deposition, ParticleDepositionParams)
+        assert src.particle_deposition.diameters == pytest.approx([1.0, 2.5, 5.0])
+        assert src.particle_deposition.mass_fractions == pytest.approx([0.3, 0.5, 0.2])
+        assert src.particle_deposition.densities == pytest.approx([1.5, 1.5, 1.5])
+
+    def test_emisfact_recognized_does_not_crash(self):
+        p = self._with_so("   EMISFACT S1 SEASON 1.0 1.0 1.0 1.0\n")
+        assert p.sources.sources[0].source_id == "S1"
+
+    def test_houremis_recognized_does_not_crash(self):
+        p = self._with_so("   HOUREMIS S1 hourly_emis.dat\n")
+        assert p.sources.sources[0].source_id == "S1"
+
+    def test_included_so_recognized_does_not_crash(self):
+        p = self._with_so("   INCLUDED extra_sources.inp\n")
+        assert len(p.sources.sources) >= 1
+
+
+class TestSOUrbanSrc:
+    """Tests for SO URBANSRC keyword."""
+
+    def test_urbansrc_sets_is_urban(self):
+        p = _wrap(so_body=_DEFAULT_SO + "   URBANSRC S1 MYURBAN\n")
+        src = p.sources.sources[0]
+        assert src.is_urban is True
+        assert src.urban_area_name == "MYURBAN"
+
+
+class TestRENewKeywords:
+    """Tests for RE EVALCART, DISCPOLR, INCLUDED keywords."""
+
+    def test_evalcart_recognized_does_not_crash(self):
+        p = _wrap(re_body="   EVALCART 100.0 200.0 0.0\n")
+        # No discrete receptors stored, but must not raise
+        assert p.receptors is not None
+
+    def test_discpolr_recognized_does_not_crash(self):
+        p = _wrap(re_body="   DISCPOLR 45.0 500.0 0.0\n")
+        assert p.receptors is not None
+
+    def test_included_re_recognized_does_not_crash(self):
+        p = _wrap(re_body="   INCLUDED extra_receptors.inp\n")
+        assert p.receptors is not None
+
+
+class TestMENewKeywords:
+    """Tests for ME SITEDATA keyword."""
+
+    def test_sitedata_recognized_does_not_crash(self):
+        text = """\
+CO STARTING
+   TITLEONE  t
+   MODELOPT  CONC ELEVATED DFAULT
+   AVERTIME  ANNUAL
+   POLLUTID  SO2
+CO FINISHED
+SO STARTING
+   LOCATION S1 POINT 0 0 0
+   SRCPARAM S1 1 30 400 10 2
+SO FINISHED
+RE STARTING
+   DISCCART 0 0 0
+RE FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  2020
+   UAIRDATA  1  2020
+   PROFBASE  0.0
+   SITEDATA  99999  2020  URBAN
+ME FINISHED
+OU STARTING
+OU FINISHED
+"""
+        p = parse_aermod_input(text)
+        assert p.meteorology.surface_station_id == 1
