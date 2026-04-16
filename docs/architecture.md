@@ -104,7 +104,7 @@ stack = PointSource(
 )
 
 # Define receptor grid
-grid = ReceptorGrid.from_bounds(
+grid = CartesianGrid.from_bounds(
     bounds=(min_x, min_y, max_x, max_y),
     spacing=100,  # meters
     coordinate_system="UTM"
