@@ -1,0 +1,59 @@
+name: Real AERMAP smoke
+
+# Exercises pyaermod against a real AERMAP binary. Pulls a Linux
+# AERMAP build from EPA's SCRAM site and runs tests/test_real_aermap.py.
+# Parallel to .github/workflows/real_aermod.yml.
+#
+# Runs weekly + on demand; also triggered on changes to the terrain
+# runner or the AERMAP test.
+
+on:
+  schedule:
+    - cron: "30 7 * * 1"  # Monday 07:30 UTC (staggered from real_aermod)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/pyaermod/terrain.py"
+      - "src/pyaermod/terrain_utils.py"
+      - "src/pyaermod/aermap.py"
+      - "tests/test_real_aermap.py"
+      - ".github/workflows/real_aermap.yml"
+
+jobs:
+  aermap_smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Download AERMAP 24142 Linux binary
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/aermap
+          cd /tmp/aermap
+          # EPA ships AERMAP alongside AERMOD in the related-model-support-
+          # programs archive. The exact zip name can change across
+          # releases; this step auto-detects.
+          curl -sSL -o aermap.zip \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_24142.zip" \
+            || curl -sSL -o aermap.zip \
+              "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap.zip"
+          unzip -q aermap.zip
+          LINUX_EXE=$(find . -type f -iname 'aermap' | grep -iv win | head -1)
+          if [ -z "$LINUX_EXE" ]; then
+              echo "Could not locate Linux AERMAP executable"
+              find . -maxdepth 3
+              exit 1
+          fi
+          chmod +x "$LINUX_EXE"
+          sudo cp "$LINUX_EXE" /usr/local/bin/aermap
+
+      - name: Run real-AERMAP smoke test
+        run: pytest tests/test_real_aermap.py -v
