@@ -33,12 +33,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Compile AERMAP from Fortran source
+      - name: Download + compile AERMAP from EPA source
         run: |
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
-          cd aermap/aermap_source_code_24142
-          # Compile all .f files into the aermap executable
+          mkdir -p /tmp/aermap_build && cd /tmp/aermap_build
+          curl -sSL -o aermap_source.zip \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip"
+          unzip -q aermap_source.zip
+          cd aermap_source_code_*
           gfortran -O2 -o aermap *.f
           chmod +x aermap
           sudo cp aermap /usr/local/bin/aermap

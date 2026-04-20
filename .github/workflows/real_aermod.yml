@@ -34,12 +34,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Compile AERMOD from Fortran source
+      - name: Download + compile AERMOD from EPA source
         run: |
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
-          cd aermod
-          # Compile all .f files into the aermod executable
+          mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
+          curl -sSL -o aermod_source.zip \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+          unzip -q aermod_source.zip
+          cd aermod_source_code_*
           gfortran -O2 -o aermod *.f
           chmod +x aermod
           sudo cp aermod /usr/local/bin/aermod
