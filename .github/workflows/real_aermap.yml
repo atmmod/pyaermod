@@ -1,11 +1,8 @@
 name: Real AERMAP smoke
 
-# Exercises pyaermod against a real AERMAP binary. Pulls a Linux
-# AERMAP build from EPA's SCRAM site and runs tests/test_real_aermap.py.
-# Parallel to .github/workflows/real_aermod.yml.
-#
-# Runs weekly + on demand; also triggered on changes to the terrain
-# runner or the AERMAP test.
+# Exercises pyaermod against a real AERMAP binary. Compiles AERMAP
+# from the Fortran source in aermap/aermap_source_code_24142/ and
+# runs tests/test_real_aermap.py.
 
 on:
   schedule:
@@ -18,42 +15,34 @@ on:
       - "src/pyaermod/aermap.py"
       - "tests/test_real_aermap.py"
       - ".github/workflows/real_aermap.yml"
+      - "aermap/**/*.f"
 
 jobs:
   aermap_smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install pyaermod
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Download AERMAP 24142 Linux binary
+      - name: Compile AERMAP from Fortran source
         run: |
           set -euxo pipefail
-          mkdir -p /tmp/aermap
-          cd /tmp/aermap
-          # EPA ships AERMAP alongside AERMOD in the related-model-support-
-          # programs archive. The exact zip name can change across
-          # releases; this step auto-detects.
-          curl -sSL -o aermap.zip \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_24142.zip" \
-            || curl -sSL -o aermap.zip \
-              "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap.zip"
-          unzip -q aermap.zip
-          LINUX_EXE=$(find . -type f -iname 'aermap' | grep -iv win | head -1)
-          if [ -z "$LINUX_EXE" ]; then
-              echo "Could not locate Linux AERMAP executable"
-              find . -maxdepth 3
-              exit 1
-          fi
-          chmod +x "$LINUX_EXE"
-          sudo cp "$LINUX_EXE" /usr/local/bin/aermap
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          cd aermap/aermap_source_code_24142
+          # Compile all .f files into the aermap executable
+          gfortran -O2 -o aermap *.f
+          chmod +x aermap
+          sudo cp aermap /usr/local/bin/aermap
+          aermap --help || true
 
       - name: Run real-AERMAP smoke test
         run: pytest tests/test_real_aermap.py -v
