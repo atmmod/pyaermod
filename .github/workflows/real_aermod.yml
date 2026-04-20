@@ -43,7 +43,15 @@ jobs:
             "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
           unzip -q aermod_source.zip
           cd aermod_source_code_*
-          gfortran -O2 -o aermod *.f
+          # modules.f must be compiled first (produces .mod files)
+          gfortran -c -O2 modules.f
+          gfortran -c -O2 grsm.f
+          gfortran -c -O2 aermod.f setup.f coset.f soset.f reset.f meset.f \
+            ouset.f inpsum.f metext.f iblval.f siggrid.f tempgrid.f \
+            windgrid.f calc1.f calc2.f prise.f arise.f prime.f sigmas.f \
+            pitarea.f uninam.f output.f evset.f evcalc.f evoutput.f \
+            rline.f bline.f
+          gfortran -O2 -o aermod *.o
           chmod +x aermod
           sudo cp aermod /usr/local/bin/aermod
           aermod --help || true

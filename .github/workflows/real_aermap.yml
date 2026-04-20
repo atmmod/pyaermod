@@ -42,7 +42,14 @@ jobs:
             "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip"
           unzip -q aermap_source.zip
           cd aermap_source_code_*
-          gfortran -O2 -o aermap *.f
+          # Modules must be compiled first (produce .mod files)
+          gfortran -c -O2 mod_main1.f mod_tifftags.f
+          gfortran -c -O2 aermap.f sub_calchc.f sub_chkadj.f sub_chkext.f \
+            sub_demchk.f sub_nedchk.f sub_cnrcnv.f sub_demrec.f sub_demsrc.f \
+            sub_domcnv.f sub_initer_dem.f sub_initer_ned.f sub_nadcon.f \
+            sub_reccnv.f sub_recelv.f sub_srccnv.f sub_srcelv.f sub_utmgeo.f \
+            sub_read_tifftags.f
+          gfortran -O2 -o aermap *.o
           chmod +x aermap
           sudo cp aermap /usr/local/bin/aermap
           aermap --help || true
