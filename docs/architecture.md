@@ -435,20 +435,37 @@ comparison = proj.compare_scenarios(
 pyaermod/
 ├── src/pyaermod/              # Main package (src layout)
 │   ├── __init__.py            # Public API, version, optional dep checks
-│   ├── input_generator.py     # All 10 source types, 5 pathways, AERMODProject
-│   ├── validator.py           # Cross-field validation for all pathways
+│   ├── api.py                 # Stable public surface (from pyaermod.api import *)
+│   ├── _optional.py           # Shared optional-dependency helper
+│   ├── input_generator.py     # Facade: re-exports + AERMODProject class
+│   ├── pathways.py            # Enums, ControlPathway, MeteorologyPathway, OutputPathway, Events
+│   ├── sources.py             # 12 source types, deposition params, SourcePathway, background
+│   ├── receptors.py           # CartesianGrid, PolarGrid, DiscreteReceptor, ReceptorPathway
+│   ├── input_reader.py        # .inp file reader (bidirectional round-trip)
+│   ├── validator.py           # Per-field validation for all pathways
+│   ├── validator_advanced.py  # Cross-field AERMOD checks (integrated by default)
+│   ├── regulatory.py          # EPA Appendix W profile presets
+│   ├── chemistry_presets.py   # OLM/PVMRM/GRSM factories, deposition defaults
 │   ├── runner.py              # AERMODRunner, BatchRunner, run_aermod()
+│   ├── runner_utils.py        # Progress, failure diagnostics, resume, SLURM
 │   ├── output_parser.py       # .out file parsing to DataFrames
+│   ├── aermod_outputs.py      # PLOTFILE/MAXIFILE/RANKFILE/SEASONHR/deposition readers
 │   ├── postfile.py            # POSTFILE parser (text PLOT + binary UNFORM)
 │   ├── visualization.py       # Contour plots, Folium maps
 │   ├── advanced_viz.py        # 3D surfaces, wind roses, animations
-│   ├── aermet.py              # AERMET Stages 1-3 input generation
+│   ├── aermet.py              # AERMET Stages 1-3 input generation + SFC/PFL parsers
+│   ├── aermet_runner.py       # AERMETRunner + three-stage pipeline
+│   ├── met_ingest.py          # ASOS 1-min, ISD, IGRA, MMIF data ingest
+│   ├── met_qaqc.py            # Meteorological data QA/QC checks
 │   ├── aermap.py              # AERMAP input generation
 │   ├── terrain.py             # DEM download, AERMAP runner, elevation pipeline
+│   ├── terrain_utils.py       # Datums, SRTM, mosaic, reproject, diagnostics
 │   ├── geospatial.py          # UTM/WGS84 transforms, GIS export
 │   ├── bpip.py                # Building downwash (BPIP) calculations
+│   ├── prime.py               # GEP stack height, cavity region, project-level BPIP
+│   ├── cli.py                 # pyaermod command-line interface
 │   └── gui.py                 # 7-page Streamlit web application
-├── tests/                     # 731 tests across 16 files
+├── tests/                     # 1590+ tests across 30+ files
 ├── docs/                      # MkDocs documentation site
 │   ├── quickstart.md
 │   ├── gui-guide.md
