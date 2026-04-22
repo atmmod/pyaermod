@@ -173,11 +173,9 @@ class TestFullArchive:
             root = FULL / "aermet_23132_aermod_23132" / "inputs"
         return sorted(root.glob("*.inp"))
 
-    # Gate: at least 90% of the ~138 EPA cases must parse. Last measured
-    # baseline: 129/138 = 93% (v1.4 reader, after A.1-A.3 expansions).
-    # Raise this threshold as the reader's keyword coverage improves;
-    # drops below the gate should cause a CI failure you need to debug.
-    PARSE_RATE_FLOOR = 0.90
+    # Gate: all 138 EPA cases must parse. Last measured baseline:
+    # 138/138 = 100% (v1.5 reader, after FLAT-source + explicit-DIST fixes).
+    PARSE_RATE_FLOOR = 1.00
 
     def test_parse_rate_meets_floor(self):
         inputs = self._collect_inputs()

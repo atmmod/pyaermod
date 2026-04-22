@@ -280,6 +280,94 @@ class TestGoldenFileRoundTrip:
 # Error paths
 # ---------------------------------------------------------------------------
 
+class TestFlatSourceKeyword:
+    """AERMOD LOCATION lines may have 'FLAT' instead of a numeric elevation."""
+
+    def _project_with_flat(self, so_body: str) -> AERMODProject:
+        return parse_aermod_input(f"""\
+CO STARTING
+   TITLEONE  t
+   MODELOPT  CONC FLAT
+   AVERTIME  ANNUAL
+   POLLUTID  SO2
+CO FINISHED
+SO STARTING
+{so_body}
+SO FINISHED
+RE STARTING
+   DISCCART 0 0 0
+RE FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  2020
+   UAIRDATA  1  2020
+   PROFBASE  0.0
+ME FINISHED
+OU STARTING
+OU FINISHED
+""")
+
+    def test_flat_keyword_as_elevation(self):
+        p = self._project_with_flat(
+            "   LOCATION  FS  POINT  100.0  200.0  FLAT\n"
+            "   SRCPARAM  FS  1 30 400 10 2"
+        )
+        assert len(p.sources.sources) == 1
+        assert p.sources.sources[0].source_id == "FS"
+
+    def test_numeric_elevation_still_works(self):
+        p = self._project_with_flat(
+            "   LOCATION  S1  POINT  100.0  200.0  5.5\n"
+            "   SRCPARAM  S1  1 30 400 10 2"
+        )
+        assert len(p.sources.sources) == 1
+
+
+class TestExplicitDistancePolarGrid:
+    """GRIDPOLR DIST can be an explicit list (d1 d2 d3 ...) instead of
+    init/num/delta."""
+
+    def _project_with_grid(self, re_body: str) -> AERMODProject:
+        return parse_aermod_input(f"""\
+CO STARTING
+   TITLEONE t
+   MODELOPT CONC ELEVATED DFAULT
+   AVERTIME ANNUAL
+   POLLUTID SO2
+CO FINISHED
+SO STARTING
+   LOCATION S1 POINT 0 0
+   SRCPARAM S1 1 10 400 5 1
+SO FINISHED
+RE STARTING
+{re_body}
+RE FINISHED
+ME STARTING
+   SURFFILE a.sfc
+   PROFFILE a.pfl
+   SURFDATA 1 2020
+   UAIRDATA 1 2020
+   PROFBASE 0.0
+ME FINISHED
+OU STARTING
+OU FINISHED
+""")
+
+    def test_explicit_distances(self):
+        p = self._project_with_grid(
+            "   GRIDPOLR P STA\n"
+            "   GRIDPOLR P ORIG 0 0\n"
+            "   GRIDPOLR P DIST 100. 500. 5000. 20000.\n"
+            "   GRIDPOLR P GDIR 18 10. 20.\n"
+            "   GRIDPOLR P END"
+        )
+        g = p.receptors.polar_grids[0]
+        assert g.dist_num == 4  # 4 explicit distances
+        assert g.dist_init == pytest.approx(100.0)
+        assert g.dir_num == 18  # standard init/num/delta form
+
+
 class TestBuildingArrays:
     """BUILDHGT / BUILDWID / BUILDLEN / XBADJ / YBADJ support (a.k.a. SO-prefixed
     multi-line parameter arrays) including the N*VALUE shorthand."""

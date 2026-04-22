@@ -376,8 +376,18 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                     float(toks[6]), float(toks[7]),
                 ]
             else:
-                z = float(toks[4]) if len(toks) > 4 else 0.0
-                locs[sid]["z_elev"] = z
+                # 5th token is base_elevation (float) or a keyword like
+                # FLAT (marks source as flat-terrain per FLATSRCS option).
+                if len(toks) > 4:
+                    try:
+                        locs[sid]["z_elev"] = float(toks[4])
+                    except ValueError:
+                        # Non-numeric (e.g. "FLAT") — store as flag,
+                        # default elevation to 0.
+                        locs[sid]["z_elev"] = 0.0
+                        locs[sid]["_flat_source"] = True
+                else:
+                    locs[sid]["z_elev"] = 0.0
         elif kw == "SRCPARAM":
             if not toks:
                 continue
@@ -702,18 +712,68 @@ def _parse_receptors(block: _PathwayBlock) -> ReceptorPathway:
                 polars[name].update(
                     x_origin=float(toks[2]), y_origin=float(toks[3]),
                 )
-            elif action == "DIST" and len(toks) >= 5:
-                polars[name].update(
-                    dist_init=float(toks[2]),
-                    dist_num=int(toks[3]),
-                    dist_delta=float(toks[4]),
-                )
-            elif action == "GDIR" and len(toks) >= 5:
-                polars[name].update(
-                    dir_init=float(toks[2]),
-                    dir_num=int(toks[3]),
-                    dir_delta=float(toks[4]),
-                )
+            elif action == "DIST" and len(toks) >= 4:
+                # Two AERMOD forms:
+                # (a) DIST init num delta  (3 args; num is integer)
+                # (b) DIST d1 d2 d3 ...   (explicit list of distances)
+                # Heuristic: if exactly 3 data args AND the 2nd looks
+                # like an integer, assume form (a); else form (b).
+                data_toks = toks[2:]
+                if len(data_toks) == 3 and "." not in data_toks[1]:
+                    with contextlib.suppress(ValueError):
+                        polars[name].update(
+                            dist_init=float(data_toks[0]),
+                            dist_num=int(data_toks[1]),
+                            dist_delta=float(data_toks[2]),
+                        )
+                else:
+                    # Explicit distances: store num = len, init = first, delta = average spacing
+                    distances = [float(d) for d in data_toks]
+                    n = len(distances)
+                    polars[name].update(
+                        dist_init=distances[0],
+                        dist_num=n,
+                        dist_delta=(distances[-1] - distances[0]) / max(n - 1, 1),
+                    )
+            elif action == "GDIR" and len(toks) >= 4:
+                # Two AERMOD forms:
+                # (a1) GDIR init num delta — pyaermod writer (init first, float int float)
+                # (a2) GDIR num init delta — EPA convention (int first)
+                # (b)  GDIR d1 d2 d3 ...  — explicit direction list
+                # Heuristic: if exactly 3 args, check which position is the integer.
+                data_toks = toks[2:]
+                if len(data_toks) == 3:
+                    # Check position 1 (pyaermod convention: init num delta)
+                    if "." not in data_toks[1]:
+                        with contextlib.suppress(ValueError):
+                            polars[name].update(
+                                dir_init=float(data_toks[0]),
+                                dir_num=int(data_toks[1]),
+                                dir_delta=float(data_toks[2]),
+                            )
+                    # Else check position 0 (EPA convention: num init delta)
+                    elif "." not in data_toks[0]:
+                        with contextlib.suppress(ValueError):
+                            polars[name].update(
+                                dir_num=int(data_toks[0]),
+                                dir_init=float(data_toks[1]),
+                                dir_delta=float(data_toks[2]),
+                            )
+                    else:
+                        dirs = [float(d) for d in data_toks]
+                        polars[name].update(
+                            dir_init=dirs[0], dir_num=3,
+                            dir_delta=(dirs[-1] - dirs[0]) / 2,
+                        )
+                else:
+                    # Explicit directions list
+                    dirs = [float(d) for d in data_toks]
+                    n = len(dirs)
+                    polars[name].update(
+                        dir_init=dirs[0],
+                        dir_num=n,
+                        dir_delta=(dirs[-1] - dirs[0]) / max(n - 1, 1) if n > 1 else 10.0,
+                    )
 
         elif kw == "DISCCART":
             if len(toks) < 3:
