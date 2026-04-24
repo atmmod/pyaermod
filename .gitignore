@@ -68,3 +68,5 @@ site/
 # AERMOD runtime artifacts
 ERRMSG.TMP
 --help_*
+UNKNOWN.egg-info/
+CONTINUATION_NOTES.md

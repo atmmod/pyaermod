@@ -17,7 +17,7 @@ pip install pyaermod[all]  # everything
 Create a complete AERMOD input file in just a few lines:
 
 ```python
-from pyaermod.input_generator import (
+from pyaermod import (
     AERMODProject,
     ControlPathway,
     SourcePathway,
@@ -127,7 +127,7 @@ fig = viz.plot_contours(averaging_period="ANNUAL")
 ### Multiple Sources
 
 ```python
-from pyaermod.input_generator import SourcePathway, PointSource
+from pyaermod import SourcePathway, PointSource
 
 sources = SourcePathway()
 
@@ -153,7 +153,7 @@ for i, (x, y, rate) in enumerate(stack_data):
 ### Polar Grid Around Facility
 
 ```python
-from pyaermod.input_generator import PolarGrid, ReceptorPathway
+from pyaermod import PolarGrid, ReceptorPathway
 
 receptors = ReceptorPathway()
 receptors.add_polar_grid(PolarGrid(
@@ -171,7 +171,7 @@ receptors.add_polar_grid(PolarGrid(
 ### Building Downwash
 
 ```python
-from pyaermod.input_generator import PointSource
+from pyaermod import PointSource
 
 stack = PointSource(
     source_id="STACK1",
@@ -199,31 +199,29 @@ with the same five fields. For direction-dependent building downwash, use the
 Add ambient background levels to account for existing pollution:
 
 ```python
-from pyaermod.input_generator import (
+from pyaermod import (
     SourcePathway, BackgroundConcentration, BackgroundSector,
 )
 
 sources = SourcePathway()
 # ... add sources ...
 
-# Uniform background
+# Uniform background — one value applied to every hour
+sources.background = BackgroundConcentration(uniform_value=12.0)  # ug/m3
+
+# Or per-averaging-period
 sources.background = BackgroundConcentration(
-    annual=12.0,    # ug/m3
-    period_24h=35.0,
+    period_values={"ANNUAL": 12.0, "24": 35.0},
 )
 
-# Or sector-dependent background
+# Or sector-dependent — define starting directions + per-sector values
 sources.background = BackgroundConcentration(
     sectors=[
-        BackgroundSector(
-            sector_id=1, start_direction=0.0, end_direction=90.0,
-            values={"ANNUAL": 12.0, "24": 35.0},
-        ),
-        BackgroundSector(
-            sector_id=2, start_direction=90.0, end_direction=360.0,
-            values={"ANNUAL": 8.0, "24": 25.0},
-        ),
-    ]
+        BackgroundSector(sector_id=1, start_direction=0.0),
+        BackgroundSector(sector_id=2, start_direction=90.0),
+    ],
+    sector_values={(1, "ANNUAL"): 12.0, (1, "24"): 35.0,
+                   (2, "ANNUAL"): 8.0, (2, "24"): 25.0},
 )
 ```
 
@@ -232,7 +230,7 @@ sources.background = BackgroundConcentration(
 Enable dry or wet deposition for any source type:
 
 ```python
-from pyaermod.input_generator import (
+from pyaermod import (
     PointSource, DepositionMethod, GasDepositionParams,
     ParticleDepositionParams,
 )
@@ -243,11 +241,12 @@ stack = PointSource(
     stack_height=50.0, stack_temp=400.0,
     exit_velocity=15.0, stack_diameter=2.0,
     emission_rate=1.5,
-    deposition_method=DepositionMethod.DEPOS,
+    deposition_method=DepositionMethod.GASDEPVD,
     gas_deposition=GasDepositionParams(
-        diffusivity=0.25, alpha_star=1000.0,
-        reactivity=8.0, mesophyll_resistance=0.0,
-        henry_constant=0.01,
+        diffusivity=0.126,     # cm^2/s  (SO2 reference value)
+        alpha_r=10.0,          # dimensionless
+        reactivity=8.0,        # dimensionless
+        henry_constant=1.2e-3, # M/atm (alternative to dry_dep_velocity)
     ),
 )
 ```
@@ -260,7 +259,7 @@ concentration in the output.
 For NO2 modeling, configure Tier 2/3 chemistry:
 
 ```python
-from pyaermod.input_generator import (
+from pyaermod import (
     ControlPathway, PollutantType, ChemistryMethod,
     ChemistryOptions, OzoneData,
 )
@@ -282,7 +281,7 @@ control = ControlPathway(
 Define custom source groups for separate impact analysis:
 
 ```python
-from pyaermod.input_generator import SourcePathway, SourceGroupDefinition
+from pyaermod import SourcePathway, SourceGroupDefinition
 
 sources = SourcePathway()
 # ... add sources STACK1, STACK2, STACK3 ...
@@ -290,12 +289,12 @@ sources = SourcePathway()
 sources.group_definitions = [
     SourceGroupDefinition(
         group_name="BOILERS",
-        source_ids=["STACK1", "STACK2"],
+        member_source_ids=["STACK1", "STACK2"],
         description="Boiler stacks",
     ),
     SourceGroupDefinition(
         group_name="PROCESS",
-        source_ids=["STACK3"],
+        member_source_ids=["STACK3"],
         description="Process vents",
     ),
 ]
@@ -306,7 +305,7 @@ sources.group_definitions = [
 Run AERMOD in event mode for specific date/receptor combinations:
 
 ```python
-from pyaermod.input_generator import EventPathway, EventPeriod
+from pyaermod import EventPathway, EventPeriod
 
 events = EventPathway(events=[
     EventPeriod(
@@ -325,7 +324,7 @@ project.write("facility.inp", event_filename="facility.evn")
 ### Parameter Sweep
 
 ```python
-from pyaermod.input_generator import *
+from pyaermod import *
 
 for rate in [1.0, 2.0, 3.0, 4.0, 5.0]:
     control = ControlPathway(
@@ -464,7 +463,7 @@ EVENTPER, EVENTLOC
 
 PyAERMOD includes comprehensive testing validated against official EPA data:
 
-- **1166 unit and integration tests** with 95% code coverage
+- **1600+ unit and integration tests** with 97%+ code coverage
 - **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.)
 - End-to-end pipeline tests chaining input generation through visualization
 
