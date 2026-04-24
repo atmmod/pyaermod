@@ -140,10 +140,35 @@ def _count_receptors(receptors: Any) -> int:
 
 
 def _receptor_bbox(receptors: Any) -> Optional[Tuple[float, float, float, float]]:
-    xs, ys = [], []
-    for x, y in _iter_receptor_coords(receptors):
-        xs.append(x)
-        ys.append(y)
+    """Return the (xmin, ymin, xmax, ymax) bounding box of every receptor.
+
+    Computed analytically from grid definitions — O(grids + discretes),
+    *not* O(x_num × y_num). A 500×500 Cartesian grid (250k receptors)
+    contributes exactly 4 corner evaluations.
+    """
+    import math
+
+    xs: List[float] = []
+    ys: List[float] = []
+
+    for grid in getattr(receptors, "cartesian_grids", []) or []:
+        # Corners only — grid is axis-aligned so bbox = corners
+        x_end = grid.x_init + (grid.x_num - 1) * grid.x_delta
+        y_end = grid.y_init + (grid.y_num - 1) * grid.y_delta
+        xs.extend([grid.x_init, x_end])
+        ys.extend([grid.y_init, y_end])
+
+    for grid in getattr(receptors, "polar_grids", []) or []:
+        # Max distance from origin; the bbox is origin ± max_radius in
+        # each axis (conservative upper bound).
+        max_r = grid.dist_init + (grid.dist_num - 1) * grid.dist_delta
+        xs.extend([grid.x_origin - max_r, grid.x_origin + max_r])
+        ys.extend([grid.y_origin - max_r, grid.y_origin + max_r])
+
+    for r in getattr(receptors, "discrete_receptors", []) or []:
+        xs.append(r.x_coord)
+        ys.append(r.y_coord)
+
     if not xs:
         return None
     return (min(xs), min(ys), max(xs), max(ys))
@@ -152,6 +177,12 @@ def _receptor_bbox(receptors: Any) -> Optional[Tuple[float, float, float, float]
 def _check_receptors(receptors: Any, sources: Any) -> List[ValidationError]:
     errors: List[ValidationError] = []
     n = _count_receptors(receptors)
+
+    # Fast-path: if we're over the hard limit, record it and return
+    # before any further work (bbox, source comparison). Previously
+    # the bbox helper materialized all x_num*y_num coords into memory
+    # first, which was O(100k+) for the exact projects this check
+    # exists to flag.
     if n > RECEPTOR_GRID_HARD_LIMIT:
         errors.append(ValidationError(
             "ReceptorPathway", "total_receptors",
@@ -159,6 +190,7 @@ def _check_receptors(receptors: Any, sources: Any) -> List[ValidationError]:
             f"{RECEPTOR_GRID_HARD_LIMIT}; recompile AERMOD or reduce grid",
             severity="error",
         ))
+        return errors
     elif n > RECEPTOR_GRID_WARN_LIMIT:
         errors.append(ValidationError(
             "ReceptorPathway", "total_receptors",
