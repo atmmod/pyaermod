@@ -1,0 +1,62 @@
+name: Real AERMET smoke
+
+# Exercises pyaermod against a real AERMET binary. Downloads the EPA
+# AERMET v24142 Fortran source, compiles with gfortran, and runs
+# tests/test_real_aermet.py. Parallel to real_aermod.yml /
+# real_aermap.yml.
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"  # Monday 08:00 UTC (after AERMOD + AERMAP weekly)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/pyaermod/aermet.py"
+      - "src/pyaermod/aermet_runner.py"
+      - "src/pyaermod/met_ingest.py"
+      - "src/pyaermod/met_qaqc.py"
+      - "tests/test_real_aermet.py"
+      - ".github/workflows/real_aermet.yml"
+
+jobs:
+  aermet_smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Download + compile AERMET from EPA source
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          mkdir -p /tmp/aermet_build && cd /tmp/aermet_build
+          curl -sSL -o aermet_source.zip \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_source.zip"
+          unzip -q aermet_source.zip
+          cd aermet_source_code_*
+          # AERMET v24142 is Fortran 2008 free-form; modules compile first
+          gfortran -c -O2 -std=f2008 -ffree-form mod_file_units.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_main1.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_upperair.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_surface.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_onsite.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_pbl.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_read_input.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_reports.f90
+          gfortran -c -O2 -std=f2008 -ffree-form mod_misc.f90
+          gfortran -c -O2 -std=f2008 -ffree-form aermet.f90
+          gfortran -O2 -o aermet *.o
+          chmod +x aermet
+          sudo cp aermet /usr/local/bin/aermet
+
+      - name: Run real-AERMET smoke test
+        run: pytest tests/test_real_aermet.py -v
