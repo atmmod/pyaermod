@@ -70,3 +70,5 @@ ERRMSG.TMP
 --help_*
 UNKNOWN.egg-info/
 CONTINUATION_NOTES.md
+aermet_test_cases/
+aermap_testcase*.zip
