@@ -56,16 +56,28 @@ def gep_from_building(building: Building,
                       stack_y: float) -> float:
     """Compute GEP stack height from a Building + stack location.
 
-    Uses `BPIPCalculator.calculate_all` to obtain the 36-sector projected
-    widths, then returns max(65, BH + 1.5 * L) where L is the *largest*
-    of (building height, max projected width across sectors).
+    Per 40 CFR 51.100(ii), GEP is the MAXIMUM over all wind directions
+    of ``BH + 1.5 * L``, where L is the lesser of building height and
+    the projected building width for that direction. We compute the
+    per-direction GEP for each of the 36 BPIP sectors and return the
+    maximum — this is the correct formulation.
+
+    (Prior versions computed L using max projected width across all
+    sectors and then applied ``min(bh, max_width)`` once, which
+    underestimates GEP for buildings that are tall and narrow from
+    some wind directions but tall and wide from others.)
     """
     bh = building.get_effective_height()
     calc = BPIPCalculator(building=building, stack_x=stack_x, stack_y=stack_y)
     result = calc.calculate_all()
-    max_width = max(result.buildwid) if result.buildwid else 0.0
-    L = min(bh, max_width) if max_width > 0 else bh
-    return gep_stack_height(bh, L)
+    widths = result.buildwid or [0.0]
+
+    # Per-direction GEP, then maximize.
+    per_direction_gep = [
+        gep_stack_height(bh, min(bh, w) if w > 0 else bh)
+        for w in widths
+    ]
+    return max(per_direction_gep)
 
 
 # ---------------------------------------------------------------------------
@@ -133,17 +145,38 @@ class DownwashAssessment:
     note: str = ""
 
 
+# Source types whose release height we treat as "stack height" for GEP
+# purposes. AERMOD applies building downwash to all three via the same
+# BUILDHGT / BUILDWID / BUILDLEN / XBADJ / YBADJ 36-sector arrays.
+_DOWNWASH_SOURCE_TYPES = {"PointSource", "AreaSource", "VolumeSource"}
+
+
+def _source_release_height(src: Any) -> float:
+    """Effective release height for GEP comparison.
+
+    - PointSource: ``stack_height``
+    - AreaSource / VolumeSource: ``release_height``
+    """
+    if hasattr(src, "stack_height"):
+        return float(src.stack_height)
+    if hasattr(src, "release_height"):
+        return float(src.release_height)
+    return 0.0
+
+
 def assess_source_downwash(point_source: Any,
                            buildings: Iterable[Building]) -> DownwashAssessment:
-    """Evaluate one PointSource against a collection of Buildings.
+    """Evaluate a source against a collection of Buildings.
 
-    Returns a DownwashAssessment capturing the GEP stack height, whether
-    the source is below it, and which building (if any) most likely
-    influences the plume.
+    Accepts PointSource, AreaSource, or VolumeSource. For non-point
+    sources the "stack height" in the GEP rule is the release height.
+    Returns a DownwashAssessment capturing the GEP stack height,
+    whether the source is below it, and which building (if any) most
+    likely influences the plume.
     """
     sx = point_source.x_coord
     sy = point_source.y_coord
-    sh = point_source.stack_height
+    sh = _source_release_height(point_source)
 
     # Distance & GEP from nearest-5L building
     nearest: Optional[Tuple[float, Building, float]] = None
@@ -198,11 +231,15 @@ def apply_bpip_to_project(project: Any,
     Returns the list of DownwashAssessments, one per source.
     """
     assessments: List[DownwashAssessment] = []
-    point_sources = [
+    # Apply to every source type that carries building-downwash arrays
+    # (PointSource, AreaSource, VolumeSource). Previously only Point
+    # sources were considered, which was inconsistent with AERMOD's own
+    # BPIP support for area + volume sources.
+    downwash_sources = [
         s for s in getattr(project.sources, "sources", [])
-        if type(s).__name__ == "PointSource"
+        if type(s).__name__ in _DOWNWASH_SOURCE_TYPES
     ]
-    for src in point_sources:
+    for src in downwash_sources:
         assess = assess_source_downwash(src, buildings)
         assessments.append(assess)
         if only_below_gep and not assess.is_below_gep:
@@ -235,23 +272,25 @@ def suggest_downwash_config(project: Any,
     """
     warnings: List[str] = []
     for src in getattr(project.sources, "sources", []):
-        if type(src).__name__ != "PointSource":
+        if type(src).__name__ not in _DOWNWASH_SOURCE_TYPES:
             continue
         assess = assess_source_downwash(src, buildings)
         bh = getattr(src, "building_height", None)
         has_bldg_data = isinstance(bh, list) and len(bh) == 36
 
         if assess.is_below_gep and not has_bldg_data:
+            height = _source_release_height(src)
             warnings.append(
-                f"{src.source_id}: stack ({src.stack_height} m) is below GEP "
+                f"{src.source_id}: release height ({height} m) is below GEP "
                 f"({assess.gep_height_m:.1f} m) but no 36-sector building "
                 f"data set; downwash effects will be missed."
             )
         elif (not assess.is_below_gep) and has_bldg_data:
             warnings.append(
-                f"{src.source_id}: stack at/above GEP but building data is set; "
-                f"AERMOD will still apply downwash — consider removing to "
-                f"reduce runtime, or leave if conservatism is desired."
+                f"{src.source_id}: release at/above GEP but building data "
+                f"is set; AERMOD will still apply downwash — consider "
+                f"removing to reduce runtime, or leave if conservatism "
+                f"is desired."
             )
 
         # Length sanity
