@@ -146,7 +146,6 @@ def _receptor_bbox(receptors: Any) -> Optional[Tuple[float, float, float, float]
     *not* O(x_num × y_num). A 500×500 Cartesian grid (250k receptors)
     contributes exactly 4 corner evaluations.
     """
-    import math
 
     xs: List[float] = []
     ys: List[float] = []
