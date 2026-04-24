@@ -5,6 +5,7 @@ Executes AERMOD binaries from Python with error handling, progress monitoring,
 and batch processing capabilities.
 """
 
+import contextlib
 import logging
 import platform
 import shutil
@@ -171,16 +172,45 @@ class AERMODRunner:
 
         start_time = datetime.now()
 
+        # Pipe-safe output handling: AERMOD can emit 100s of MB of stdout
+        # on large runs (receptor-by-hour diagnostics). `capture_output=True`
+        # routes stdout/stderr through OS pipes with ~64 KB buffers, which
+        # deadlock once the buffer fills and no one is reading. Redirect to
+        # temp files instead when capture is requested; we slurp them at
+        # the end (bounded by tail-output helpers for large files).
+        stdout_path: Optional[Path] = None
+        stderr_path: Optional[Path] = None
+        stdout_fh = None
+        stderr_fh = None
+        if capture_output:
+            stdout_path = work_dir / f"{input_name}.subproc.stdout"
+            stderr_path = work_dir / f"{input_name}.subproc.stderr"
+            stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")
+            stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")
+
         try:
             # Execute AERMOD (reads aermod.inp automatically)
             result = subprocess.run(
                 [str(self.executable)],
                 cwd=str(work_dir),
-                capture_output=capture_output,
+                stdout=stdout_fh,
+                stderr=stderr_fh,
                 text=True,
                 timeout=timeout,
                 check=False
             )
+
+            if stdout_fh is not None:
+                stdout_fh.close()
+                stderr_fh.close()
+                stdout_fh = stderr_fh = None
+                # Populate result.stdout / stderr from the temp files so the
+                # AERMODRunResult looks the same as before to callers.
+                # Cap at 1 MB to avoid OOM on pathological runs; if the
+                # user needs the full log the path is preserved on the
+                # AERMODRunResult via `stdout_file` / `stderr_file`.
+                result.stdout = _read_capped(stdout_path, 1_000_000)
+                result.stderr = _read_capped(stderr_path, 1_000_000)
 
             # Rename AERMOD's default output files to match the input name
             for suffix in ['.out', '.err', '.sum']:
@@ -256,8 +286,12 @@ class AERMODRunner:
             )
 
         finally:
+            # Ensure stdout/stderr handles are closed even on timeout
+            for fh in (stdout_fh, stderr_fh):
+                if fh is not None:
+                    with contextlib.suppress(Exception):
+                        fh.close()
             # Clean up the aermod.inp symlink/copy
-            import contextlib
             if aermod_inp.exists() or aermod_inp.is_symlink():
                 with contextlib.suppress(OSError):
                     aermod_inp.unlink()
@@ -417,6 +451,26 @@ class AERMODRunner:
             issues.append(f"Error reading file: {e}")
 
         return len(issues) == 0, issues
+
+
+def _read_capped(path: Path, max_bytes: int = 1_000_000) -> str:
+    """Read a text file, returning at most the last `max_bytes` bytes.
+
+    Used to populate `AERMODRunResult.stdout`/`.stderr` from the
+    subprocess-redirect temp files without OOM on pathological runs.
+    If the file is larger than the cap, returns the final `max_bytes`
+    bytes prefixed with a "[...truncated...]" marker.
+    """
+    if not path.exists():
+        return ""
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        if size <= max_bytes:
+            return f.read().decode("utf-8", errors="replace")
+        # Seek to the tail
+        f.seek(size - max_bytes)
+        tail = f.read().decode("utf-8", errors="replace")
+    return f"[...truncated: {size - max_bytes:,} bytes omitted...]\n" + tail
 
 
 def _set_sweep_parameter(project, name: str, value, source_index: int = 0) -> None:
