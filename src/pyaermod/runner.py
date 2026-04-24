@@ -185,9 +185,9 @@ class AERMODRunner:
         if capture_output:
             stdout_path = work_dir / f"{input_name}.subproc.stdout"
             stderr_path = work_dir / f"{input_name}.subproc.stderr"
-
-            # manually because they outlive a single `with` block
-            # (handed to subprocess.run, closed in the finally clause).
+            # Manually manage these file handles — they outlive a single
+            # `with` block (handed to subprocess.run, closed in the
+            # finally clause below).
             stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
             stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
 
@@ -361,10 +361,13 @@ class AERMODRunner:
         results = []
         failed_count = 0
 
+        exe_path = str(self.executable)
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            # Submit all jobs
+            # Dispatch via a module-level function so workers don't
+            # have to pickle `self` (which includes a Logger + Handler
+            # that aren't fork-safe under spawn).
             future_to_file = {
-                executor.submit(self.run, inp, timeout=timeout): inp
+                executor.submit(_batch_worker, exe_path, str(inp), timeout): inp
                 for inp in input_files
             }
 
@@ -454,6 +457,18 @@ class AERMODRunner:
             issues.append(f"Error reading file: {e}")
 
         return len(issues) == 0, issues
+
+
+def _batch_worker(executable_path: str, input_file: str, timeout: int) -> "AERMODRunResult":
+    """Top-level ProcessPoolExecutor worker.
+
+    Constructing a fresh AERMODRunner inside the worker process avoids
+    pickling the parent's logging.Logger + StreamHandler (which aren't
+    fork-safe on macOS/Windows with the `spawn` start method). The
+    function is at module scope so it's picklable on all platforms.
+    """
+    runner = AERMODRunner(executable_path=executable_path, log_level="WARNING")
+    return runner.run(input_file, timeout=timeout)
 
 
 def _read_capped(path: Path, max_bytes: int = 1_000_000) -> str:
