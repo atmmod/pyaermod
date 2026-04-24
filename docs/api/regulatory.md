@@ -1,0 +1,3 @@
+# regulatory
+
+::: pyaermod.regulatory

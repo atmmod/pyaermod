@@ -1,52 +1,114 @@
 # API Reference
 
-PyAERMOD v0.2.0 provides 14 modules organized by workflow stage.
+PyAERMOD v1.5 is organized into **29 modules** grouped by workflow stage.
+For a stable, versioned public surface prefer `from pyaermod.api import ...`
+— it re-exports every documented name from a single module so your code
+doesn't depend on internal layout.
 
-## Core Modules
+## Project building
+
+Build, read, write, and validate AERMOD input files.
 
 | Module | Description |
-|--------|-------------|
-| [input_generator](input_generator.md) | AERMOD input file generation with all 10 source types, pathways, and project assembly |
-| [validator](validator.md) | Configuration validation for all pathways before input file generation |
-| [runner](runner.md) | AERMOD subprocess execution with timeout, batch processing, and result capture |
-| [output_parser](output_parser.md) | Parse AERMOD `.out` files into pandas DataFrames |
-| [postfile](postfile.md) | Parse POSTFILE output -- formatted (PLOT) and unformatted (binary) |
+|---|---|
+| [input_generator](input_generator.md) | Thin facade + `AERMODProject` — `project.write()`, `project.to_aermod_input()` |
+| [sources](sources.md) | All 12 source dataclasses, deposition params, `SourcePathway`, background concentrations |
+| [receptors](receptors.md) | `CartesianGrid`, `PolarGrid`, `DiscreteReceptor`, `ReceptorPathway` |
+| [pathways](pathways.md) | Enums + `ControlPathway`, `MeteorologyPathway`, `OutputPathway`, `EventPathway` |
+| [input_reader](input_reader.md) | **Bidirectional** — parse existing `.inp` files back into `AERMODProject` |
+
+## Validation
+
+| Module | Description |
+|---|---|
+| [validator](validator.md) | Per-field range + consistency checks; `Validator.validate()` runs advanced checks by default |
+| [validator_advanced](validator_advanced.md) | Cross-field checks (stack buoyancy, receptor extent, DFAULT consistency) |
+| [regulatory](regulatory.md) | EPA Appendix W 2017 / 2023 + Screening profile presets with `apply()` and `check()` |
+
+## Execution
+
+| Module | Description |
+|---|---|
+| [runner](runner.md) | `AERMODRunner`, `BatchRunner`, `run_aermod()` subprocess wrappers |
+| [runner_utils](runner_utils.md) | Progress, failure diagnostics, batch resume, SLURM templates |
+| [cli](cli.md) | `pyaermod` command-line interface (`validate`, `run`, `parse`, `plotfile`, `profile`) |
+
+## Outputs
+
+| Module | Description |
+|---|---|
+| [output_parser](output_parser.md) | Parse `.out` files to pandas DataFrames |
+| [aermod_outputs](aermod_outputs.md) | Readers for PLOTFILE / MAXIFILE / RANKFILE / SEASONHR / TOXXFILE / deposition |
+| [postfile](postfile.md) | Binary POSTFILE (UNFORM) + text PLOT format |
 
 ## Visualization
 
 | Module | Description |
-|--------|-------------|
-| [visualization](visualization.md) | Contour plots, interactive Folium maps, and raster export |
-| [advanced_viz](advanced_viz.md) | 3D surface plots, wind roses, concentration animations |
+|---|---|
+| [visualization](visualization.md) | Contour plots, interactive Folium maps, raster export |
+| [advanced_viz](advanced_viz.md) | 3-D surfaces, wind roses, concentration animations |
 
-## Preprocessors
-
-| Module | Description |
-|--------|-------------|
-| [aermet](aermet.md) | AERMET meteorological preprocessor (Stages 1-3) |
-| [aermap](aermap.md) | AERMAP terrain preprocessor input generation |
-| [terrain](terrain.md) | DEM download and AERMAP pipeline automation |
-
-## Geospatial and Building Downwash
+## Meteorology
 
 | Module | Description |
-|--------|-------------|
-| [geospatial](geospatial.md) | Coordinate transforms (UTM/WGS84), GIS export (GeoTIFF, Shapefile, GeoPackage) |
-| [bpip](bpip.md) | BPIP building downwash calculations (direction-dependent parameters) |
+|---|---|
+| [aermet](aermet.md) | Stage 1 / 2 / 3 input-deck generation; `.SFC` and `.PFL` parsers |
+| [aermet_runner](aermet_runner.md) | `AERMETRunner.run_stage()`, `run_aermet_pipeline()` |
+| [met_ingest](met_ingest.md) | ASOS 1-minute, NOAA ISD, IGRA upper-air, MMIF data ingest |
+| [met_qaqc](met_qaqc.md) | Missing-data, extremes, stability-consistency checks |
+
+## Terrain
+
+| Module | Description |
+|---|---|
+| [aermap](aermap.md) | AERMAP input-file generation |
+| [terrain](terrain.md) | DEM download, AERMAP runner, elevation pipeline |
+| [terrain_utils](terrain_utils.md) | NAD27/83/WGS84 datums, SRTM, mosaic, reproject, hill-height diagnostics |
+| [geospatial](geospatial.md) | UTM/WGS84 transforms, GIS export |
+
+## Downwash
+
+| Module | Description |
+|---|---|
+| [bpip](bpip.md) | Building-downwash 36-sector projection engine |
+| [prime](prime.md) | GEP stack-height rule, PRIME cavity region, project-level BPIP application |
+
+## Chemistry
+
+| Module | Description |
+|---|---|
+| [chemistry_presets](chemistry_presets.md) | OLM / PVMRM / GRSM factories, deposition defaults, project wiring helpers |
 
 ## GUI
 
 | Module | Description |
-|--------|-------------|
-| [gui](gui.md) | Streamlit interactive web GUI with 7-page modeling workflow |
+|---|---|
+| [gui](gui.md) | 7-page Streamlit web application |
 
-## Optional Dependencies
+## Optional dependencies
 
-Different modules require different optional packages. Install what you need:
+Install the extras for the features you need:
 
-| Extras Group | Modules Enabled | Install Command |
-|--------------|----------------|-----------------|
-| `viz` | visualization, advanced_viz | `pip install pyaermod[viz]` |
-| `geo` | geospatial, terrain | `pip install pyaermod[geo]` |
-| `gui` | gui (includes viz) | `pip install pyaermod[gui]` |
-| `all` | Everything | `pip install pyaermod[all]` |
+| Extras group | Install command | Enables |
+|---|---|---|
+| `viz` | `pip install pyaermod[viz]` | `visualization`, `advanced_viz` |
+| `geo` | `pip install pyaermod[geo]` | `geospatial`, `terrain`, `terrain_utils` (DEM + UTM/WGS84) |
+| `gui` | `pip install pyaermod[gui]` | `gui` (Streamlit web app — pulls in viz + geo) |
+| `met` | `pip install pyaermod[met]` | `met_ingest` network fetchers (ISD / IGRA) |
+| `hpc` | `pip install pyaermod[hpc]` | `runner_utils` progress + SLURM |
+| `all` | `pip install pyaermod[all]` | Everything |
+
+## Stability guarantees
+
+Names re-exported from `pyaermod.api` form the **stable public surface**.
+The underlying module layout may change across minor releases (e.g. the
+v1.5 split of `input_generator.py` into `sources.py` / `receptors.py` /
+`pathways.py`), but the facade preserves backwards compatibility.
+
+```python
+# Prefer this (stable)
+from pyaermod.api import PointSource, AERMODProject, read_aermod_input
+
+# Avoid this in published code (internal layout)
+from pyaermod.sources import PointSource  # subject to change
+```
