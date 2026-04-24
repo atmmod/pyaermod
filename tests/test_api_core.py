@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import pyaermod.api as api
 
-
 # The exact set promised in docs/api/index.md. This list must be
 # kept in lock-step with api.CORE_NAMES.
 EXPECTED_CORE = frozenset({
