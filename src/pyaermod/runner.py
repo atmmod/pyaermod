@@ -419,6 +419,35 @@ class AERMODRunner:
         return len(issues) == 0, issues
 
 
+def _set_sweep_parameter(project, name: str, value, source_index: int = 0) -> None:
+    """Apply a parameter-sweep value to a project.
+
+    If ``name`` contains a ``.`` it's treated as a dotted path relative
+    to the project (e.g. ``"control.title_one"``). Otherwise it's an
+    attribute on the source at ``source_index``.
+    """
+    if "." in name:
+        parts = name.split(".")
+        obj = project
+        for part in parts[:-1]:
+            obj = getattr(obj, part)
+        setattr(obj, parts[-1], value)
+        return
+
+    sources = getattr(project, "sources", None)
+    source_list = getattr(sources, "sources", None) if sources else None
+    if not source_list:
+        raise ValueError(
+            f"parameter_sweep: project has no sources to mutate '{name}'"
+        )
+    if source_index >= len(source_list):
+        raise IndexError(
+            f"parameter_sweep: source_index={source_index} but project "
+            f"has only {len(source_list)} source(s)"
+        )
+    setattr(source_list[source_index], name, value)
+
+
 class BatchRunner:
     """
     Helper class for running parameter sweeps and scenario comparisons
@@ -433,47 +462,74 @@ class BatchRunner:
                        parameter_name: str,
                        parameter_values: List,
                        output_dir: Union[str, Path],
-                       n_workers: int = 4) -> Dict:
-        """
-        Run a parameter sweep
+                       n_workers: int = 4,
+                       source_index: int = 0) -> Dict:
+        """Run AERMOD over a sweep of one parameter on one source.
 
-        Args:
-            base_project: Base AERMODProject instance
-            parameter_name: Name of parameter to sweep
-            parameter_values: List of values to test
-            output_dir: Directory for outputs
-            n_workers: Number of parallel workers
+        For each value in ``parameter_values``:
 
-        Returns:
-            Dictionary mapping parameter values to results
+        1. Deep-copy ``base_project``
+        2. Set ``parameter_name`` on the indicated source (or on the
+           project if the name contains a dot, e.g. ``"control.title_one"``)
+        3. Write the modified project to ``output_dir/run_{name}_{value}.inp``
+        4. Queue the file for batch execution
+
+        Parameters
+        ----------
+        base_project : AERMODProject
+            Template project that gets cloned for each run.
+        parameter_name : str
+            Attribute to modify. If it contains ``.``, it's interpreted as
+            a dotted path relative to the project root (e.g.
+            ``"control.flag_pole_height"`` or ``"output.receptor_table_rank"``).
+            Otherwise it's a field name on the source at ``source_index``
+            (e.g. ``"emission_rate"``, ``"stack_height"``).
+        parameter_values : list
+            Values to substitute in.
+        output_dir : Path
+            Directory for generated .inp files and AERMOD outputs.
+        n_workers : int
+            Number of parallel AERMOD workers.
+        source_index : int
+            Which source to mutate when ``parameter_name`` is a plain
+            field name. Defaults to 0 (the first source).
+
+        Returns
+        -------
+        dict
+            Mapping of parameter value -> AERMODRunResult.
         """
+        import copy
+
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        input_files = []
-        param_map = {}
+        input_files: List[Path] = []
+        param_map: Dict[str, Any] = {}
 
-        # Generate input files for each parameter value
         for value in parameter_values:
-            # Create modified project
-            # (This would need to be customized based on what parameter is being swept)
-            filename = output_path / f"run_{parameter_name}_{value}.inp"
+            project = copy.deepcopy(base_project)
+            _set_sweep_parameter(project, parameter_name, value, source_index)
 
-            # For now, this is a placeholder
-            # In real use, you'd modify base_project and write
+            # Sanitize the value for filename safety
+            value_str = str(value).replace("/", "_").replace(" ", "_")
+            filename = output_path / f"run_{parameter_name}_{value_str}.inp"
+            project.write(str(filename))
+
             input_files.append(filename)
             param_map[str(filename)] = value
 
-        # Run batch
         results = self.runner.run_batch(input_files, n_workers=n_workers)
 
-        # Map back to parameter values
-        result_map = {}
+        # Map back to parameter values (runner.input_file is an absolute
+        # path, so resolve both sides consistently).
+        result_map: Dict[Any, AERMODRunResult] = {}
         for result in results:
-            param_value = param_map.get(result.input_file)
-            if param_value is not None:
-                result_map[param_value] = result
-
+            key = str(Path(result.input_file).resolve())
+            for fp, pv in param_map.items():
+                if str(Path(fp).resolve()) == key:
+                    result_map[pv] = result
+                    break
         return result_map
 
 
