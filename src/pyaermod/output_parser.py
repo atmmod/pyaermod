@@ -82,21 +82,65 @@ class AERMODOutputParser:
     Extracts run information, source data, receptor data, and concentration results.
     """
 
-    def __init__(self, output_file: Union[str, Path]):
+    # Maximum file size we'll load into memory as a single string. AERMOD
+    # .OUT logs for 5-year 1-hour runs with dense receptors can exceed
+    # several hundred MB. Beyond this cap we load only the HEAD + TAIL
+    # sections — enough for header metadata and summary/concentration
+    # tables but not receptor-by-hour diagnostics. Users who need the
+    # full middle can stream the file themselves.
+    MAX_SLURP_BYTES = 500 * 1024 * 1024   # 500 MB
+    HEAD_BYTES = 2 * 1024 * 1024          # 2 MB of start
+    TAIL_BYTES = 64 * 1024 * 1024         # 64 MB of end
+
+    def __init__(
+        self,
+        output_file: Union[str, Path],
+        max_slurp_bytes: Optional[int] = None,
+    ):
         """
         Initialize parser with output file
 
         Args:
             output_file: Path to AERMOD .out file
+            max_slurp_bytes: File-size threshold above which the parser
+                reads only the head + tail of the file instead of the
+                full contents. Defaults to ``AERMODOutputParser.MAX_SLURP_BYTES``
+                (500 MB). Set to 0 to force head+tail mode regardless of
+                file size; set to a very large number to force a full
+                slurp (caution: risks OOM on multi-GB files).
         """
         self.output_file = Path(output_file)
 
         if not self.output_file.exists():
             raise FileNotFoundError(f"Output file not found: {output_file}")
 
-        # Read entire file
-        with open(self.output_file, encoding='utf-8', errors='ignore') as f:
-            self.content = f.read()
+        cap = self.MAX_SLURP_BYTES if max_slurp_bytes is None else max_slurp_bytes
+        size = self.output_file.stat().st_size
+        self.truncated = size > cap > 0 or cap == 0
+
+        if not self.truncated:
+            # Small/typical case: read the whole file as before
+            with open(self.output_file, encoding='utf-8', errors='ignore') as f:
+                self.content = f.read()
+        else:
+            # Large file: read HEAD + marker + TAIL so we keep header
+            # metadata + end-of-run summary without loading gigabytes.
+            with open(self.output_file, encoding='utf-8', errors='ignore') as f:
+                head = f.read(min(self.HEAD_BYTES, size))
+                if size > self.HEAD_BYTES + self.TAIL_BYTES:
+                    f.seek(size - self.TAIL_BYTES)
+                    tail = f.read()
+                    omitted = size - self.HEAD_BYTES - self.TAIL_BYTES
+                    self.content = (
+                        head
+                        + f"\n\n[...pyaermod: truncated {omitted:,} bytes; "
+                        f"file size {size:,} > {cap:,} byte cap...]\n\n"
+                        + tail
+                    )
+                else:
+                    # File just fits in head+tail
+                    f.seek(self.HEAD_BYTES)
+                    self.content = head + f.read()
 
         # Parsed data
         self.run_info: Optional[ModelRunInfo] = None
