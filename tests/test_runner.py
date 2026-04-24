@@ -478,7 +478,21 @@ class TestParameterSweep:
 
     @patch("pyaermod.runner.subprocess.run")
     def test_parameter_sweep_creates_files_and_returns_map(self, mock_run, tmp_path):
-        """parameter_sweep() should generate files and return result mapping."""
+        """parameter_sweep() should deep-copy the base project, mutate the
+        requested attribute, write one .inp per value, and return a
+        mapping from parameter value -> AERMODRunResult."""
+        from pyaermod import (
+            AERMODProject,
+            CartesianGrid,
+            ControlPathway,
+            MeteorologyPathway,
+            OutputPathway,
+            PointSource,
+            PollutantType,
+            ReceptorPathway,
+            SourcePathway,
+        )
+
         fake_exe = tmp_path / "aermod"
         fake_exe.write_text("#!/bin/bash\nexit 0")
         fake_exe.chmod(0o755)
@@ -486,24 +500,35 @@ class TestParameterSweep:
         runner = AERMODRunner(executable_path=str(fake_exe), log_level="WARNING")
         batch = BatchRunner(runner)
 
-        # Mock project (not used directly in current placeholder implementation)
-        mock_project = MagicMock()
+        base_project = AERMODProject(
+            control=ControlPathway(
+                title_one="Sweep", pollutant_id=PollutantType.SO2,
+                averaging_periods=["ANNUAL"],
+            ),
+            sources=SourcePathway(sources=[PointSource(
+                source_id="S1", x_coord=0, y_coord=0,
+                stack_height=30.0, stack_temp=400.0,
+                exit_velocity=10.0, stack_diameter=2.0,
+                emission_rate=1.0,
+            )]),
+            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
+            meteorology=MeteorologyPathway(
+                surface_file="a.sfc", profile_file="a.pfl",
+            ),
+            output=OutputPathway(),
+        )
 
         output_dir = tmp_path / "sweep_output"
-
-        # The sweep will try to run files that don't exist (placeholder implementation),
-        # so all runs will fail with "not found" — that's expected behavior for testing
         result_map = batch.parameter_sweep(
-            base_project=mock_project,
+            base_project=base_project,
             parameter_name="emission_rate",
             parameter_values=[1.0, 2.0, 5.0],
             output_dir=str(output_dir),
             n_workers=1,
         )
 
-        # The output directory should have been created
-        assert output_dir.exists()
-
-        # We should get some results back (may be empty since files don't exist
-        # and the mapping uses result.input_file which may not match)
-        assert isinstance(result_map, dict)
+        # One .inp file per sweep value
+        inps = sorted(output_dir.glob("*.inp"))
+        assert len(inps) == 3
+        # Mapping covers every value we requested
+        assert set(result_map.keys()) == {1.0, 2.0, 5.0}
