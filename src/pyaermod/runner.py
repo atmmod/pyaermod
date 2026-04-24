@@ -185,8 +185,11 @@ class AERMODRunner:
         if capture_output:
             stdout_path = work_dir / f"{input_name}.subproc.stdout"
             stderr_path = work_dir / f"{input_name}.subproc.stderr"
-            stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")
-            stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")
+
+            # manually because they outlive a single `with` block
+            # (handed to subprocess.run, closed in the finally clause).
+            stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+            stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
 
         try:
             # Execute AERMOD (reads aermod.inp automatically)

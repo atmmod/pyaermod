@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pyaermod.runner import _read_capped, AERMODRunner
+from pyaermod.runner import AERMODRunner, _read_capped
 
 
 @pytest.fixture
