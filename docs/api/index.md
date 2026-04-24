@@ -112,3 +112,20 @@ from pyaermod.api import PointSource, AERMODProject, read_aermod_input
 # Avoid this in published code (internal layout)
 from pyaermod.sources import PointSource  # subject to change
 ```
+
+### Stable-core subset
+
+If you want to stick to the minimum surface possible, check
+`pyaermod.api.CORE_NAMES`. That frozenset of ~30 names covers the
+project/source/receptor/pathway types, the runner and CLI, the input
+reader and output parser, and the two EPA Appendix W profiles +
+three NO2 chemistry presets. Any name in `CORE_NAMES` is guaranteed
+to keep its signature across **every 1.x release** — additions to
+the wider `pyaermod.api.__all__` may happen at any minor version
+before they're promoted into `CORE_NAMES`.
+
+```python
+from pyaermod.api import CORE_NAMES, API_VERSION
+assert "AERMODProject" in CORE_NAMES  # always True in 1.x
+print(f"pyaermod API v{API_VERSION}")
+```

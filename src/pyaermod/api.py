@@ -1,25 +1,36 @@
 """
 PyAERMOD public API surface.
 
-This module is the narrow, stable entry point for downstream code.
-Prefer `from pyaermod.api import X` over `from pyaermod.X import Y` —
-internal module layout may change between versions, but the names
+This module is the stable entry point for downstream code. Prefer
+`from pyaermod.api import X` over `from pyaermod.sources import Y` —
+internal module layout may change between minor versions, but names
 exported here are guaranteed to remain available.
 
-Groups:
-    - Project building (input generation, pathways, sources, receptors)
-    - Validation (base + advanced)
-    - Execution (runner + UX helpers)
+Two tiers:
+
+**Core** (the ``CORE_NAMES`` frozenset and the ``pyaermod.api.core``
+submodule): the ~30 names that cover 90% of real workflows — pathways,
+source types, the runner, the CLI, and the most common helpers. If
+you're writing production code that ideally never has to change,
+stick to these.
+
+**Full** (the module-level exports — ``__all__``): everything that's
+publicly useful, including advanced integrations (BPIP, PRIME,
+chemistry presets, regulatory profiles, terrain utilities, met ingest,
+etc.). Every name has a stable signature; deprecations will be
+announced via a ``DeprecationWarning`` for at least one minor release
+before removal.
+
+Groups (full surface):
+    - Project building (input generation, pathways, sources, receptors, reader)
+    - Validation (base + advanced + regulatory profiles)
+    - Execution (runner + UX helpers + CLI)
     - Outputs (parsing .OUT, POSTFILE, auxiliary text outputs)
     - Visualization
-    - Meteorology (ingest + QA/QC + AERMET preprocessor)
+    - Meteorology (ingest + QA/QC + AERMET preprocessor + runner)
     - Terrain (AERMAP + datum/mosaic/diagnostics)
-    - Regulatory presets
+    - Chemistry presets + project wiring
     - PRIME downwash helpers
-
-Each exported name has a stable signature — deprecations will be
-announced via a `DeprecationWarning` for at least one minor release
-before removal.
 """
 
 from __future__ import annotations
@@ -340,3 +351,41 @@ if HAS_TERRAIN:
         "TerrainProcessor",
         "run_aermap",
     ])
+
+
+# ---------------------------------------------------------------------------
+# Stable-core subset
+# ---------------------------------------------------------------------------
+# The ~30 names below cover 90% of real AERMOD workflows. They are the
+# subset you can trust to keep their names and signatures across every
+# 1.x release. New names are added here sparingly and only after a
+# minor-version soak with the wider __all__ surface.
+
+CORE_NAMES: frozenset = frozenset({
+    # Project building — core types
+    "AERMODProject",
+    "ControlPathway", "SourcePathway", "ReceptorPathway",
+    "MeteorologyPathway", "OutputPathway",
+    # Source types used in 95%+ of projects
+    "PointSource", "AreaSource", "VolumeSource", "LineSource",
+    # Receptors
+    "CartesianGrid", "PolarGrid", "DiscreteReceptor",
+    # Enums
+    "PollutantType", "TerrainType", "SourceType",
+    # Input read / write
+    "parse_aermod_input", "read_aermod_input",
+    # Validation
+    "Validator", "ValidationResult",
+    # Execution
+    "AERMODRunner", "run_aermod",
+    # Output parsing
+    "parse_aermod_output", "AERMODResults",
+    "read_plotfile", "read_postfile",
+    # Regulatory + chemistry (the commonest presets)
+    "EPA_APPENDIX_W_2017", "EPA_APPENDIX_W_2023",
+    "olm_preset", "pvmrm_preset", "grsm_preset",
+})
+
+# Module version marker for downstream consumers who want to gate on
+# API-surface changes without parsing the package version string.
+API_VERSION: str = "1.5"
