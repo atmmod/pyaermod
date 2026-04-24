@@ -132,9 +132,31 @@ class TestProfileRegistry:
             assert warnings == [], f"{name} post-apply warnings: {warnings}"
 
 
-class TestProfile2023AllowsPVMRM2:
-    def test_pvmrm2_allowed_in_2023(self):
-        assert "PVMRM2" in EPA_APPENDIX_W_2023.allow_chemistry_methods
+class TestProfile2023BetaChemistry:
+    """PVMRM2 and GRSM are BETA in AERMOD v23132/v24142 per EPA
+    Appendix W 2023 memos. Neither is DFAULT-compatible; they require
+    case-by-case agency concurrence. The profile's primary
+    allow_chemistry_methods tuple therefore keeps only OLM and PVMRM;
+    BETA methods live in a separate tuple."""
 
-    def test_pvmrm2_not_in_2017(self):
+    def test_beta_methods_constant_exported(self):
+        from pyaermod.regulatory import EPA_APPENDIX_W_2023_BETA_METHODS
+        assert "PVMRM2" in EPA_APPENDIX_W_2023_BETA_METHODS
+        assert "GRSM" in EPA_APPENDIX_W_2023_BETA_METHODS
+
+    def test_pvmrm2_not_in_2023_default_allow(self):
+        """PVMRM2 remains BETA — must NOT be silently in allow list."""
+        assert "PVMRM2" not in EPA_APPENDIX_W_2023.allow_chemistry_methods
+
+    def test_grsm_not_in_2023_default_allow(self):
+        """GRSM remains BETA — same rule."""
+        assert "GRSM" not in EPA_APPENDIX_W_2023.allow_chemistry_methods
+
+    def test_olm_and_pvmrm_still_in_2023(self):
+        """OLM + PVMRM remain the two DFAULT-compatible methods."""
+        assert "OLM" in EPA_APPENDIX_W_2023.allow_chemistry_methods
+        assert "PVMRM" in EPA_APPENDIX_W_2023.allow_chemistry_methods
+
+    def test_2017_unchanged(self):
         assert "PVMRM2" not in EPA_APPENDIX_W_2017.allow_chemistry_methods
+        assert "GRSM" not in EPA_APPENDIX_W_2017.allow_chemistry_methods

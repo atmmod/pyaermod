@@ -185,16 +185,19 @@ EPA_APPENDIX_W_2017 = RegulatoryProfile(
     name="EPA-AppendixW-2017",
     description=(
         "EPA 40 CFR 51 Appendix W (Guideline on Air Quality Models), "
-        "January 17, 2017 revision. Requires DFAULT + ELEV terrain, "
-        "permits LOWWIND3 and ADJ_U* only for documented cases."
+        "January 17, 2017 revision. Requires DFAULT + ELEVATED terrain, "
+        "permits LOWWIND3 and ADJ_U* only for documented cases. The "
+        "only DFAULT-compatible NO2 chemistry methods are OLM and "
+        "PVMRM; GRSM was still BETA in 2017."
     ),
     regulatory_default=True,
     terrain_type="ELEV",
     allowed_low_wind=("LOWWIND3",),
-    allow_chemistry_methods=("OLM", "PVMRM", "GRSM"),
+    allow_chemistry_methods=("OLM", "PVMRM"),
     notes=[
-        "See 82 FR 5182 (2017). Use of BETA options requires agency "
-        "concurrence and is not permitted under DFAULT.",
+        "See 82 FR 5182 (2017). Use of BETA options (GRSM, PVMRM2, "
+        "ADJ_U*) requires agency concurrence and is not permitted "
+        "under DFAULT.",
     ],
 )
 
@@ -202,19 +205,33 @@ EPA_APPENDIX_W_2017 = RegulatoryProfile(
 EPA_APPENDIX_W_2023 = RegulatoryProfile(
     name="EPA-AppendixW-2023",
     description=(
-        "EPA Appendix W with 2023 ALPHA/BETA formal acceptance of "
-        "GRSM for NO2, PVMRM2 for certain cases. Same base constraints "
-        "as the 2017 revision."
+        "EPA Appendix W as-of 2023: DFAULT + ELEVATED terrain, OLM and "
+        "PVMRM still the only formally regulatory-default NO2 chemistry "
+        "methods. PVMRM2 and GRSM remain BETA options and require "
+        "case-by-case EPA concurrence before use in a regulatory "
+        "submittal."
     ),
     regulatory_default=True,
     terrain_type="ELEV",
     allowed_low_wind=("LOWWIND3",),
-    allow_chemistry_methods=("OLM", "PVMRM", "PVMRM2", "GRSM"),
+    # Regulatory-default NO2 chemistry: OLM and PVMRM only. PVMRM2 and
+    # GRSM are listed separately in `beta_chemistry_methods` below —
+    # users who have agency concurrence can opt in explicitly.
+    allow_chemistry_methods=("OLM", "PVMRM"),
     notes=[
-        "Profile reflects EPA memoranda through 2023. Always confirm "
-        "against current Appendix W before submittal.",
+        "Profile reflects EPA memoranda through late 2023. PVMRM2 / "
+        "GRSM are BETA in AERMOD v23132/v24142 per the 2022/2023 "
+        "transmittal memos — neither is DFAULT-compatible. Always "
+        "confirm against current Appendix W + the relevant EPA "
+        "memorandum before submittal.",
     ],
 )
+
+# NO2 chemistry methods that are BETA under EPA Appendix W 2023.
+# Use requires explicit agency concurrence; keep these separate from
+# the profile's `allow_chemistry_methods` tuple so a project using
+# them triggers a lint warning unless the user overrides.
+EPA_APPENDIX_W_2023_BETA_METHODS: tuple = ("PVMRM2", "GRSM")
 
 
 SCREENING_PROFILE = RegulatoryProfile(
