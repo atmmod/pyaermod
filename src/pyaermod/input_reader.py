@@ -937,10 +937,87 @@ def parse_aermod_input(text: str) -> AERMODProject:
     )
 
 
-def read_aermod_input(path: Union[str, Path]) -> AERMODProject:
-    """Read an AERMOD ``.inp`` file from disk and return the project."""
-    p = Path(path)
-    return parse_aermod_input(p.read_text(encoding="utf-8"))
+def read_aermod_input(
+    path: Union[str, Path],
+    *,
+    sandbox: bool = False,
+) -> AERMODProject:
+    """Read an AERMOD ``.inp`` file from disk and return the project.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the .inp file.
+    sandbox : bool, default False
+        If True, validate that every absolute path referenced inside
+        the .inp (SURFFILE, PROFFILE, OZONEFIL, etc.) and every
+        resolved relative path stays inside the .inp's parent directory.
+        Raises :class:`PathTraversalError` on the first escape. Use this
+        when ingesting untrusted .inp files (third-party permits,
+        forwarded drafts) before passing the project to AERMOD.
+
+        The default (False) preserves prior behavior: paths are stored
+        as-is and AERMOD itself decides what to open at run time.
+    """
+    p = Path(path).resolve()
+    project = parse_aermod_input(p.read_text(encoding="utf-8"))
+    if sandbox:
+        _validate_paths_within(project, base=p.parent)
+    return project
 
 
-__all__ = ["parse_aermod_input", "read_aermod_input"]
+class PathTraversalError(ValueError):
+    """Raised when a sandboxed .inp references a path outside its base dir."""
+
+
+def _validate_paths_within(project: AERMODProject, base: Path) -> None:
+    """Reject project paths that escape `base`.
+
+    Inspects fields known to carry filenames or paths users might
+    accept from untrusted sources:
+
+    - meteorology.surface_file / profile_file
+    - control.chemistry.ozone_data.ozone_file (if chemistry is set)
+    - control.chemistry.nox_file
+    - output.summary_file / max_file / plot_file / postfile
+    - output.plot_file_groups (per-group filenames)
+    """
+    base = base.resolve()
+
+    def _check(label: str, raw: Optional[str]) -> None:
+        if not raw:
+            return
+        candidate = Path(raw)
+        full = (candidate if candidate.is_absolute() else base / candidate).resolve()
+        try:
+            full.relative_to(base)
+        except ValueError:
+            raise PathTraversalError(
+                f"{label} resolves to {full} which is outside the sandbox "
+                f"root {base}. If this is intentional, pass sandbox=False."
+            ) from None
+
+    met = project.meteorology
+    _check("meteorology.surface_file", getattr(met, "surface_file", None))
+    _check("meteorology.profile_file", getattr(met, "profile_file", None))
+
+    chem = getattr(project.control, "chemistry", None)
+    if chem is not None:
+        oz = getattr(chem, "ozone_data", None)
+        if oz is not None:
+            _check("chemistry.ozone_data.ozone_file",
+                   getattr(oz, "ozone_file", None))
+        _check("chemistry.nox_file", getattr(chem, "nox_file", None))
+
+    out = project.output
+    for attr in ("summary_file", "max_file", "plot_file", "postfile"):
+        _check(f"output.{attr}", getattr(out, attr, None))
+    for period, group, fname in (out.plot_file_groups or []):
+        _check(f"output.plot_file_groups[{group}/{period}]", fname)
+
+
+__all__ = [
+    "parse_aermod_input",
+    "read_aermod_input",
+    "PathTraversalError",
+]
