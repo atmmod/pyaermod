@@ -1,0 +1,70 @@
+name: Build desktop bundles
+
+# Cross-platform PyInstaller builds for the NiceGUI + pywebview desktop
+# app. Triggered on release tags (auto-attaches binaries to the release)
+# or manually for ad-hoc smoke tests.
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: pyaermod-desktop-linux-x64
+            bin_glob: dist/pyaermod-desktop
+          - os: macos-latest
+            artifact: pyaermod-desktop-macos
+            bin_glob: dist/pyaermod-desktop.app
+          - os: windows-latest
+            artifact: pyaermod-desktop-windows-x64
+            bin_glob: dist/pyaermod-desktop.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux GUI deps (pywebview backend)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgirepository1.0-dev gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+            libcairo2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install pyaermod + desktop extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[gui-modern-desktop]" pyinstaller>=6.0
+
+      - name: Build desktop bundle
+        run: |
+          pyinstaller packaging/pyaermod_desktop.spec --clean --noconfirm
+
+      - name: List dist/
+        if: always()
+        shell: bash
+        run: ls -la dist/ || dir dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bin_glob }}
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.bin_glob }}
