@@ -38,6 +38,7 @@ nav:
       - AERMAP Troubleshooting: aermap-troubleshooting.md
       - Common Errors: common-errors.md
       - Regulatory Matrix: regulatory-matrix.md
+  - Validation: validation.md
   - Architecture: architecture.md
   - Teaching:
       - Student Guide: teaching/student-guide.md
@@ -81,6 +82,8 @@ nav:
           - prime: api/prime.md
       - Chemistry:
           - chemistry_presets: api/chemistry_presets.md
+      - Validation:
+          - regulatory_parity: api/regulatory_parity.md
       - GUI:
           - gui: api/gui.md
 

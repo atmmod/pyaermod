@@ -1,0 +1,78 @@
+name: EPA AERMOD test-suite parity
+
+# Runs the full 41-deck EPA test-suite parity harness against the
+# pyaermod-driven AERMOD binary. Pass criterion: best-fit slope within
+# +/-0.001 of 1.0, matching EPA's Compare_AERMOD_test_cases.R margin.
+#
+# Manual dispatch only — the EPA test-case bundle (~60 MB) is fetched
+# from SCRAM at runtime. Trigger via Actions tab or `gh workflow run
+# epa_parity.yml`. The workflow uploads the rendered Markdown report
+# (docs/validation.md) as an artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      testcases_url:
+        description: "URL of EPA AERMOD test-cases zip"
+        required: false
+        default: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_testcases.zip"
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Compile AERMOD from EPA source
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
+          curl -sSL -o aermod_source.zip \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+          unzip -q aermod_source.zip
+          cd aermod_source_code_*
+          gfortran -c -O2 modules.f
+          gfortran -c -O2 grsm.f
+          gfortran -c -O2 aermod.f setup.f coset.f soset.f reset.f meset.f \
+            ouset.f inpsum.f metext.f iblval.f siggrid.f tempgrid.f \
+            windgrid.f calc1.f calc2.f prise.f arise.f prime.f sigmas.f \
+            pitarea.f uninam.f output.f evset.f evcalc.f evoutput.f \
+            rline.f bline.f
+          gfortran -O2 -o aermod *.o
+          sudo cp aermod /usr/local/bin/aermod
+
+      - name: Fetch EPA test-case bundle
+        run: |
+          set -euxo pipefail
+          curl -sSL -o /tmp/testcases.zip "${{ github.event.inputs.testcases_url }}"
+          mkdir -p test_cases
+          unzip -q /tmp/testcases.zip -d test_cases
+          ls test_cases/
+
+      - name: Run parity harness (pytest)
+        run: |
+          pytest tests/regulatory/ -v --no-cov --tb=short
+
+      - name: Generate parity report
+        if: always()
+        run: |
+          python scripts/run_epa_parity.py --output docs/validation.md
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epa-parity-report
+          path: docs/validation.md
