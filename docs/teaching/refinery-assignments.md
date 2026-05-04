@@ -104,7 +104,7 @@ NOAA's NCEI archive.
 
 ### Step 2: Configure Stage 1 in the GUI
 
-1. Launch `pyaermod-gui`.
+1. Launch `pyaermod-app`.
 2. On **Project Setup**, set:
    - UTM Zone: `15`
    - Hemisphere: `N`
@@ -363,7 +363,7 @@ a script or notebook for this. The downloader needs:
 
 ### Step 3: Set Up the Project in the GUI
 
-1. Launch `pyaermod-gui`.
+1. Launch `pyaermod-app`.
 2. On **Project Setup**:
    - Title: `Tutorial 7 - Terrain Processing`
    - UTM Zone: `15`, Hemisphere: `N`, Datum: `NAD83`
@@ -550,7 +550,7 @@ other pollutant — only the emission rates and standards change.
 
 ### Step 1: Project Setup
 
-1. Launch `pyaermod-gui`.
+1. Launch `pyaermod-app`.
 2. On **Project Setup**:
 
    | Parameter | Value |

@@ -337,7 +337,7 @@ aermod              # Should print AERMOD version (error about input is OK)
 ### 3.3 Launch the GUI
 
 ```bash
-pyaermod-gui
+pyaermod-app
 ```
 
 Your web browser will open automatically to `http://localhost:8501`. You'll see
@@ -381,7 +381,7 @@ PM2.5, and understand what each setting means.
 
 ### Step 1: Project Setup
 
-1. Launch the GUI (`pyaermod-gui`).
+1. Launch the GUI (`pyaermod-app`).
 2. On the **Project Setup** page, fill in:
    - **Title Line 1:** `Tutorial 1 - My First Model`
    - **Title Line 2:** `Single point source, PM2.5`
@@ -810,7 +810,7 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
 
 ### Step 1: Project Setup
 
-1. Launch the GUI (`pyaermod-gui`).
+1. Launch the GUI (`pyaermod-app`).
 2. On the **Project Setup** page:
    - **Title Line 1:** `Tutorial 4 - Area Source Facility`
    - **Title Line 2:** `Construction site with mixed source types`
@@ -1059,7 +1059,7 @@ AERMET requires two types of weather observations:
 
 ### Step 1: Navigate to the AERMET Page
 
-1. Launch the GUI (`pyaermod-gui`).
+1. Launch the GUI (`pyaermod-app`).
 2. First, set up your **Project Setup** page with the correct UTM zone and
    map center for your area (see Tutorial 1). AERMET Stage 3 may use these
    coordinates.

@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-04
+
+The deprecation-cleanup major release. **Breaking changes** — read the
+upgrade notes below before upgrading.
+
+### Removed
+
+- **Streamlit GUI** — the legacy `pyaermod.gui` module, the
+  `pyaermod-gui` console script, the `_gui_runner.py` shim, and the
+  full `tests/test_gui.py` (~920 lines) are gone. The replacement is
+  the NiceGUI app shipped in v1.9 (`pyaermod-app` browser mode,
+  `pyaermod-desktop` native window).
+- **`gui` extra** as a Streamlit alias.
+- **`gui-modern` / `gui-modern-desktop` extras** — renamed (see below).
+- **`pyaermod-gui` console script.**
+
+### Renamed
+
+- **Extras**:
+  - `gui-modern`        →  `gui`         (NiceGUI, browser mode)
+  - `gui-modern-desktop` →  `gui-desktop` (NiceGUI + pywebview, native)
+- The `all` extra now includes `nicegui` instead of Streamlit.
+
+### Changed (breaking)
+
+- **`AERMODProject.to_aermod_input()` and `.write()` validate by default.**
+  The deprecation cycle landed in v1.5 (DeprecationWarning when
+  `validate=` is omitted). v2.0 flips the default from `False` to `True`.
+  Pass `validate=False` explicitly to skip validation if your tests or
+  scripts construct intentionally-incomplete projects.
+
+### Upgrade notes
+
+Most users only need to change one thing:
+
+```bash
+# Old
+pip install pyaermod[gui]
+pyaermod-gui
+
+# New
+pip install pyaermod[gui]
+pyaermod-app             # browser
+pyaermod-desktop         # native window
+```
+
+If you scripted `to_aermod_input()` without `validate=`, your code now
+runs the validator before generating the deck. To preserve the v1.x
+behaviour:
+
+```python
+project.to_aermod_input(validate=False)
+```
+
+If you imported anything from `pyaermod.gui`, switch to
+`pyaermod.gui_v2`. The public API (`AppState`, `save_project`,
+`load_project`, page render functions) is documented in
+[the gui_v2 reference](api/gui_v2.md).
+
 ## [1.9.0] - 2026-05-04
 
 ### Added — NiceGUI app + desktop bundles

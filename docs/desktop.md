@@ -37,7 +37,7 @@ network, or an older OS that the pre-built binaries don't support):
 ```bash
 git clone https://github.com/atmmod/pyaermod
 cd pyaermod
-pip install -e ".[gui-modern-desktop]" pyinstaller>=6.0
+pip install -e ".[gui-desktop]" pyinstaller>=6.0
 pyinstaller packaging/pyaermod_desktop.spec --clean --noconfirm
 ```
 
@@ -59,7 +59,7 @@ The same NiceGUI app can also run as a normal web app, useful for
 multi-user / server deployments:
 
 ```bash
-pip install pyaermod[gui-modern]
+pip install pyaermod[gui]
 pyaermod-app
 ```
 

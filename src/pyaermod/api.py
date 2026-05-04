@@ -36,7 +36,7 @@ Groups (full surface):
 from __future__ import annotations
 
 # Package metadata
-__version__ = "1.9.0"
+__version__ = "2.0.0"
 
 # --- Project building -----------------------------------------------------
 # --- Terrain --------------------------------------------------------------
@@ -419,4 +419,4 @@ CORE_NAMES: frozenset = frozenset({
 
 # Module version marker for downstream consumers who want to gate on
 # API-surface changes without parsing the package version string.
-API_VERSION: str = "1.9"
+API_VERSION: str = "2.0"

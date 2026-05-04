@@ -92,41 +92,22 @@ class AERMODProject:
     events: Optional[EventPathway] = None
 
     def to_aermod_input(self,
-                        validate: Optional[bool] = None,
+                        validate: bool = True,
                         check_files: bool = False) -> str:
         """
         Generate complete AERMOD input file.
 
         Parameters
         ----------
-        validate : bool, optional
-            If True, run the configuration validator before generating
-            output. Raises ValueError on validation errors (warnings
-            are allowed). If False, skip validation entirely.
-
-            If None (the v1.x default), behave like False but emit a
-            DeprecationWarning. Starting in pyaermod 2.0 the default
-            will flip to True so callers who don't specify get
-            structurally-invalid projects caught at write time. Pass
-            ``validate=True`` or ``validate=False`` explicitly to silence
-            the warning.
+        validate : bool
+            If True (default in pyaermod 2.0+), run the configuration
+            validator before generating output. Raises ``ValueError`` on
+            validation errors (warnings are allowed). Pass
+            ``validate=False`` to skip validation entirely.
         check_files : bool
             If True (and validate is True), also verify that meteorology
             files exist on disk.
         """
-        if validate is None:
-            import warnings
-            warnings.warn(
-                "AERMODProject.to_aermod_input() is being called without "
-                "specifying `validate=`. In pyaermod 2.0 the default flips "
-                "from False to True (validate before write); pass "
-                "validate=True to opt in early or validate=False to keep "
-                "the current silent behavior and silence this warning.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            validate = False  # preserve v1.x default behavior
-
         if validate:
             from pyaermod.validator import Validator
             result = Validator.validate(self, check_files=check_files)
@@ -151,7 +132,7 @@ class AERMODProject:
 
     def write(self, filename: Union[str, Path],
               event_filename: Optional[Union[str, Path]] = None,
-              validate: Optional[bool] = None,
+              validate: bool = True,
               check_files: bool = False):
         """Write input file to disk.
 
@@ -161,10 +142,9 @@ class AERMODProject:
             Path for the main AERMOD input file.
         event_filename : str or Path, optional
             Path for the event file. Required if events are defined.
-        validate : bool, optional
-            Forwarded to :meth:`to_aermod_input`. Same semantics —
-            if None, defaults to False with a DeprecationWarning;
-            pyaermod 2.0 will flip to True.
+        validate : bool
+            Forwarded to :meth:`to_aermod_input`. Default True
+            (pyaermod 2.0+). Pass ``validate=False`` to skip.
         check_files : bool
             Forwarded to :meth:`to_aermod_input`.
         """

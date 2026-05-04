@@ -46,7 +46,7 @@ jobs:
       - name: Install pyaermod + desktop extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[gui-modern-desktop]" pyinstaller>=6.0
+          pip install -e ".[gui-desktop]" pyinstaller>=6.0
 
       - name: Build desktop bundle
         run: |

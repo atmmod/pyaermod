@@ -11,7 +11,7 @@ two delivery modes:
 The desktop entry is the path PyInstaller bundles for distribution
 (see ``packaging/pyinstaller.spec`` once v1.9-E lands).
 
-Requires the ``[gui-modern-desktop]`` extra (pywebview).
+Requires the ``[gui-desktop]`` extra (pywebview).
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def main(*, title: str = "PyAERMOD",
     except ImportError as e:
         raise ImportError(
             "pywebview is required for the desktop GUI. Install with "
-            "`pip install pyaermod[gui-modern-desktop]`."
+            "`pip install pyaermod[gui-desktop]`."
         ) from e
 
     from . import main as _server_main

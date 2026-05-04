@@ -343,7 +343,7 @@ class TestAERMODProject:
             output=output
         )
 
-        output_text = project.to_aermod_input()
+        output_text = project.to_aermod_input(validate=False)
 
         # Check all pathways present
         assert "CO STARTING" in output_text
@@ -878,7 +878,7 @@ class TestEventProcessing:
             ]),
         )
         # Main input should have EVENTFIL
-        main_input = project.to_aermod_input()
+        main_input = project.to_aermod_input(validate=False)
         assert "EVENTFIL" in main_input
         # Event pathway generates separately
         ev_input = project.events.to_aermod_input()
@@ -897,7 +897,7 @@ class TestEventProcessing:
         )
         main_file = tmp_path / "aermod.inp"
         event_file = tmp_path / "events.inp"
-        project.write(main_file, event_filename=event_file)
+        project.write(main_file, event_filename=event_file, validate=False)
         assert main_file.exists()
         assert event_file.exists()
         assert "EVENTFIL" in main_file.read_text()

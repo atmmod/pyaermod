@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyaermod"
-version = "1.9.0"
+version = "2.0.0"
 description = "Python wrapper for EPA's AERMOD air dispersion model"
 readme = "README.md"
 license = {text = "MIT"}
@@ -49,17 +49,6 @@ geo = [
     "shapely>=1.8.0",
     "scipy>=1.7.0",
 ]
-gui = [
-    "streamlit>=1.28.0",
-    "streamlit-folium>=0.15.0",
-    "folium>=0.14.0",
-    "pyproj>=3.0.0",
-    "geopandas>=0.10.0",
-    "rasterio>=1.2.0",
-    "shapely>=1.8.0",
-    "scipy>=1.7.0",
-    "matplotlib>=3.3.0",
-]
 terrain = [
     "requests>=2.25.0",
 ]
@@ -73,10 +62,10 @@ hpc = [
 cad = [
     "ezdxf>=1.0.0",
 ]
-gui-modern = [
+gui = [
     "nicegui>=2.0",
 ]
-gui-modern-desktop = [
+gui-desktop = [
     "nicegui>=2.0",
     "pywebview>=5.0",
 ]
@@ -88,8 +77,6 @@ all = [
     "geopandas>=0.10.0",
     "rasterio>=1.2.0",
     "shapely>=1.8.0",
-    "streamlit>=1.28.0",
-    "streamlit-folium>=0.15.0",
     "requests>=2.25.0",
     "tqdm>=4.60.0",
     "ezdxf>=1.0.0",
@@ -106,7 +93,6 @@ dev = [
 
 [project.scripts]
 pyaermod = "pyaermod.cli:main"
-pyaermod-gui = "pyaermod.gui:main"
 pyaermod-app = "pyaermod.gui_v2:main"
 pyaermod-desktop = "pyaermod.gui_v2.desktop:main"
 
@@ -124,11 +110,10 @@ ignore_missing_imports = true
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
-# Per-module overrides: gui.py + advanced_viz.py have legitimate
-# **kwargs dispatch into source dataclasses; those are runtime checks
-# not static.
+# Per-module overrides: advanced_viz.py has legitimate **kwargs dispatch
+# into source dataclasses; that's a runtime check not a static one.
 [[tool.mypy.overrides]]
-module = ["pyaermod.gui", "pyaermod.advanced_viz"]
+module = ["pyaermod.advanced_viz"]
 ignore_errors = true
 
 [tool.ruff]
@@ -167,7 +152,6 @@ ignore = [
 "tests/*" = ["S101", "F841", "F401"]
 "src/pyaermod/__init__.py" = ["F401", "RUF022"]
 "src/pyaermod/api.py" = ["F401", "RUF022"]
-"src/pyaermod/gui.py" = ["E402"]
 "benchmarks/*" = ["F401"]
 
 [tool.ruff.lint.isort]

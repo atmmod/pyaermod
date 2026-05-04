@@ -46,8 +46,8 @@ def test_pyproject_console_scripts_register_desktop():
     assert 'pyaermod-app = "pyaermod.gui_v2:main"' in text
 
 
-def test_extras_include_gui_modern_desktop():
+def test_extras_include_gui_desktop():
     py = REPO_ROOT / "pyproject.toml"
     text = py.read_text(encoding="utf-8")
-    assert "gui-modern-desktop" in text
+    assert "gui-desktop" in text
     assert "pywebview" in text

@@ -14,7 +14,7 @@ PyAERMOD automates input file generation, model execution, output parsing, and r
 pip install pyaermod             # core (input generation + output parsing)
 pip install pyaermod[viz]        # + matplotlib/folium visualization
 pip install pyaermod[geo]        # + geospatial export (GeoTIFF, Shapefile)
-pip install pyaermod[gui]        # + Streamlit interactive GUI
+pip install pyaermod[gui]        # + NiceGUI app
 pip install pyaermod[all]        # everything
 ```
 
@@ -117,7 +117,7 @@ POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 - Input validation across all AERMOD pathways
 - Building downwash / BPIP integration (point, area, and volume sources)
 - Batch processing with parallel execution
-- Interactive Streamlit GUI (`pyaermod-gui`)
+- Interactive NiceGUI app (`pyaermod-app` browser, `pyaermod-desktop` native window)
 
 ## Project Structure
 
@@ -136,7 +136,7 @@ src/pyaermod/
     terrain.py           # DEM download + AERMAP pipeline
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
-    gui.py               # Streamlit web GUI
+    gui_v2/              # NiceGUI app + pywebview desktop wrapper
 tests/                   # 1383 tests, 98% coverage
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
