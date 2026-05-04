@@ -35,12 +35,16 @@ jobs:
         run: ruff check src/ tests/
 
       - name: Run tests with coverage
+        # --cov-fail-under gates the build at 95% coverage on the
+        # measured-modules surface. Drift below floor fails CI rather
+        # than silently regressing.
         run: |
           pytest --tb=short -q \
             --cov=pyaermod \
             --cov-config=.coveragerc \
             --cov-report=term-missing:skip-covered \
-            --cov-report=xml:coverage.xml
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=95
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12'

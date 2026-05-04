@@ -38,13 +38,17 @@ jobs:
           (cd /tmp/main-tree && pip install -e . && \
            python benchmarks/run_benchmarks.py --output /tmp/bench_base.json --quiet)
 
-      - name: Compare vs. baseline
+      - name: Compare vs. baseline (fail on >25% regression)
         if: github.event_name == 'pull_request'
         run: |
+          # --fail-on-regression makes any benchmark that's >25% slower
+          # than main fail the workflow. Tweak the threshold here, or
+          # remove the flag for advisory-only mode.
           python benchmarks/compare_benchmarks.py \
             --baseline /tmp/bench_base.json \
             --current bench_current.json \
-            --threshold 0.25
+            --threshold 0.25 \
+            --fail-on-regression
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
