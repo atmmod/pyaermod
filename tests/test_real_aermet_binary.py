@@ -81,6 +81,56 @@ def test_aermet_binary_runs_stage1(tmp_path):
     assert result.return_code is not None
 
 
+_SALEM_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "aermet_test_cases"
+    / "aermet_def_testcases_24142"
+    / "salem"
+)
+
+
+@pytest.mark.skipif(
+    not _SALEM_DIR.exists() or not (_SALEM_DIR / "stage1.inp").exists(),
+    reason=f"Salem AERMET test case directory not found: {_SALEM_DIR}",
+)
+def test_aermet_runs_real_salem_stage1_successfully(tmp_path):
+    """End-to-end successful AERMET Stage 1 run.
+
+    Skips if the EPA salem test fixtures aren't on disk (they're too
+    big to vendor at ~35 MB combined). When present, this proves:
+
+    - The Python wrapper dispatches correctly to the binary
+    - The binary processes a real ISHD + upper-air dataset
+    - Stage 1 produces non-empty .qa output files
+    - The success / failure detection in AERMETRunner is correct
+      (not just \"return code 0\")
+    """
+    import shutil
+
+    # Copy the input deck + data files into tmp_path so we don't pollute
+    # the user's vendored test-case directory with output files.
+    for fname in ("stage1.inp", "salem.txt", "24232_85_91.ua",
+                  "ISHD_discard.txt", "ISHD_replace.txt"):
+        src = _SALEM_DIR / fname
+        if src.exists():
+            shutil.copy(src, tmp_path / fname)
+
+    runner = AERMETRunner(log_level="WARNING")
+    deck = tmp_path / "stage1.inp"
+    result = runner.run_stage(1, deck, working_dir=tmp_path, timeout=120)
+
+    assert result.success, (
+        f"AERMET stage 1 failed (rc={result.return_code}): "
+        f"stdout tail={(result.stdout or '')[-500:]!r}"
+    )
+    # Stage 1 should produce QA output files (.OQA / .IQA)
+    output_files = list(tmp_path.glob("*.OQA")) + list(tmp_path.glob("*.IQA"))
+    assert output_files, (
+        f"Stage 1 success but no .OQA/.IQA files in {tmp_path}; "
+        f"outputs={result.output_files}"
+    )
+
+
 def test_aermet_pipeline_dispatches_all_three_stages(tmp_path):
     """run_aermet_pipeline writes each stage's deck + dispatches."""
     from pyaermod.aermet import AERMETStage2, AERMETStage3

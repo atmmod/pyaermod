@@ -106,14 +106,22 @@ class AERMETRunner:
     ) -> AERMETRunResult:
         """Run a single AERMET stage.
 
-        AERMET reads its deck from stdin (``aermet < stage1.inp``)
-        per the EPA convention, so we wire stdin to the file contents
-        rather than passing it as an argv.
+        AERMET v23+ reads from a fixed file ``aermet.inp`` in the
+        current working directory (the same convention as AERMOD
+        with ``aermod.inp``). We copy the user's deck to that path
+        before invoking the binary.
         """
         inp_path = Path(input_file).resolve()
         work = Path(working_dir).resolve()
         work.mkdir(parents=True, exist_ok=True)
-        deck = inp_path.read_text(encoding="utf-8")
+
+        # Stage AERMET's expected input file name in the working dir.
+        aermet_inp = work / "aermet.inp"
+        if aermet_inp.resolve() != inp_path:
+            import shutil
+            if aermet_inp.exists() or aermet_inp.is_symlink():
+                aermet_inp.unlink()
+            shutil.copy2(inp_path, aermet_inp)
 
         self.logger.info(
             f"Running AERMET stage {stage}: {inp_path} (workdir={work})"
@@ -131,7 +139,6 @@ class AERMETRunner:
                 proc = subprocess.run(
                     [str(self.executable)],
                     cwd=str(work),
-                    input=deck,
                     text=True,
                     stdout=stdout_fh, stderr=stderr_fh,
                     timeout=timeout,
