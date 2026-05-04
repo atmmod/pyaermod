@@ -22,7 +22,7 @@ jobs:
             bin_glob: dist/pyaermod-desktop
           - os: macos-latest
             artifact: pyaermod-desktop-macos
-            bin_glob: dist/pyaermod-desktop.app
+            bin_glob: dist/pyaermod-desktop-macos.zip
           - os: windows-latest
             artifact: pyaermod-desktop-windows-x64
             bin_glob: dist/pyaermod-desktop.exe
@@ -51,6 +51,12 @@ jobs:
       - name: Build desktop bundle
         run: |
           pyinstaller packaging/pyaermod_desktop.spec --clean --noconfirm
+
+      - name: Zip macOS .app bundle
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd dist
+          zip -ry pyaermod-desktop-macos.zip pyaermod-desktop.app
 
       - name: List dist/
         if: always()
