@@ -159,6 +159,14 @@ class AERMODRunner:
             'summary': work_dir / f"{input_name}.sum"
         }
 
+        # Concurrency safety: AERMOD reads from a fixed filename
+        # (aermod.inp), so two concurrent runs in the same working_dir
+        # would clobber each other's symlinks + outputs. Acquire an
+        # exclusive lock on a sentinel file before touching anything.
+        # Released automatically in the finally clause below.
+        lock_path = work_dir / ".pyaermod.lock"
+        lock_fh = _acquire_dir_lock(lock_path)
+
         # Create symlink: aermod.inp -> <input_name>.inp
         aermod_inp = work_dir / "aermod.inp"
         try:
@@ -298,6 +306,8 @@ class AERMODRunner:
             if aermod_inp.exists() or aermod_inp.is_symlink():
                 with contextlib.suppress(OSError):
                     aermod_inp.unlink()
+            # Release the working-dir lock
+            _release_dir_lock(lock_fh)
 
     def _extract_error_message(self,
                                result: subprocess.CompletedProcess,
@@ -457,6 +467,61 @@ class AERMODRunner:
             issues.append(f"Error reading file: {e}")
 
         return len(issues) == 0, issues
+
+
+def _acquire_dir_lock(lock_path: Path):
+    """Acquire an exclusive advisory lock on a sentinel file.
+
+    Returns an open file handle (callers must release via
+    `_release_dir_lock`). Blocks until the lock is available — not
+    timeout-bounded because AERMOD runs themselves are timeout-bounded
+    and a queued lock acquisition just means "wait your turn."
+
+    Uses fcntl.flock on POSIX, msvcrt.locking on Windows. On platforms
+    where neither is importable (very rare), the lock is a no-op and a
+    log warning is issued.
+    """
+    fh = open(lock_path, "w")  # noqa: SIM115 — handle outlives the function
+    try:
+        try:
+            import fcntl  # POSIX
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except ImportError:
+            try:
+                import msvcrt  # Windows
+                # Lock the first byte; LOCK_NB would be non-blocking,
+                # LOCK_RETRY isn't a thing — use blocking LK_LOCK.
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+            except ImportError:
+                logging.getLogger(__name__).warning(
+                    "Neither fcntl nor msvcrt available; concurrent runs "
+                    "in the same working_dir are NOT serialized."
+                )
+    except Exception:
+        with contextlib.suppress(Exception):
+            fh.close()
+        raise
+    return fh
+
+
+def _release_dir_lock(fh) -> None:
+    """Release a lock acquired by `_acquire_dir_lock`."""
+    if fh is None:
+        return
+    try:
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except ImportError:
+            try:
+                import msvcrt
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except ImportError:
+                pass
+    finally:
+        with contextlib.suppress(Exception):
+            fh.close()
 
 
 def _batch_worker(executable_path: str, input_file: str, timeout: int) -> "AERMODRunResult":
