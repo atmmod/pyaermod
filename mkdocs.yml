@@ -77,6 +77,9 @@ nav:
           - aersurface_runner: api/aersurface_runner.md
           - met_ingest: api/met_ingest.md
           - met_qaqc: api/met_qaqc.md
+      - Screening:
+          - aerscreen: api/aerscreen.md
+          - aerscreen_runner: api/aerscreen_runner.md
       - Terrain:
           - aermap: api/aermap.md
           - terrain: api/terrain.md
