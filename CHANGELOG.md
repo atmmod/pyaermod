@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-05-04
+
+### Added — NiceGUI app + desktop bundles
+
+The NiceGUI-based GUI v2 ships alongside the legacy Streamlit GUI for
+the entire 1.9.x cycle. The Streamlit GUI is **deprecated** in favour
+of NiceGUI; it will be removed in v2.0. Both are functional today.
+
+#### Five-stage delivery
+
+- **WP-1.9-A**: scaffold + project I/O. ``AppState`` per-session
+  state dataclass, ``project_io.{save,load}_project`` JSON
+  round-trip, ``app.{build_app,build_and_run}`` shell, fully
+  rendered Project tab, placeholder banners for the other six tabs.
+  New ``pyaermod-app`` and ``pyaermod-desktop`` console scripts.
+- **WP-1.9-B**: Sources tab. Generic dataclass-field-walker emits
+  the right widget per field annotation (str → input, float/int →
+  number, bool → checkbox, vertices → textarea round-trip). One
+  generic form covers all 10 source types.
+- **WP-1.9-C**: Receptors + Meteorology tabs. Field-form helper
+  extracted to ``pyaermod.gui_v2._form`` so every page is a thin
+  list-of-fields shim. Receptors covers all 3 receptor types
+  (Cartesian / Polar / Discrete); Meteorology splits primary vs.
+  advanced fields under an expansion panel.
+- **WP-1.9-D**: Output + Run + Results tabs. Run dispatches
+  AERMOD via :class:`AERMODRunner`, captures stdout / stderr
+  tails, and stamps :attr:`AppState.last_run_dir`. Results parses
+  the .OUT file via :class:`AERMODOutputParser`, shows run info
+  + sources + max concentrations + POSTFILE listing.
+- **WP-1.9-E**: PyInstaller bundles for Win/Mac/Linux.
+  ``packaging/pyaermod_desktop.spec`` plus a release-tag-triggered
+  GitHub Actions workflow that builds the bundle on each OS and
+  attaches the artifacts to the GitHub Release. ``docs/desktop.md``
+  for end-user installation.
+
+#### New extras
+
+- ``pyaermod[gui-modern]`` — NiceGUI only (browser tab mode)
+- ``pyaermod[gui-modern-desktop]`` — NiceGUI + pywebview (native
+  desktop window)
+
+#### New console scripts
+
+- ``pyaermod-app`` — launches NiceGUI in a browser tab
+- ``pyaermod-desktop`` — launches NiceGUI inside a pywebview window
+
+### Changed
+
+- Coverage gate continues at 95%. ``gui_v2/`` modules are excluded
+  from coverage measurement (mirroring how ``gui.py`` was excluded
+  for Streamlit) — UI render code is exercised end-to-end during
+  manual QA, not unit-tested.
+
+### Deprecated
+
+- The Streamlit GUI (``pyaermod-gui`` / ``pyaermod.gui``) is
+  deprecated in favour of NiceGUI. Functionality is unchanged in
+  1.9.x; removal is planned for v2.0.
+
 ## [1.8.0] - 2026-05-04
 
 ### Added

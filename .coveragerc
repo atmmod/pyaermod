@@ -2,6 +2,10 @@
 source = src/pyaermod
 omit =
     src/pyaermod/gui.py
+    src/pyaermod/gui_v2/app.py
+    src/pyaermod/gui_v2/desktop.py
+    src/pyaermod/gui_v2/_form.py
+    src/pyaermod/gui_v2/pages/*.py
     */__main__.py
 
 [report]
