@@ -282,42 +282,60 @@ class AERMAPRunner:
         input_name = input_path.stem
         start_time = datetime.now()
 
+        # Pipe-safe stdout/stderr (file redirect, not OS pipes); see
+        # runner.AERMODRunner.run for the rationale.
+        from .runner import _read_capped
+        stdout_fh = stderr_fh = None
+        stdout_path = stderr_path = None
+        if capture_output:
+            stdout_path = work_dir / f"{input_name}.subproc.stdout"
+            stderr_path = work_dir / f"{input_name}.subproc.stderr"
+            stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+            stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+
         try:
-            result = subprocess.run(
-                [str(self.executable), input_name],
-                cwd=str(work_dir),
-                capture_output=capture_output,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-            end_time = datetime.now()
-            runtime = (end_time - start_time).total_seconds()
-            success = result.returncode == 0
+            try:
+                result = subprocess.run(
+                    [str(self.executable), input_name],
+                    cwd=str(work_dir),
+                    stdout=stdout_fh, stderr=stderr_fh,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                end_time = datetime.now()
+                return AERMAPRunResult(
+                    success=False, input_file=str(input_path),
+                    runtime_seconds=(end_time - start_time).total_seconds(),
+                    error_message=f"Execution timed out after {timeout} seconds",
+                )
+            except Exception as e:
+                return AERMAPRunResult(
+                    success=False, input_file=str(input_path),
+                    error_message=str(e),
+                )
+        finally:
+            if stdout_fh is not None:
+                stdout_fh.close()
+            if stderr_fh is not None:
+                stderr_fh.close()
 
-            return AERMAPRunResult(
-                success=success,
-                input_file=str(input_path),
-                return_code=result.returncode,
-                runtime_seconds=runtime,
-                stdout=result.stdout if capture_output else None,
-                stderr=result.stderr if capture_output else None,
-                error_message=None if success else f"AERMAP failed with return code {result.returncode}",
-            )
+        end_time = datetime.now()
+        runtime = (end_time - start_time).total_seconds()
+        success = result.returncode == 0
+        captured_out = _read_capped(stdout_path) if stdout_path else None
+        captured_err = _read_capped(stderr_path) if stderr_path else None
 
-        except subprocess.TimeoutExpired:
-            end_time = datetime.now()
-            return AERMAPRunResult(
-                success=False, input_file=str(input_path),
-                runtime_seconds=(end_time - start_time).total_seconds(),
-                error_message=f"Execution timed out after {timeout} seconds",
-            )
-
-        except Exception as e:
-            return AERMAPRunResult(
-                success=False, input_file=str(input_path),
-                error_message=str(e),
-            )
+        return AERMAPRunResult(
+            success=success,
+            input_file=str(input_path),
+            return_code=result.returncode,
+            runtime_seconds=runtime,
+            stdout=captured_out,
+            stderr=captured_err,
+            error_message=None if success else f"AERMAP failed with return code {result.returncode}",
+        )
 
 
 # ============================================================================

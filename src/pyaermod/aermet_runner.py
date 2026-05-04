@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from .aermet import AERMETStage1, AERMETStage2, AERMETStage3
+from .runner import _read_capped
 
 
 @dataclass
@@ -118,30 +119,44 @@ class AERMETRunner:
             f"Running AERMET stage {stage}: {inp_path} (workdir={work})"
         )
         start = datetime.now()
+        # Pipe-safe stdout/stderr handling: redirect to files instead of
+        # OS pipes to avoid deadlock on chatty AERMET stages (the same
+        # fix as runner.py applies to AERMOD).
+        stdout_path = work / f"stage{stage}.subproc.stdout"
+        stderr_path = work / f"stage{stage}.subproc.stderr"
+        stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+        stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
         try:
-            proc = subprocess.run(
-                [str(self.executable)],
-                cwd=str(work),
-                input=deck,
-                text=True,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as e:
-            end = datetime.now()
-            return AERMETRunResult(
-                success=False, stage=stage, input_file=str(inp_path),
-                return_code=None,
-                runtime_seconds=(end - start).total_seconds(),
-                error_message=f"AERMET stage {stage} timed out after {timeout}s: {e}",
-                start_time=start, end_time=end,
-            )
+            try:
+                proc = subprocess.run(
+                    [str(self.executable)],
+                    cwd=str(work),
+                    input=deck,
+                    text=True,
+                    stdout=stdout_fh, stderr=stderr_fh,
+                    timeout=timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as e:
+                end = datetime.now()
+                return AERMETRunResult(
+                    success=False, stage=stage, input_file=str(inp_path),
+                    return_code=None,
+                    runtime_seconds=(end - start).total_seconds(),
+                    error_message=f"AERMET stage {stage} timed out after {timeout}s: {e}",
+                    start_time=start, end_time=end,
+                )
+        finally:
+            stdout_fh.close()
+            stderr_fh.close()
         end = datetime.now()
+
+        # Read captured streams from disk (capped at 1 MB tail).
+        out = _read_capped(stdout_path, 1_000_000)
+        err = _read_capped(stderr_path, 1_000_000)
 
         # Success if return code 0 AND the stdout/log doesn't scream
         # "FATAL ERROR". AERMET sometimes exits 0 even on fatal errors.
-        out = proc.stdout or ""
         success = proc.returncode == 0 and "FATAL" not in out.upper()
         # Collect any files AERMET may have produced in the working dir.
         outputs = [str(p) for p in sorted(work.glob("*"))
@@ -154,7 +169,7 @@ class AERMETRunner:
             return_code=proc.returncode,
             runtime_seconds=(end - start).total_seconds(),
             stdout=out,
-            stderr=proc.stderr,
+            stderr=err,
             output_files=outputs,
             error_message=None if success else "AERMET reported FATAL or non-zero exit",
             start_time=start,
