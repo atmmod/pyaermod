@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-04
+
+### Added — "Regulatory-grade open source"
+
+#### WP-1: EPA AERMOD test-suite parity harness
+- `pyaermod.regulatory_parity` module with `score_postfile_pair()` and
+  `passes_parity()` helpers; pass criterion is best-fit slope within
+  ±0.001 of 1.0 — the same margin EPA's own
+  `Compare_AERMOD_test_cases.R` script publishes.
+- Parametric pytest harness in `tests/regulatory/` covering all 41
+  EPA AERMOD test decks plus the 5-year MULTYEAR PM-10 chain.
+- Reproducible parity report at `docs/validation.md`:
+  **104 / 104 POSTFILE comparisons within EPA tolerance.**
+- `.github/workflows/epa_parity.yml` — workflow_dispatch CI job that
+  compiles AERMOD from EPA source, fetches the test-case bundle, runs
+  the harness, and uploads the rendered report.
+- `scripts/run_epa_parity.py` for local report regeneration.
+
+#### WP-2: AERSURFACE wrapper
+- `pyaermod.aersurface.AERSURFACEConfig` dataclass with full validation
+  (NLCD-year whitelist, snow-regime enum, per-month moisture / snow-cover
+  lists, sector angles).
+- `pyaermod.aersurface_runner.AERSURFACERunner` mirroring the AERMET
+  runner pattern: stages `aersurface.inp` in cwd, file-redirected
+  stdout/stderr, FATAL-in-output detection.
+- pyaermod now wraps every preprocessor in the EPA AERMOD chain
+  (AERMET, AERMAP, AERSURFACE, BPIP).
+
+#### WP-3: Design-value / NAAQS post-processing
+- `pyaermod.naaqs` reference table: PM2.5, PM10, NO2, SO2, CO, O3, Pb
+  with 40 CFR Part 50 citations. PM2.5 annual reflects the 2024 EPA
+  review (9.0 µg/m³).
+- `pyaermod.design_values` design-value computations:
+  `pm25_24hr_design_value`, `no2_1hr_design_value`,
+  `so2_1hr_design_value`, `pm10_24hr_design_value`,
+  `o3_8hr_design_value`, `annual_mean`, `add_background`,
+  and the one-stop `naaqs_compliance_report()` dispatcher.
+- Every function cites its 40 CFR Part 50 reference in its docstring.
+
+#### WP-4: KMZ / Google Earth exporter
+- `pyaermod.kmz_export.to_kmz()` — zero-dependency Google Earth
+  exporter built on stdlib `zipfile` + `xml.etree`. Folders for
+  Sources, Receptors, and Contours, each pre-styled.
+- Optional pyproj-driven UTM → WGS84 reprojection.
+- `ContourPolygon` dataclass for caller-supplied contour rings
+  (interoperates with `geospatial.generate_contours`).
+
 ## [1.6.0] - 2026-05-04
 
 ### Robustness pass (items A–H)
