@@ -141,6 +141,7 @@ from .input_generator import (
     VolumeSource,
 )
 from .input_reader import parse_aermod_input, read_aermod_input
+from .kmz_export import ContourPolygon, to_kmz
 from .met_ingest import (
     ASOS1MinRecord,
     IGRAFetcher,
@@ -322,6 +323,8 @@ __all__ = [
     "pm25_24hr_design_value", "no2_1hr_design_value",
     "so2_1hr_design_value", "pm10_24hr_design_value",
     "o3_8hr_design_value", "naaqs_compliance_report",
+    # KMZ export
+    "ContourPolygon", "to_kmz",
     "ASOS1MinRecord", "parse_asos_1min_line", "parse_asos_1min_file",
     "aggregate_1min_to_hourly", "ISDStationId", "ISDFetcher", "IGRASounding",
     "parse_igra_v2", "IGRAFetcher", "MMIFConfig",

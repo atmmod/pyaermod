@@ -69,6 +69,7 @@ nav:
       - Visualization:
           - visualization: api/visualization.md
           - advanced_viz: api/advanced_viz.md
+          - kmz_export: api/kmz_export.md
       - Meteorology:
           - aermet: api/aermet.md
           - aermet_runner: api/aermet_runner.md
