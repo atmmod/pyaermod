@@ -1017,7 +1017,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
 
 
 __all__ = [
+    "PathTraversalError",
     "parse_aermod_input",
     "read_aermod_input",
-    "PathTraversalError",
 ]

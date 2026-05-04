@@ -18,7 +18,6 @@ from pyaermod.input_reader import (
     read_aermod_input,
 )
 
-
 _MINIMAL_INP_TMPL = """\
 CO STARTING
    TITLEONE  sandbox test
@@ -90,7 +89,7 @@ class TestSandbox:
         )
         inp = tmp_path / "test.inp"
         inp.write_text(body)
-        with pytest.raises(PathTraversalError, match="output.postfile"):
+        with pytest.raises(PathTraversalError, match=r"output\.postfile"):
             read_aermod_input(inp, sandbox=True)
 
 
