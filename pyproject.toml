@@ -102,6 +102,21 @@ where = ["src"]
 [tool.setuptools.package-data]
 pyaermod = ["py.typed"]
 
+[tool.mypy]
+# Advisory configuration as of v1.5; ratchet toward strict mode over
+# time. The baseline error count is published in CI logs.
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+# Per-module overrides: gui.py + advanced_viz.py have legitimate
+# **kwargs dispatch into source dataclasses; those are runtime checks
+# not static.
+[[tool.mypy.overrides]]
+module = ["pyaermod.gui", "pyaermod.advanced_viz"]
+ignore_errors = true
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120

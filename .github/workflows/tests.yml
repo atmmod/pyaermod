@@ -34,6 +34,21 @@ jobs:
       - name: Lint with ruff
         run: ruff check src/ tests/
 
+      - name: Type-check with mypy (advisory)
+        # mypy is advisory in v1.x: counts errors and prints the trend
+        # but doesn't fail the build. Ratchet to strict mode once the
+        # baseline is clean.
+        # See https://github.com/atmmod/pyaermod/issues for the cleanup
+        # tracking issue (TODO: link).
+        if: matrix.python-version == '3.12'
+        continue-on-error: true
+        run: |
+          pip install --quiet mypy
+          mypy src/pyaermod --ignore-missing-imports --no-error-summary || true
+          # Print a summary line CI can grep for
+          ERRS=$(mypy src/pyaermod --ignore-missing-imports 2>&1 | tail -1)
+          echo "::notice title=mypy baseline::$ERRS"
+
       - name: Run tests with coverage
         # --cov-fail-under gates the build at 95% coverage on the
         # measured-modules surface. Drift below floor fails CI rather
