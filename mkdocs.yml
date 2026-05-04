@@ -70,6 +70,8 @@ nav:
       - Meteorology:
           - aermet: api/aermet.md
           - aermet_runner: api/aermet_runner.md
+          - aersurface: api/aersurface.md
+          - aersurface_runner: api/aersurface_runner.md
           - met_ingest: api/met_ingest.md
           - met_qaqc: api/met_qaqc.md
       - Terrain:

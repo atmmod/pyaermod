@@ -72,6 +72,8 @@ from .aermod_outputs import (
     read_seasonhr,
     read_toxxfile,
 )
+from .aersurface import AERSURFACEConfig
+from .aersurface_runner import AERSURFACERunner, AERSURFACERunResult
 
 # --- PRIME / downwash -----------------------------------------------------
 from .bpip import BPIPCalculator, BPIPResult, Building
@@ -301,6 +303,7 @@ __all__ = [
     "AERMETStage3", "SurfaceFileHeader", "ProfileFileHeader",
     "write_aermet_runfile", "read_surface_file", "read_profile_file",
     "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
+    "AERSURFACEConfig", "AERSURFACERunner", "AERSURFACERunResult",
     "ASOS1MinRecord", "parse_asos_1min_line", "parse_asos_1min_file",
     "aggregate_1min_to_hourly", "ISDStationId", "ISDFetcher", "IGRASounding",
     "parse_igra_v2", "IGRAFetcher", "MMIFConfig",
