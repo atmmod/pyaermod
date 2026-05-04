@@ -52,6 +52,7 @@ nav:
           - receptors: api/receptors.md
           - pathways: api/pathways.md
           - input_reader: api/input_reader.md
+          - source_importers: api/source_importers.md
       - Validation:
           - validator: api/validator.md
           - validator_advanced: api/validator_advanced.md

@@ -225,6 +225,7 @@ from .runner_utils import (
     summarize_failure,
     tail_output,
 )
+from .source_importers import from_dxf, from_shapefile
 from .terrain_utils import (
     EPSG_NAD27,
     EPSG_NAD83,
@@ -329,6 +330,8 @@ __all__ = [
     "o3_8hr_design_value", "naaqs_compliance_report",
     # KMZ export
     "ContourPolygon", "to_kmz",
+    # Source importers
+    "from_shapefile", "from_dxf",
     "ASOS1MinRecord", "parse_asos_1min_line", "parse_asos_1min_file",
     "aggregate_1min_to_hourly", "ISDStationId", "ISDFetcher", "IGRASounding",
     "parse_igra_v2", "IGRAFetcher", "MMIFConfig",

@@ -70,6 +70,9 @@ hpc = [
     "tqdm>=4.60.0",
     "requests>=2.25.0",
 ]
+cad = [
+    "ezdxf>=1.0.0",
+]
 all = [
     "matplotlib>=3.3.0",
     "scipy>=1.7.0",
@@ -82,6 +85,7 @@ all = [
     "streamlit-folium>=0.15.0",
     "requests>=2.25.0",
     "tqdm>=4.60.0",
+    "ezdxf>=1.0.0",
 ]
 dev = [
     "pytest>=7.0",
