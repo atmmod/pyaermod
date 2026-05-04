@@ -29,7 +29,7 @@ Documentation: https://github.com/atmmod/pyaermod/blob/main/docs/quickstart.md
 from __future__ import annotations
 
 # Package metadata
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 __author__ = "Shannon Capps"
 __email__ = "shannon.capps@gmail.com"
 __license__ = "MIT"

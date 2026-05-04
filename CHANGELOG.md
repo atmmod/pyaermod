@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-04
+
+### Added
+
+#### WP-A: AERSCREEN wrapper
+- `pyaermod.aerscreen.AERSCREENConfig` dataclass + `AERSCREENSourceType`
+  StrEnum (POINT, FLARE, AREA, VOLUME, CAPPED, HORIZONTAL) with full
+  per-source-type validation. Optional building downwash, terrain
+  (lat/lon + DEM file), urban dispersion (population), Auer landuse
+  code, and explicit-or-AUTO downwind distance scheme.
+- `pyaermod.aerscreen_runner.AERSCREENRunner` mirroring the AERSURFACE
+  runner pattern: stages `aerscreen.inp` in cwd, file-redirected
+  stdout/stderr (pipe-deadlock safe), FATAL-in-output detection.
+- pyaermod now wraps the **complete** EPA AERMOD family: AERMOD,
+  AERMET, AERMAP, AERSURFACE, AERSCREEN, BPIP-PRIME.
+
+#### WP-B: SHP + DXF source importers
+- `pyaermod.source_importers.from_shapefile()` — imports any
+  geopandas-readable file (.shp, .gpkg, .geojson) into pyaermod
+  source dataclasses. Default geometry mapping: Point → PointSource,
+  Polygon → AreaPolySource, LineString → LineSource. Override via
+  `source_type=` (e.g. `RLineSource` for road centerlines). Optional
+  `attribute_map=` for renaming truncated/cryptic shapefile columns.
+- `pyaermod.source_importers.from_dxf()` — imports AutoCAD DXF
+  (POINT, LINE, LWPOLYLINE, POLYLINE, CIRCLE entities). Closed
+  polylines → AreaPoly, open → Line. Circles discretized to
+  16-vertex polygons. Optional `z_as_height=True` uses DXF z
+  elevation as stack/release height (rooftop emission models).
+- New `pyaermod[cad]` optional extra: `ezdxf>=1.0.0` (~5 MB, MIT,
+  pure Python). Added to the `all` extra.
+
 ## [1.7.0] - 2026-05-04
 
 ### Added — "Regulatory-grade open source"
