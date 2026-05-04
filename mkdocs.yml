@@ -95,6 +95,7 @@ nav:
           - regulatory_parity: api/regulatory_parity.md
       - GUI:
           - gui: api/gui.md
+          - gui_v2 (NiceGUI): api/gui_v2.md
 
 plugins:
   - search
