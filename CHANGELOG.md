@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-04
+
+### Robustness pass (items A–H)
+
+#### Added
+- **Path-traversal sandbox**: `read_aermod_input(path, sandbox=True)` raises
+  `PathTraversalError` when referenced files (SURFFILE, PROFFILE, OZONEFIL,
+  postfile, plot/summary/max files) escape the deck's parent directory.
+- **Concurrent-run lock**: `AERMODRunner` acquires an fcntl/msvcrt advisory
+  lock on the working directory so parallel jobs don't clobber each other.
+- **Coverage gate**: CI fails below 95% (`--cov-fail-under=95`).
+- **Benchmark regression gate**: PR benchmarks fail on >25% regression vs main.
+- **Hypothesis fuzz tests**: property-based coverage on the input reader.
+- **Advisory mypy step** in CI (Python 3.12, `continue-on-error`); baseline
+  68 errors logged as a notice for ratcheting toward strict mode.
+- **Salem stage-1 end-to-end test** for AERMET when EPA fixtures are present.
+
+#### Changed
+- **AERMET runner**: stages the deck as `aermet.inp` in the cwd before
+  invoking the binary — AERMET v24142 reads from a fixed filename, not stdin.
+  The previous stdin approach silently failed on the real binary.
+- **Pipe-fix parity**: AERMET and AERMAP runners now redirect stdout/stderr
+  to files (matching the AERMOD runner), avoiding 64 KB pipe-buffer deadlocks
+  on chatty runs.
+- **`validate=` deprecation**: `AERMODProject.to_aermod_input()` and
+  `.write()` now emit a `DeprecationWarning` when `validate=` is omitted.
+  In 2.0 the default flips from `False` to `True`. Pass `validate=True` or
+  `validate=False` explicitly to silence the warning.
+
 ## [1.0.0] - 2026-02-14
 
 ### Added
