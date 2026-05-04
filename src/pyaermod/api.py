@@ -92,6 +92,17 @@ from .chemistry_presets import (
     pvmrm_preset,
     suggest_chemistry_for,
 )
+from .design_values import (
+    DesignValue,
+    add_background,
+    annual_mean,
+    naaqs_compliance_report,
+    no2_1hr_design_value,
+    o3_8hr_design_value,
+    pm10_24hr_design_value,
+    pm25_24hr_design_value,
+    so2_1hr_design_value,
+)
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -153,6 +164,7 @@ from .met_qaqc import (
     find_missing_runs,
     run_all_qaqc,
 )
+from .naaqs import NAAQS_TABLE, NAAQSStandard, get_naaqs
 
 # --- Outputs --------------------------------------------------------------
 from .output_parser import (
@@ -304,6 +316,12 @@ __all__ = [
     "write_aermet_runfile", "read_surface_file", "read_profile_file",
     "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
     "AERSURFACEConfig", "AERSURFACERunner", "AERSURFACERunResult",
+    # Design values + NAAQS
+    "DesignValue", "NAAQSStandard", "NAAQS_TABLE", "get_naaqs",
+    "add_background", "annual_mean",
+    "pm25_24hr_design_value", "no2_1hr_design_value",
+    "so2_1hr_design_value", "pm10_24hr_design_value",
+    "o3_8hr_design_value", "naaqs_compliance_report",
     "ASOS1MinRecord", "parse_asos_1min_line", "parse_asos_1min_file",
     "aggregate_1min_to_hourly", "ISDStationId", "ISDFetcher", "IGRASounding",
     "parse_igra_v2", "IGRAFetcher", "MMIFConfig",

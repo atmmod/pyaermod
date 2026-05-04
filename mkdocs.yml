@@ -64,6 +64,8 @@ nav:
           - output_parser: api/output_parser.md
           - aermod_outputs: api/aermod_outputs.md
           - postfile: api/postfile.md
+          - design_values: api/design_values.md
+          - naaqs: api/naaqs.md
       - Visualization:
           - visualization: api/visualization.md
           - advanced_viz: api/advanced_viz.md
