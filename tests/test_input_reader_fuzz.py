@@ -19,7 +19,6 @@ from hypothesis import strategies as st
 
 from pyaermod.input_reader import parse_aermod_input
 
-
 _VALID_BASE = """\
 CO STARTING
    TITLEONE  fuzz base
