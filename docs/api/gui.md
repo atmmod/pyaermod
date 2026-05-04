@@ -1,3 +1,0 @@
-# gui
-
-::: pyaermod.gui
