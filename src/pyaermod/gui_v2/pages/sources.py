@@ -29,7 +29,6 @@ opens cleanly; the user must override them before save.
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 from typing import Any, Dict, Type
 
@@ -46,6 +45,7 @@ from ...input_generator import (
     RLineSource,
     VolumeSource,
 )
+from .._form import emit_field, is_numeric, is_optional_numeric  # noqa: F401
 from ..state import AppState
 
 # ---------------------------------------------------------------------
@@ -156,84 +156,6 @@ def _summary_row(src: Any) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------
-# Generic field-emitter
-# ---------------------------------------------------------------------
-
-def _is_numeric(type_str: str) -> bool:
-    return any(t in type_str for t in ("float", "int"))
-
-
-def _is_optional_numeric(type_str: str) -> bool:
-    return type_str.startswith("Optional[") and _is_numeric(type_str)
-
-
-def _emit_field(parent, src: Any, fname: str, fmeta) -> None:
-    """Render the right widget for a single dataclass field.
-
-    Mutates ``src`` directly via ``setattr`` whenever the user changes
-    the value; AppState dirty-marking is the caller's responsibility
-    (the editor wraps the whole save in mark_dirty).
-    """
-    from nicegui import ui
-
-    type_str = str(fmeta.type)
-    cur = getattr(src, fname)
-    label = fname.replace("_", " ")
-
-    if type_str == "str":
-        with parent:
-            ui.input(label=label, value=cur or "").bind_value(src, fname)
-    elif type_str == "bool":
-        with parent:
-            ui.checkbox(label, value=bool(cur)).bind_value(src, fname)
-    elif _is_numeric(type_str) or _is_optional_numeric(type_str):
-        with parent:
-            ui.number(label=label, value=cur if cur is not None else 0,
-                      format="%.4f").bind_value(src, fname)
-    elif "List[Tuple[float" in type_str:
-        # Polygon-like vertices. One "x, y" pair per line in a textarea.
-        with parent:
-            ta = ui.textarea(
-                label=label,
-                value="\n".join(f"{x:g}, {y:g}" for x, y in (cur or [])),
-            ).classes("w-full")
-
-            def _save_verts(_=None):
-                rows = []
-                for line in ta.value.splitlines():
-                    s = line.strip()
-                    if not s:
-                        continue
-                    parts = [p.strip() for p in s.replace(";", ",").split(",")]
-                    if len(parts) >= 2:
-                        with contextlib.suppress(ValueError):
-                            rows.append((float(parts[0]), float(parts[1])))
-                setattr(src, fname, rows)
-
-            ta.on("update:model-value", _save_verts)
-    elif type_str.startswith("List["):
-        # Generic list-of-strings (or list of dataclasses we don't
-        # break down here). Show as one-per-line textarea, write back
-        # only string elements.
-        with parent:
-            ta = ui.textarea(
-                label=label, value="\n".join(str(v) for v in (cur or [])),
-            ).classes("w-full")
-
-            def _save_strs(_=None):
-                lines = [s.strip() for s in ta.value.splitlines() if s.strip()]
-                setattr(src, fname, lines)
-
-            ta.on("update:model-value", _save_strs)
-    else:
-        # Escape hatch: read-only display for fields we don't model
-        # (Enums, deposition dataclasses, etc.). Editing those is
-        # available via direct Python in the v1.x cycle.
-        with parent:
-            ui.label(f"{label}: {cur!r}").classes("text-grey")
-
-
-# ---------------------------------------------------------------------
 # Page render
 # ---------------------------------------------------------------------
 
@@ -305,8 +227,7 @@ def render(state: AppState) -> None:
             )
             with ui.column().classes("w-full q-gutter-sm"):
                 for fmeta in dataclasses.fields(src):
-                    _emit_field(ui.row().classes("w-full"), src, fmeta.name,
-                                fmeta)
+                    emit_field(ui.row().classes("w-full"), src, fmeta)
             with ui.row().classes("justify-end q-gutter-sm q-mt-md"):
                 ui.button("Close", on_click=dialog.close).props("flat")
                 def _on_save():

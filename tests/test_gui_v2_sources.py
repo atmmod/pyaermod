@@ -11,11 +11,11 @@ import dataclasses
 
 import pytest
 
+from pyaermod.gui_v2._form import is_numeric as _is_numeric
+from pyaermod.gui_v2._form import is_optional_numeric as _is_optional_numeric
 from pyaermod.gui_v2.pages.sources import (
     _DEFAULTS,
     _SOURCE_TYPES,
-    _is_numeric,
-    _is_optional_numeric,
     _new_source,
     _summary_row,
 )
