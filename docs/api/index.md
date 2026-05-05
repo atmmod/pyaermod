@@ -83,7 +83,7 @@ Build, read, write, and validate AERMOD input files.
 
 | Module | Description |
 |---|---|
-| [gui](gui.md) | 7-page Streamlit web application |
+| [gui_v2](gui_v2.md) | 7-tab NiceGUI app — browser + native desktop modes |
 
 ## Optional dependencies
 
