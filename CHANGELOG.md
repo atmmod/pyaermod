@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Regulatory-grade numeric regression** — `tests/test_real_aermod.py` now
+  compares every AERTEST receptor against EPA's published reference plotfile
+  (`tests/fixtures/epa_official/AERTEST_01H.PLT`) to a tight tolerance
+  (rtol=1e-4), proving pyaermod drives the real AERMOD Fortran to reproduce
+  EPA's own concentrations field-for-field — not merely that a run completes.
+  A gfortran -O2 build reproduces all 144 receptors bit-for-bit.
+
+### Changed
+- The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
+  instead of re-invoking it per test.
+- `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
+  `aermod_outputs.py` change.
+
 ## [2.0.0] - 2026-05-04
 
 The deprecation-cleanup major release. **Breaking changes** — read the
