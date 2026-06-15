@@ -84,13 +84,33 @@ class TestPublicAPIExports:
 
 
 class TestCheckDependencies:
-    def test_no_warnings_when_all_installed(self):
-        """All deps are installed in test env, so no warnings expected."""
+    def test_warns_iff_dependency_missing(self):
+        """`_check_dependencies` must warn about a dep exactly when it is
+        not importable — no spurious warnings for installed deps, and no
+        silence for missing ones. This holds on any install profile
+        (core, [viz], [all]), unlike asserting an unconditional zero."""
+        import builtins
+
+        checked = ("matplotlib", "folium", "scipy")
+        missing = set()
+        for name in checked:
+            try:
+                builtins.__import__(name)
+            except ImportError:
+                missing.add(name)
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             pyaermod._check_dependencies()
-            import_warnings = [x for x in w if issubclass(x.category, ImportWarning)]
-            assert len(import_warnings) == 0
+            warned = {
+                str(x.message).split(" ", 1)[0]
+                for x in w
+                if issubclass(x.category, ImportWarning)
+            }
+
+        assert warned == missing, (
+            f"warned about {warned}, but actually-missing deps are {missing}"
+        )
 
     def test_warns_when_matplotlib_missing(self):
         import builtins

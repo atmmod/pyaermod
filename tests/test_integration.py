@@ -53,11 +53,20 @@ except ImportError:
 
 try:
     from pyaermod.geospatial import (
+        HAS_GEOPANDAS,
+        HAS_PYPROJ,
+        HAS_RASTERIO,
+        HAS_SCIPY,
         CoordinateTransformer,
         export_concentration_geotiff,
         export_concentration_shapefile,
     )
-    HAS_GEOSPATIAL = True
+
+    # geospatial.py imports its heavy third-party deps lazily inside
+    # functions, so the import above succeeds even when rasterio/pyproj/etc.
+    # are missing. Base the skip flag on whether those deps are actually
+    # importable — otherwise guarded tests hard-fail on a core-only install.
+    HAS_GEOSPATIAL = HAS_PYPROJ and HAS_GEOPANDAS and HAS_RASTERIO and HAS_SCIPY
 except ImportError:
     HAS_GEOSPATIAL = False
 
@@ -676,6 +685,7 @@ class TestGeospatialWorkflow:
         assert abs(lat - 40.0) < 0.0001
         assert abs(lon - (-105.0)) < 0.0001
 
+    @requires_geospatial
     def test_export_concentrations_as_geotiff(self, temp_workspace):
         """Test exporting concentration grid as GeoTIFF"""
         import pandas as pd
