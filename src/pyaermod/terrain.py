@@ -279,7 +279,11 @@ class AERMAPRunner:
         work_dir = Path(working_dir).resolve() if working_dir else input_path.parent
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        input_name = input_path.stem
+        # AERMAP expects the full input filename (with extension) as its
+        # argument, e.g. ``aermap myrun.inp``. Passing the bare stem makes
+        # AERMAP fail to locate the runstream and exit without processing
+        # (it still returns code 0), so the run silently produces no output.
+        input_name = input_path.name
         start_time = datetime.now()
 
         # Pipe-safe stdout/stderr (file redirect, not OS pipes); see
