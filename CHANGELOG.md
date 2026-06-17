@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`gui.py` modularized into a `pyaermod.gui` package.** The 3,533-line
+  monolith is split into a shared imports/flags hub (`_env.py`) and cohesive
+  component modules — `_serialize.py` (project save/load), `_map.py` (folium
+  map editor), `_forms.py` (source/building forms) — leaving page orchestration
+  and the `main`/`_app` entry points in `__init__.py`. The public import
+  surface (`from pyaermod.gui import …`) and the `pyaermod-gui` entry point are
+  unchanged; all 117 GUI tests pass without modification.
+
 ## [1.0.0] - 2026-02-14
 
 ### Added
