@@ -208,6 +208,10 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     ozone_file: Optional[str] = None
 
     for kw, toks, _ln in _group_keywords(block):
+        # Titles: join tokens with a single space, mirroring AERMOD's
+        # free-form field parsing (leading/trailing/duplicate whitespace
+        # is not significant). The writer normalizes identically
+        # (pathways._normalize_title) so write -> read round-trips.
         if kw == "TITLEONE":
             title_one = " ".join(toks)
         elif kw == "TITLETWO":

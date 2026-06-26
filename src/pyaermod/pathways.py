@@ -20,6 +20,21 @@ if TYPE_CHECKING:
     from .sources import SourceGroupDefinition
 
 
+def _normalize_title(text: Optional[str]) -> str:
+    """Collapse a title's whitespace to match AERMOD's free-form runstream.
+
+    EPA AERMOD reads a TITLEONE/TITLETWO field starting at the first
+    non-blank character after the keyword, so leading and trailing
+    whitespace is dropped, internal whitespace runs are not significant,
+    and a title consisting only of whitespace becomes blank.  Titles are
+    *not* quoted in the runstream, so the only faithful way to keep a
+    write -> read round-trip stable is to emit the same normalized form
+    the reader recovers (``input_reader`` joins the title tokens with a
+    single space).  Returns ``""`` for an empty/all-whitespace title.
+    """
+    return " ".join((text or "").split())
+
+
 # ============================================================================
 # ENUMS
 # ============================================================================
@@ -168,10 +183,13 @@ class ControlPathway:
         """Generate AERMOD CO pathway text"""
         lines = ["CO STARTING"]
 
-        # Titles
-        lines.append(f"   TITLEONE  {self.title_one}")
-        if self.title_two:
-            lines.append(f"   TITLETWO  {self.title_two}")
+        # Titles — normalize whitespace so the emitted line reads back to
+        # itself (AERMOD does not quote titles; see _normalize_title).
+        title_one = _normalize_title(self.title_one)
+        lines.append(f"   TITLEONE  {title_one}".rstrip())
+        title_two = _normalize_title(self.title_two)
+        if title_two:
+            lines.append(f"   TITLETWO  {title_two}")
 
         # Model options
         model_opts = []

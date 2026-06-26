@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs
   silently produced no output. Now passes the full filename.
+- **Title round-trip** — `ControlPathway.to_aermod_input()` now normalizes
+  `TITLEONE`/`TITLETWO` whitespace (collapsing leading/trailing/internal runs)
+  to match how AERMOD's free-form, unquoted runstream parser reads titles back.
+  Previously a title with surrounding or doubled spaces was emitted verbatim
+  but re-read collapsed, so `write -> read` was not a fixed point. The
+  property-based round-trip strategy is restricted to the representable
+  (normalized, non-empty) title domain accordingly.
 
 ## [2.0.0] - 2026-05-04
 

@@ -122,8 +122,15 @@ def volume_sources(draw, sid_strategy=source_ids):
 @st.composite
 def control_pathways(draw):
     return ControlPathway(
+        # AERMOD titles are free-form and *not* quoted: the runstream
+        # parser drops leading/trailing whitespace and collapses internal
+        # runs, and a whitespace-only title is rejected by the validator.
+        # Restrict the strategy to titles that are already normalized and
+        # non-empty so the round-trip asserts a representable invariant.
         title_one=draw(st.text(min_size=1, max_size=40,
-                               alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd", "Zs")))),
+                               alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd", "Zs")))
+                       .map(lambda s: " ".join(s.split()))
+                       .filter(lambda s: s)),
         pollutant_id=draw(st.sampled_from([
             PollutantType.SO2, PollutantType.NO2,
             PollutantType.PM25, PollutantType.PM10, PollutantType.CO,
