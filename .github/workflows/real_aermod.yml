@@ -14,7 +14,9 @@ on:
       - "src/pyaermod/runner_utils.py"
       - "src/pyaermod/input_generator.py"
       - "src/pyaermod/input_reader.py"
+      - "src/pyaermod/aermod_outputs.py"
       - "tests/test_real_aermod.py"
+      - "tests/fixtures/epa_official/AERTEST_01H.PLT"
       - ".github/workflows/real_aermod.yml"
       - "aermod/*.f"
 
