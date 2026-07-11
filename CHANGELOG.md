@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
   `aermod_outputs.py` change.
+- **Resilient EPA source downloads in CI** — the real-binary workflows
+  (`real_aermod`, `real_aermap`, `real_aermet`, `epa_parity`) now fetch EPA
+  SCRAM archives via `scripts/fetch_epa_source.sh`, which uses `curl --fail`,
+  retries with backoff, and validates the archive is a real zip before
+  compiling. Previously a rate-limited/error response from `gaftp.epa.gov`
+  was silently saved as the "zip" and failed the job on `unzip`.
 
 ### Fixed
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full

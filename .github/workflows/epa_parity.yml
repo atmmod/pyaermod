@@ -39,8 +39,9 @@ jobs:
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
-          curl -sSL -o aermod_source.zip \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip" \
+            aermod_source.zip
           unzip -q aermod_source.zip
           cd aermod_source_code_*
           gfortran -c -O2 modules.f
@@ -56,7 +57,8 @@ jobs:
       - name: Fetch EPA test-case bundle
         run: |
           set -euxo pipefail
-          curl -sSL -o /tmp/testcases.zip "${{ github.event.inputs.testcases_url }}"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "${{ github.event.inputs.testcases_url }}" /tmp/testcases.zip
           mkdir -p test_cases
           unzip -q /tmp/testcases.zip -d test_cases
           ls test_cases/

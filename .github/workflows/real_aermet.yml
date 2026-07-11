@@ -39,8 +39,9 @@ jobs:
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermet_build && cd /tmp/aermet_build
-          curl -sSL -o aermet_source.zip \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_source.zip"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_source.zip" \
+            aermet_source.zip
           unzip -q aermet_source.zip
           cd aermet_source_code_*
           # AERMET v24142 is Fortran 2008 free-form; modules compile first
