@@ -39,10 +39,16 @@ jobs:
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermet_build && cd /tmp/aermet_build
-          curl -sSL -o aermet_source.zip \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_source.zip"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_source.zip" \
+            aermet_source.zip
           unzip -q aermet_source.zip
-          cd aermet_source_code_*
+          # EPA archives extract either into a versioned subdir (aermod/aermap)
+          # or flat at the root (aermet). cd into the subdir only if there is one.
+          topdir=$(unzip -Z1 aermet_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
+          # Guard against read-only extraction (as seen with EPA's AERMOD v26135).
+          chmod -R u+w .
           # AERMET v24142 is Fortran 2008 free-form; modules compile first
           gfortran -c -O2 -std=f2008 -ffree-form mod_file_units.f90
           gfortran -c -O2 -std=f2008 -ffree-form mod_main1.f90

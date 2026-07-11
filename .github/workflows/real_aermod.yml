@@ -41,10 +41,16 @@ jobs:
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
-          curl -sSL -o aermod_source.zip \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip" \
+            aermod_source.zip
           unzip -q aermod_source.zip
-          cd aermod_source_code_*
+          # EPA renamed the AERMOD source dir (aermod_source_code_24142 ->
+          # aermod_source_v26135); derive it from the archive instead of pinning.
+          topdir=$(unzip -Z1 aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
+          # EPA's v26135 archive extracts read-only; gfortran must write .mod files.
+          chmod -R u+w .
           # modules.f must be compiled first (produces .mod files)
           gfortran -c -O2 modules.f
           gfortran -c -O2 grsm.f

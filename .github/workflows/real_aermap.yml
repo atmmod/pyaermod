@@ -38,10 +38,16 @@ jobs:
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermap_build && cd /tmp/aermap_build
-          curl -sSL -o aermap_source.zip \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip" \
+            aermap_source.zip
           unzip -q aermap_source.zip
-          cd aermap_source_code_*
+          # Derive the extracted source dir from the archive so a future EPA
+          # version rename (as happened to AERMOD) doesn't break the build.
+          topdir=$(unzip -Z1 aermap_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
+          # Guard against read-only extraction (as seen with EPA's AERMOD v26135).
+          chmod -R u+w .
           # Modules must be compiled first (produce .mod files)
           gfortran -c -O2 mod_main1.f mod_tifftags.f
           gfortran -c -O2 aermap.f sub_calchc.f sub_chkadj.f sub_chkext.f \
