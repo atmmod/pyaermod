@@ -47,6 +47,8 @@ jobs:
           # from aermod_source_code_24142 to aermod_source_v26135).
           topdir=$(unzip -Z1 aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
           [ -n "$topdir" ] && cd "$topdir"
+          # EPA's v26135 archive extracts read-only; gfortran must write .mod files.
+          chmod -R u+w .
           gfortran -c -O2 modules.f
           gfortran -c -O2 grsm.f
           gfortran -c -O2 aermod.f setup.f coset.f soset.f reset.f meset.f \

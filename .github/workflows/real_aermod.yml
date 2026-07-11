@@ -49,6 +49,8 @@ jobs:
           # aermod_source_v26135); derive it from the archive instead of pinning.
           topdir=$(unzip -Z1 aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
           [ -n "$topdir" ] && cd "$topdir"
+          # EPA's v26135 archive extracts read-only; gfortran must write .mod files.
+          chmod -R u+w .
           # modules.f must be compiled first (produces .mod files)
           gfortran -c -O2 modules.f
           gfortran -c -O2 grsm.f
