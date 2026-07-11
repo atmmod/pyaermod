@@ -14,12 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (rtol=1e-4), proving pyaermod drives the real AERMOD Fortran to reproduce
   EPA's own concentrations field-for-field — not merely that a run completes.
   A gfortran -O2 build reproduces all 144 receptors bit-for-bit.
+- **Synthetic-DEM analytic regression for AERMAP** — `test_real_aermap.py`
+  now builds a tiny USGS-format UTM DEM whose elevation is an exact tilted
+  plane, runs it through the real AERMAP binary via `AERMAPRunner`, and
+  asserts the extracted receptor elevations match the closed-form plane at
+  on-node receptors (max deviation 0 with a gfortran build). Independent
+  numeric ground truth, fully self-contained (no vendored DEM, no downloads).
 
 ### Changed
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
   `aermod_outputs.py` change.
+
+### Fixed
+- **`AERMAPRunner.run` passed the input file *stem* instead of its full
+  name** as AERMAP's command-line argument, so AERMAP could not locate the
+  runstream and exited without processing (still returning code 0) — runs
+  silently produced no output. Now passes the full filename.
 
 ## [2.0.0] - 2026-05-04
 
