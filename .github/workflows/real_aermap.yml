@@ -42,7 +42,10 @@ jobs:
             "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip" \
             aermap_source.zip
           unzip -q aermap_source.zip
-          cd aermap_source_code_*
+          # Derive the extracted source dir from the archive so a future EPA
+          # version rename (as happened to AERMOD) doesn't break the build.
+          topdir=$(unzip -Z1 aermap_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
           # Modules must be compiled first (produce .mod files)
           gfortran -c -O2 mod_main1.f mod_tifftags.f
           gfortran -c -O2 aermap.f sub_calchc.f sub_chkadj.f sub_chkext.f \

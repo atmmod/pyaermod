@@ -26,12 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
   `aermod_outputs.py` change.
-- **Resilient EPA source downloads in CI** — the real-binary workflows
-  (`real_aermod`, `real_aermap`, `real_aermet`, `epa_parity`) now fetch EPA
-  SCRAM archives via `scripts/fetch_epa_source.sh`, which uses `curl --fail`,
-  retries with backoff, and validates the archive is a real zip before
-  compiling. Previously a rate-limited/error response from `gaftp.epa.gov`
-  was silently saved as the "zip" and failed the job on `unzip`.
+- **Hardened EPA real-binary CI against gaftp flakiness and version churn.**
+  The real-binary workflows (`real_aermod`, `real_aermap`, `real_aermet`,
+  `epa_parity`) now:
+  - fetch EPA SCRAM archives via `scripts/fetch_epa_source.sh` — `curl --fail`,
+    retries with backoff, and validation that the archive is a real zip before
+    compiling (previously a rate-limited/error response from `gaftp.epa.gov`
+    was silently saved as the "zip" and failed the job on `unzip`); and
+  - derive the extracted source directory from the archive instead of pinning
+    a name, so EPA's rename of the AERMOD source dir
+    (`aermod_source_code_24142` → `aermod_source_v26135`) and AERMET's flat,
+    Fortran-90 layout no longer break the compile. Verified locally: AERMOD
+    v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
 
 ### Fixed
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full

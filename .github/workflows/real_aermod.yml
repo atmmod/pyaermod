@@ -45,7 +45,10 @@ jobs:
             "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip" \
             aermod_source.zip
           unzip -q aermod_source.zip
-          cd aermod_source_code_*
+          # EPA renamed the AERMOD source dir (aermod_source_code_24142 ->
+          # aermod_source_v26135); derive it from the archive instead of pinning.
+          topdir=$(unzip -Z1 aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
           # modules.f must be compiled first (produces .mod files)
           gfortran -c -O2 modules.f
           gfortran -c -O2 grsm.f

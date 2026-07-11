@@ -43,7 +43,10 @@ jobs:
             "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_source.zip" \
             aermet_source.zip
           unzip -q aermet_source.zip
-          cd aermet_source_code_*
+          # EPA archives extract either into a versioned subdir (aermod/aermap)
+          # or flat at the root (aermet). cd into the subdir only if there is one.
+          topdir=$(unzip -Z1 aermet_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
           # AERMET v24142 is Fortran 2008 free-form; modules compile first
           gfortran -c -O2 -std=f2008 -ffree-form mod_file_units.f90
           gfortran -c -O2 -std=f2008 -ffree-form mod_main1.f90
