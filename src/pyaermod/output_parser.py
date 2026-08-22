@@ -6,6 +6,7 @@ Based on AERMOD version 24142 output format specifications.
 """
 
 import contextlib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -852,7 +855,7 @@ class AERMODResults:
             filename = f"{prefix}_concentrations_{period}.csv"
             result.data.to_csv(output_path / filename, index=False)
 
-        print(f"Exported results to {output_path}")
+        logger.info("Exported results to %s", output_path)
 
 
 # ============================================================================

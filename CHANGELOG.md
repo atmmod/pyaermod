@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   numeric ground truth, fully self-contained (no vendored DEM, no downloads).
 
 ### Changed
+- **Library code no longer prints.** `import pyaermod` is now silent: the
+  `Warning: folium not installed. Interactive maps unavailable.` (and the
+  matching matplotlib) line that `pyaermod.visualization` wrote to stdout on
+  every import is now a `DEBUG`-level log record; the user-facing signal stays
+  the `ImportError` with an install hint raised by the first feature that needs
+  the package. `AERMODVisualizer.plot_contours` / `create_interactive_map`
+  ("Figure saved to ...") and `AERMODResults.export_to_csv` ("Exported results
+  to ...") report through `logging.getLogger(__name__)` at `INFO` instead of
+  `print()`. `print()` remains only in `cli.py`, the NiceGUI GUI, the explicit
+  `pyaermod.print_info()` banner, and `if __name__ == "__main__":` demo blocks.
+  `tests/test_import_silence.py` pins the guarantee in a fresh subprocess.
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
