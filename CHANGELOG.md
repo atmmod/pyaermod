@@ -33,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `print()`. `print()` remains only in `cli.py`, the NiceGUI GUI, the explicit
   `pyaermod.print_info()` banner, and `if __name__ == "__main__":` demo blocks.
   `tests/test_import_silence.py` pins the guarantee in a fresh subprocess.
+- **Benchmark gate has a noise floor.** `benchmarks/compare_benchmarks.py`
+  gained `--min-baseline-ms` (default 5.0): a benchmark whose baseline is
+  below the floor is listed under `IGNORED` but never fails the PR — the gate
+  previously failed a PR on `aux_parse/plotfile_100rows 0.172 -> 0.235 ms
+  (+36.8%)`, pure noise on a sub-millisecond operation. `run_benchmarks.py`
+  now times each benchmark over `--rounds` independent rounds (default 5) and
+  reports the minimum instead of a single timing; the round count is recorded
+  in the JSON. `tests/test_benchmarks_harness.py` proves +40% on a 0.2 ms
+  baseline passes while +40% on a 50 ms baseline still fails.
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
