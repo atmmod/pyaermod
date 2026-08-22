@@ -19,9 +19,10 @@ env/
 .DS_Store
 Thumbs.db
 
-# pytest / coverage / hypothesis
+# pytest / coverage / hypothesis / mypy
 .pytest_cache/
 .hypothesis/
+.mypy_cache/
 htmlcov/
 coverage.xml
 .coverage

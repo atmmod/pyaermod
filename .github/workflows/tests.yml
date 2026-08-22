@@ -34,20 +34,20 @@ jobs:
       - name: Lint with ruff
         run: ruff check src/ tests/
 
-      - name: Type-check with mypy (advisory)
-        # mypy is advisory in v1.x: counts errors and prints the trend
-        # but doesn't fail the build. Ratchet to strict mode once the
-        # baseline is clean.
-        # See https://github.com/atmmod/pyaermod/issues for the cleanup
-        # tracking issue (TODO: link).
+      - name: Type-check with mypy (ratchet gate)
+        # Not yet clean, but no longer advisory: scripts/mypy_gate.py fails
+        # the job only if the error count exceeds the integer committed in
+        # mypy-baseline.txt. When you fix errors, lower the baseline with
+        #   python scripts/mypy_gate.py --update
+        # The pin below must move together with the baseline (different
+        # mypy releases report different counts). The count also depends on
+        # which optional extras are importable — typed packages (nicegui,
+        # ezdxf, ...) surface errors that ignore_missing_imports hides — so
+        # measure the baseline in an environment with `.[dev,all]` installed.
         if: matrix.python-version == '3.12'
-        continue-on-error: true
         run: |
-          pip install --quiet mypy
-          mypy src/pyaermod --ignore-missing-imports --no-error-summary || true
-          # Print a summary line CI can grep for
-          ERRS=$(mypy src/pyaermod --ignore-missing-imports 2>&1 | tail -1)
-          echo "::notice title=mypy baseline::$ERRS"
+          pip install --quiet "mypy==2.3.1"
+          python scripts/mypy_gate.py
 
       - name: Run tests with coverage
         # --cov-fail-under gates the build at 95% coverage on the

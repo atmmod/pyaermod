@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports the minimum instead of a single timing; the round count is recorded
   in the JSON. `tests/test_benchmarks_harness.py` proves +40% on a 0.2 ms
   baseline passes while +40% on a 50 ms baseline still fails.
+- **mypy is gated, not advisory.** `scripts/mypy_gate.py` runs
+  `mypy src/pyaermod` (config from `pyproject.toml`), counts `error:`
+  diagnostics and compares against the integer committed in
+  `mypy-baseline.txt`; CI (`tests.yml`, Python 3.12 leg, mypy pinned) fails
+  only if the count *increases*, and prints how to lower the baseline
+  (`python scripts/mypy_gate.py --update`) when it decreases. Existing type
+  errors are untouched. Note the count depends on which optional extras are
+  importable (typed packages such as `nicegui` surface errors that
+  `ignore_missing_imports` otherwise hides).
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
