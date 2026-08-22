@@ -1,10 +1,9 @@
 [run]
 source = src/pyaermod
 omit =
-    src/pyaermod/gui_v2/app.py
+    # pywebview native window + real server thread; everything else in
+    # gui_v2 is exercised headlessly by tests/test_gui_v2_smoke.py.
     src/pyaermod/gui_v2/desktop.py
-    src/pyaermod/gui_v2/_form.py
-    src/pyaermod/gui_v2/pages/*.py
     */__main__.py
 
 [report]

@@ -46,7 +46,6 @@ def render(state: AppState) -> None:
     log = ui.textarea(label="Run log").classes("w-full").props("readonly rows=20")
 
     def _do_run():
-        from ..._optional import HAS_TERRAIN  # noqa: F401  (import-time checks)
         from ...runner import AERMODRunner
 
         if not have_binary:
@@ -60,7 +59,11 @@ def render(state: AppState) -> None:
             else Path(tempfile.mkdtemp(prefix="pyaermod_"))
         )
         wd.mkdir(parents=True, exist_ok=True)
-        deck_path = wd / "aermod.inp"
+        # NOT "aermod.inp": AERMODRunner reserves that name for the
+        # symlink it points at the real deck (and renames aermod.out ->
+        # <stem>.out afterwards). Writing the deck as aermod.inp made the
+        # runner unlink it and replace it with a self-referencing symlink.
+        deck_path = wd / "pyaermod_gui.inp"
         try:
             deck_text = state.project.to_aermod_input(validate=False)
         except Exception as exc:

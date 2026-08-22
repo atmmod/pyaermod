@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Headless smoke tests for the NiceGUI GUI** — `tests/test_gui_v2_smoke.py`
+  drives the real `gui_v2` shell through `nicegui.testing.User` (in-process
+  ASGI, no browser): every tab renders its key controls; a minimal project
+  (title, one point source via the Sources editor dialog, a receptor grid,
+  met file names) is filled in through the UI, saved and reloaded via
+  `project_io` with an identical AERMOD deck, and run against a fake
+  `aermod` on `PATH` with the Results tab asserted for both the no-output
+  and parsed-output cases. `gui_v2` is now measured by coverage (only
+  `desktop.py`, the pywebview wrapper, stays omitted). Requires the new
+  `pytest-asyncio` dev dependency.
 - **Regulatory-grade numeric regression** — `tests/test_real_aermod.py` now
   compares every AERTEST receptor against EPA's published reference plotfile
   (`tests/fixtures/epa_official/AERTEST_01H.PLT`) to a tight tolerance
@@ -69,6 +79,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
 
 ### Fixed
+- **GUI v2 Run/Results/editor crashes found by the new smoke tests:**
+  - the Run button always raised `ImportError` (`from ..._optional import
+    HAS_TERRAIN` — no such name), so AERMOD could never be launched from the
+    GUI; the stray import is removed;
+  - the Run tab wrote its deck as `aermod.inp`, the name `AERMODRunner`
+    reserves for the symlink it points at the deck — the runner unlinked the
+    deck and replaced it with a self-referencing symlink, and then failed
+    renaming `aermod.out` onto itself. The deck is now written as
+    `pyaermod_gui.inp`;
+  - the Results tab read `run_info.title` / `.pollutant` and iterated
+    `results.concentrations` as a list of objects with `max_x` / `max_y` /
+    `source_group`; the parser provides `jobname` / `pollutant_id`, a
+    `{period: ConcentrationResult}` mapping and a `max_location` tuple, so any
+    real output raised `AttributeError`;
+  - the source/receptor editor dialog crashed (`float() argument ... not
+    'list'`) for every source with polygon `vertices`, because the form
+    helper's substring numeric check claimed `List[Tuple[float, float]]`
+    before the list branch could; list annotations are now tested first;
+  - `Optional[str]` fields (e.g. `OutputPathway.summary_file`) were rendered
+    as read-only labels instead of text inputs.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs

@@ -85,6 +85,7 @@ all = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",  # NiceGUI headless User harness (tests/test_gui_v2_smoke.py)
     "ruff>=0.4.0",
     "hypothesis>=6.82.0",
     "build",

@@ -96,7 +96,7 @@ _DEFAULTS: Dict[str, Any] = {
     "depth":                      2.0,
     "width_top":                  20.0,
     "width_bottom":               10.0,
-    "segments":                   [
+    "line_segments":              [
         BuoyLineSegment(
             source_id="BL_SEG1",
             x_start=0.0, y_start=0.0, x_end=100.0, y_end=0.0,
@@ -141,9 +141,10 @@ def _summary_row(src: Any) -> Dict[str, Any]:
         x, y = src.x_start, src.y_start
     elif hasattr(src, "vertices") and src.vertices:
         x, y = src.vertices[0]
-    elif (hasattr(src, "segments") and getattr(src, "segments", None)
-          and getattr(src.segments[0], "x_start", None) is not None):
-        x, y = src.segments[0].x_start, src.segments[0].y_start
+    elif (getattr(src, "line_segments", None)
+          and getattr(src.line_segments[0], "x_start", None) is not None):
+        # BuoyLineSource: summarise from the first buoyant line segment
+        x, y = src.line_segments[0].x_start, src.line_segments[0].y_start
     else:
         x, y = "", ""
     return {

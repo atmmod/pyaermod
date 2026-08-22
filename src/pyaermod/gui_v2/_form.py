@@ -12,7 +12,7 @@ Field-type → widget mapping
 ==========================  ====================================
 Annotation (string form)    Widget
 ==========================  ====================================
-``str``                     ``ui.input``
+``str`` / ``Optional[str]`` ``ui.input``
 ``float`` / ``int``         ``ui.number``
 ``bool``                    ``ui.checkbox``
 ``Optional[<numeric>]``     ``ui.number`` (clearable)
@@ -52,18 +52,18 @@ def emit_field(parent, obj: Any, fmeta) -> None:
     cur = getattr(obj, fname)
     label = fname.replace("_", " ")
 
-    if type_str == "str":
+    if type_str in ("str", "Optional[str]"):
+        # Optional[str] fields (OutputPathway.summary_file, max_file, ...)
+        # are plain text inputs too; an empty box reads back as "".
         with parent:
             ui.input(label=label, value=cur or "").bind_value(obj, fname)
     elif type_str == "bool":
         with parent:
             ui.checkbox(label, value=bool(cur)).bind_value(obj, fname)
-    elif is_numeric(type_str) or is_optional_numeric(type_str):
-        with parent:
-            ui.number(
-                label=label, value=cur if cur is not None else 0,
-                format="%.4f",
-            ).bind_value(obj, fname)
+    # List annotations must be tested before the numeric ones:
+    # ``is_numeric`` is a substring test, so ``List[Tuple[float, float]]``
+    # (polygon vertices) would otherwise be handed to ``ui.number`` and
+    # crash the editor dialog with ``float() argument ... not 'list'``.
     elif "List[Tuple[float" in type_str:
         with parent:
             ta = ui.textarea(
@@ -100,6 +100,12 @@ def emit_field(parent, obj: Any, fmeta) -> None:
                 setattr(obj, fname, lines)
 
             ta.on("update:model-value", _save_strs)
+    elif is_numeric(type_str) or is_optional_numeric(type_str):
+        with parent:
+            ui.number(
+                label=label, value=cur if cur is not None else 0,
+                format="%.4f",
+            ).bind_value(obj, fname)
     else:
         # Escape hatch (Enums, nested dataclasses)
         with parent:
