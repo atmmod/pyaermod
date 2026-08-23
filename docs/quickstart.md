@@ -426,7 +426,8 @@ for error in errors:
 
 ## AERMOD Keywords Supported
 
-Based on AERMOD version 24142:
+Based on AERMOD version 26135 (full keyword-by-keyword audit against the
+v26135 Fortran source in [`keyword-audit-v26135.md`](keyword-audit-v26135.md)):
 
 ### Control Pathway (CO)
 

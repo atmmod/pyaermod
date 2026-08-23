@@ -61,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/run_epa_parity.py`, fails if any test fails, if the fixture-gated
   tests all skipped, or if any deck leaves tolerance, and uploads the
   regenerated `docs/validation.md` as an artifact (never auto-commits).
+- **AERMOD v26135 keyword audit** — `docs/keyword-audit-v26135.md` compares
+  the 122-entry keyword table in EPA's v26135 `modules.f` (and the
+  per-pathway `KEYWRD .EQ.` dispatch) against `input_reader.py`: per
+  pathway, handled+tested / handled+untested / unhandled lists, the reader's
+  MODELOPT and source-type coverage, and five follow-ups (`MAXIFILE`
+  argument order, RLINEXT/AREAPOLY/BUOYLINE not constructed, `GRIDPOLR`
+  heuristics, the undelivered `unparsed_lines` promise). All 53 decks in the
+  v26135 archive parse. `tests/test_input_reader.py` gains parametrised
+  one-line decks for every previously untested branch and a pass-through
+  test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
+  99.8 % (the one remaining line is an unreachable guard).
 
 ### Changed
 - **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
