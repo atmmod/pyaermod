@@ -78,6 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v26135; parser tests: 671 passed against the 24142 set). The two parser
   tests pinned to 24142 values skip with the discovered set named in the
   reason when only another version is present.
+- **Phantom `4HR` averaging period in `AERMODOutputParser`.** The `4-HR`
+  section pattern also matched inside `24-HR` headers, so every run with a
+  24-hour average gained a bogus `4HR` result duplicating the 24-hour table
+  (surfaced by `tests/test_epa_cases.py` on AERTEST and FLATELEV once those
+  tests ran). Period patterns are now anchored so they cannot start inside
+  a longer number; regression in `tests/test_output_parser_periods.py`.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs

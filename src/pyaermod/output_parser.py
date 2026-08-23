@@ -540,9 +540,14 @@ class AERMODOutputParser:
         #
         # For EPA SUM, the section header is on one line, so we match
         # [^\n]* instead of .*? to avoid spanning across *** boundaries.
+        #
+        # The period pattern must not start inside a longer number:
+        # without the lookbehind, "24-HR" also satisfies the 4-HR pattern
+        # and a phantom 4HR result (a copy of the 24-HR table) appears.
+        anchored = rf'(?<![0-9]){"(?:" + pattern + ")"}'
         section_patterns = [
-            rf'\*\*\*[^\n]*{pattern}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
-            rf'\*\*\*.*?{pattern}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
+            rf'\*\*\*[^\n]*{anchored}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
+            rf'\*\*\*.*?{anchored}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
         ]
 
         table_text = None
