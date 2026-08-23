@@ -564,6 +564,113 @@ class TestMeteorologyAndOutputPages:
         assert src.stack_height == 12.0
 
 
+class TestBuildingDimensionWidgets:
+    """``Optional[Union[float, List[float]]]`` must stay *editable*.
+
+    The five building-downwash dimensions take either one value for all
+    directions or 36, one per 10-degree wind sector. Tightening
+    ``is_numeric`` to reject unions containing a list correctly excluded
+    them from the number branch — and dropped them into the read-only-label
+    escape hatch, so a building height could no longer be typed at all.
+    ``emit_field`` now dispatches on the *current* value: number box for a
+    scalar or an unset field, list editor once the field holds a vector.
+    """
+
+    @staticmethod
+    def _point() -> PointSource:
+        return PointSource(
+            source_id="B1", x_coord=0.0, y_coord=0.0, stack_height=10.0,
+            stack_diameter=1.0, stack_temp=400.0, exit_velocity=10.0,
+            emission_rate=1.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unset_dimension_is_an_editable_number_box(self, gui):
+        from pyaermod.gui_v2._form import emit_form
+        await gui.open()
+        src = self._point()
+        assert src.building_height is None
+        with gui.user:
+            emit_form(ui.column(), src, fields=["building_height"])
+        # The regression rendered this as ``ui.label("building height: None")``.
+        with pytest.raises(AssertionError):
+            gui.user.find(kind=ui.label, content="building height")
+        num = _by_id(gui.user.find(kind=ui.number, content="building height").elements)
+        assert num.value is None            # unset stays unset, not 0.0
+        gui.user.find(kind=ui.number, content="building height").type("25")
+        assert src.building_height == 25.0
+
+    @pytest.mark.asyncio
+    async def test_scalar_dimension_shows_its_value_and_clears_to_none(self, gui):
+        from pyaermod.gui_v2._form import emit_form
+        await gui.open()
+        src = self._point()
+        src.building_width = 12.5
+        with gui.user:
+            emit_form(ui.column(), src, fields=["building_width"])
+        num = _by_id(gui.user.find(kind=ui.number, content="building width").elements)
+        assert num.value == 12.5
+        # Clearing must store None, not 0.0: _building_downwash_lines()
+        # emits BUILDWID for anything that is not None.
+        gui.user.find(kind=ui.number, content="building width").clear()
+        assert src.building_width is None
+
+    @pytest.mark.asyncio
+    async def test_list_dimension_gets_the_list_editor(self, gui):
+        from pyaermod.gui_v2._form import emit_form
+        await gui.open()
+        src = self._point()
+        src.building_length = [float(i) for i in range(36)]
+        with gui.user:
+            emit_form(ui.column(), src, fields=["building_length"])
+        # A number box here would collapse the 36-sector vector to one value.
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="building length").elements)
+        assert ta.value.splitlines()[:3] == ["0", "1", "2"]
+        assert src.building_length == [float(i) for i in range(36)]   # render is read-only
+        with gui.user:
+            ta.value = "\n".join(str(2 * i) for i in range(36)) + "\nnot a number\n"
+        UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
+        assert src.building_length == [float(2 * i) for i in range(36)]
+
+    @pytest.mark.asyncio
+    async def test_emptied_list_editor_stores_none_not_empty_list(self, gui):
+        from pyaermod.gui_v2._form import emit_form
+        await gui.open()
+        src = self._point()
+        src.building_y_offset = [1.0] * 36
+        with gui.user:
+            emit_form(ui.column(), src, fields=["building_y_offset"])
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="building y offset").elements)
+        with gui.user:
+            ta.value = "  \n\n"
+        UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
+        # [] would make _format_building_keyword raise "requires exactly 36
+        # values"; None is the field's real "no building" state.
+        assert src.building_y_offset is None
+
+    @pytest.mark.asyncio
+    async def test_polygon_vertices_still_get_the_vertex_textarea(self, gui):
+        """The new branch must not steal ``List[Tuple[float, float]]``.
+
+        Handing polygon vertices to ``ui.number`` once crashed the editor.
+        """
+        from pyaermod.gui_v2._form import emit_form
+        await gui.open()
+        poly = AreaPolySource(
+            source_id="P1", vertices=[(0.0, 0.0), (50.0, 0.0), (50.0, 50.0)],
+        )
+        with gui.user:
+            emit_form(ui.column(), poly, fields=["vertices"])
+        with pytest.raises(AssertionError):
+            gui.user.find(kind=ui.number, content="vertices")
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="vertices").elements)
+        assert ta.value.splitlines() == ["0, 0", "50, 0", "50, 50"]
+        with gui.user:
+            ta.value = "1, 2\n3, 4\n5, 6"
+        UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
+        assert poly.vertices == [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]
+
+
 # ---------------------------------------------------------------------
 # End-to-end: fill a minimal project, round-trip it, run it
 # ---------------------------------------------------------------------
