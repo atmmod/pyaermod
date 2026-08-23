@@ -137,6 +137,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   geopandas' writer fails under coverage tracing (a pyproj `WktVersion`
   enum quirk seen with pyproj 3.6.1 + coverage 7.13), so they run rather
   than skip in that configuration as well.
+- **`AERMODRunner._extract_error_message` swallowed read errors** around the
+  `.err`/`.out` files (`except Exception: pass`), so a Latin-1 byte in
+  AERMOD's output — a degree sign in the banner is enough — raised
+  `UnicodeDecodeError` and the caller saw only "AERMOD failed with return
+  code N" instead of the `FATAL` line. Both files are now read as Latin-1
+  with replacement, only `OSError` is tolerated, and that is logged at
+  DEBUG. Tests cover non-UTF-8 bytes in both files and the logged fallback.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs

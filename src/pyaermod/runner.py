@@ -319,20 +319,27 @@ class AERMODRunner:
         if result.stderr:
             messages.append(f"stderr: {result.stderr[:500]}")
 
+        # AERMOD writes Latin-1 (degree signs, box-drawing characters in
+        # the banner). Decode leniently so a stray byte can never hide the
+        # very diagnostic we are trying to surface; only I/O failures are
+        # tolerated, and those are logged rather than swallowed.
+
         # Check error file
         if output_files['error'].exists():
             try:
-                with open(output_files['error']) as f:
+                with open(output_files['error'], encoding="latin-1", errors="replace") as f:
                     error_content = f.read(1000)
                     if error_content.strip():
                         messages.append(f"Error file: {error_content[:500]}")
-            except Exception:
-                pass
+            except OSError as exc:
+                self.logger.debug(
+                    f"Could not read AERMOD error file {output_files['error']}: {exc}"
+                )
 
         # Check output file for errors
         if output_files['output'].exists():
             try:
-                with open(output_files['output']) as f:
+                with open(output_files['output'], encoding="latin-1", errors="replace") as f:
                     content = f.read()
                     # Look for error indicators
                     if 'ERROR' in content or 'FATAL' in content:
@@ -341,8 +348,10 @@ class AERMODRunner:
                             if 'ERROR' in line or 'FATAL' in line:
                                 messages.append(line.strip())
                                 break
-            except Exception:
-                pass
+            except OSError as exc:
+                self.logger.debug(
+                    f"Could not read AERMOD output file {output_files['output']}: {exc}"
+                )
 
         if messages:
             return "; ".join(messages)
