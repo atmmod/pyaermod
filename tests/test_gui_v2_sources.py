@@ -26,6 +26,7 @@ from pyaermod.gui_v2.pages.sources import (
     _summary_row,
 )
 from pyaermod.input_generator import DepositionMethod
+from pyaermod.pathways import ChemistryOptions
 
 
 class TestSourceTypeRegistry:
@@ -228,6 +229,37 @@ class TestScalarOrListDispatch:
                 assert not (_is_numeric(ann) and _is_numeric_or_numeric_list(ann)), (
                     f"{cls.__name__}.{f.name}"
                 )
+
+
+class TestForwardRefFallback:
+    """``_form._type_hints`` falls back to {} on an unresolvable forward ref.
+
+    ``pathways.ChemistryOptions.olm_groups`` is annotated
+    ``List[SourceGroupDefinition]`` with the name imported only under
+    ``if TYPE_CHECKING``, so ``typing.get_type_hints`` raises ``NameError``
+    at runtime. The form must degrade to the raw string annotation, which
+    the structural parsers handle, rather than propagate the error.
+    """
+
+    def test_get_type_hints_really_raises_name_error(self):
+        with pytest.raises(NameError):
+            typing.get_type_hints(ChemistryOptions)
+
+    def test_resolve_annotation_falls_back_to_the_raw_string(self):
+        opts = ChemistryOptions()
+        meta = {f.name: f for f in dataclasses.fields(opts)}
+        ann = _resolve_annotation(opts, meta["olm_groups"])
+        assert ann == "List[SourceGroupDefinition]"
+        # Neither numeric predicate claims it, so emit_field routes it by
+        # its ``List[`` type string as before.
+        assert not _is_numeric(ann)
+        assert not _is_numeric_or_numeric_list(ann)
+
+    def test_sibling_fields_of_the_same_class_still_resolve(self):
+        """The {} fallback is per class, so every field uses the string path."""
+        opts = ChemistryOptions()
+        meta = {f.name: f for f in dataclasses.fields(opts)}
+        assert _is_numeric(_resolve_annotation(opts, meta["default_no2_ratio"]))
 
 
 class TestDefaults:

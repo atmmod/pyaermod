@@ -230,7 +230,17 @@ def _type_hints(cls: type) -> dict:
     if cls not in _HINTS_CACHE:
         try:
             _HINTS_CACHE[cls] = typing.get_type_hints(cls)
-        except Exception:   # NameError on an unresolvable forward reference
+        except (NameError, AttributeError):
+            # An unresolvable forward reference, and only that. Real case in
+            # this codebase: ``pathways.ChemistryOptions.olm_groups`` is
+            # ``List[SourceGroupDefinition]`` and the name is imported only
+            # under ``if TYPE_CHECKING`` -> NameError. AttributeError is the
+            # dotted-name sibling (``mod.Missing``). ``TypeError`` is *not*
+            # caught: get_type_hints raises it for a non-class argument, and
+            # ``cls`` here is always ``type(obj)``, so it would mean a bug
+            # worth seeing rather than a field worth falling back on.
+            # Falling back to {} sends the caller to ``fmeta.type``, the raw
+            # string annotation, which the structural parsers above handle.
             _HINTS_CACHE[cls] = {}
     return _HINTS_CACHE[cls]
 
