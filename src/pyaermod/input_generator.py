@@ -2,7 +2,8 @@
 PyAERMOD Input File Generator
 
 Generates AERMOD-compatible input files from Python objects.
-Based on AERMOD version 24142 keyword specifications.
+Based on AERMOD version 26135 keyword specifications (validated against 26135
+and 24142; see :mod:`pyaermod.versions`).
 
 .. note::
 

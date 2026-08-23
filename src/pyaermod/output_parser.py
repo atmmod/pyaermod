@@ -2,10 +2,12 @@
 PyAERMOD Output File Parser
 
 Parses AERMOD output files (.out) and converts results to pandas DataFrames.
-Based on AERMOD version 24142 output format specifications.
+Based on AERMOD version 26135 output format specifications (validated against
+26135 and 24142; see :mod:`pyaermod.versions`).
 """
 
 import contextlib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +15,10 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+from .versions import VALIDATED_AERMOD_VERSIONS, is_validated_aermod_version
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -179,6 +185,16 @@ class AERMODOutputParser:
         version_match = re.search(r'AERMOD\s*-\s*VERSION\s*[:\s]*(\d+)', self.content)
         if version_match:
             run_info.version = version_match.group(1)
+            if not is_validated_aermod_version(run_info.version):
+                # One warning per parse: the format may still read fine,
+                # but nothing in the test suite has checked this release.
+                logger.warning(
+                    "AERMOD output %s was produced by version %s, which pyaermod "
+                    "has not been validated against (validated: %s); parsed "
+                    "results may need checking.",
+                    self.output_file, run_info.version,
+                    ", ".join(VALIDATED_AERMOD_VERSIONS),
+                )
 
         # Job name
         jobname_match = re.search(r'Jobname:\s*(.+)', self.content)

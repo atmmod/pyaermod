@@ -20,8 +20,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asserts the extracted receptor elevations match the closed-form plane at
   on-node receptors (max deviation 0 with a gfortran build). Independent
   numeric ground truth, fully self-contained (no vendored DEM, no downloads).
+- **Validated-version declarations** — `pyaermod.versions.VALIDATED_AERMOD_VERSIONS`
+  / `VALIDATED_AERMET_VERSIONS` (`("26135", "24142")`, newest first; exported
+  from the package API and `regulatory_parity`) state exactly which EPA
+  releases the bit-exact AERTEST regression and the full test-suite parity
+  have been run against. `AERMODOutputParser` now logs one warning when an
+  output file was produced by a release outside that list.
 
 ### Changed
+- **Vendored EPA fixtures refreshed to the v26135 archive**
+  (`tests/fixtures/epa_official/`; EPA bundle of 2026-07-09, set
+  `aermet26135_aermod26135`): `AERTEST_01H.PLT` (data rows byte-identical to
+  the 24142 file; only the two banner lines differ), `aertest.inp`
+  (whitespace and lower-case met filenames only), `AERMET2.SFC`/`.PFL`
+  (values identical; AERMET 26135 writes four-digit years). `AERTEST.SUM`
+  deliberately stays at 24142 (the 26135 summary prints `**` in its
+  two-digit year column). `tests/test_real_aermod.py` passes bit-exact
+  against a gfortran build of AERMOD v26135. Version notes in module
+  docstrings, README and docs now say 26135 (AERMAP stays 24142 — EPA's
+  current AERMAP source is still `aermap_source_code_24142`; the GRSM note
+  records that v26135 drops its BETA flag while it remains non-DFAULT).
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or

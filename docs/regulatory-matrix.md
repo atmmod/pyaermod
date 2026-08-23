@@ -28,7 +28,8 @@ warnings = EPA_APPENDIX_W_2017.check(project)
 
 Same base constraints as 2017. Two new NO2 chemistry methods
 (**PVMRM2**, **GRSM**) are available in AERMOD v23132/v24142 but
-remain **BETA** — they require case-by-case EPA concurrence before
+remain **BETA** (AERMOD v26135 removes the BETA flag from GRSM, which is
+still a non-DFAULT option) — they require case-by-case EPA concurrence before
 use in a regulatory submittal. `EPA_APPENDIX_W_2023` therefore keeps
 only OLM and PVMRM in its `allow_chemistry_methods` tuple; the BETA
 set is listed separately in `EPA_APPENDIX_W_2023_BETA_METHODS` for

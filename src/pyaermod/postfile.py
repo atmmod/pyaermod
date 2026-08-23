@@ -20,7 +20,8 @@ AERMOD unformatted POSTFILE (UNFORM):
     - Receptor coordinates are NOT stored in the binary file; they must be
       supplied externally or default to index-based values.
 
-Based on AERMOD version 24142 POSTFILE specifications.
+Based on AERMOD version 26135 POSTFILE specifications (validated against 26135
+and 24142; see :mod:`pyaermod.versions`).
 """
 
 import re

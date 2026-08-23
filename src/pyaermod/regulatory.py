@@ -221,7 +221,8 @@ EPA_APPENDIX_W_2023 = RegulatoryProfile(
     notes=[
         "Profile reflects EPA memoranda through late 2023. PVMRM2 / "
         "GRSM are BETA in AERMOD v23132/v24142 per the 2022/2023 "
-        "transmittal memos — neither is DFAULT-compatible. Always "
+        "transmittal memos (v26135 drops the BETA flag for GRSM but it "
+        "remains a non-DFAULT option) — neither is DFAULT-compatible. Always "
         "confirm against current Appendix W + the relevant EPA "
         "memorandum before submittal.",
     ],
