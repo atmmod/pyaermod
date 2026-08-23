@@ -1,26 +1,64 @@
 name: EPA AERMOD test-suite parity
 
-# Runs the full 41-deck EPA test-suite parity harness against the
-# pyaermod-driven AERMOD binary. Pass criterion: best-fit slope within
-# +/-0.001 of 1.0, matching EPA's Compare_AERMOD_test_cases.R margin.
+# Runs the full EPA test-suite parity harness against a pyaermod-driven
+# AERMOD binary compiled from EPA's current source. Pass criterion: best-fit
+# slope within +/-0.001 of 1.0, matching EPA's Compare_AERMOD_test_cases.R
+# margin.
 #
-# Manual dispatch only — the EPA test-case bundle (~60 MB) is fetched
-# from SCRAM at runtime. Trigger via Actions tab or `gh workflow run
-# epa_parity.yml`. The workflow uploads the rendered Markdown report
-# (docs/validation.md) as an artifact.
+# Schedule: weekly, Tuesday 07:00 UTC (staggered from the Monday real-binary
+# smokes), plus manual dispatch.
+#
+# Fixtures: EPA's AERMOD test-case archive (~490 MB zip) and AERMET test-case
+# archive (~460 MB zip). The 2026 AERMOD archive holds three reference sets
+# (aermet24142_aermod24142, aermet24142_aermod26135, aermet26135_aermod26135;
+# the pre-2026 archive used aermet_24142_aermod_24142) at ~3.5 GB unpacked
+# EACH, so only the sets the suite needs are unpacked:
+#   * the set whose AERMOD version matches the compiled binary (parity), and
+#   * the AERMOD 24142 set, whose published outputs the parser regression
+#     tests (tests/test_epa_cases.py, tests/test_real_cases.py) quote values from,
+#   * plus aermet_test_cases/aermet_def_testcases_24142 for the AERMET parsers.
+# The unpacked trees are cached with actions/cache (key = URLs + upstream
+# ETag/Last-Modified + AERMOD version + salt) so scheduled runs skip the
+# ~950 MB download.
+#
+# Set selection inside pytest and scripts/run_epa_parity.py goes through
+# pyaermod.epa_testcases.find_epa_testcase_set (glob over
+# test_cases/aermet*_aermod*, both naming conventions, binary-version match),
+# so nothing here depends on a hard-coded directory name.
+#
+# The job FAILS if any test fails, if the fixture-gated tests were silently
+# skipped, or if any POSTFILE comparison leaves tolerance. The regenerated
+# docs/validation.md is uploaded as an artifact and never auto-committed.
 
 on:
+  schedule:
+    - cron: "0 7 * * 2"  # Tuesday 07:00 UTC
   workflow_dispatch:
     inputs:
-      testcases_url:
-        description: "URL of EPA AERMOD test-cases zip"
+      aermod_testcases_url:
+        description: "URL of EPA AERMOD test-cases zip (blank = canonical SCRAM URL)"
         required: false
-        default: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_testcases.zip"
+        default: ""
+      aermet_testcases_url:
+        description: "URL of EPA AERMET test-cases zip (blank = canonical SCRAM URL)"
+        required: false
+        default: ""
+
+env:
+  DEFAULT_AERMOD_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip"
+  DEFAULT_AERMET_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_test_cases.zip"
+  AERMOD_SOURCE_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+  # Bump to force a fresh download/unpack even when URLs + upstream headers are unchanged.
+  EPA_TESTCASES_CACHE_SALT: "v1"
+
+concurrency:
+  group: epa-parity
+  cancel-in-progress: false
 
 jobs:
   parity:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -35,13 +73,13 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Compile AERMOD from EPA source
+        id: aermod
         run: |
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
           bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip" \
-            aermod_source.zip
+            "$AERMOD_SOURCE_URL" aermod_source.zip
           unzip -q aermod_source.zip
           # Derive the extracted source dir from the archive (EPA renamed it
           # from aermod_source_code_24142 to aermod_source_v26135).
@@ -58,28 +96,205 @@ jobs:
             rline.f bline.f
           gfortran -O2 -o aermod *.o
           sudo cp aermod /usr/local/bin/aermod
+          # Version of the binary we just built (drives reference-set choice
+          # and the cache key). Same probe as pyaermod.epa_testcases.
+          version=$(cd "$GITHUB_WORKSPACE" && python -c \
+            'from pyaermod.epa_testcases import aermod_binary_version as v; print(v() or "")')
+          [ -n "$version" ] || version=$(echo "$topdir" | grep -oE '[0-9]{5}' | tail -1 || true)
+          echo "AERMOD version: ${version:-unknown} (source dir: $topdir)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch EPA test-case bundle
+      - name: Resolve archive URLs and cache key
+        id: resolve
+        env:
+          INPUT_AERMOD_URL: ${{ github.event.inputs.aermod_testcases_url }}
+          INPUT_AERMET_URL: ${{ github.event.inputs.aermet_testcases_url }}
+          AERMOD_VERSION: ${{ steps.aermod.outputs.version }}
         run: |
-          set -euxo pipefail
-          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
-            "${{ github.event.inputs.testcases_url }}" /tmp/testcases.zip
-          mkdir -p test_cases
-          unzip -q /tmp/testcases.zip -d test_cases
-          ls test_cases/
+          set -euo pipefail
+          aermod_url="${INPUT_AERMOD_URL:-$DEFAULT_AERMOD_TESTCASES_URL}"
+          aermet_url="${INPUT_AERMET_URL:-$DEFAULT_AERMET_TESTCASES_URL}"
+          # Best-effort upstream fingerprint (ETag / Last-Modified). EPA has
+          # replaced the archive in place under the same URL before (July
+          # 2026: 234 MB single-set bundle -> 488 MB three-set bundle), so the
+          # key must change when the content does. If the HEAD request fails
+          # we fall back to a URL-only key rather than failing the job.
+          fingerprint() {
+            curl -sSI --max-time 30 "$1" 2>/dev/null \
+              | tr -d '\r' | grep -iE '^(etag|last-modified):' | sort || true
+          }
+          fp="$(fingerprint "$aermod_url")$(fingerprint "$aermet_url")"
+          [ -n "$fp" ] || fp="no-fingerprint"
+          digest=$(printf '%s\n%s\n%s\n' "$aermod_url" "$aermet_url" "$fp" | sha256sum | cut -c1-16)
+          key="epa-testcases-${EPA_TESTCASES_CACHE_SALT}-aermod${AERMOD_VERSION:-unknown}-${digest}"
+          {
+            echo "aermod_url=$aermod_url"
+            echo "aermet_url=$aermet_url"
+            echo "cache_key=$key"
+          } >> "$GITHUB_OUTPUT"
+          printf 'AERMOD test cases: %s\nAERMET test cases: %s\nfingerprint:\n%s\ncache key: %s\n' \
+            "$aermod_url" "$aermet_url" "$fp" "$key"
 
-      - name: Run parity harness (pytest)
+      - name: Restore cached EPA test-case trees
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            test_cases
+            aermet_test_cases
+          key: ${{ steps.resolve.outputs.cache_key }}
+
+      - name: Fetch and unpack EPA test cases (cache miss only)
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          AERMOD_VERSION: ${{ steps.aermod.outputs.version }}
+          AERMOD_URL: ${{ steps.resolve.outputs.aermod_url }}
+          AERMET_URL: ${{ steps.resolve.outputs.aermet_url }}
         run: |
-          pytest tests/regulatory/ -v --no-cov --tb=short
+          set -euo pipefail
+          zips=/tmp/epa_zips
+          mkdir -p "$zips"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" "$AERMOD_URL" "$zips/aermod_test_cases.zip"
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" "$AERMET_URL" "$zips/aermet_test_cases.zip"
+          df -h / | tail -1
 
-      - name: Generate parity report
+          # Top-level reference sets in the archive, either naming scheme.
+          sets=$(unzip -Z1 "$zips/aermod_test_cases.zip" | awk -F/ 'NF>1{print $1}' | sort -u \
+                 | grep -E '^aermet_?[0-9]{5}_aermod_?[0-9]{5}$' || true)
+          echo "AERMOD test-case sets in archive:"; echo "$sets" | sed 's/^/  /'
+          extract_set() {  # $1 = set name inside the archive
+            [ -d "test_cases/$1" ] && return 0
+            echo "unpacking $1 ..."
+            unzip -q "$zips/aermod_test_cases.zip" "$1/*" -d test_cases
+          }
+
+          # (1) Parity reference: the set produced by the AERMOD version we
+          #     compiled. Prefer the all-current aermet<v>_aermod<v> set, then
+          #     any met set run with that AERMOD.
+          parity=$(echo "$sets" | grep -E "^aermet_?${AERMOD_VERSION}_aermod_?${AERMOD_VERSION}$" | head -1 || true)
+          [ -n "$parity" ] || parity=$(echo "$sets" | grep -E "^aermet_?[0-9]{5}_aermod_?${AERMOD_VERSION}$" | head -1 || true)
+          if [ -z "$parity" ]; then
+            echo "::warning::archive has no reference set for AERMOD ${AERMOD_VERSION:-unknown}; parity will score against the newest set"
+            parity=$(echo "$sets" | tail -1)
+          fi
+          [ -n "$parity" ] || { echo "::error::no aermet*_aermod* set found in the archive"; exit 1; }
+          extract_set "$parity"
+
+          # (2) AERMOD 24142 reference outputs: the parser regression tests
+          #     quote values from these exact files.
+          ref24=$(echo "$sets" | grep -E '^aermet_?24142_aermod_?24142$' | head -1 || true)
+          if [ -n "$ref24" ]; then
+            extract_set "$ref24"
+          else
+            echo "::warning::archive has no AERMOD 24142 set; tests/test_epa_cases.py + tests/test_real_cases.py will skip"
+          fi
+
+          # (3) AERMET 24142 default test cases (.SFC/.PFL parser tests).
+          #     The zip has a top-level aermet_test_cases/ folder, so unpack
+          #     at the repo root to avoid double nesting.
+          unzip -q "$zips/aermet_test_cases.zip" "aermet_test_cases/aermet_def_testcases_24142/*" -d .
+
+          rm -rf "$zips"
+          du -sh test_cases/* aermet_test_cases/* || true
+          df -h / | tail -1
+
+      # Save right after unpacking so a later test/parity failure (which fails
+      # the job) does not throw away the download.
+      - name: Save EPA test-case trees to cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            test_cases
+            aermet_test_cases
+          key: ${{ steps.resolve.outputs.cache_key }}
+
+      - name: Show which EPA reference sets will be used
+        env:
+          AERMOD_VERSION: ${{ steps.aermod.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls test_cases aermet_test_cases
+          python - <<'EOF'
+          import os, sys
+          from pathlib import Path
+          from pyaermod.epa_testcases import find_epa_testcase_set, list_epa_testcase_sets
+
+          root = Path("test_cases")
+          sets = list_epa_testcase_sets(root)
+          print("available:", [s.describe() for s in sets])
+          ver = os.environ.get("AERMOD_VERSION") or None
+          parity = find_epa_testcase_set(root, aermod_version=ver)
+          ref24 = find_epa_testcase_set(root, aermod_version="24142")
+          print(f"parity reference (binary {ver}):", parity.describe() if parity else None)
+          print("parser-regression reference (24142):", ref24.describe() if ref24 else None)
+          problems = []
+          if parity is None or not parity.exists():
+              problems.append("no usable parity reference set")
+          elif ver and parity.aermod_version != ver:
+              print(f"::warning::parity reference is AERMOD {parity.aermod_version}, binary is {ver}")
+          if not Path("aermet_test_cases/aermet_def_testcases_24142/output_files/EX01_MP.SFC").is_file():
+              problems.append("aermet_test_cases/aermet_def_testcases_24142 missing")
+          if problems:
+              print("::error::" + "; ".join(problems))
+              sys.exit(1)
+          EOF
+
+      - name: Run EPA-fixture tests (parsers + regulatory parity harness)
+        run: |
+          set -euo pipefail
+          # addopts is cleared because pytest.ini deselects the `slow`-marked
+          # EPA fixture modules by default.
+          pytest -o addopts="" -p no:cacheprovider -v --tb=short -rs \
+            --basetemp=/tmp/pyaermod_pytest \
+            --junitxml=/tmp/epa-parity-junit.xml \
+            tests/regulatory tests/test_epa_cases.py tests/test_real_cases.py tests/test_real_aermet.py
+          rm -rf /tmp/pyaermod_pytest
+          # A green run in which the fixture-gated tests all skipped is not
+          # evidence of anything; make that a failure.
+          python - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("/tmp/epa-parity-junit.xml").getroot()
+          per_module = {}
+          for case in root.iter("testcase"):
+              module = ".".join(case.get("classname", "").split(".")[:2])
+              total, skipped = per_module.setdefault(module, [0, 0])
+              per_module[module][0] += 1
+              if case.find("skipped") is not None:
+                  per_module[module][1] += 1
+          all_skipped = []
+          for module, (total, skipped) in sorted(per_module.items()):
+              print(f"{module}: {total - skipped} ran, {skipped} skipped")
+              if total and skipped == total:
+                  all_skipped.append(module)
+          if not per_module:
+              all_skipped.append("(no tests collected)")
+          if all_skipped:
+              print("::error::EPA fixture tests silently skipped: " + ", ".join(all_skipped))
+              sys.exit(1)
+          EOF
+
+      - name: Generate parity report (fails if any deck leaves tolerance)
         if: always()
         run: |
-          python scripts/run_epa_parity.py --output docs/validation.md
+          python scripts/run_epa_parity.py --output docs/validation.md \
+            --scratch /tmp/pyaermod_parity --clean-scratch
+
+      - name: Publish report summary
+        if: always()
+        run: |
+          if [ -f docs/validation.md ]; then
+            { echo '## EPA parity report'; echo; sed -n '1,30p' docs/validation.md; } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload validation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: epa-parity-report
-          path: docs/validation.md
+          path: |
+            docs/validation.md
+            /tmp/epa-parity-junit.xml
+          if-no-files-found: warn

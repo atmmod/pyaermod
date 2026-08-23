@@ -45,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform and UTC timestamp. New `--testcase-dir` (or
   `$PYAERMOD_EPA_TESTCASES`) and `--clean-scratch` options; exit 2 when the
   fixtures or binary are missing, 1 when any comparison fails.
+- **Scheduled EPA parity CI** — `epa_parity.yml` now runs weekly (Tuesday
+  07:00 UTC, staggered from the Monday real-binary smokes) as well as on
+  dispatch (archive URL inputs optional, defaulting to the canonical SCRAM
+  URLs — the old default pointed at a non-existent `aermod_testcases.zip`).
+  It compiles EPA's current AERMOD, fetches both EPA test-case archives via
+  `scripts/fetch_epa_source.sh`, unpacks only the sets the suite needs (the
+  set matching the compiled AERMOD version for parity, the 24142 set for the
+  parser regressions, `aermet_def_testcases_24142` for the AERMET parsers —
+  each AERMOD set is ~3.5 GB unpacked) and caches the unpacked trees with
+  `actions/cache` (key = URLs + upstream ETag/Last-Modified + AERMOD
+  version + salt; saved right after unpacking so a later failure keeps the
+  cache). It runs `tests/regulatory`, `tests/test_epa_cases.py`,
+  `tests/test_real_cases.py`, `tests/test_real_aermet.py` and
+  `scripts/run_epa_parity.py`, fails if any test fails, if the fixture-gated
+  tests all skipped, or if any deck leaves tolerance, and uploads the
+  regenerated `docs/validation.md` as an artifact (never auto-commits).
 
 ### Changed
 - **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
