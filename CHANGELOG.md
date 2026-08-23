@@ -128,6 +128,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (surfaced by `tests/test_epa_cases.py` on AERTEST and FLATELEV once those
   tests ran). Period patterns are now anchored so they cannot start inside
   a longer number; regression in `tests/test_output_parser_periods.py`.
+- **`tests/test_source_importers.py` skipped entirely whenever `ezdxf` was
+  absent** — a module-level `pytest.importorskip("ezdxf")` hid the seven
+  geopandas shapefile tests too. The skip is now a class-scoped fixture on
+  `TestDxfImporter` only; the shapefile tests run wherever geopandas is
+  installed (`source_importers.py` coverage 11.8 % → 52.8 % in the local
+  env). The shapefile fixtures also fall back to writing through fiona when
+  geopandas' writer fails under coverage tracing (a pyproj `WktVersion`
+  enum quirk seen with pyproj 3.6.1 + coverage 7.13), so they run rather
+  than skip in that configuration as well.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs
