@@ -61,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   errors are untouched. Note the count depends on which optional extras are
   importable (typed packages such as `nicegui` surface errors that
   `ignore_missing_imports` otherwise hides).
+- **Honest dependency floors, validated in CI.** The optional-extra lower
+  bounds in `pyproject.toml` were aspirational (`geopandas>=0.10` predates
+  shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
+  `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`). They are raised to
+  `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
+  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.28`
+  (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`, `nicegui>=2.0`
+  unchanged). A new `min-constraints.txt` pins the oldest versions believed to
+  satisfy those floors together, and a `min-deps` leg in `tests.yml`
+  (Python 3.11) installs `.[dev,all]` under those constraints and runs the
+  suite, so the floors are checked rather than guessed.
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
