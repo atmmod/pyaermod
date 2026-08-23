@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   releases the bit-exact AERTEST regression and the full test-suite parity
   have been run against. `AERMODOutputParser` now logs one warning when an
   output file was produced by a release outside that list.
+- **EPA reference-set resolver** — `pyaermod.epa_testcases.find_epa_testcase_set`
+  locates EPA's unpacked test-case sets under `test_cases/` accepting both
+  naming conventions (`aermet_24142_aermod_24142` and the July-2026 bundle's
+  `aermet24142_aermod24142` / `aermet24142_aermod26135` /
+  `aermet26135_aermod26135`), honours `$PYAERMOD_EPA_TESTCASES`, and prefers
+  the set whose AERMOD version matches the `aermod` binary on PATH
+  (`aermod_binary_version`, from `aermod --help`), then the newest validated
+  release. `tests/regulatory/`, `tests/test_epa_cases.py`,
+  `tests/test_real_cases.py`, `tests/test_regression_epa_official.py` and
+  `scripts/run_epa_parity.py` all resolve through it; regulatory test IDs now
+  carry the set name (`[aermet26135_aermod26135/aertest.inp]`).
 
 ### Changed
 - **Vendored EPA fixtures refreshed to the v26135 archive**
@@ -58,6 +69,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
 
 ### Fixed
+- **EPA fixture tests skipped silently after EPA renamed the archive sets.**
+  `tests/test_epa_cases.py` (110 tests) looked only at a hard-coded Dropbox
+  path, and `tests/regulatory/` (54) plus `tests/test_real_cases.py` (159)
+  at the pre-2026 `aermet_24142_aermod_24142` name, so with the current EPA
+  bundle unpacked every one of them still skipped. With the resolver all 323
+  collect and run (regulatory: 47 passed / 7 skipped against a compiled
+  v26135; parser tests: 671 passed against the 24142 set). The two parser
+  tests pinned to 24142 values skip with the discovered set named in the
+  reason when only another version is present.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs

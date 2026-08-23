@@ -26,7 +26,7 @@ from pyaermod.regulatory_parity import (
 )
 from pyaermod.runner import AERMODRunner
 
-from .conftest import EPA_INPUTS_DIR, EPA_MET_DIR, EPA_REF_PST_DIR
+from .conftest import EPA_INPUTS_DIR, EPA_MET_DIR, EPA_REF_PST_DIR, EPA_SET_NAME
 
 
 def _discover_input_decks() -> list[str]:
@@ -40,8 +40,15 @@ def _discover_input_decks() -> list[str]:
 # is for CI-on-demand / nightly runs, not push CI. Per-deck timeout 300s.
 _DECK_TIMEOUT = 300
 
+_DECKS = _discover_input_decks()
 
-@pytest.mark.parametrize("deck_name", _discover_input_decks())
+
+# Test IDs carry the reference-set name so a report line such as
+# ``test_epa_case_parity[aermet26135_aermod26135/aertest.inp]`` records
+# exactly which EPA references the run was scored against.
+@pytest.mark.parametrize(
+    "deck_name", _DECKS, ids=[f"{EPA_SET_NAME}/{d}" for d in _DECKS],
+)
 def test_epa_case_parity(deck_name, epa_testcase_dir, aermod_binary, tmp_path):
     """Run one EPA test deck through AERMOD; score every PST emitted."""
     work = tmp_path / deck_name.replace(".inp", "")

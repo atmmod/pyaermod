@@ -6,7 +6,10 @@ Usage::
 
 Fetches
 <https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip>
-(~234 MB) and unpacks it under tests/fixtures/epa_official/full/.
+(~489 MB zipped, ~10.6 GB unpacked: three reference sets,
+aermet24142_aermod24142 / aermet24142_aermod26135 / aermet26135_aermod26135)
+and unpacks it under tests/fixtures/epa_official/full/. Tests locate the
+set to use via ``pyaermod.epa_testcases.find_epa_testcase_set``.
 
 Tests that need the full archive skip cleanly if that directory is
 absent, so this is a one-time opt-in for developers who want the full
