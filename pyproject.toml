@@ -53,14 +53,14 @@ geo = [
     "scipy>=1.10.0",
 ]
 terrain = [
-    "requests>=2.32.0",
+    "requests>=2.32.2",
 ]
 met = [
-    "requests>=2.32.0",
+    "requests>=2.32.2",
 ]
 hpc = [
     "tqdm>=4.60.0",
-    "requests>=2.32.0",
+    "requests>=2.32.2",
 ]
 cad = [
     "ezdxf>=1.0.0",
@@ -80,7 +80,7 @@ all = [
     "geopandas>=0.14.0",
     "rasterio>=1.3.0",
     "shapely>=2.0.0",
-    "requests>=2.32.0",
+    "requests>=2.32.2",
     "tqdm>=4.60.0",
     "ezdxf>=1.0.0",
     "nicegui>=3.0",

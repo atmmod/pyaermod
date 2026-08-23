@@ -68,12 +68,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
   `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`, `nicegui>=2.0`). They are
   raised to `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
-  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.32` and
+  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.32.2` and
   `nicegui>=3.0` (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`
   unchanged). `requests>=2.32` is forced by nicegui — even nicegui 2.0.0
   requires `requests>=2.32.0`, so the previous `[all]` floor set was not
   co-installable at all — and `nicegui>=3.0` is the line the headless GUI
-  smoke tests exercise (2.x was never meaningfully tested). A new
+  smoke tests exercise (2.x was never meaningfully tested). The requests
+  floor lands on `2.32.2` rather than `2.32.0` because 2.32.0 and 2.32.1
+  are yanked on PyPI ("Yanked due to conflicts with CVE-2024-35195
+  mitigation"): the exact pin in `min-constraints.txt` made the `min-deps`
+  leg install a withdrawn release (pip honours an `==` pin on a yanked
+  version, warning as it does so), and no range resolution will ever land
+  there anyway. 2.32.2 is the oldest 2.32.x that is still a real
+  candidate. A new
   `min-constraints.txt` pins the oldest versions that satisfy those floors
   together (resolvability proven with
   `pip install --dry-run --ignore-installed -e ".[dev,all]" -c min-constraints.txt`),
