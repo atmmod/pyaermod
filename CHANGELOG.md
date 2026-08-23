@@ -88,6 +88,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`aermod_source_code_24142` → `aermod_source_v26135`) and AERMET's flat,
     Fortran-90 layout no longer break the compile. Verified locally: AERMOD
     v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
+- **EPA source version is pinned per run and surfaced in CI.**
+  `scripts/fetch_epa_source.sh` now prints the archive's top-level directory
+  (EPA encodes the version in it, e.g. `aermod_source_v26135`; `<flat
+  archive>` for AERMET) after every successful fetch or cache reuse, and
+  appends `EPA source: <dir> from <url>` to `$GITHUB_STEP_SUMMARY` when set.
+  `real_aermod.yml` / `real_aermap.yml` / `real_aermet.yml` gained a
+  `workflow_dispatch` input `source_url` (default = the current SCRAM URL) to
+  try a new EPA release without editing the workflow, and cache the downloaded
+  zip with `actions/cache` keyed on the URL plus the calendar month (so a
+  same-URL EPA re-release is still picked up within a month while gaftp
+  flakiness inside the month is absorbed). The derived-dir and
+  `chmod -R u+w` compile logic is unchanged.
 
 ### Fixed
 - **GUI v2 Run/Results/editor crashes found by the new smoke tests:**

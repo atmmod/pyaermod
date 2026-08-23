@@ -14,7 +14,10 @@
 #   * retries at both the curl and shell level with linear backoff;
 #   * validates the result is a real zip (`unzip -t`) before succeeding;
 #   * short-circuits if a valid archive is already present (so it composes with
-#     actions/cache — a cache hit skips the network entirely).
+#     actions/cache — a cache hit skips the network entirely);
+#   * reports the archive's top-level directory (EPA encodes the version in it,
+#     e.g. aermod_source_v26135) on stdout and, when running under GitHub
+#     Actions, in the job summary ($GITHUB_STEP_SUMMARY).
 #
 # Usage:  scripts/fetch_epa_source.sh <url> <output.zip>
 # Env:    FETCH_ATTEMPTS (default 6)   FETCH_BACKOFF (default 10, seconds * attempt)
@@ -28,9 +31,23 @@ BACKOFF="${FETCH_BACKOFF:-10}"
 
 is_valid_zip() { [ -s "$1" ] && unzip -t -qq "$1" >/dev/null 2>&1; }
 
+# Print (and, in CI, summarise) which EPA source version the archive holds.
+# EPA archives extract either into a versioned subdir (AERMOD, AERMAP) or flat
+# at the root (AERMET); the derived name is empty in the flat case.
+report_archive() {
+  local topdir size
+  topdir=$(unzip -Z1 "$OUT" | awk -F/ 'NF>1{print $1; exit}')
+  size=$(wc -c < "$OUT" | tr -d ' ')
+  echo "fetch_epa_source: archive top-level dir: ${topdir:-<flat archive>} (${size} bytes) from ${URL}"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "EPA source: ${topdir:-<flat archive>} from ${URL} (${size} bytes)" >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
 # Reuse an already-valid archive (e.g. restored by actions/cache).
 if is_valid_zip "$OUT"; then
   echo "fetch_epa_source: reusing existing valid archive ($(wc -c < "$OUT") bytes): $OUT"
+  report_archive
   exit 0
 fi
 
@@ -40,6 +57,7 @@ for i in $(seq 1 "$ATTEMPTS"); do
           --connect-timeout 30 --max-time 600 -o "$OUT" "$URL"; then
     if is_valid_zip "$OUT"; then
       echo "fetch_epa_source: ok ($(wc -c < "$OUT") bytes, valid zip)"
+      report_archive
       exit 0
     fi
     echo "fetch_epa_source: downloaded file is not a valid zip (server likely returned an error/rate-limit page)"
