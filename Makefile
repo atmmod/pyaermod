@@ -39,8 +39,18 @@ test-full: install-full
 lint:
 	$(PYTHON) -m ruff check src/ tests/
 
+# The install is skipped when the pinned mypy is already there, so a local
+# `make typecheck` costs no network round-trip. `mypy --version` prints
+# "mypy 2.3.1 (compiled: yes)", hence the two patterns; a missing mypy makes
+# the command fail and the empty output falls through to the install. This is
+# the one place the Makefile deliberately differs from tests.yml: the CI
+# runner has no mypy (it is not in the [dev] extra), so the guard would never
+# hit there and the end state is the same either way.
 typecheck:
-	$(PIP) install --quiet "mypy==$(MYPY_VERSION)"
+	@case "$$($(PYTHON) -m mypy --version 2>/dev/null)" in \
+	    "mypy $(MYPY_VERSION)"|"mypy $(MYPY_VERSION) "*) ;; \
+	    *) $(PIP) install --quiet "mypy==$(MYPY_VERSION)" ;; \
+	esac
 	$(PYTHON) scripts/mypy_gate.py
 
 benchmark:
