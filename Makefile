@@ -9,6 +9,9 @@
 
 PYTHON ?= python
 PIP    ?= $(PYTHON) -m pip
+# Same pin as .github/workflows/tests.yml so local and CI mypy counts agree
+# (mypy-baseline.txt is authoritative for the `.[dev,all]` environment).
+MYPY_VERSION ?= 2.3.1
 
 .PHONY: help install install-full test test-full lint typecheck benchmark clean
 
@@ -37,7 +40,7 @@ lint:
 	$(PYTHON) -m ruff check src/ tests/
 
 typecheck:
-	@$(PYTHON) -m mypy --version >/dev/null 2>&1 || $(PIP) install --quiet mypy
+	$(PIP) install --quiet "mypy==$(MYPY_VERSION)"
 	$(PYTHON) scripts/mypy_gate.py
 
 benchmark:

@@ -8,17 +8,20 @@ default instantiation, summary row builder, type-string dispatch).
 from __future__ import annotations
 
 import dataclasses
+from typing import List, Optional, Tuple, Union
 
 import pytest
 
 from pyaermod.gui_v2._form import is_numeric as _is_numeric
 from pyaermod.gui_v2._form import is_optional_numeric as _is_optional_numeric
+from pyaermod.gui_v2._form import resolve_annotation as _resolve_annotation
 from pyaermod.gui_v2.pages.sources import (
     _DEFAULTS,
     _SOURCE_TYPES,
     _new_source,
     _summary_row,
 )
+from pyaermod.input_generator import DepositionMethod
 
 
 class TestSourceTypeRegistry:
@@ -84,26 +87,69 @@ class TestSummaryRow:
 
 
 class TestTypeStringDispatch:
+    """``is_numeric`` must be true only for int/float (optionally | None).
+
+    It used to be a substring test, which handed ``List[Tuple[float, float]]``
+    (polygon vertices) and ``Optional[Tuple[DepositionMethod, float]]`` to
+    ``ui.number`` — the first crashed the editor dialog, the second let the
+    user write a float into a tuple-typed field.
+    """
+
     @pytest.mark.parametrize("ann,expected", [
-        ("float",            True),
-        ("int",              True),
-        ("Optional[float]",  True),
-        ("List[float]",      True),  # falls into 'List[' branch elsewhere
-        ("str",              False),
-        ("bool",             False),
+        ("float",                                     True),
+        ("int",                                       True),
+        ("Optional[float]",                           True),
+        ("Optional[int]",                             True),
+        ("Union[int, None]",                          True),
+        ("float | None",                              True),
+        ("typing.Optional[float]",                    True),
+        ("List[float]",                               False),
+        ("List[Tuple[float, float]]",                 False),
+        ("Optional[Tuple[DepositionMethod, float]]",  False),
+        ("Optional[Union[float, List[float]]]",       False),
+        ("Optional[str]",                             False),
+        ("str",                                       False),
+        ("bool",                                      False),
+        ("not an annotation[",                        False),
     ])
-    def test_is_numeric(self, ann, expected):
-        # _is_numeric matches any field annotation containing 'float'/'int'.
-        # The page uses a List[ check before calling _is_numeric, so
-        # 'List[float]' returning True here is fine — it never reaches
-        # this branch in render flow.
+    def test_is_numeric_string_annotations(self, ann, expected):
         assert _is_numeric(ann) is expected
+
+    @pytest.mark.parametrize("tp,expected", [
+        (float,                                      True),
+        (int,                                        True),
+        (Optional[int],                              True),
+        (Optional[float],                            True),
+        (List[Tuple[float, float]],                  False),
+        (Optional[Tuple[DepositionMethod, float]],   False),
+        (Optional[Union[float, List[float]]],        False),
+        (str,                                        False),
+        (bool,                                       False),
+    ])
+    def test_is_numeric_resolved_types(self, tp, expected):
+        assert _is_numeric(tp) is expected
 
     def test_is_optional_numeric(self):
         assert _is_optional_numeric("Optional[float]")
         assert _is_optional_numeric("Optional[int]")
+        assert _is_optional_numeric(Optional[int])
         assert not _is_optional_numeric("Optional[str]")
         assert not _is_optional_numeric("float")
+        assert not _is_optional_numeric(int)
+        assert not _is_optional_numeric("Optional[Tuple[DepositionMethod, float]]")
+
+    def test_real_source_fields_resolve_correctly(self):
+        """The shapes that bit, taken from the real dataclass annotations."""
+        poly = _new_source("AreaPolySource")
+        meta = {f.name: f for f in dataclasses.fields(poly)}
+        assert not _is_numeric(_resolve_annotation(poly, meta["vertices"]))
+        assert not _is_numeric(_resolve_annotation(poly, meta["deposition_method"]))
+        assert _is_numeric(_resolve_annotation(poly, meta["release_height"]))
+        assert _is_numeric(_resolve_annotation(poly, meta["emission_rate"]))
+        point = _new_source("PointSource")
+        pmeta = {f.name: f for f in dataclasses.fields(point)}
+        assert _is_numeric(_resolve_annotation(point, pmeta["stack_height"]))
+        assert not _is_numeric(_resolve_annotation(point, pmeta["source_id"]))
 
 
 class TestDefaults:

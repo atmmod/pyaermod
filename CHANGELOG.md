@@ -56,22 +56,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mypy src/pyaermod` (config from `pyproject.toml`), counts `error:`
   diagnostics and compares against the integer committed in
   `mypy-baseline.txt`; CI (`tests.yml`, Python 3.12 leg, mypy pinned) fails
-  only if the count *increases*, and prints how to lower the baseline
-  (`python scripts/mypy_gate.py --update`) when it decreases. Existing type
-  errors are untouched. Note the count depends on which optional extras are
-  importable (typed packages such as `nicegui` surface errors that
-  `ignore_missing_imports` otherwise hides).
+  only if the count *increases*, and prints the exact
+  `python scripts/mypy_gate.py --update` command when it decreases. Existing
+  type errors are untouched. The baseline is authoritative for the
+  `.[dev,all]` environment CI uses: typed optional packages (`nicegui`,
+  `ezdxf`, ...) surface errors that `ignore_missing_imports` hides when they
+  are absent, so a partial install reports a different count (the gate's
+  failure message says so; `make typecheck` pins the same mypy as CI).
 - **Honest dependency floors, validated in CI.** The optional-extra lower
   bounds in `pyproject.toml` were aspirational (`geopandas>=0.10` predates
   shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
-  `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`). They are raised to
-  `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
-  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.28`
-  (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`, `nicegui>=2.0`
-  unchanged). A new `min-constraints.txt` pins the oldest versions believed to
-  satisfy those floors together, and a `min-deps` leg in `tests.yml`
-  (Python 3.11) installs `.[dev,all]` under those constraints and runs the
-  suite, so the floors are checked rather than guessed.
+  `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`, `nicegui>=2.0`). They are
+  raised to `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
+  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.32` and
+  `nicegui>=3.0` (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`
+  unchanged). `requests>=2.32` is forced by nicegui — even nicegui 2.0.0
+  requires `requests>=2.32.0`, so the previous `[all]` floor set was not
+  co-installable at all — and `nicegui>=3.0` is the line the headless GUI
+  smoke tests exercise (2.x was never meaningfully tested). A new
+  `min-constraints.txt` pins the oldest versions that satisfy those floors
+  together (resolvability proven with
+  `pip install --dry-run --ignore-installed -e ".[dev,all]" -c min-constraints.txt`),
+  and a `min-deps` leg in `tests.yml` (Python 3.11) installs `.[dev,all]`
+  under those constraints and runs the suite, so the floors are checked
+  rather than guessed.
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
@@ -124,8 +132,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     real output raised `AttributeError`;
   - the source/receptor editor dialog crashed (`float() argument ... not
     'list'`) for every source with polygon `vertices`, because the form
-    helper's substring numeric check claimed `List[Tuple[float, float]]`
-    before the list branch could; list annotations are now tested first;
+    helper's numeric check was a substring test that claimed
+    `List[Tuple[float, float]]` — and silently rendered
+    `Optional[Tuple[DepositionMethod, float]]` as a number box, letting a
+    float be written into a tuple-typed field. `is_numeric` now resolves the
+    annotation (`typing.get_type_hints`, `get_origin`/`get_args`, unwrapping
+    `Optional`/`Union`, with a structural parser for unresolvable string
+    annotations) and is true only when the type *is* `int`/`float`,
+    optionally with `None`; list annotations are still dispatched first;
   - `Optional[str]` fields (e.g. `OutputPathway.summary_file`) were rendered
     as read-only labels instead of text inputs.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full

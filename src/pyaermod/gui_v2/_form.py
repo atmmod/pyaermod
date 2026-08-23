@@ -20,22 +20,120 @@ Annotation (string form)    Widget
 ``List[str]``               text area (one entry per line)
 unknown                     read-only label (escape hatch)
 ==========================  ====================================
+
+"Numeric" means the *resolved* annotation is ``int`` or ``float``,
+optionally in a union with ``None`` — never a container or tuple that
+merely mentions a float (``List[Tuple[float, float]]``,
+``Optional[Tuple[DepositionMethod, float]]``). Annotations are resolved
+with :func:`typing.get_type_hints`; string annotations that cannot be
+resolved are parsed structurally instead.
 """
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import dataclasses
-from typing import Any, Iterable, Optional
+import types
+import typing
+from typing import Any, Iterable, Optional, Tuple, Union
+
+_NUMERIC_TYPES = (int, float)   # bool is excluded on purpose (identity check)
+_UNION_WRAPPERS = ("Optional", "Union")
 
 
-def is_numeric(type_str: str) -> bool:
-    """Annotation contains a float/int substring."""
-    return any(t in type_str for t in ("float", "int"))
+def _numeric_info_type(tp: Any) -> Tuple[bool, bool]:
+    """Return ``(is_numeric, allows_none)`` for a resolved typing object."""
+    origin = typing.get_origin(tp)
+    if origin is Union or origin is types.UnionType:
+        args = typing.get_args(tp)
+        non_none = [a for a in args if a is not type(None)]
+        if not non_none or not all(a in _NUMERIC_TYPES for a in non_none):
+            return False, False
+        return True, len(non_none) < len(args)
+    return (tp in _NUMERIC_TYPES), False
 
 
-def is_optional_numeric(type_str: str) -> bool:
-    return type_str.startswith("Optional[") and is_numeric(type_str)
+def _wrapper_name(node: ast.expr) -> Optional[str]:
+    """``Optional`` / ``Union`` whether written bare or as ``typing.X``."""
+    if isinstance(node, ast.Name) and node.id in _UNION_WRAPPERS:
+        return node.id
+    if isinstance(node, ast.Attribute) and node.attr in _UNION_WRAPPERS:
+        return node.attr
+    return None
+
+
+def _leaf_names(node: ast.expr) -> list:
+    """Flatten ``Optional[...]`` / ``Union[...]`` / ``X | Y`` into leaf names."""
+    if isinstance(node, ast.Subscript) and _wrapper_name(node.value):
+        sl = node.slice
+        elts = list(sl.elts) if isinstance(sl, ast.Tuple) else [sl]
+        names: list = []
+        for e in elts:
+            names.extend(_leaf_names(e))
+        if _wrapper_name(node.value) == "Optional":
+            names.append("None")
+        return names
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _leaf_names(node.left) + _leaf_names(node.right)
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Constant) and node.value is None:
+        return ["None"]
+    return ["<non-numeric>"]   # containers, tuples, dotted names, ...
+
+
+def _numeric_info_str(annotation: str) -> Tuple[bool, bool]:
+    """Structural equivalent of :func:`_numeric_info_type` for string annotations."""
+    try:
+        node = ast.parse(annotation.strip(), mode="eval").body
+    except SyntaxError:
+        return False, False
+    names = _leaf_names(node)
+    non_none = [n for n in names if n != "None"]
+    if not non_none or any(n not in ("int", "float") for n in non_none):
+        return False, False
+    return True, "None" in names
+
+
+def _numeric_info(annotation: Any) -> Tuple[bool, bool]:
+    if isinstance(annotation, str):
+        return _numeric_info_str(annotation)
+    return _numeric_info_type(annotation)
+
+
+def is_numeric(annotation: Any) -> bool:
+    """True iff ``annotation`` resolves to ``int``/``float``, optionally with ``None``.
+
+    Accepts a typing object (``float``, ``Optional[int]``) or the string
+    form used under ``from __future__ import annotations``. Containers
+    and tuples that merely contain a numeric type are *not* numeric.
+    """
+    return _numeric_info(annotation)[0]
+
+
+def is_optional_numeric(annotation: Any) -> bool:
+    """True iff :func:`is_numeric` holds *and* the annotation admits ``None``."""
+    is_num, allows_none = _numeric_info(annotation)
+    return is_num and allows_none
+
+
+_HINTS_CACHE: dict = {}
+
+
+def _type_hints(cls: type) -> dict:
+    """Resolved annotations for ``cls`` (empty if a forward ref cannot be resolved)."""
+    if cls not in _HINTS_CACHE:
+        try:
+            _HINTS_CACHE[cls] = typing.get_type_hints(cls)
+        except Exception:   # NameError on an unresolvable forward reference
+            _HINTS_CACHE[cls] = {}
+    return _HINTS_CACHE[cls]
+
+
+def resolve_annotation(obj: Any, fmeta) -> Any:
+    """The resolved type of field ``fmeta`` on ``obj``, else its raw annotation."""
+    return _type_hints(type(obj)).get(fmeta.name, fmeta.type)
 
 
 def emit_field(parent, obj: Any, fmeta) -> None:
@@ -49,6 +147,7 @@ def emit_field(parent, obj: Any, fmeta) -> None:
 
     fname = fmeta.name
     type_str = str(fmeta.type)
+    annotation = resolve_annotation(obj, fmeta)
     cur = getattr(obj, fname)
     label = fname.replace("_", " ")
 
@@ -60,10 +159,9 @@ def emit_field(parent, obj: Any, fmeta) -> None:
     elif type_str == "bool":
         with parent:
             ui.checkbox(label, value=bool(cur)).bind_value(obj, fname)
-    # List annotations must be tested before the numeric ones:
-    # ``is_numeric`` is a substring test, so ``List[Tuple[float, float]]``
-    # (polygon vertices) would otherwise be handed to ``ui.number`` and
-    # crash the editor dialog with ``float() argument ... not 'list'``.
+    # List annotations are dispatched before the numeric check on purpose
+    # (polygon vertices once crashed the editor as a ``ui.number``); the
+    # numeric check below is type-resolved, so the order is belt-and-braces.
     elif "List[Tuple[float" in type_str:
         with parent:
             ta = ui.textarea(
@@ -100,7 +198,7 @@ def emit_field(parent, obj: Any, fmeta) -> None:
                 setattr(obj, fname, lines)
 
             ta.on("update:model-value", _save_strs)
-    elif is_numeric(type_str) or is_optional_numeric(type_str):
+    elif is_numeric(annotation):   # int/float, optionally | None
         with parent:
             ui.number(
                 label=label, value=cur if cur is not None else 0,
@@ -136,4 +234,5 @@ __all__ = [
     "emit_form",
     "is_numeric",
     "is_optional_numeric",
+    "resolve_annotation",
 ]

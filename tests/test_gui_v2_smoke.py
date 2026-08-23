@@ -112,9 +112,15 @@ async def gui(monkeypatch):
 
     async with user_simulation(root=None) as user:
         app_module.build_app()
-        # nicegui's reset evicts the *module* of every registered page from
-        # sys.modules unless it lives under ``tests.``; relabel so the
-        # simulation cannot unload ``pyaermod`` for the rest of the session.
+        # Why relabel ``__module__``: ``nicegui/testing/general.py``
+        # (``nicegui_reset_globals``, the ``finally`` block) pops every
+        # ``sys.modules`` entry for the module — and all its parent packages —
+        # of each function in ``Client.page_routes`` whose ``__module__`` does
+        # not start with ``tests.``. Our page function lives in
+        # ``pyaermod.gui_v2.app``, so without this the first GUI test would
+        # evict ``pyaermod``, ``pyaermod.gui_v2`` and ``pyaermod.gui_v2.app``
+        # from ``sys.modules`` for the rest of the session. If a NiceGUI
+        # upgrade changes that eviction rule, this is where it will show up.
         for func in list(Client.page_routes):
             if not func.__module__.startswith("tests."):
                 func.__module__ = f"tests.{func.__module__}"

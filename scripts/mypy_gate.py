@@ -19,8 +19,21 @@ Usage::
 
 mypy's configuration comes from ``[tool.mypy]`` in ``pyproject.toml``;
 the script runs from the repository root so that config is picked up.
-The baseline is only meaningful for a fixed mypy version — bump the
-pin in ``.github/workflows/tests.yml`` and re-run ``--update`` together.
+
+What the number in ``mypy-baseline.txt`` means
+----------------------------------------------
+The baseline is authoritative for the environment CI runs the gate in:
+Python 3.12 with ``pip install -e ".[dev,all]"`` and the mypy version
+pinned in ``.github/workflows/tests.yml``. Two things move the count
+without any source change, so measure and ``--update`` under those same
+conditions:
+
+* **installed optional extras** — typed packages (nicegui, ezdxf, ...)
+  let mypy check calls into them, surfacing errors that
+  ``ignore_missing_imports`` hides when the package is absent. A bare or
+  partial install therefore reports a *different* number than CI;
+* **the mypy release** — bump the pin in ``tests.yml`` and re-run
+  ``--update`` together.
 """
 
 from __future__ import annotations
@@ -35,6 +48,7 @@ from typing import List, Tuple
 REPO = Path(__file__).resolve().parent.parent
 BASELINE_FILE = REPO / "mypy-baseline.txt"
 TARGET = "src/pyaermod"
+UPDATE_CMD = "python scripts/mypy_gate.py --update"
 
 _ERROR_LINE = re.compile(r"^.+?:\d+(?::\d+)?: error: ")
 _SUMMARY = re.compile(r"^Found (\d+) errors? in \d+ files?")
@@ -59,7 +73,7 @@ def count_errors(mypy_output: str) -> int:
 
 
 def read_baseline(path: Path = BASELINE_FILE) -> int:
-    """Read the committed baseline integer (``None`` file -> error)."""
+    """Return the integer in the baseline file; exit with a clear message if it does not hold one."""
     text = path.read_text(encoding="utf-8").strip()
     try:
         return int(text)
@@ -71,17 +85,19 @@ def evaluate(count: int, baseline: int) -> Tuple[int, str]:
     """Map (current count, baseline) to (exit code, human message)."""
     if count > baseline:
         return 1, (
-            f"mypy: {count} errors, baseline is {baseline} "
-            f"(+{count - baseline}). New type errors were introduced — "
-            f"fix them, or if they are pre-existing and unavoidable, "
-            f"run `python scripts/mypy_gate.py --update` and commit "
-            f"mypy-baseline.txt with a justification."
+            f"mypy: {count} errors, baseline is {baseline} (+{count - baseline}).\n"
+            f"New type errors were introduced: fix them. If the difference comes from the\n"
+            f"environment rather than the code — the baseline is authoritative for the\n"
+            f"`pip install -e \".[dev,all]\"` environment CI uses, and typed optional packages\n"
+            f"(nicegui, ezdxf, ...) surface errors a partial install hides — re-measure\n"
+            f"in that environment and commit the new baseline with:\n"
+            f"    {UPDATE_CMD}"
         )
     if count < baseline:
         return 0, (
-            f"mypy: {count} errors, baseline is {baseline} "
-            f"({count - baseline}). Nice — lock it in with "
-            f"`python scripts/mypy_gate.py --update` and commit mypy-baseline.txt."
+            f"mypy: {count} errors, baseline is {baseline} ({count - baseline}).\n"
+            f"Nice — lock it in (from a `.[dev,all]` environment) and commit mypy-baseline.txt:\n"
+            f"    {UPDATE_CMD}"
         )
     return 0, f"mypy: {count} errors, matches baseline {baseline}."
 
