@@ -100,6 +100,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same-URL EPA re-release is still picked up within a month while gaftp
   flakiness inside the month is absorbed). The derived-dir and
   `chmod -R u+w` compile logic is unchanged.
+- **Repo hygiene.** `.DS_Store` and `aermod/.DS_Store` are no longer tracked
+  (they were already gitignored, so they showed as perpetually modified). A
+  `Makefile` adds `test`, `test-full` (installs `.[dev,all]`, then the whole
+  suite with coverage), `lint` and `typecheck` targets mirroring CI;
+  `CONTRIBUTING.md` documents the GDAL prerequisite for the `[geo]` extra and
+  `make test-full` as the pre-PR check.
 
 ### Fixed
 - **GUI v2 Run/Results/editor crashes found by the new smoke tests:**

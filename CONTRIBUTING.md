@@ -19,8 +19,11 @@ pre-commit install
 
 ### System Dependencies
 
-For geospatial features (GeoTIFF export, coordinate transforms), you need
-GDAL:
+The `[geo]` extra (and therefore `[all]`) pulls in `rasterio` and `pyproj`,
+which need the GDAL/PROJ native libraries. Install GDAL **before**
+`pip install -e ".[dev,all]"` — without it the `rasterio` build fails and
+the geospatial tests (GeoTIFF export, coordinate transforms, terrain
+download) are skipped rather than run:
 
 ```bash
 # Ubuntu / Debian
@@ -30,7 +33,30 @@ sudo apt-get install libgdal-dev gdal-bin
 brew install gdal
 ```
 
+Everything outside `[geo]` installs without system packages.
+
 ## Running Tests
+
+The `Makefile` wraps the commands CI runs:
+
+```bash
+make test        # core suite with whatever extras you have installed
+make test-full   # pip install -e ".[dev,all]" (needs GDAL, see above), then
+                 # the whole suite including slow tests, with coverage
+make lint        # ruff check src/ tests/
+make typecheck   # mypy ratchet gate: fails only if the error count grows
+                 # beyond mypy-baseline.txt (lower it with
+                 # `python scripts/mypy_gate.py --update`)
+```
+
+`make test-full` is what to run before opening a pull request: tests for
+optional features (geospatial, visualization, NiceGUI) are skipped when
+their extra is missing, so a green `make test` on a bare install proves
+less than it looks. CI's `min-deps` job additionally runs the suite against
+the oldest supported dependency versions (`min-constraints.txt`); keep that
+file and the `>=` floors in `pyproject.toml` in sync.
+
+Or call pytest directly:
 
 ```bash
 # Run full test suite with coverage
@@ -47,7 +73,10 @@ pytest -m "not slow"
 ```
 
 The project targets **89%+ code coverage**. New features should include
-tests that maintain or improve this threshold.
+tests that maintain or improve this threshold. Library code must log, not
+print: `import pyaermod` is asserted silent by `tests/test_import_silence.py`,
+and the NiceGUI GUI is smoke-tested headlessly in `tests/test_gui_v2_smoke.py`
+(requires the `[gui]` extra and `pytest-asyncio`).
 
 ## Code Style
 
