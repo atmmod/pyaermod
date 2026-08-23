@@ -37,8 +37,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_real_cases.py`, `tests/test_regression_epa_official.py` and
   `scripts/run_epa_parity.py` all resolve through it; regulatory test IDs now
   carry the set name (`[aermet26135_aermod26135/aertest.inp]`).
+- **Parity report provenance** — `scripts/run_epa_parity.py` now stamps a
+  Provenance table into `docs/validation.md`: AERMOD version (parsed from
+  the `*** AERMOD - VERSION NNNNN ***` banner of a produced `.out`, falling
+  back to `aermod --help`), binary path, `gfortran --version`, the EPA
+  reference set, pyaermod version, git SHA (`-dirty` when applicable),
+  platform and UTC timestamp. New `--testcase-dir` (or
+  `$PYAERMOD_EPA_TESTCASES`) and `--clean-scratch` options; exit 2 when the
+  fixtures or binary are missing, 1 when any comparison fails.
 
 ### Changed
+- **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
+  build, EPA set `aermet26135_aermod26135`): **142 / 142** POSTFILE
+  comparisons within EPA's ±0.001 slope margin in 323 s (the previous
+  104 / 104 figure was produced against the pre-2026 24142 bundle with no
+  recorded version). Informational cross-version run of the same v26135
+  binary against the `aermet24142_aermod24142` references: 136 / 142, the
+  six misses all GRSM NO2 cases (slopes 0.946–1.117) — EPA's v26135 GRSM
+  changes, not a pyaermod regression — which is why the harness now scores
+  against the reference set matching the binary's version.
 - **Vendored EPA fixtures refreshed to the v26135 archive**
   (`tests/fixtures/epa_official/`; EPA bundle of 2026-07-09, set
   `aermet26135_aermod26135`): `AERTEST_01H.PLT` (data rows byte-identical to
