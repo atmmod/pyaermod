@@ -21,7 +21,7 @@ Annotation (string form)                 Widget
 ``Optional[Union[float, List[float]]]``  ``ui.number`` (clearable) while the
                                          current value is a scalar or ``None``;
                                          text area (one value per line) once it
-                                         is already a list
+                                         already holds a list or tuple
 unknown                                  read-only label (escape hatch)
 =======================================  =========================================
 
@@ -172,37 +172,33 @@ def is_optional_numeric(annotation: Any) -> bool:
     return is_num and allows_none
 
 
-def _scalar_or_list_info_type(tp: Any) -> Tuple[bool, bool]:
-    """``(matches, allows_none)`` for a resolved ``float | List[float] | None``."""
+def _matches_scalar_or_list_type(tp: Any) -> bool:
+    """True for a resolved union admitting a numeric scalar *and* a numeric list."""
     origin = typing.get_origin(tp)
     if origin is not Union and origin is not types.UnionType:
-        return False, False     # a bare ``float`` or ``List[float]`` is not this shape
+        return False     # a bare ``float`` or ``List[float]`` is not this shape
     args = typing.get_args(tp)
     non_none = [a for a in args if a is not type(None)]
     if not all(a in _NUMERIC_TYPES or _is_numeric_list_type(a) for a in non_none):
-        return False, False
+        return False
     if not any(a in _NUMERIC_TYPES for a in non_none):
-        return False, False
-    if not any(_is_numeric_list_type(a) for a in non_none):
-        return False, False
-    return True, len(non_none) < len(args)
+        return False
+    return any(_is_numeric_list_type(a) for a in non_none)
 
 
-def _scalar_or_list_info_str(annotation: str) -> Tuple[bool, bool]:
-    """Structural equivalent of :func:`_scalar_or_list_info_type`."""
+def _matches_scalar_or_list_str(annotation: str) -> bool:
+    """Structural equivalent of :func:`_matches_scalar_or_list_type`."""
     try:
         node = ast.parse(annotation.strip(), mode="eval").body
     except SyntaxError:
-        return False, False
+        return False
     names = _leaf_names(node)
     non_none = [n for n in names if n != "None"]
     if not all(n in ("int", "float", _NUMERIC_LIST_LEAF) for n in non_none):
-        return False, False
+        return False
     if not any(n in ("int", "float") for n in non_none):
-        return False, False
-    if _NUMERIC_LIST_LEAF not in non_none:
-        return False, False
-    return True, "None" in names
+        return False
+    return _NUMERIC_LIST_LEAF in non_none
 
 
 def is_numeric_or_numeric_list(annotation: Any) -> bool:
@@ -218,8 +214,8 @@ def is_numeric_or_numeric_list(annotation: Any) -> bool:
     Accepts a typing object or the string form, like :func:`is_numeric`.
     """
     if isinstance(annotation, str):
-        return _scalar_or_list_info_str(annotation)[0]
-    return _scalar_or_list_info_type(annotation)[0]
+        return _matches_scalar_or_list_str(annotation)
+    return _matches_scalar_or_list_type(annotation)
 
 
 _HINTS_CACHE: dict = {}
@@ -343,8 +339,13 @@ def emit_field(parent, obj: Any, fmeta) -> None:
 
                 ta.on("update:model-value", _save_nums)
             else:
-                # ``value=cur`` rather than 0, plus ``clearable``, so an unset
-                # dimension stays None instead of being written out as 0.00.
+                # ``clearable`` is what gets an unset dimension back to
+                # None, and None is what keeps it out of the deck: the
+                # writer emits the keyword for any non-None value, so a
+                # stray 0.0 would mean a real zero-sized building.
+                # ``value=cur`` only states that intent -- bind_value()
+                # back-syncs obj -> widget at construction, so the
+                # argument itself is inert for the None case.
                 ui.number(
                     label=label, value=cur, format="%.4f",
                 ).props("clearable").bind_value(obj, fname)

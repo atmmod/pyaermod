@@ -147,6 +147,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `Optional`/`Union`, with a structural parser for unresolvable string
     annotations) and is true only when the type *is* `int`/`float`,
     optionally with `None`; list annotations are still dispatched first;
+  - tightening `is_numeric` then made the five building-downwash dimensions
+    (`building_height`, `building_width`, `building_length`,
+    `building_x_offset`, `building_y_offset` on the point/volume/area
+    sources) uneditable: they are `Optional[Union[float, List[float]]]`,
+    which is correctly *not* numeric, and fell through to the read-only-label
+    escape hatch, so a building height could no longer be typed at all.
+    `emit_field` now dispatches these on the current value — a number box
+    (clearable) while the field holds a scalar or nothing, the one-per-line
+    list editor once it holds a 36-sector vector — so neither shape is
+    thrown away. Clearing either widget stores `None` rather than `0.0` or
+    `[]`: the writer emits the keyword for any non-`None` value, and an
+    empty list is rejected as "not 36 values";
   - `Optional[str]` fields (e.g. `OutputPathway.summary_file`) were rendered
     as read-only labels instead of text inputs.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full

@@ -610,6 +610,10 @@ class TestBuildingDimensionWidgets:
             emit_form(ui.column(), src, fields=["building_width"])
         num = _by_id(gui.user.find(kind=ui.number, content="building width").elements)
         assert num.value == 12.5
+        # ``clearable`` is the only way back to None from the UI, and None
+        # is the only value the writer omits -- without the prop a typed-in
+        # dimension could never be taken back out of the deck.
+        assert num._props.get("clearable") is True
         # Clearing must store None, not 0.0: _building_downwash_lines()
         # emits BUILDWID for anything that is not None.
         gui.user.find(kind=ui.number, content="building width").clear()
