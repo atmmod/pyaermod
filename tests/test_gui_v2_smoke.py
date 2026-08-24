@@ -25,9 +25,17 @@ from pathlib import Path
 
 import pytest
 
-# The ``user_simulation`` context manager / ``ElementFilter(local_scope=)``
-# used below are NiceGUI 3.x APIs; the app itself only needs the 2.0 floor.
-pytest.importorskip("nicegui", minversion="3.0")
+# The ``user_simulation`` context manager and ``ElementFilter(local_scope=)``
+# used below both landed in NiceGUI 3.4.0 -- ``nicegui.testing.user_simulation``
+# does not exist in 3.0-3.3.1. The *library* needs neither (nothing under
+# src/ imports nicegui.testing), so the package floor stays at >=3.0 and this
+# module skips instead: a bare minversion="3.0" guard let the min-deps leg
+# past it and then died importing the missing module at collection time.
+pytest.importorskip("nicegui", minversion="3.4.0")
+pytest.importorskip(
+    "nicegui.testing.user_simulation",
+    reason="NiceGUI >=3.4.0 provides the user_simulation test harness",
+)
 pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 from nicegui import Client, ElementFilter, ui  # noqa: E402

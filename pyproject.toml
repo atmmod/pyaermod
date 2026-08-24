@@ -109,7 +109,11 @@ pyaermod = ["py.typed"]
 [tool.mypy]
 # Advisory configuration as of v1.5; ratchet toward strict mode over
 # time. The baseline error count is published in CI logs.
-python_version = "3.11"
+# No python_version pin: mypy targets whatever interpreter runs it. Pinning
+# 3.11 while the gate runs on the 3.12 CI leg made mypy reject numpy 2.5's
+# own stubs ("Type statement is only supported in Python 3.12 and greater"),
+# which aborts the run before any of our code is checked. The installed
+# numpy always matches the interpreter, so following it keeps the two in step.
 ignore_missing_imports = true
 warn_unused_configs = true
 warn_redundant_casts = true

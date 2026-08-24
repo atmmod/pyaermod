@@ -161,6 +161,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ezdxf`, ...) surface errors that `ignore_missing_imports` hides when they
   are absent, so a partial install reports a different count (the gate's
   failure message says so; `make typecheck` pins the same mypy as CI).
+  The baseline is **78**, and it is only meaningful measured on that leg.
+  There is deliberately no `python_version` pin: pinning 3.11 while the gate
+  runs on 3.12 made mypy reject numpy 2.5's own stubs (`Type statement is
+  only supported in Python 3.12 and greater`) and abort before checking any
+  project code. The count is dependency-sensitive too — numpy 2.5 types
+  `ArrayLike` precisely enough to surface nine further errors in
+  `geospatial.py` and `visualization.py` that numpy 2.4 did not — so a
+  baseline measured on an older local environment understates it, which is
+  how it was first committed nine too low.
 - **Honest dependency floors, validated in CI.** The optional-extra lower
   bounds in `pyproject.toml` were aspirational (`geopandas>=0.10` predates
   shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
@@ -170,8 +179,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nicegui>=3.0` (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`
   unchanged). `requests>=2.32` is forced by nicegui — even nicegui 2.0.0
   requires `requests>=2.32.0`, so the previous `[all]` floor set was not
-  co-installable at all — and `nicegui>=3.0` is the line the headless GUI
-  smoke tests exercise (2.x was never meaningfully tested). The requests
+  co-installable at all — and `nicegui>=3.0` is the line the GUI itself
+  needs (nothing under `src/` imports `nicegui.testing`). The headless smoke
+  tests do *not* exercise that floor: `user_simulation` and
+  `ElementFilter(local_scope=)` only landed in NiceGUI 3.4.0, so
+  `tests/test_gui_v2_smoke.py` skips below it rather than claiming coverage
+  it does not have — the min-deps leg caught the original `minversion="3.0"`
+  guard letting collection through and then failing on the missing module.
+  The requests
   floor lands on `2.32.2` rather than `2.32.0` because 2.32.0 and 2.32.1
   are yanked on PyPI ("Yanked due to conflicts with CVE-2024-35195
   mitigation"): the exact pin in `min-constraints.txt` made the `min-deps`
