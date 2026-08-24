@@ -26,7 +26,20 @@ from pyaermod.regulatory_parity import (
 )
 from pyaermod.runner import AERMODRunner
 
-from .conftest import EPA_INPUTS_DIR, EPA_MET_DIR, EPA_REF_PST_DIR
+from .conftest import (
+    EPA_INPUTS_DIR,
+    EPA_MET_DIR,
+    EPA_REF_PST_DIR,
+    EPA_SET_NAME,
+    fixtures_ready,
+    missing_reason,
+)
+
+# Skip the whole module — parametrisation included — when the fixtures or
+# the AERMOD binary are absent. (A ``pytestmark`` assigned inside
+# conftest.py is inert: pytest only honours pytestmark in test modules.)
+if not fixtures_ready():
+    pytest.skip(missing_reason(), allow_module_level=True)
 
 
 def _discover_input_decks() -> list[str]:
@@ -40,11 +53,18 @@ def _discover_input_decks() -> list[str]:
 # is for CI-on-demand / nightly runs, not push CI. Per-deck timeout 300s.
 _DECK_TIMEOUT = 300
 
+_DECKS = _discover_input_decks()
 
-@pytest.mark.parametrize("deck_name", _discover_input_decks())
-def test_epa_case_parity(deck_name, epa_testcase_dir, aermod_binary, tmp_path):
+
+# Test IDs carry the reference-set name so a report line such as
+# ``test_epa_case_parity[aermet26135_aermod26135/aertest.inp]`` records
+# exactly which EPA references the run was scored against.
+@pytest.mark.parametrize(
+    "deck_name", _DECKS, ids=[f"{EPA_SET_NAME}/{d}" for d in _DECKS],
+)
+def test_epa_case_parity(deck_name, epa_testcase_dir, aermod_binary, scratch):
     """Run one EPA test deck through AERMOD; score every PST emitted."""
-    work = tmp_path / deck_name.replace(".inp", "")
+    work = scratch / deck_name.replace(".inp", "")
     work.mkdir()
     (work / "inputs").mkdir()
     (work / "meteorology").mkdir()
@@ -120,7 +140,7 @@ _MULTYEAR_CHAIN = [
 ]
 
 
-def test_epa_multyear_pm10_chain(epa_testcase_dir, aermod_binary, tmp_path):
+def test_epa_multyear_pm10_chain(epa_testcase_dir, aermod_binary, scratch):
     """Run the 5-year MULTYEAR PM-10 chain and score the final POSTFILE.
 
     MULTYEAR decks share a working directory across runs — each year reads
@@ -128,7 +148,7 @@ def test_epa_multyear_pm10_chain(epa_testcase_dir, aermod_binary, tmp_path):
     ``TESTPM10_MULTYR_01H.PST`` is appended by every year's run; we score
     it once after the final year completes.
     """
-    work = tmp_path / "multyear_pm10"
+    work = scratch / "multyear_pm10"
     work.mkdir()
     (work / "inputs").mkdir()
     (work / "meteorology").mkdir()

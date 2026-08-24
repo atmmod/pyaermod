@@ -162,4 +162,4 @@ MIT
 
 ## Disclaimer
 
-PyAERMOD is a wrapper around AERMOD, not a reimplementation. It uses official EPA binaries for all calculations and maintains regulatory acceptance. Always validate results against EPA test cases for your specific use case.
+PyAERMOD is a wrapper around AERMOD, not a reimplementation. It uses official EPA binaries for all calculations and maintains regulatory acceptance. PyAERMOD is validated against EPA AERMOD v26135 / AERMET v26135 (EPA reference archives of 2026-07-09) — a gfortran build driven by pyaermod reproduces EPA's AERTEST plotfile bit-for-bit and every POSTFILE in EPA's test suite within EPA's own tolerance (see [docs/validation.md](docs/validation.md)); v24142 remains supported for cross-version regression. Always validate results against EPA test cases for your specific use case.

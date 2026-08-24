@@ -26,6 +26,39 @@ gpd = pytest.importorskip("geopandas")
 from pyaermod.source_importers import from_dxf, from_shapefile  # noqa: E402
 
 
+def _write_shapefile(gdf, out: Path) -> Path:
+    """``gdf.to_file`` with a fallback for a known environment quirk.
+
+    With some pyproj/fiona builds, geopandas' writer fails while coverage
+    tracing is active (``ValueError: Invalid value supplied
+    'WktVersion.WKT2_2019'`` from the CRS export); reading is unaffected.
+    The importers under test do not read the CRS, so in that case the
+    layer is written through fiona directly, without a ``.prj``, rather
+    than skipping the test and losing the shapefile coverage.
+    """
+    try:
+        gdf.to_file(out)
+        return out
+    except ValueError as exc:
+        if "WktVersion" not in str(exc):
+            raise
+    import fiona
+    from shapely.geometry import mapping
+
+    attrs = [c for c in gdf.columns if c != "geometry"]
+    schema = {
+        "geometry": gdf.geometry.iloc[0].geom_type,
+        "properties": {c: ("str" if gdf[c].dtype == object else "float") for c in attrs},
+    }
+    with fiona.open(out, "w", driver="ESRI Shapefile", schema=schema) as dst:
+        for _, row in gdf.iterrows():
+            dst.write({
+                "geometry": mapping(row.geometry),
+                "properties": {c: row[c] for c in attrs},
+            })
+    return out
+
+
 @pytest.fixture
 def point_shp(tmp_path):
     """Create a minimal shapefile with 3 point sources.
@@ -47,7 +80,7 @@ def point_shp(tmp_path):
         crs="EPSG:32619",
     )
     out = tmp_path / "stacks.shp"
-    gdf.to_file(out)
+    _write_shapefile(gdf, out)
     return out
 
 
@@ -60,7 +93,7 @@ def polygon_shp(tmp_path):
         {"source_id": ["AREA1"], "geometry": [poly]}, crs="EPSG:32619",
     )
     out = tmp_path / "area.shp"
-    gdf.to_file(out)
+    _write_shapefile(gdf, out)
     return out
 
 
@@ -73,7 +106,7 @@ def line_shp(tmp_path):
         {"source_id": ["RD1"], "geometry": [line]}, crs="EPSG:32619",
     )
     out = tmp_path / "line.shp"
-    gdf.to_file(out)
+    _write_shapefile(gdf, out)
     return out
 
 
@@ -99,7 +132,7 @@ class TestShapefile:
             {"geometry": [Point(0, 0), Point(1, 0)]}, crs="EPSG:32619",
         )
         out = tmp_path / "noid.shp"
-        gdf.to_file(out)
+        _write_shapefile(gdf, out)
         sources = from_shapefile(out)
         assert len(sources) == 2
         # Synthesized IDs follow SRC0000-style pattern
@@ -134,7 +167,7 @@ class TestShapefile:
             crs="EPSG:32619",
         )
         out = tmp_path / "renamed.shp"
-        gdf.to_file(out)
+        _write_shapefile(gdf, out)
         # Note: shapefile column names truncate to 10 chars but the
         # values still come through under the original names.
         sources = from_shapefile(
@@ -148,14 +181,24 @@ class TestShapefile:
 
 
 # ---------------------------------------------------------------------
-# DXF importer tests (skipped if ezdxf missing)
+# DXF importer tests (skipped if ezdxf missing).
+#
+# The skip is scoped to TestDxfImporter via a class-scoped fixture — a
+# module-level ``pytest.importorskip("ezdxf")`` here used to skip the
+# whole file, including the shapefile tests above, whenever ezdxf alone
+# was absent.
 # ---------------------------------------------------------------------
 
-ezdxf = pytest.importorskip("ezdxf")
+
+@pytest.fixture(scope="class")
+def ezdxf():
+    """The ``ezdxf`` module; skips the requesting class when it is not installed."""
+    return pytest.importorskip("ezdxf")
 
 
 def _make_dxf(tmp_path: Path, build_fn):
     """Create a fresh DXF and yield its modelspace; return file path."""
+    import ezdxf  # importable here: callers sit under the class-scoped ``ezdxf`` fixture
     doc = ezdxf.new()
     msp = doc.modelspace()
     build_fn(msp)
@@ -164,6 +207,7 @@ def _make_dxf(tmp_path: Path, build_fn):
     return out
 
 
+@pytest.mark.usefixtures("ezdxf")
 class TestDxfImporter:
     def test_point_import(self, tmp_path):
         def build(msp):

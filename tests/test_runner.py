@@ -4,6 +4,7 @@ Unit tests for PyAERMOD runner
 Tests the runner infrastructure without requiring a real AERMOD binary.
 """
 
+import logging
 import os
 import tempfile
 from datetime import datetime
@@ -331,6 +332,63 @@ class TestExtractErrorMessage:
         }
         msg = runner._extract_error_message(proc, output_files)
         assert "FATAL" in msg
+
+    def test_output_file_fatal_line_survives_non_utf8_bytes(self, tmp_path):
+        """A Latin-1 byte in the .out must not hide the FATAL diagnostic.
+
+        AERMOD writes Latin-1 (e.g. a degree sign in the banner); before
+        this was handled, the UnicodeDecodeError was swallowed and the
+        caller only saw "AERMOD failed with return code N".
+        """
+        runner = self._make_runner(tmp_path)
+        out_file = tmp_path / "run.out"
+        out_file.write_bytes(
+            b" *** AERMOD - VERSION 26135 *** temp 20\xb0C\n"
+            b" *** FATAL ERROR: missing SURFFILE \xe9 ***\n"
+            b"\xff\xfe trailing garbage\n"
+        )
+
+        proc = CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+        output_files = {
+            "error": tmp_path / "nope.err",
+            "output": out_file,
+        }
+        msg = runner._extract_error_message(proc, output_files)
+        assert "FATAL ERROR: missing SURFFILE" in msg
+        assert "return code" not in msg
+
+    def test_error_file_survives_non_utf8_bytes(self, tmp_path):
+        """Same guarantee for the .err file."""
+        runner = self._make_runner(tmp_path)
+        err_file = tmp_path / "run.err"
+        err_file.write_bytes(b"E101 \xb0 ** FATAL ** met file not found\n")
+
+        proc = CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+        output_files = {
+            "error": err_file,
+            "output": tmp_path / "nope.out",
+        }
+        msg = runner._extract_error_message(proc, output_files)
+        assert "Error file:" in msg
+        assert "met file not found" in msg
+
+    def test_unreadable_files_are_logged_not_swallowed(self, tmp_path, caplog):
+        """An OSError reading .err/.out falls back to the return code and logs why."""
+        runner = self._make_runner(tmp_path)
+        # Directories pass the .exists() check but raise IsADirectoryError on open().
+        err_dir = tmp_path / "run.err"
+        out_dir = tmp_path / "run.out"
+        err_dir.mkdir()
+        out_dir.mkdir()
+
+        proc = CompletedProcess(args=[], returncode=7, stdout="", stderr="")
+        output_files = {"error": err_dir, "output": out_dir}
+        with caplog.at_level(logging.DEBUG, logger="pyaermod.runner"):
+            msg = runner._extract_error_message(proc, output_files)
+        assert "return code 7" in msg
+        debug_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("Could not read AERMOD error file" in m for m in debug_messages)
+        assert any("Could not read AERMOD output file" in m for m in debug_messages)
 
     def test_no_messages_fallback(self, tmp_path):
         """Fallback message when no specific error source is available."""

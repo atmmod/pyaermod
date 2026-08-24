@@ -14,25 +14,37 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from pyaermod.epa_testcases import ENV_VAR, find_epa_testcase_set
 from pyaermod.output_parser import parse_aermod_output
 from pyaermod.postfile import read_postfile
 
-# Root path to EPA test case data
-TEST_DATA_ROOT = (
-    Path(__file__).resolve().parent.parent
-    / "test_cases"
-    / "aermet_24142_aermod_24142"
-)
+# Root path to EPA test case data. The values asserted below come from
+# EPA's AERMOD 24142 outputs, so that set is requested explicitly (both
+# EPA naming conventions are accepted; $PYAERMOD_EPA_TESTCASES overrides).
+_REFERENCE_AERMOD_VERSION = "24142"
+_EPA_ROOT = Path(__file__).resolve().parent.parent / "test_cases"
+EPA_SET = find_epa_testcase_set(_EPA_ROOT, aermod_version=_REFERENCE_AERMOD_VERSION)
+TEST_DATA_ROOT = EPA_SET.path if EPA_SET else _EPA_ROOT / "aermet_24142_aermod_24142"
 OUTPUTS = TEST_DATA_ROOT / "Outputs"
 POSTFILES = TEST_DATA_ROOT / "postfiles"
 PLOTFILES = TEST_DATA_ROOT / "plotfiles"
+
+_DATA_AVAILABLE = (
+    EPA_SET is not None
+    and EPA_SET.exists()
+    and EPA_SET.aermod_version == _REFERENCE_AERMOD_VERSION
+)
 
 # Skip all tests in this module if test data is missing;
 # also mark as slow so they are excluded from default runs.
 pytestmark = [
     pytest.mark.skipif(
-        not TEST_DATA_ROOT.exists(),
-        reason=f"EPA test case directory not found: {TEST_DATA_ROOT}",
+        not _DATA_AVAILABLE,
+        reason=(
+            f"EPA v{_REFERENCE_AERMOD_VERSION} test case directory not found under "
+            f"{_EPA_ROOT} (override with ${ENV_VAR}); "
+            f"found: {EPA_SET.describe() if EPA_SET else 'none'}"
+        ),
     ),
     pytest.mark.slow,
 ]

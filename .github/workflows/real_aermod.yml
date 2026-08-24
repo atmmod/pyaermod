@@ -23,6 +23,9 @@ on:
 jobs:
   aertest:
     runs-on: ubuntu-latest
+    # Downloads EPA source over gaftp (flaky, retried) and compiles it; cap
+    # the job so a stalled fetch cannot sit on a runner for the 6 h default.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
