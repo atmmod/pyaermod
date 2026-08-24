@@ -42,8 +42,15 @@ jobs:
         # The pin below must move together with the baseline (different
         # mypy releases report different counts). The count also depends on
         # which optional extras are importable — typed packages (nicegui,
-        # ezdxf, ...) surface errors that ignore_missing_imports hides — so
-        # measure the baseline in an environment with `.[dev,all]` installed.
+        # ezdxf, ...) surface errors that ignore_missing_imports hides — and
+        # on their versions: numpy 2.5 types ArrayLike far more precisely
+        # than 2.4 did, which alone accounts for nine errors in geospatial.py
+        # and visualization.py. So the baseline is only meaningful measured
+        # exactly here: this leg's Python, `.[dev,all]`, and the mypy pinned
+        # below. Measuring it on an older local environment understates it,
+        # which is how it was first committed nine too low. Note there is
+        # deliberately no python_version pin in [tool.mypy]: pinning 3.11
+        # while this leg runs 3.12 made mypy reject numpy 2.5's own stubs.
         if: matrix.python-version == '3.12'
         run: |
           pip install --quiet "mypy==2.3.1"
