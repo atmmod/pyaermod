@@ -24,11 +24,12 @@ All files are products of U.S. EPA and are in the public domain.
 
 `tests/test_real_aermod.py` runs `aertest.inp` through a real AERMOD
 binary and compares every receptor against `AERTEST_01H.PLT`. With a
-gfortran -O2 build of AERMOD v26135 all 144 receptors match bit-for-bit;
-because the 26135 and 24142 plotfile data rows are identical, the same
-check holds for a 24142 build. See `src/pyaermod/versions.py` for what
-"validated" means project-wide and `docs/validation.md` for the
-full-suite parity report.
+gfortran -O2 build of AERMOD v26135 all 144 receptors match bit-for-bit.
+Refreshing this plotfile to 26135 changed only its two banner lines — the
+data rows a 24142 build would be checked against are byte-identical — but
+a 24142 build has not been re-run against it. See
+`src/pyaermod/versions.py` for what "validated" means project-wide and
+`docs/validation.md` for the full-suite parity report.
 
 ## Full archive
 

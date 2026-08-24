@@ -176,8 +176,9 @@ class TestFullArchive:
     def _collect_inputs(self):
         return sorted(_FULL_SET.inputs.glob("*.inp"))
 
-    # Gate: all 138 EPA cases must parse. Last measured baseline:
-    # 138/138 = 100% (v1.5 reader, after FLAT-source + explicit-DIST fixes).
+    # Gate: every deck in the resolved set must parse. Last measured:
+    # 53/53 = 100% on the 2026 bundle (aermet26135_aermod26135; the decks
+    # are byte-identical across its three reference sets).
     PARSE_RATE_FLOOR = 1.00
 
     def test_parse_rate_meets_floor(self):
