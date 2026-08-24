@@ -2,7 +2,8 @@
 PyAERMOD Output File Parser
 
 Parses AERMOD output files (.out) and converts results to pandas DataFrames.
-Based on AERMOD version 24142 output format specifications.
+Based on AERMOD version 26135 output format specifications (validated against
+26135 and 24142; see :mod:`pyaermod.versions`).
 """
 
 import contextlib
@@ -14,6 +15,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+from .versions import VALIDATED_AERMOD_VERSIONS, is_validated_aermod_version
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +185,16 @@ class AERMODOutputParser:
         version_match = re.search(r'AERMOD\s*-\s*VERSION\s*[:\s]*(\d+)', self.content)
         if version_match:
             run_info.version = version_match.group(1)
+            if not is_validated_aermod_version(run_info.version):
+                # One warning per parse: the format may still read fine,
+                # but nothing in the test suite has checked this release.
+                logger.warning(
+                    "AERMOD output %s was produced by version %s, which pyaermod "
+                    "has not been validated against (validated: %s); parsed "
+                    "results may need checking.",
+                    self.output_file, run_info.version,
+                    ", ".join(VALIDATED_AERMOD_VERSIONS),
+                )
 
         # Job name
         jobname_match = re.search(r'Jobname:\s*(.+)', self.content)
@@ -527,9 +540,28 @@ class AERMODOutputParser:
         #
         # For EPA SUM, the section header is on one line, so we match
         # [^\n]* instead of .*? to avoid spanning across *** boundaries.
+        #
+        # The period pattern must not start inside a longer number:
+        # without the lookbehind, "24-HR" also satisfies the 4-HR pattern
+        # and a phantom 4HR result (a copy of the 24-HR table) appears.
+        anchored = rf'(?<![0-9])(?:{pattern})'
+
+        # Fast path. Both section patterns below require `anchored` to match
+        # somewhere, so if the period token is absent neither can match and
+        # the answer is None. Checking that first is a single linear scan and
+        # is exactly equivalent — but skipping it is ruinous: the second
+        # pattern's three DOTALL `.*?` spans backtrack from every `***` in the
+        # file to EOF, and `parse()` tries all eleven period patterns against
+        # every output. On EPA's 2.3 MB `allsrcs.out` a single absent period
+        # costs ~291 s in that second pattern (the first costs 0.014 s), so
+        # `tests/test_epa_cases.py` never finished on the .out files. With the
+        # guard the whole file parses in about half a second.
+        if not re.search(anchored, self.content, re.DOTALL | re.IGNORECASE):
+            return None
+
         section_patterns = [
-            rf'\*\*\*[^\n]*{pattern}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
-            rf'\*\*\*.*?{pattern}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
+            rf'\*\*\*[^\n]*{anchored}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
+            rf'\*\*\*.*?{anchored}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
         ]
 
         table_text = None

@@ -426,7 +426,8 @@ for error in errors:
 
 ## AERMOD Keywords Supported
 
-Based on AERMOD version 24142:
+Based on AERMOD version 26135 (full keyword-by-keyword audit against the
+v26135 Fortran source in [`keyword-audit-v26135.md`](keyword-audit-v26135.md)):
 
 ### Control Pathway (CO)
 
@@ -464,7 +465,7 @@ EVENTPER, EVENTLOC
 PyAERMOD includes comprehensive testing validated against official EPA data:
 
 - **1600+ unit and integration tests** with 97%+ code coverage
-- **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.)
+- **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.), plus the full EPA test-suite parity run against AERMOD v26135 / AERMET v26135 reported in [`validation.md`](validation.md)
 - End-to-end pipeline tests chaining input generation through visualization
 
 ## Next Steps

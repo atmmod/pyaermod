@@ -30,6 +30,7 @@ from typing import List
 import pytest
 
 from pyaermod import PollutantType, TerrainType, read_plotfile
+from pyaermod.epa_testcases import find_epa_testcase_set
 from pyaermod.input_reader import read_aermod_input
 
 FIXT = Path(__file__).parent / "fixtures" / "epa_official"
@@ -146,17 +147,22 @@ class TestAertestSum:
 # Opt-in: tests against the full EPA archive (populated by download_all.py)
 # ---------------------------------------------------------------------------
 
+# The archive's set directory is located through the shared resolver so
+# both EPA naming conventions (aermet_24142_aermod_24142 and
+# aermet26135_aermod26135) work and the newest validated set is preferred.
+_FULL_SET = find_epa_testcase_set(FULL, env={})
+
+
 def _full_archive_present() -> bool:
-    candidates = [
-        FULL / "aermet_24142_aermod_24142",
-        FULL / "aermet_23132_aermod_23132",
-    ]
-    return any(p.exists() for p in candidates)
+    return _FULL_SET is not None and _FULL_SET.exists()
 
 
 @pytest.mark.skipif(
     not _full_archive_present(),
-    reason="Full EPA archive not downloaded; run download_all.py to populate",
+    reason=(
+        "Full EPA archive not downloaded; run download_all.py to populate "
+        f"(looked for aermet*_aermod* sets under {FULL})"
+    ),
 )
 class TestFullArchive:
     """Runs against every .inp file in the full archive.
@@ -168,13 +174,11 @@ class TestFullArchive:
     """
 
     def _collect_inputs(self):
-        root = FULL / "aermet_24142_aermod_24142" / "inputs"
-        if not root.exists():
-            root = FULL / "aermet_23132_aermod_23132" / "inputs"
-        return sorted(root.glob("*.inp"))
+        return sorted(_FULL_SET.inputs.glob("*.inp"))
 
-    # Gate: all 138 EPA cases must parse. Last measured baseline:
-    # 138/138 = 100% (v1.5 reader, after FLAT-source + explicit-DIST fixes).
+    # Gate: every deck in the resolved set must parse. Last measured:
+    # 53/53 = 100% on the 2026 bundle (aermet26135_aermod26135; the decks
+    # are byte-identical across its three reference sets).
     PARSE_RATE_FLOOR = 1.00
 
     def test_parse_rate_meets_floor(self):

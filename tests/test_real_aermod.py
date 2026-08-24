@@ -15,7 +15,8 @@ Skips if `aermod` isn't on PATH. When it's present, this module:
 Step 4's full-field comparison is the regulatory-grade check: it proves
 pyaermod drives the real AERMOD Fortran to reproduce EPA's own published
 concentrations, not merely that a run completes. The reference file was
-produced by EPA with AERMOD 24142; a gfortran -O2 build of the same EPA
+produced by EPA with AERMOD 26135 (its data rows are identical to the
+24142 release's); a gfortran -O2 build of the same EPA
 source reproduces all 144 AERTEST receptors bit-for-bit (to the 5 decimal
 places the PLT format carries), so the tolerance below is tight with only
 modest headroom for cross-compiler last-digit rounding.
@@ -75,9 +76,14 @@ def _prepare_workdir(work: Path) -> Path:
     shutil.copy(FIXT / "AERMET2.PFL", work / "AERMET2.PFL")
     text = (FIXT / "aertest.inp").read_text(encoding="utf-8")
     # Flatten every relative path that assumed the EPA archive layout.
+    # EPA's 26135 archive spells the met files in lower case
+    # (aermet2.sfc); the vendored copies keep the upper-case names, which
+    # matters on case-sensitive filesystems (Linux CI).
     replacements = {
         "../meteorology/AERMET2.SFC": "AERMET2.SFC",
         "../meteorology/AERMET2.PFL": "AERMET2.PFL",
+        "../meteorology/aermet2.sfc": "AERMET2.SFC",
+        "../meteorology/aermet2.pfl": "AERMET2.PFL",
         "../Outputs/AERTEST_ERRORS.OUT": "AERTEST_ERRORS.OUT",
         "../Outputs/AERTEST.SUM": "AERTEST.SUM",
         "../plotfiles/AERTEST_01H.PLT": "AERTEST_01H.PLT",

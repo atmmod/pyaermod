@@ -2,8 +2,9 @@
 EPA AERMOD test-suite parity helpers.
 
 Used to score a pyaermod-produced POSTFILE against an EPA reference
-POSTFILE from the bundled AERMOD test-case distribution
-(``test_cases/aermet_24142_aermod_24142/postfiles/*.PST``).
+POSTFILE from EPA's AERMOD test-case distribution
+(``test_cases/aermet<M>_aermod<A>/postfiles/*.PST``; validated against
+AERMOD 26135 and 24142 — see :mod:`pyaermod.versions`).
 
 The scoring metric is the **best-fit slope** of paired
 (reference, candidate) concentrations through the origin, matching
@@ -24,9 +25,19 @@ from typing import Union
 import pandas as pd
 
 from .postfile import read_postfile
+from .versions import VALIDATED_AERMET_VERSIONS, VALIDATED_AERMOD_VERSIONS
 
 #: EPA's published margin of error on best-fit slope (Compare_AERMOD_test_cases.R).
 DEFAULT_SLOPE_TOLERANCE: float = 0.001
+
+__all__ = [
+    "DEFAULT_SLOPE_TOLERANCE",
+    "VALIDATED_AERMET_VERSIONS",
+    "VALIDATED_AERMOD_VERSIONS",
+    "ParityScore",
+    "passes_parity",
+    "score_postfile_pair",
+]
 
 
 @dataclass

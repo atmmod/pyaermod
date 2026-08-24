@@ -30,8 +30,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asserts the extracted receptor elevations match the closed-form plane at
   on-node receptors (max deviation 0 with a gfortran build). Independent
   numeric ground truth, fully self-contained (no vendored DEM, no downloads).
+- **Validated-version declarations** — `pyaermod.versions.VALIDATED_AERMOD_VERSIONS`
+  / `VALIDATED_AERMET_VERSIONS` (`("26135", "24142")`, newest first; exported
+  from the package API and `regulatory_parity`) state exactly which EPA
+  releases the bit-exact AERTEST regression and the full test-suite parity
+  have been run against. `AERMODOutputParser` now logs one warning when an
+  output file was produced by a release outside that list.
+- **EPA reference-set resolver** — `pyaermod.epa_testcases.find_epa_testcase_set`
+  locates EPA's unpacked test-case sets under `test_cases/` accepting both
+  naming conventions (`aermet_24142_aermod_24142` and the July-2026 bundle's
+  `aermet24142_aermod24142` / `aermet24142_aermod26135` /
+  `aermet26135_aermod26135`), honours `$PYAERMOD_EPA_TESTCASES`, and prefers
+  the set whose AERMOD version matches the `aermod` binary on PATH
+  (`aermod_binary_version`, from `aermod --help`), then the newest validated
+  release. `tests/regulatory/`, `tests/test_epa_cases.py`,
+  `tests/test_real_cases.py`, `tests/test_regression_epa_official.py` and
+  `scripts/run_epa_parity.py` all resolve through it; regulatory test IDs now
+  carry the set name (`[aermet26135_aermod26135/aertest.inp]`).
+- **Parity report provenance** — `scripts/run_epa_parity.py` now stamps a
+  Provenance table into `docs/validation.md`: AERMOD version (parsed from
+  the `*** AERMOD - VERSION NNNNN ***` banner of a produced `.out`, falling
+  back to `aermod --help`), binary path, `gfortran --version`, the EPA
+  reference set, pyaermod version, git SHA (`-dirty` when applicable),
+  platform and UTC timestamp. New `--testcase-dir` (or
+  `$PYAERMOD_EPA_TESTCASES`) and `--clean-scratch` options; exit 2 when the
+  fixtures or binary are missing, 1 when any comparison fails.
+- **Scheduled EPA parity CI** — `epa_parity.yml` now runs weekly (Tuesday
+  07:00 UTC, staggered from the Monday real-binary smokes) as well as on
+  dispatch (archive URL inputs optional, defaulting to the canonical SCRAM
+  URLs — the old default pointed at a non-existent `aermod_testcases.zip`).
+  It compiles EPA's current AERMOD, fetches both EPA test-case archives via
+  `scripts/fetch_epa_source.sh`, unpacks only the sets the suite needs (the
+  set matching the compiled AERMOD version for parity, the 24142 set for the
+  parser regressions, `aermet_def_testcases_24142` for the AERMET parsers —
+  each AERMOD set is ~3.5 GB unpacked) and caches the unpacked trees with
+  `actions/cache` (key = URLs + upstream ETag/Last-Modified + AERMOD
+  version + salt; saved right after unpacking so a later failure keeps the
+  cache). It runs `tests/regulatory`, `tests/test_epa_cases.py`,
+  `tests/test_real_cases.py`, `tests/test_real_aermet.py` and
+  `scripts/run_epa_parity.py`, fails if any test fails, if the fixture-gated
+  tests all skipped, or if any deck leaves tolerance, and uploads the
+  regenerated `docs/validation.md` as an artifact (never auto-commits).
+  Before the cache is saved, a prune step cuts each unpacked tree down to
+  the directories some test in this repo actually opens — resolved with the
+  same `find_epa_testcase_set` the tests use, so it cannot drift from them:
+  `inputs/`, `meteorology/`, `postfiles/` of the parity set, `Outputs/`,
+  `postfiles/`, `plotfiles/` of the 24142 set (a set filling both roles
+  keeps the union), and `output_files/` + `salem/` of
+  `aermet_def_testcases_24142`. The 24142 set also keeps `inputs/`, which
+  no test reads but `EPATestCaseSet.exists()` requires — without it the set
+  survives on disk yet drops out of `find_epa_testcase_set`, so
+  `tests/test_epa_cases.py` and `tests/test_real_cases.py` skip and the
+  all-skipped guard fails the job (11 MB). What the prune actually reclaims
+  in CI is the AERMET raw example datasets whose products are already in
+  `output_files/` (873 MB → 174 MB, ~90 % of the saving) plus the Windows
+  `.bat`/`.exe` runners and the empty `rdata/` drop boxes: **7.91 GB →
+  7.14 GB, 770 MB (9.7 %) freed**. The clauses dropping EPA's `plots_*/`
+  comparison images and R driver scripts are defence for a local full
+  unpack only — CI's selective `unzip` never extracts them, so they
+  contribute 0 MB of that total. Afterwards the step re-checks every kept
+  directory *and* re-resolves both sets through `find_epa_testcase_set`,
+  failing the job before the save if one came out missing, empty, or no
+  longer resolvable. The regulatory harness also deletes each
+  deck's staged scratch (~40 MB) in a fixture finalizer. The three
+  real-binary smoke workflows gained `timeout-minutes: 30` (`epa_parity`
+  already had 120) so a stalled gaftp fetch cannot hold a runner for the
+  six-hour default.
+- **AERMOD v26135 keyword audit** — `docs/keyword-audit-v26135.md` compares
+  the 122-entry keyword table in EPA's v26135 `modules.f` (and the
+  per-pathway `KEYWRD .EQ.` dispatch) against `input_reader.py`: per
+  pathway, handled+tested / handled+untested / unhandled lists, the reader's
+  MODELOPT and source-type coverage, and five follow-ups (`MAXIFILE`
+  argument order, RLINEXT/AREAPOLY/BUOYLINE not constructed, `GRIDPOLR`
+  heuristics, the undelivered `unparsed_lines` promise). All 53 decks in the
+  v26135 archive parse. `tests/test_input_reader.py` gains parametrised
+  one-line decks for every previously untested branch and a pass-through
+  test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
+  99.8 % (the one remaining line is an unreachable guard).
 
 ### Changed
+- **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
+  build, EPA set `aermet26135_aermod26135`): **142 / 142** POSTFILE
+  comparisons within EPA's ±0.001 slope margin in 323 s (the previous
+  104 / 104 figure was produced against the pre-2026 24142 bundle with no
+  recorded version). Informational cross-version run of the same v26135
+  binary against the `aermet24142_aermod24142` references: 136 / 142, the
+  six misses all GRSM NO2 cases (slopes 0.946–1.117) — EPA's v26135 GRSM
+  changes, not a pyaermod regression — which is why the harness now scores
+  against the reference set matching the binary's version.
+- **Vendored EPA fixtures refreshed to the v26135 archive**
+  (`tests/fixtures/epa_official/`; EPA bundle of 2026-07-09, set
+  `aermet26135_aermod26135`): `AERTEST_01H.PLT` (data rows byte-identical to
+  the 24142 file; only the two banner lines differ), `aertest.inp`
+  (whitespace and lower-case met filenames only), `AERMET2.SFC`/`.PFL`
+  (values identical; AERMET 26135 writes four-digit years). `AERTEST.SUM`
+  deliberately stays at 24142 (the 26135 summary prints `**` in its
+  two-digit year column). `tests/test_real_aermod.py` passes bit-exact
+  against a gfortran build of AERMOD v26135. Version notes in module
+  docstrings, README and docs now say 26135 (AERMAP stays 24142 — EPA's
+  current AERMAP source is still `aermap_source_code_24142`; the GRSM note
+  records that v26135 drops its BETA flag while it remains non-DFAULT).
 - **Library code no longer prints.** `import pyaermod` is now silent: the
   `Warning: folium not installed. Interactive maps unavailable.` (and the
   matching matplotlib) line that `pyaermod.visualization` wrote to stdout on
@@ -123,6 +221,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **EPA fixture tests skipped silently after EPA renamed the archive sets.**
+  `tests/test_epa_cases.py` looked only at a hard-coded Dropbox path, and
+  `tests/regulatory/` plus `tests/test_real_cases.py` at the pre-2026
+  `aermet_24142_aermod_24142` name, so with the current EPA bundle unpacked
+  every one of them still skipped (the file-parametrised cases did not even
+  collect). With the resolver and the archive present they collect as
+  350 / 54 / 323 tests; regulatory: 47 passed / 7 skipped against a compiled
+  v26135; the two parser modules: 673 passed against the 24142 set (after
+  the phantom-4HR fix below). Those two modules skip, with the discovered
+  set named in the reason, when only another AERMOD version is present —
+  their assertions quote 24142 values.
+- **Phantom `4HR` averaging period in `AERMODOutputParser`.** The `4-HR`
+  section pattern also matched inside `24-HR` headers, so every run with a
+  24-hour average gained a bogus `4HR` result duplicating the 24-hour table
+  (surfaced by `tests/test_epa_cases.py` on AERTEST and FLATELEV once those
+  tests ran). Period patterns are now anchored (`(?<![0-9])(?:...)`) so they
+  cannot start inside a longer number. Wrapping the alternation in a group
+  fixes a second latent bug: interpolated bare, `24-HOUR|24HR|24-HR` split
+  the *surrounding* section regex into three top-level branches, so only the
+  last spelling carried the `RESULTS` tail and the capture group and the
+  other two matched with `group(1) is None` — the `X-HOUR` and `XHR`
+  spellings never selected a table. No shipped result changes: AERMOD only
+  ever writes the `X-HR` spelling in its section headers (checked across
+  every `.out`/`.SUM` in EPA's v26135 archive), so the broken branches were
+  unreachable in practice. Regression in
+  `tests/test_output_parser_periods.py`.
+- **`AERMODOutputParser` effectively hung on multi-MB `.out` files.** The
+  second, free-form section pattern
+  (`\*\*\*.*?<period>.*?RESULTS.*?\*\*\*…`, `re.DOTALL`) backtracks from
+  every `***` in the file out to EOF, and `parse()` tries all eleven period
+  patterns against every output — so on EPA's 2.3 MB `allsrcs.out` a single
+  *absent* period cost ~291 s in that pattern (the first, line-anchored
+  pattern rejects the same input in 0.014 s).
+  `tests/test_epa_cases.py::TestOutputParserEdgeCases` never got past
+  `allsrcs.out`. Both section patterns require the period token to occur
+  somewhere, so `_parse_concentration_table` now returns `None` early after
+  one linear `re.search` for it — equivalent by construction, and it turns
+  the pathological case into a single scan. `allsrcs.out`: no completion in
+  over six minutes → 0.30 s; the whole EPA `.out` set parses in under a
+  second per file.
+- **`tests/test_source_importers.py` skipped entirely whenever `ezdxf` was
+  absent** — a module-level `pytest.importorskip("ezdxf")` hid the seven
+  geopandas shapefile tests too. The skip is now a class-scoped fixture on
+  `TestDxfImporter` only; the shapefile tests run wherever geopandas is
+  installed (`source_importers.py` coverage 11.8 % → 52.8 % in the local
+  env). All five shapefile fixtures now write through one `_write_shapefile`
+  helper — three of them still called `gdf.to_file` directly — which falls
+  back to writing the layer through fiona (no `.prj`, which the importers do
+  not read) if geopandas' writer raises pyproj's `Invalid value supplied
+  'WktVersion.WKT2_2019'`. That is a defensive guard, not a live workaround:
+  it was seen once under coverage tracing but does not reproduce on the
+  current pin (geopandas 0.14.4, fiona 1.9.6, pyproj 3.6.1, coverage
+  7.13.3), where `to_file` succeeds for all six writes and the fallback is
+  never entered.
+- **`AERMODRunner._extract_error_message` swallowed read errors** around the
+  `.err`/`.out` files (`except Exception: pass`), so a Latin-1 byte in
+  AERMOD's output — a degree sign in the banner is enough — raised
+  `UnicodeDecodeError` and the caller saw only "AERMOD failed with return
+  code N" instead of the `FATAL` line. Both files are now read as Latin-1
+  with replacement, only `OSError` is tolerated, and that is logged at
+  DEBUG. Tests cover non-UTF-8 bytes in both files and the logged fallback.
 - **GUI v2 Run/Results/editor crashes found by the new smoke tests:**
   - the Run button always raised `ImportError` (`from ..._optional import
     HAS_TERRAIN` — no such name), so AERMOD could never be launched from the

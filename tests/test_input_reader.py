@@ -12,6 +12,7 @@ from pyaermod import (
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
+    LineSource,
     MeteorologyPathway,
     OutputPathway,
     PointSource,
@@ -886,3 +887,278 @@ OU FINISHED
 """
         p = parse_aermod_input(text)
         assert p.meteorology.surface_station_id == 1
+
+
+# ---------------------------------------------------------------------------
+# AERMOD v26135 keyword audit (docs/keyword-audit-v26135.md): one-line
+# decks that exercise every handled-but-previously-untested parse path.
+# ---------------------------------------------------------------------------
+
+class TestCOKeywordsV26135:
+    def test_modelopt_deposition_flags(self):
+        c = _wrap(co_extra="DEPOS DDEP WDEP").control
+        assert c.calculate_deposition
+        assert c.calculate_dry_deposition
+        assert c.calculate_wet_deposition
+
+    def test_modelopt_flatsrcs(self):
+        from pyaermod.input_generator import TerrainType
+        assert _wrap(co_extra="FLATSRCS").control.terrain_type == TerrainType.FLATSRCS
+
+    def test_dcaycoef(self):
+        assert _wrap(co_kw="   DCAYCOEF 0.0001").control.decay_coefficient == pytest.approx(1e-4)
+
+    def test_halflife(self):
+        assert _wrap(co_kw="   HALFLIFE 3600").control.half_life == pytest.approx(3600.0)
+
+    def test_elevunit_in_co(self):
+        assert _wrap(co_kw="   ELEVUNIT FEET").control.elevation_units == "FEET"
+
+    def test_o3values_filename_form(self):
+        chem = _wrap(co_kw="   O3VALUES o3hourly.dat").control.chemistry
+        assert chem is not None
+        assert chem.ozone_data.ozone_file == "o3hourly.dat"
+        assert chem.ozone_data.uniform_value is None
+
+    def test_unknown_pollutid_kept_as_string(self):
+        # A later POLLUTID overrides the wrapper's NO2; non-enum names survive.
+        assert _wrap(co_kw="   POLLUTID xylene99").control.pollutant_id == "XYLENE99"
+
+    @pytest.mark.parametrize("line", [
+        "RUNORNOT RUN", "MULTYEAR H6H ../save.sav", "SAVEFILE save.sav",
+        "INITFILE init.sav", "EVENTFIL events.inp", "GASDEPDF 0.2 0.5 1.0 0.0",
+        "GDSEASON 1 1 2 3 3 4 4 4 4 5 5 1", "GDLANUSE 36*1", "GASDEPVD 0.01",
+        "OZONUNIT PPB", "O3SECTOR 0 90 180 270", "ARMRATIO 0.2 0.9",
+        "NOXVALUE 30", "NOX_FILE nox.dat", "NOX_VALS SEASON 1 2 3 4",
+        "NOX_UNIT PPB", "NOXSECTR 0 180", "AWMADWNW", "ORD_DWNW", "ARCFTOPT",
+    ])
+    def test_unhandled_co_keywords_pass_through(self, line):
+        """v26135 CO keywords the reader does not model must not break parsing."""
+        p = _wrap(co_kw=f"   {line}")
+        assert p.control.title_one == "t"
+
+
+class TestSOKeywordsV26135:
+    @pytest.mark.parametrize("line", [
+        "LOCATION S9 POINT",          # LOCATION needs srcid type x y
+        "SRCPARAM",                   # bare keyword
+        "BUILDHGT",                   # bare keyword
+        "BUILDHGT S1 abc def",        # non-numeric building values
+        "SRCGROUP",                   # bare keyword
+        "GASDEPOS S1 0.1",            # too few parameters
+        "GASDEPOS S1 a b c",          # non-numeric
+        "PARTDIAM", "PARTDIAM S1 x",
+        "MASSFRAX", "MASSFRAX S1 x",
+        "PARTDENS", "PARTDENS S1 x",
+    ])
+    def test_malformed_lines_are_skipped_not_fatal(self, line):
+        p = _wrap(so_body=_DEFAULT_SO + f"   {line}\n")
+        srcs = p.sources.sources
+        assert [s.source_id for s in srcs] == ["S1"]
+        assert srcs[0].emission_rate == pytest.approx(1.0)
+        assert getattr(srcs[0], "gas_deposition", None) is None
+        assert getattr(srcs[0], "particle_deposition", None) is None
+
+    def test_line_source_with_elevation_token(self):
+        so = "   LOCATION L1 LINE 0 0 100 0 12.5\n   SRCPARAM L1 1 2 3\n"
+        src = _wrap(so_body=so).sources.sources[0]
+        assert isinstance(src, LineSource)
+        assert (src.x_end, src.y_end) == (100.0, 0.0)
+        assert src.initial_lateral_dimension == pytest.approx(3.0)
+
+    def test_rlinext_location_parsed_but_not_constructed(self):
+        # RLINEXT carries z at both ends; the reader records it but does not
+        # yet build an RLineExtSource (documented follow-up in the audit).
+        so = "   LOCATION R1 RLINEXT 0 0 1 100 0 1\n   SRCPARAM R1 1 2 3 4\n"
+        assert _wrap(so_body=so).sources.sources == []
+
+    @pytest.mark.parametrize(("so", "why"), [
+        ("   LOCATION S1 POINT 0 0 0\n   SRCPARAM S1 1 30\n", "POINT needs 5 SRCPARAM values"),
+        ("   LOCATION A1 AREA 0 0 0\n", "AREA without SRCPARAM"),
+        ("   LOCATION V1 VOLUME 0 0 0\n", "VOLUME without SRCPARAM"),
+        ("   LOCATION L1 LINE 0 0\n   SRCPARAM L1 1\n", "LINE without end point"),
+        ("   LOCATION R1 RLINE 0 0\n   SRCPARAM R1 1\n", "RLINE without end point"),
+        ("   LOCATION P1 OPENPIT 0 0 0\n   SRCPARAM P1 1 2\n", "OPENPIT needs 5 values"),
+        ("   LOCATION C1 AREACIRC 0 0 0\n", "AREACIRC without SRCPARAM"),
+    ])
+    def test_incomplete_source_definitions_are_dropped(self, so, why):
+        assert _wrap(so_body=so).sources.sources == [], why
+
+    @pytest.mark.parametrize("line", [
+        "EMISUNIT 1.0 GRAMS/SEC MICROGRAMS/M**3", "CONCUNIT 1.0 GRAMS/SEC MICROGRAMS/M**3",
+        "DEPOUNIT 1.0 GRAMS/SEC GRAMS/M**2", "METHOD_2 S1 0.5 2.0", "NO2RATIO S1 0.5",
+        "AREAVERT A1 0 0 10 0 10 10", "OLMGROUP OLM1 S1", "PSDGROUP INC S1",
+        "BLPINPUT 1 30.0 5.0", "BLPGROUP BL1 S1", "RBARRIER S1 3.0 5.0",
+        "RDEPRESS S1 2.0 10.0", "RLEMCONV", "SBARRIER S1 3.0 5.0", "VBARRIER S1 3.0 5.0 0.5",
+        "PLATFORM S1 10.0 20.0", "HBPSRCID S1", "ARCFTSRC S1",
+    ])
+    def test_unhandled_so_keywords_pass_through(self, line):
+        """v26135 SO keywords the reader does not model must not break parsing."""
+        p = _wrap(so_body=_DEFAULT_SO + f"   {line}\n")
+        assert [s.source_id for s in p.sources.sources] == ["S1"]
+
+
+class TestREKeywordsV26135:
+    def test_elevunit_in_re(self):
+        p = _wrap(re_body="   ELEVUNIT FEET\n   DISCCART 0 0 0\n")
+        assert p.receptors.elevation_units == "FEET"
+
+    def test_gridcart_xyinc_on_one_line(self):
+        p = _wrap(re_body="   GRIDCART G1 XYINC 0 5 100 0 4 50\n")
+        g = p.receptors.cartesian_grids[0]
+        assert (g.x_init, g.x_num, g.x_delta) == (0.0, 5, 100.0)
+        assert (g.y_init, g.y_num, g.y_delta) == (0.0, 4, 50.0)
+
+    @pytest.mark.parametrize("line", ["GRIDCART G1", "GRIDPOLR P1", "DISCCART 0 0"])
+    def test_short_receptor_lines_are_skipped(self, line):
+        p = _wrap(re_body=f"   {line}\n   DISCCART 0 0 0\n")
+        assert len(p.receptors.discrete_receptors) == 1
+        assert p.receptors.cartesian_grids == []
+        assert p.receptors.polar_grids == []
+
+    _POLAR = "   GRIDPOLR P ORIG 0 0\n   GRIDPOLR P DIST 100. 500. 1000.\n"
+
+    def test_gridpolr_gdir_three_explicit_directions(self):
+        p = _wrap(re_body=self._POLAR + "   GRIDPOLR P GDIR 0.0 120.0 240.0\n")
+        g = p.receptors.polar_grids[0]
+        assert (g.dir_init, g.dir_num, g.dir_delta) == (0.0, 3, 120.0)
+
+    def test_gridpolr_gdir_explicit_list(self):
+        p = _wrap(re_body=self._POLAR + "   GRIDPOLR P GDIR 0 45 90 135\n")
+        g = p.receptors.polar_grids[0]
+        assert (g.dir_init, g.dir_num, g.dir_delta) == (0.0, 4, 45.0)
+
+    @pytest.mark.parametrize("line", ["EVALCART 0 0 0 0 0 ARC1", "DISCPOLR S1 100 45", "INCLUDED recs.inc"])
+    def test_recognised_re_keywords_pass_through(self, line):
+        p = _wrap(re_body=f"   {line}\n   DISCCART 0 0 0\n")
+        assert len(p.receptors.discrete_receptors) == 1
+
+
+class TestMEOUKeywordsV26135:
+    def _deck(self, me_extra="", ou_body=""):
+        return parse_aermod_input(f"""\
+CO STARTING
+   TITLEONE  t
+   MODELOPT  CONC FLAT
+   AVERTIME  1 24 PERIOD
+   POLLUTID  SO2
+CO FINISHED
+SO STARTING
+{_DEFAULT_SO}SO FINISHED
+RE STARTING
+{_DEFAULT_RE}RE FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  2020
+   UAIRDATA  1  2020
+   PROFBASE  0.0
+{me_extra}
+ME FINISHED
+OU STARTING
+{ou_body}
+OU FINISHED
+""")
+
+    def test_wdrotate(self):
+        assert self._deck(me_extra="   WDROTATE 10.5").meteorology.wind_rotation == pytest.approx(10.5)
+
+    def test_startend(self):
+        met = self._deck(me_extra="   STARTEND 2020 3 1 2020 3 31").meteorology
+        assert (met.start_year, met.start_month, met.start_day) == (2020, 3, 1)
+        assert (met.end_year, met.end_month, met.end_day) == (2020, 3, 31)
+
+    def test_rectable_numeric_and_keyword_ranks(self):
+        out = self._deck(ou_body="   RECTABLE ALLAVE 2").output
+        assert out.receptor_table and out.receptor_table_rank == 2
+        out = self._deck(ou_body="   RECTABLE ALLAVE FIRST-THIRD").output
+        assert out.receptor_table and out.receptor_table_rank == 10  # keyword rank keeps default
+
+    def test_maxtable(self):
+        out = self._deck(ou_body="   MAXTABLE ALLAVE 50").output
+        assert out.max_table and out.max_table_rank == 50
+
+    @pytest.mark.parametrize("line", [
+        "DAYRANGE 1/1 12/31", "SCIMBYHR 1 4", "WINDCATS 1.54 3.09 5.14 8.23 10.8",
+        "NUMYEARS 5", "NOTURBST", "NOTURBCO",
+    ])
+    def test_unhandled_me_keywords_pass_through(self, line):
+        assert self._deck(me_extra=f"   {line}").meteorology.surface_file == "a.sfc"
+
+    def test_maxifile_filename_captured(self):
+        # The reader stores the first token as the filename; AERMOD's full
+        # syntax is MAXIFILE <aveper> <grpid> <thresh> <filename> (audit follow-up).
+        assert self._deck(ou_body="   MAXIFILE maxi.txt").output.max_file == "maxi.txt"
+
+    @pytest.mark.parametrize("line", [
+        "TOXXFILE 1 ALL 1.0 toxx.dat", "SEASONHR ALL seasonhr.dat", "RANKFILE 1 10 rank.dat",
+        "EVALFILE S1 eval.dat", "FILEFORM EXP", "MAXDAILY 24 ALL maxdaily.dat",
+        "MXDYBYYR 24 ALL mxdy.dat", "MAXDCONT ALL 8 UPPER 1.0 100.0 maxdcont.dat", "NOHEADER ALL",
+    ])
+    def test_unhandled_ou_keywords_pass_through(self, line):
+        out = self._deck(ou_body=f"   {line}").output
+        assert out.plot_file is None
+
+
+class TestPathwayOrderErrorsV26135:
+    def test_starting_before_previous_finished(self):
+        with pytest.raises(ValueError, match="SO STARTING before previous CO FINISHED"):
+            parse_aermod_input("CO STARTING\n   TITLEONE t\nSO STARTING\nSO FINISHED\n")
+
+    def test_finished_without_matching_starting(self):
+        with pytest.raises(ValueError, match="SO FINISHED without matching STARTING"):
+            parse_aermod_input("CO STARTING\n   TITLEONE t\nSO FINISHED\n")
+
+
+class TestSandboxPathChecksV26135:
+    """Exercise the chemistry + per-group PLOTFILE branches of the sandbox check."""
+
+    _DECK = """\
+CO STARTING
+   TITLEONE  t
+   MODELOPT  CONC FLAT OLM
+   AVERTIME  1
+   POLLUTID  NO2
+   NO2STACK  0.5
+   OZONEFIL  {ozone}
+CO FINISHED
+SO STARTING
+   LOCATION S1 POINT 0 0 0
+   SRCPARAM S1 1 30 400 10 2
+   SRCGROUP G1 S1
+SO FINISHED
+RE STARTING
+   DISCCART 0 0 0
+RE FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  2020
+   UAIRDATA  1  2020
+   PROFBASE  0.0
+ME FINISHED
+OU STARTING
+   PLOTFILE 1 G1 1 {plot}
+OU FINISHED
+"""
+
+    def test_ozone_and_group_plotfile_inside_sandbox_pass(self, tmp_path):
+        deck = tmp_path / "ok.inp"
+        deck.write_text(self._DECK.format(ozone="o3.dat", plot="g1.plt"), encoding="utf-8")
+        p = read_aermod_input(deck, sandbox=True)
+        assert p.control.chemistry.ozone_data.ozone_file == "o3.dat"
+        assert p.output.plot_file_groups == [("1", "G1", "g1.plt")]
+
+    def test_ozone_file_escaping_sandbox_is_rejected(self, tmp_path):
+        from pyaermod.input_reader import PathTraversalError
+        deck = tmp_path / "bad_o3.inp"
+        deck.write_text(self._DECK.format(ozone="../o3.dat", plot="g1.plt"), encoding="utf-8")
+        with pytest.raises(PathTraversalError, match="ozone_file"):
+            read_aermod_input(deck, sandbox=True)
+
+    def test_group_plotfile_escaping_sandbox_is_rejected(self, tmp_path):
+        from pyaermod.input_reader import PathTraversalError
+        deck = tmp_path / "bad_plt.inp"
+        deck.write_text(self._DECK.format(ozone="o3.dat", plot="../g1.plt"), encoding="utf-8")
+        with pytest.raises(PathTraversalError, match="plot_file_groups"):
+            read_aermod_input(deck, sandbox=True)

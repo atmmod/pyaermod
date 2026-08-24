@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from pyaermod.epa_testcases import ENV_VAR, find_epa_testcase_set
 from pyaermod.output_parser import AERMODOutputParser
 from pyaermod.postfile import (
     PostfileParser,
@@ -26,19 +27,35 @@ from pyaermod.postfile import (
 )
 
 # ---------------------------------------------------------------------------
-# EPA test-case directory (not checked in; lives in user Dropbox)
+# EPA test-case directory (not checked in; gitignored test_cases/ tree).
+#
+# Resolved through pyaermod.epa_testcases.find_epa_testcase_set, which
+# accepts both EPA naming conventions (aermet_24142_aermod_24142 and
+# aermet24142_aermod24142) and honours $PYAERMOD_EPA_TESTCASES. The
+# assertions below quote values from EPA's *AERMOD 24142* outputs, so the
+# 24142 set is requested explicitly; if only another version is present
+# the module skips with the set name in the reason rather than failing
+# on model-version differences.
 # ---------------------------------------------------------------------------
 
-EPA_TEST_DIR = Path(
-    "/Users/sc3623/AMaD Dropbox/Shannon Capps/Research/aermod/"
-    "aermod_test_cases/aermet_24142_aermod_24142"
-)
+_REFERENCE_AERMOD_VERSION = "24142"
+_EPA_ROOT = Path(__file__).resolve().parent.parent / "test_cases"
+EPA_SET = find_epa_testcase_set(_EPA_ROOT, aermod_version=_REFERENCE_AERMOD_VERSION)
+EPA_TEST_DIR = EPA_SET.path if EPA_SET else _EPA_ROOT / "aermet_24142_aermod_24142"
 
-EPA_AVAILABLE = EPA_TEST_DIR.is_dir()
+EPA_AVAILABLE = (
+    EPA_SET is not None
+    and EPA_SET.exists()
+    and EPA_SET.aermod_version == _REFERENCE_AERMOD_VERSION
+)
 
 requires_epa = pytest.mark.skipif(
     not EPA_AVAILABLE,
-    reason="EPA v24142 test-case directory not found",
+    reason=(
+        f"EPA v{_REFERENCE_AERMOD_VERSION} test-case directory not found under "
+        f"{_EPA_ROOT} (override with ${ENV_VAR}); "
+        f"found: {EPA_SET.describe() if EPA_SET else 'none'}"
+    ),
 )
 
 # Mark entire module as slow + epa so default test runs skip it

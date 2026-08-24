@@ -244,6 +244,7 @@ from .terrain_utils import (
 # --- Validation -----------------------------------------------------------
 from .validator import ValidationError, ValidationResult, Validator
 from .validator_advanced import advanced_validate
+from .versions import VALIDATED_AERMET_VERSIONS, VALIDATED_AERMOD_VERSIONS
 
 # --- Visualization --------------------------------------------------------
 from .visualization import AERMODVisualizer, quick_map, quick_plot
@@ -285,6 +286,7 @@ except ImportError:
 
 __all__ = [
     "__version__",
+    "VALIDATED_AERMOD_VERSIONS", "VALIDATED_AERMET_VERSIONS",
     # project
     "AERMODProject", "ControlPathway", "SourcePathway", "ReceptorPathway",
     "MeteorologyPathway", "OutputPathway", "EventPathway", "EventPeriod",

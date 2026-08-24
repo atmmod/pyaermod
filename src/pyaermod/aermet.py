@@ -364,7 +364,8 @@ class SurfaceFileHeader:
     options: str = ""
 
 
-# .SFC column names based on AERMET v24142 Fortran FORMAT statements.
+# .SFC column names based on AERMET v26135 Fortran FORMAT statements (same
+# layout as v24142; v26135 writes four-digit years, which parse identically).
 # The exact set of columns varies slightly by version, but this covers
 # the standard output.
 SFC_COLUMNS = [
