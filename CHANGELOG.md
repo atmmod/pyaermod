@@ -199,7 +199,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pip install --dry-run --ignore-installed -e ".[dev,all]" -c min-constraints.txt`),
   and a `min-deps` leg in `tests.yml` (Python 3.11) installs `.[dev,all]`
   under those constraints and runs the suite, so the floors are checked
-  rather than guessed.
+  rather than guessed. It earned its keep immediately: `fiona` is pulled in
+  by geopandas, which declares only `fiona >=1.8.21` with no upper bound, so
+  the oldest-everything resolve paired geopandas 0.14 with a current fiona —
+  and fiona 1.10 removed `fiona.path.ParsedPath`, which geopandas 0.14 calls
+  on every read, failing eight shapefile tests with `module 'fiona' has no
+  attribute 'path'`. `min-constraints.txt` now caps it at the last 1.9.x.
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
