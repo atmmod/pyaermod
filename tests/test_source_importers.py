@@ -80,7 +80,7 @@ def point_shp(tmp_path):
         crs="EPSG:32619",
     )
     out = tmp_path / "stacks.shp"
-    gdf.to_file(out)
+    _write_shapefile(gdf, out)
     return out
 
 
@@ -93,7 +93,7 @@ def polygon_shp(tmp_path):
         {"source_id": ["AREA1"], "geometry": [poly]}, crs="EPSG:32619",
     )
     out = tmp_path / "area.shp"
-    gdf.to_file(out)
+    _write_shapefile(gdf, out)
     return out
 
 
@@ -106,7 +106,7 @@ def line_shp(tmp_path):
         {"source_id": ["RD1"], "geometry": [line]}, crs="EPSG:32619",
     )
     out = tmp_path / "line.shp"
-    gdf.to_file(out)
+    _write_shapefile(gdf, out)
     return out
 
 
