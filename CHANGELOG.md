@@ -67,12 +67,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `inputs/`, `meteorology/`, `postfiles/` of the parity set, `Outputs/`,
   `postfiles/`, `plotfiles/` of the 24142 set (a set filling both roles
   keeps the union), and `output_files/` + `salem/` of
-  `aermet_def_testcases_24142`. That drops EPA's `plots_*/` comparison
-  images and R driver scripts, the empty `rdata/` drop boxes, the Windows
-  `.bat`/`.exe` runners, and the AERMET raw example datasets whose products
-  are already in `output_files/` — 7.91 GB → 7.14 GB, 770 MB (9.7 %) freed;
-  the step re-checks every kept directory and fails the job before the save
-  if one came out missing or empty. The regulatory harness also deletes each
+  `aermet_def_testcases_24142`. The 24142 set also keeps `inputs/`, which
+  no test reads but `EPATestCaseSet.exists()` requires — without it the set
+  survives on disk yet drops out of `find_epa_testcase_set`, so
+  `tests/test_epa_cases.py` and `tests/test_real_cases.py` skip and the
+  all-skipped guard fails the job (11 MB). What the prune actually reclaims
+  in CI is the AERMET raw example datasets whose products are already in
+  `output_files/` (873 MB → 174 MB, ~90 % of the saving) plus the Windows
+  `.bat`/`.exe` runners and the empty `rdata/` drop boxes: **7.91 GB →
+  7.14 GB, 770 MB (9.7 %) freed**. The clauses dropping EPA's `plots_*/`
+  comparison images and R driver scripts are defence for a local full
+  unpack only — CI's selective `unzip` never extracts them, so they
+  contribute 0 MB of that total. Afterwards the step re-checks every kept
+  directory *and* re-resolves both sets through `find_epa_testcase_set`,
+  failing the job before the save if one came out missing, empty, or no
+  longer resolvable. The regulatory harness also deletes each
   deck's staged scratch (~40 MB) in a fixture finalizer. The three
   real-binary smoke workflows gained `timeout-minutes: 30` (`epa_parity`
   already had 120) so a stalled gaftp fetch cannot hold a runner for the
@@ -158,10 +167,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`AERMODOutputParser` effectively hung on multi-MB `.out` files.** The
   second, free-form section pattern
   (`\*\*\*.*?<period>.*?RESULTS.*?\*\*\*…`, `re.DOTALL`) backtracks from
-  every `***` in the file out to EOF, and `parse()` tries all twelve period
-  patterns against every output — so a single *absent* period cost ~84 s on
-  EPA's 2.3 MB `allsrcs.out` with the ungrouped alternation, and longer once
-  it was grouped (>155 s, killed before it finished).
+  every `***` in the file out to EOF, and `parse()` tries all eleven period
+  patterns against every output — so on EPA's 2.3 MB `allsrcs.out` a single
+  *absent* period cost ~291 s in that pattern (the first, line-anchored
+  pattern rejects the same input in 0.014 s).
   `tests/test_epa_cases.py::TestOutputParserEdgeCases` never got past
   `allsrcs.out`. Both section patterns require the period token to occur
   somewhere, so `_parse_concentration_table` now returns `None` early after

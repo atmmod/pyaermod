@@ -551,11 +551,11 @@ class AERMODOutputParser:
         # the answer is None. Checking that first is a single linear scan and
         # is exactly equivalent — but skipping it is ruinous: the second
         # pattern's three DOTALL `.*?` spans backtrack from every `***` in the
-        # file to EOF, and `parse()` tries all twelve period patterns against
-        # every output. On EPA's 2.3 MB `allsrcs.out` one absent period costs
-        # ~84 s that way (`tests/test_epa_cases.py` on the .out files never
-        # finished); with the guard the whole file parses in well under a
-        # second.
+        # file to EOF, and `parse()` tries all eleven period patterns against
+        # every output. On EPA's 2.3 MB `allsrcs.out` a single absent period
+        # costs ~291 s in that second pattern (the first costs 0.014 s), so
+        # `tests/test_epa_cases.py` never finished on the .out files. With the
+        # guard the whole file parses in about half a second.
         if not re.search(anchored, self.content, re.DOTALL | re.IGNORECASE):
             return None
 
