@@ -66,12 +66,25 @@ def _missing_reason() -> str:
     )
 
 
-# Module-level skip applies to every test in tests/regulatory/.
-collect_ignore_glob: list[str] = []
-if not _fixtures_available() or not _aermod_available():
-    # Mark the entire directory skipped; pytest will still discover
-    # but emit a single skip summary rather than per-test noise.
-    pytestmark = pytest.mark.skip(reason=_missing_reason())
+def fixtures_ready() -> bool:
+    """True when both the EPA fixtures and an AERMOD binary are usable."""
+    return _fixtures_available() and _aermod_available()
+
+
+def missing_reason() -> str:
+    """Why the regulatory suite cannot run (path, chosen set, binary)."""
+    return _missing_reason()
+
+
+@pytest.fixture
+def scratch(tmp_path):
+    """Per-test scratch directory, deleted when the test finishes.
+
+    Each parity deck stages ~40 MB of met + input data; without this
+    finalizer a full run leaves ~2 GB under pytest's basetemp.
+    """
+    yield tmp_path
+    shutil.rmtree(tmp_path, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
