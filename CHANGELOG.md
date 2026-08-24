@@ -61,6 +61,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/run_epa_parity.py`, fails if any test fails, if the fixture-gated
   tests all skipped, or if any deck leaves tolerance, and uploads the
   regenerated `docs/validation.md` as an artifact (never auto-commits).
+  Before the cache is saved, a prune step cuts each unpacked tree down to
+  the directories some test in this repo actually opens — resolved with the
+  same `find_epa_testcase_set` the tests use, so it cannot drift from them:
+  `inputs/`, `meteorology/`, `postfiles/` of the parity set, `Outputs/`,
+  `postfiles/`, `plotfiles/` of the 24142 set (a set filling both roles
+  keeps the union), and `output_files/` + `salem/` of
+  `aermet_def_testcases_24142`. That drops EPA's `plots_*/` comparison
+  images and R driver scripts, the empty `rdata/` drop boxes, the Windows
+  `.bat`/`.exe` runners, and the AERMET raw example datasets whose products
+  are already in `output_files/` — 7.91 GB → 7.14 GB, 770 MB (9.7 %) freed;
+  the step re-checks every kept directory and fails the job before the save
+  if one came out missing or empty. The regulatory harness also deletes each
+  deck's staged scratch (~40 MB) in a fixture finalizer. The three
+  real-binary smoke workflows gained `timeout-minutes: 30` (`epa_parity`
+  already had 120) so a stalled gaftp fetch cannot hold a runner for the
+  six-hour default.
 - **AERMOD v26135 keyword audit** — `docs/keyword-audit-v26135.md` compares
   the 122-entry keyword table in EPA's v26135 `modules.f` (and the
   per-pathway `KEYWRD .EQ.` dispatch) against `input_reader.py`: per

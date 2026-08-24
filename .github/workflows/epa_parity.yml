@@ -17,9 +17,11 @@ name: EPA AERMOD test-suite parity
 #   * the AERMOD 24142 set, whose published outputs the parser regression
 #     tests (tests/test_epa_cases.py, tests/test_real_cases.py) quote values from,
 #   * plus aermet_test_cases/aermet_def_testcases_24142 for the AERMET parsers.
-# The unpacked trees are cached with actions/cache (key = URLs + upstream
-# ETag/Last-Modified + AERMOD version + salt) so scheduled runs skip the
-# ~950 MB download.
+# Before caching, each tree is pruned down to the directories some test in
+# this repo actually opens (~7.9 GB -> ~7.1 GB); see the prune step for the
+# per-tree list. The pruned trees are cached with actions/cache (key = URLs +
+# upstream ETag/Last-Modified + AERMOD version + salt) so scheduled runs skip
+# the ~950 MB download.
 #
 # Set selection inside pytest and scripts/run_epa_parity.py goes through
 # pyaermod.epa_testcases.find_epa_testcase_set (glob over
@@ -198,8 +200,109 @@ jobs:
           du -sh test_cases/* aermet_test_cases/* || true
           df -h / | tail -1
 
-      # Save right after unpacking so a later test/parity failure (which fails
-      # the job) does not throw away the download.
+      # Unpacked, the two AERMOD reference sets plus the AERMET default set
+      # are ~7.9 GB, and roughly 0.8 GB of that is material nothing in this
+      # repo opens. Prune it before the cache is written so the entry stays
+      # small enough to save and restore quickly.
+      #
+      # What each tree is read for (sets resolved with the same
+      # find_epa_testcase_set the tests use, so this cannot drift from them):
+      #   parity reference set        inputs/ meteorology/ postfiles/
+      #                               (tests/regulatory, scripts/run_epa_parity.py)
+      #   AERMOD 24142 reference set  Outputs/ postfiles/ plotfiles/
+      #                               (tests/test_epa_cases.py, tests/test_real_cases.py)
+      #   aermet_def_testcases_24142  output_files/ (tests/test_real_aermet.py)
+      #                               salem/        (tests/test_real_aermet_binary.py)
+      # A set that is both the parity and the 24142 reference keeps the union.
+      # Dropped: EPA's plots_*/ comparison images and R driver scripts, the
+      # empty rdata/ drop boxes those scripts fill, the Windows .bat/.exe
+      # runners, and the AERMET raw example datasets (AK_Output, HI_Output,
+      # the aerminute test cases, ...) whose products are already in
+      # output_files/. The step re-checks every kept directory afterwards and
+      # fails the job if one came out missing or empty — the cache is saved by
+      # the next step, so a bad prune must never reach it.
+      - name: Prune EPA material no test reads (before caching)
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          AERMOD_VERSION: ${{ steps.aermod.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "before:"; du -sh test_cases aermet_test_cases
+          python - <<'EOF'
+          import os
+          import shutil
+          import sys
+          from pathlib import Path
+
+          from pyaermod.epa_testcases import find_epa_testcase_set
+
+          TESTCASES = Path("test_cases")
+          AERMET = Path("aermet_test_cases")
+          AERMET_SET = "aermet_def_testcases_24142"
+          AERMET_KEEP = {"output_files", "salem"}
+
+          version = os.environ.get("AERMOD_VERSION") or None
+          parity = find_epa_testcase_set(TESTCASES, aermod_version=version)
+          ref24 = find_epa_testcase_set(TESTCASES, aermod_version="24142")
+          if parity is None or not parity.exists():
+              print("::error::no usable parity reference set; refusing to prune")
+              sys.exit(1)
+
+          # Keyed by the set directory as it sits under test_cases/, so a set
+          # that fills both roles keeps the union of the two subdir lists.
+          keep: dict[str, set[str]] = {}
+          keep.setdefault(parity.path.name, set()).update(
+              {"inputs", "meteorology", "postfiles"}
+          )
+          # Same acceptance test as tests/test_epa_cases.py and
+          # tests/test_real_cases.py: they quote AERMOD 24142 values, so they
+          # skip outright unless a real 24142 set is present.
+          if ref24 is not None and ref24.exists() and ref24.aermod_version == "24142":
+              keep.setdefault(ref24.path.name, set()).update(
+                  {"Outputs", "postfiles", "plotfiles"}
+              )
+          else:
+              print("::warning::no AERMOD 24142 set unpacked; the parser regression "
+                    "tests will skip, so nothing is kept for them")
+
+          doomed: list[Path] = []
+          for child in sorted(TESTCASES.iterdir()):
+              wanted = keep.get(child.name) if child.is_dir() else None
+              if wanted is None:
+                  doomed.append(child)
+                  continue
+              doomed.extend(s for s in sorted(child.iterdir()) if s.name not in wanted)
+
+          if AERMET.is_dir():
+              for child in sorted(AERMET.iterdir()):
+                  if child.is_dir() and child.name == AERMET_SET:
+                      doomed.extend(
+                          s for s in sorted(child.iterdir()) if s.name not in AERMET_KEEP
+                      )
+                  else:
+                      doomed.append(child)
+
+          for path in doomed:
+              print(f"pruning {path}")
+              if path.is_dir() and not path.is_symlink():
+                  shutil.rmtree(path)
+              else:
+                  path.unlink()
+
+          required = [TESTCASES / name / sub for name, subs in keep.items() for sub in sorted(subs)]
+          required += [AERMET / AERMET_SET / sub for sub in sorted(AERMET_KEEP)]
+          empty = [p for p in required if not p.is_dir() or not any(p.iterdir())]
+          if empty:
+              print("::error::prune left required directories missing or empty: "
+                    + ", ".join(str(p) for p in empty))
+              sys.exit(1)
+          print(f"kept {len(required)} directories, pruned {len(doomed)} entries")
+          EOF
+          echo "after:"; du -sh test_cases aermet_test_cases
+          df -h / | tail -1
+
+      # Save right after unpacking and pruning so a later test/parity failure
+      # (which fails the job) does not throw away the download.
       - name: Save EPA test-case trees to cache
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
