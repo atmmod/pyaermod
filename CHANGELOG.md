@@ -130,29 +130,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **EPA fixture tests skipped silently after EPA renamed the archive sets.**
-  `tests/test_epa_cases.py` (110 tests) looked only at a hard-coded Dropbox
-  path, and `tests/regulatory/` (54) plus `tests/test_real_cases.py` (159)
-  at the pre-2026 `aermet_24142_aermod_24142` name, so with the current EPA
-  bundle unpacked every one of them still skipped. With the resolver all 323
-  collect and run (regulatory: 47 passed / 7 skipped against a compiled
-  v26135; parser tests: 671 passed against the 24142 set). The two parser
-  tests pinned to 24142 values skip with the discovered set named in the
-  reason when only another version is present.
+  `tests/test_epa_cases.py` looked only at a hard-coded Dropbox path, and
+  `tests/regulatory/` plus `tests/test_real_cases.py` at the pre-2026
+  `aermet_24142_aermod_24142` name, so with the current EPA bundle unpacked
+  every one of them still skipped (the file-parametrised cases did not even
+  collect). With the resolver and the archive present they collect as
+  350 / 54 / 323 tests; regulatory: 47 passed / 7 skipped against a compiled
+  v26135; the two parser modules: 673 passed against the 24142 set (after
+  the phantom-4HR fix below). Those two modules skip, with the discovered
+  set named in the reason, when only another AERMOD version is present —
+  their assertions quote 24142 values.
 - **Phantom `4HR` averaging period in `AERMODOutputParser`.** The `4-HR`
   section pattern also matched inside `24-HR` headers, so every run with a
   24-hour average gained a bogus `4HR` result duplicating the 24-hour table
   (surfaced by `tests/test_epa_cases.py` on AERTEST and FLATELEV once those
-  tests ran). Period patterns are now anchored so they cannot start inside
-  a longer number; regression in `tests/test_output_parser_periods.py`.
+  tests ran). Period patterns are now anchored (`(?<![0-9])(?:...)`) so they
+  cannot start inside a longer number. Wrapping the alternation in a group
+  fixes a second latent bug: interpolated bare, `24-HOUR|24HR|24-HR` split
+  the *surrounding* section regex into three top-level branches, so only the
+  last spelling carried the `RESULTS` tail and the capture group and the
+  other two matched with `group(1) is None` — the `X-HOUR` and `XHR`
+  spellings never selected a table. No shipped result changes: AERMOD only
+  ever writes the `X-HR` spelling in its section headers (checked across
+  every `.out`/`.SUM` in EPA's v26135 archive), so the broken branches were
+  unreachable in practice. Regression in
+  `tests/test_output_parser_periods.py`.
+- **`AERMODOutputParser` effectively hung on multi-MB `.out` files.** The
+  second, free-form section pattern
+  (`\*\*\*.*?<period>.*?RESULTS.*?\*\*\*…`, `re.DOTALL`) backtracks from
+  every `***` in the file out to EOF, and `parse()` tries all twelve period
+  patterns against every output — so a single *absent* period cost ~84 s on
+  EPA's 2.3 MB `allsrcs.out` with the ungrouped alternation, and longer once
+  it was grouped (>155 s, killed before it finished).
+  `tests/test_epa_cases.py::TestOutputParserEdgeCases` never got past
+  `allsrcs.out`. Both section patterns require the period token to occur
+  somewhere, so `_parse_concentration_table` now returns `None` early after
+  one linear `re.search` for it — equivalent by construction, and it turns
+  the pathological case into a single scan. `allsrcs.out`: no completion in
+  over six minutes → 0.30 s; the whole EPA `.out` set parses in under a
+  second per file.
 - **`tests/test_source_importers.py` skipped entirely whenever `ezdxf` was
   absent** — a module-level `pytest.importorskip("ezdxf")` hid the seven
   geopandas shapefile tests too. The skip is now a class-scoped fixture on
   `TestDxfImporter` only; the shapefile tests run wherever geopandas is
   installed (`source_importers.py` coverage 11.8 % → 52.8 % in the local
-  env). The shapefile fixtures also fall back to writing through fiona when
-  geopandas' writer fails under coverage tracing (a pyproj `WktVersion`
-  enum quirk seen with pyproj 3.6.1 + coverage 7.13), so they run rather
-  than skip in that configuration as well.
+  env). All five shapefile fixtures now write through one `_write_shapefile`
+  helper — three of them still called `gdf.to_file` directly — which falls
+  back to writing the layer through fiona (no `.prj`, which the importers do
+  not read) if geopandas' writer raises pyproj's `Invalid value supplied
+  'WktVersion.WKT2_2019'`. That is a defensive guard, not a live workaround:
+  it was seen once under coverage tracing but does not reproduce on the
+  current pin (geopandas 0.14.4, fiona 1.9.6, pyproj 3.6.1, coverage
+  7.13.3), where `to_file` succeeds for all six writes and the fallback is
+  never entered.
 - **`AERMODRunner._extract_error_message` swallowed read errors** around the
   `.err`/`.out` files (`except Exception: pass`), so a Latin-1 byte in
   AERMOD's output — a degree sign in the banner is enough — raised
