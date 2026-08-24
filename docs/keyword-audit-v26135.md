@@ -10,8 +10,16 @@ per-pathway dispatch lives in `coset.f`, `soset.f`, `reset.f`, `meset.f`,
 `ouset.f` and `evset.f` (`IF (KEYWRD .EQ. '...')`). Extracted with:
 
 ```bash
-grep -ohE "KEYWRD\s*\.EQ\.\s*'[A-Z0-9_]+'" coset.f | grep -oE "'[A-Z0-9_]+'" | tr -d "'" | sort -u
+# The first filter drops fixed-form comment lines (column 1 = C/!/*).
+# Without it soset.f reports 37 keywords instead of 36: SBARSRCGRP is
+# present only as a commented-out dispatch branch.
+grep -E "^[^C!*]" coset.f \
+  | grep -ohE "KEYWRD\s*\.EQ\.\s*'[A-Z0-9_]+'" \
+  | grep -oE "'[A-Z0-9_]+'" | tr -d "'" | sort -u
 ```
+
+Only `soset.f` has such a branch; the other five files give the same total
+with or without the filter.
 
 "Handled" means the keyword appears as a string literal in
 `src/pyaermod/input_reader.py` and is either stored structurally or
@@ -44,7 +52,7 @@ keywords therefore never reach the validator.
 | Pathway | v26135 keywords | Handled + tested | Handled + untested | Unhandled |
 |---|---:|---:|---:|---:|
 | CO | 37 | 18 | 0 | 19 |
-| SO | 37 | 18 | 0 | 19 |
+| SO | 36 | 18 | 0 | 18 |
 | RE | 7 | 7 | 0 | 0 |
 | ME | 14 | 8 | 0 | 6 |
 | OU | 16 | 7 | 0 | 9 |
@@ -122,15 +130,16 @@ chain years with them), the NOx background family (`NOXVALUE`,
 for GRSM/TTRM runs, and the gas-deposition defaults (`GASDEPDF`,
 `GASDEPVD`, `GDSEASON`, `GDLANUSE`).
 
-**SO (19):** ARCFTSRC, AREAVERT, BLPGROUP, BLPINPUT, CONCUNIT, DEPOUNIT,
+**SO (18):** ARCFTSRC, AREAVERT, BLPGROUP, BLPINPUT, CONCUNIT, DEPOUNIT,
 EMISUNIT, HBPSRCID, METHOD_2, NO2RATIO, OLMGROUP, PLATFORM, PSDGROUP,
-RBARRIER, RDEPRESS, RLEMCONV, SBARRIER, SBARSRCGRP, VBARRIER.
+RBARRIER, RDEPRESS, RLEMCONV, SBARRIER, VBARRIER.
 Highest value: `AREAVERT` (needed before AREAPOLY sources can be
 constructed), `BLPINPUT`/`BLPGROUP` (BUOYLINE), `OLMGROUP`/`PSDGROUP`
 (group semantics for OLM and PSD-credit runs), `NO2RATIO`, `EMISUNIT`/
 `CONCUNIT`/`DEPOUNIT`, and the RLINE barrier/depression keywords
-(`RBARRIER`, `RDEPRESS`, `SBARRIER`, `VBARRIER`, `RLEMCONV`). `SBARSRCGRP`
-is dispatched in `soset.f` but is not in the canonical keyword table.
+(`RBARRIER`, `RDEPRESS`, `SBARRIER`, `VBARRIER`, `RLEMCONV`). (`SBARSRCGRP`
+appears in `soset.f` only as a commented-out dispatch line — `soset.f:596`
+— and nowhere in the canonical `modules.f` table, so it is not counted.)
 
 **ME (6):** DAYRANGE, NOTURBCO, NOTURBST, NUMYEARS, SCIMBYHR, WINDCATS.
 The keyword table also lists NOTURB, NOSA, NOSW, NOSAST, NOSWST, NOSACO,
