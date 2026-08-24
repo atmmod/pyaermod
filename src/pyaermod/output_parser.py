@@ -544,7 +544,21 @@ class AERMODOutputParser:
         # The period pattern must not start inside a longer number:
         # without the lookbehind, "24-HR" also satisfies the 4-HR pattern
         # and a phantom 4HR result (a copy of the 24-HR table) appears.
-        anchored = rf'(?<![0-9]){"(?:" + pattern + ")"}'
+        anchored = rf'(?<![0-9])(?:{pattern})'
+
+        # Fast path. Both section patterns below require `anchored` to match
+        # somewhere, so if the period token is absent neither can match and
+        # the answer is None. Checking that first is a single linear scan and
+        # is exactly equivalent — but skipping it is ruinous: the second
+        # pattern's three DOTALL `.*?` spans backtrack from every `***` in the
+        # file to EOF, and `parse()` tries all twelve period patterns against
+        # every output. On EPA's 2.3 MB `allsrcs.out` one absent period costs
+        # ~84 s that way (`tests/test_epa_cases.py` on the .out files never
+        # finished); with the guard the whole file parses in well under a
+        # second.
+        if not re.search(anchored, self.content, re.DOTALL | re.IGNORECASE):
+            return None
+
         section_patterns = [
             rf'\*\*\*[^\n]*{anchored}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
             rf'\*\*\*.*?{anchored}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
