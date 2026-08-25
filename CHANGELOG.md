@@ -8,6 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **NAAQS design-value known-answer tests** — the design-value math is now
+  pinned against evidence rather than smoke-tested. `tests/test_naaqs_rank_tables.py`
+  transcribes 40 CFR part 50 appendix N Table 1, appendix S Table 1 and
+  appendix T Table 1 and checks the new `naaqs_percentile_rank()` against
+  every row for every day count 1–366, then pins design values on series
+  whose answer is arithmetic (365 strictly decreasing daily values → the
+  98th percentile is exactly the 358th). `tests/regulatory/test_epa_known_answers.py`
+  compares pyaermod's ranking against EPA's *own* ranked output — no
+  AERMOD binary needed, since both sides derive from the concentrations
+  in EPA's shipped `.PST` files:
+  - the 1st-highest value at every receptor of all 47 `.PST`/`.PLT` pairs
+    in the reference set, exactly (no tolerance);
+  - ranks 1 through 8 of the 24-hour series in EPA's `surfcoal` deck
+    against its eight `PSET2PA.DA1`–`DA8` plotfiles — the depth the
+    98th-percentile forms need;
+  - AERMOD's own NAAQS design-value plotfiles (`PSDCRED_*`, written under
+    its 1-hour NO2 processing) against
+    `nth_highest_daily_max_design_value()`, receptor by receptor;
+  - the `.SUM` overall-maximum table, which ranks the largest *n*-th
+    highest value per receptor rather than the *n*-th largest value in
+    the record.
+- **`pyaermod.design_values.naaqs_percentile_rank()`** — the EPA rank-table
+  lookup, with both regulatory tables exported as
+  `PERCENTILE_98_RANK_TABLE` / `PERCENTILE_99_RANK_TABLE`.
+- **`pyaermod.design_values.nth_highest_daily_max_design_value()`** — the
+  general form behind the 1-hour NO2, 1-hour SO2 and 24-hour PM2.5
+  standards, and the one AERMOD itself computes under `NO2AVE` / `SO2AVE`
+  / `PM25AVE`: rank each year's daily series independently, then average
+  those annual values across years (`SUMHNH / NUMYRS` in `aermod.f`).
+- **`AERMODAuxResult.concentration_column` / `.values()`** — callers no
+  longer have to guess whether AERMOD spelled the column `CONC` or
+  `AVERAGE CONC`.
+- **`pyaermod.aermod_outputs.parse_fortran_format()`** — expands the
+  Fortran FORMAT statement AERMOD prints in every auxiliary-file header
+  into field widths, so records are sliced at the offsets AERMOD wrote
+  them at.
+
 - **Headless smoke tests for the NiceGUI GUI** — `tests/test_gui_v2_smoke.py`
   drives the real `gui_v2` shell through `nicegui.testing.User` (in-process
   ASGI, no browser): every tab renders its key controls; a minimal project
@@ -249,6 +286,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **NAAQS percentiles were interpolated quantiles, not the regulatory
+  order statistics.** `pm25_24hr_design_value`, `no2_1hr_design_value`
+  and `so2_1hr_design_value` computed the annual percentile with
+  `Series.quantile(..., interpolation="linear")`. The standards do not
+  interpolate: 40 CFR part 50 appendices N, S and T sort each year's
+  daily values from highest to lowest and read the rank off a table keyed
+  on the year's count of valid days — the **8th highest** for a full-year
+  98th percentile, the **4th highest** for a full-year 99th percentile.
+  Linear interpolation lands *between* ranks (0.98 × 364 = 356.72) and
+  reports a number the regulation never defines, biased low against the
+  standard. Now rank-based, with the rank chosen per receptor-year from
+  that year's own day count.
+- **PM2.5 and PM10 24-hour design values used each day's peak hour as the
+  24-hour value.** Both functions called the daily-*maximum* helper on
+  hourly input, despite the docstring promising an average. A day with
+  one hour at 240 µg/m³ and 23 hours at zero was scored as 240 rather
+  than 10. Hourly input is now averaged over the day for the 24-hour
+  standards; input already carrying AERMOD `AVE='24-HR'` block averages
+  is unchanged.
+- **The PM10 24-hour form ignored the multi-year window.** It always
+  returned the high-second-high and left averaging to the caller. It now
+  follows Appendix W Table 8-2: the highest *sixth*-high (H6H) of the
+  pooled record when five years are modelled, H2H otherwise, overridable
+  via `rank=`. Unlike the percentile standards this form is not averaged
+  across years.
+- **Design values silently pooled source groups and duplicated
+  receptors.** A POSTFILE holding several `SRCGROUP`s was ranked as one
+  mixed series; the functions now require a single group and say how to
+  filter. A deck that declares the same receptor twice (EPA's own
+  `surfcoal` does) made the 2nd-highest value a copy of the 1st —
+  repeated rows are now collapsed, and receptors that genuinely share
+  (x, y) but differ in concentration raise instead of being merged.
+- **`naaqs_percentile_rank` boundary rounding.** The rank is computed in
+  exact rational arithmetic: `math.ceil(0.02 * 50)` is 2 in binary
+  floating point, which would put a 50-day year on the second-highest
+  value where appendix S Table 1 says the highest. Caught by the new
+  table test.
+- **`get_naaqs("Pb", ...)` always raised `KeyError`.** The lookup
+  upper-cased the caller's string, and `"Pb".upper()` is not the table
+  key `"Pb"`. Lookup is now case-insensitive and the error lists the
+  available pollutants.
+- **Every AERMOD PLOTFILE from a deposition run was unreadable.**
+  `read_plotfile` detected the file type from the first header line
+  mentioning one, which is `MODELING OPTIONS USED: ... DDEP WDEP ...` —
+  so a deposition run's plotfile was classified `DDEP` and rejected. The
+  options line is now excluded and the `"<kind> FILE OF ..."` declaration
+  wins. Seven of EPA's reference plotfiles were affected.
+- **Auxiliary-file column labels were shifted by one for every real
+  AERMOD output.** The header line was split on any whitespace, so
+  AERMOD's two-word labels `AVERAGE CONC` and `NET ID` each became two
+  columns and every label after them named the wrong data. Labels are
+  now split on two-or-more spaces, and rows are sliced using the Fortran
+  FORMAT AERMOD prints in the header — which is also the only way a
+  blank trailing `NET ID` (discrete receptors) parses as blank instead of
+  pulling every later column one place left.
+
 - **EPA fixture tests skipped silently after EPA renamed the archive sets.**
   `tests/test_epa_cases.py` looked only at a hard-coded Dropbox path, and
   `tests/regulatory/` plus `tests/test_real_cases.py` at the pre-2026

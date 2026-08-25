@@ -39,6 +39,7 @@ nav:
       - Common Errors: common-errors.md
       - Regulatory Matrix: regulatory-matrix.md
   - Validation: validation.md
+  - Design-Value Validation: design-value-validation.md
   - Desktop App: desktop.md
   - Architecture: architecture.md
   - Teaching:

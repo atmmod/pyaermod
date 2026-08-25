@@ -87,9 +87,18 @@ def get_naaqs(pollutant: str, averaging_period: str) -> NAAQSStandard:
     KeyError
         If the pollutant or averaging period is not in the table.
     """
-    rows = NAAQS_TABLE.get(pollutant.upper())
+    # Table keys are the conventional spellings ("PM2.5", "Pb"), so match
+    # case-insensitively rather than upper-casing the caller's string --
+    # "Pb".upper() is "PB", which is not a key.
+    key = pollutant.strip().upper()
+    rows = next(
+        (v for k, v in NAAQS_TABLE.items() if k.upper() == key), None
+    )
     if rows is None:
-        raise KeyError(f"No NAAQS entries for pollutant {pollutant!r}")
+        raise KeyError(
+            f"No NAAQS entries for pollutant {pollutant!r}; "
+            f"available: {sorted(NAAQS_TABLE)}"
+        )
     for r in rows:
         if r.averaging_period.lower() == averaging_period.lower():
             return r
