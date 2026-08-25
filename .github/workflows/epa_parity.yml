@@ -101,7 +101,15 @@ jobs:
           # Version of the binary we just built (drives reference-set choice
           # and the cache key). Same probe as pyaermod.epa_testcases.
           version=$(cd "$GITHUB_WORKSPACE" && python -c \
-            'from pyaermod.epa_testcases import aermod_binary_version as v; print(v() or "")')
+            'from pyaermod.epa_testcases import aermod_binary_version as v; print(v() or "")' \
+            | tail -n1)
+          # $GITHUB_OUTPUT rejects a multi-line value, and command
+          # substitution captures whatever the import wrote to stdout. This
+          # step once died on "Invalid format 'Warning: folium not installed'"
+          # for exactly that reason. The library is silent now, but keep the
+          # value provably single-token so a future stray print degrades to
+          # the directory-name fallback instead of failing the run.
+          case "$version" in (*[!0-9]*) version="" ;; esac
           [ -n "$version" ] || version=$(echo "$topdir" | grep -oE '[0-9]{5}' | tail -1 || true)
           echo "AERMOD version: ${version:-unknown} (source dir: $topdir)"
           echo "version=$version" >> "$GITHUB_OUTPUT"

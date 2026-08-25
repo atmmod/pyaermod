@@ -133,7 +133,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Library code no longer prints.** `import pyaermod` is now silent: the
   `Warning: folium not installed. Interactive maps unavailable.` (and the
   matching matplotlib) line that `pyaermod.visualization` wrote to stdout on
-  every import is now a `DEBUG`-level log record; the user-facing signal stays
+  every import is now a `DEBUG`-level log record. That line was not merely
+  untidy — it broke the scheduled parity workflow, whose version probe reads
+  `python -c "... print(aermod_binary_version())"` through command
+  substitution: the warning landed inside the captured value, and a
+  multi-line value is invalid in `$GITHUB_OUTPUT`, so the run died with
+  `Invalid format 'Warning: folium not installed...'` before compiling
+  anything. The workflow now also takes only the last line and rejects a
+  non-numeric version, so a future stray print degrades to the fallback
+  instead of failing the run; the user-facing signal stays
   the `ImportError` with an install hint raised by the first feature that needs
   the package. `AERMODVisualizer.plot_contours` / `create_interactive_map`
   ("Figure saved to ...") and `AERMODResults.export_to_csv` ("Exported results
