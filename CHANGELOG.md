@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Headless smoke tests for the NiceGUI GUI** — `tests/test_gui_v2_smoke.py`
+  drives the real `gui_v2` shell through `nicegui.testing.User` (in-process
+  ASGI, no browser): every tab renders its key controls; a minimal project
+  (title, one point source via the Sources editor dialog, a receptor grid,
+  met file names) is filled in through the UI, saved and reloaded via
+  `project_io` with an identical AERMOD deck, and run against a fake
+  `aermod` on `PATH` with the Results tab asserted for both the no-output
+  and parsed-output cases. `gui_v2` is now measured by coverage (only
+  `desktop.py`, the pywebview wrapper, stays omitted). Requires the new
+  `pytest-asyncio` dev dependency.
 - **Regulatory-grade numeric regression** — `tests/test_real_aermod.py` now
   compares every AERTEST receptor against EPA's published reference plotfile
   (`tests/fixtures/epa_official/AERTEST_01H.PLT`) to a tight tolerance
@@ -120,6 +130,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   docstrings, README and docs now say 26135 (AERMAP stays 24142 — EPA's
   current AERMAP source is still `aermap_source_code_24142`; the GRSM note
   records that v26135 drops its BETA flag while it remains non-DFAULT).
+- **Library code no longer prints.** `import pyaermod` is now silent: the
+  `Warning: folium not installed. Interactive maps unavailable.` (and the
+  matching matplotlib) line that `pyaermod.visualization` wrote to stdout on
+  every import is now a `DEBUG`-level log record. That line was not merely
+  untidy — it broke the scheduled parity workflow, whose version probe reads
+  `python -c "... print(aermod_binary_version())"` through command
+  substitution: the warning landed inside the captured value, and a
+  multi-line value is invalid in `$GITHUB_OUTPUT`, so the run died with
+  `Invalid format 'Warning: folium not installed...'` before compiling
+  anything. The workflow now also takes only the last line and rejects a
+  non-numeric version, so a future stray print degrades to the fallback
+  instead of failing the run; the user-facing signal stays
+  the `ImportError` with an install hint raised by the first feature that needs
+  the package. `AERMODVisualizer.plot_contours` / `create_interactive_map`
+  ("Figure saved to ...") and `AERMODResults.export_to_csv` ("Exported results
+  to ...") report through `logging.getLogger(__name__)` at `INFO` instead of
+  `print()`. `print()` remains only in `cli.py`, the NiceGUI GUI, the explicit
+  `pyaermod.print_info()` banner, and `if __name__ == "__main__":` demo blocks.
+  `tests/test_import_silence.py` pins the guarantee in a fresh subprocess.
+- **Benchmark gate has a noise floor.** `benchmarks/compare_benchmarks.py`
+  gained `--min-baseline-ms` (default 5.0): a benchmark whose baseline is
+  below the floor is listed under `IGNORED` but never fails the PR — the gate
+  previously failed a PR on `aux_parse/plotfile_100rows 0.172 -> 0.235 ms
+  (+36.8%)`, pure noise on a sub-millisecond operation. `run_benchmarks.py`
+  now times each benchmark over `--rounds` independent rounds (default 5) and
+  reports the minimum instead of a single timing; the round count is recorded
+  in the JSON. `tests/test_benchmarks_harness.py` proves +40% on a 0.2 ms
+  baseline passes while +40% on a 50 ms baseline still fails.
+- **mypy is gated, not advisory.** `scripts/mypy_gate.py` runs
+  `mypy src/pyaermod` (config from `pyproject.toml`), counts `error:`
+  diagnostics and compares against the integer committed in
+  `mypy-baseline.txt`; CI (`tests.yml`, Python 3.12 leg, mypy pinned) fails
+  only if the count *increases*, and prints the exact
+  `python scripts/mypy_gate.py --update` command when it decreases. Existing
+  type errors are untouched. The baseline is authoritative for the
+  `.[dev,all]` environment CI uses: typed optional packages (`nicegui`,
+  `ezdxf`, ...) surface errors that `ignore_missing_imports` hides when they
+  are absent, so a partial install reports a different count (the gate's
+  failure message says so; `make typecheck` pins the same mypy as CI).
+  The baseline is **78**, and it is only meaningful measured on that leg.
+  There is deliberately no `python_version` pin: pinning 3.11 while the gate
+  runs on 3.12 made mypy reject numpy 2.5's own stubs (`Type statement is
+  only supported in Python 3.12 and greater`) and abort before checking any
+  project code. The count is dependency-sensitive too — numpy 2.5 types
+  `ArrayLike` precisely enough to surface nine further errors in
+  `geospatial.py` and `visualization.py` that numpy 2.4 did not — so a
+  baseline measured on an older local environment understates it, which is
+  how it was first committed nine too low.
+- **Honest dependency floors, validated in CI.** The optional-extra lower
+  bounds in `pyproject.toml` were aspirational (`geopandas>=0.10` predates
+  shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
+  `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`, `nicegui>=2.0`). They are
+  raised to `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
+  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.32.2` and
+  `nicegui>=3.0` (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`
+  unchanged). `requests>=2.32` is forced by nicegui — even nicegui 2.0.0
+  requires `requests>=2.32.0`, so the previous `[all]` floor set was not
+  co-installable at all — and `nicegui>=3.0` is the line the GUI itself
+  needs (nothing under `src/` imports `nicegui.testing`). The headless smoke
+  tests do *not* exercise that floor: `user_simulation` and
+  `ElementFilter(local_scope=)` only landed in NiceGUI 3.4.0, so
+  `tests/test_gui_v2_smoke.py` skips below it rather than claiming coverage
+  it does not have — the min-deps leg caught the original `minversion="3.0"`
+  guard letting collection through and then failing on the missing module.
+  The requests
+  floor lands on `2.32.2` rather than `2.32.0` because 2.32.0 and 2.32.1
+  are yanked on PyPI ("Yanked due to conflicts with CVE-2024-35195
+  mitigation"): the exact pin in `min-constraints.txt` made the `min-deps`
+  leg install a withdrawn release (pip honours an `==` pin on a yanked
+  version, warning as it does so), and no range resolution will ever land
+  there anyway. 2.32.2 is the oldest 2.32.x that is still a real
+  candidate. A new
+  `min-constraints.txt` pins the oldest versions that satisfy those floors
+  together (resolvability proven with
+  `pip install --dry-run --ignore-installed -e ".[dev,all]" -c min-constraints.txt`),
+  and a `min-deps` leg in `tests.yml` (Python 3.11) installs `.[dev,all]`
+  under those constraints and runs the suite, so the floors are checked
+  rather than guessed. It earned its keep immediately: `fiona` is pulled in
+  by geopandas, which declares only `fiona >=1.8.21` with no upper bound, so
+  the oldest-everything resolve paired geopandas 0.14 with a current fiona —
+  and fiona 1.10 removed `fiona.path.ParsedPath`, which geopandas 0.14 calls
+  on every read, failing eight shapefile tests with `module 'fiona' has no
+  attribute 'path'`. `min-constraints.txt` now caps it at the last 1.9.x.
 - The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
   instead of re-invoking it per test.
 - `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
@@ -136,6 +229,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`aermod_source_code_24142` → `aermod_source_v26135`) and AERMET's flat,
     Fortran-90 layout no longer break the compile. Verified locally: AERMOD
     v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
+- **EPA source version is pinned per run and surfaced in CI.**
+  `scripts/fetch_epa_source.sh` now prints the archive's top-level directory
+  (EPA encodes the version in it, e.g. `aermod_source_v26135`; `<flat
+  archive>` for AERMET) after every successful fetch or cache reuse, and
+  appends `EPA source: <dir> from <url>` to `$GITHUB_STEP_SUMMARY` when set.
+  `real_aermod.yml` / `real_aermap.yml` / `real_aermet.yml` gained a
+  `workflow_dispatch` input `source_url` (default = the current SCRAM URL) to
+  try a new EPA release without editing the workflow, and cache the downloaded
+  zip with `actions/cache` keyed on the URL plus the calendar month (so a
+  same-URL EPA re-release is still picked up within a month while gaftp
+  flakiness inside the month is absorbed). The derived-dir and
+  `chmod -R u+w` compile logic is unchanged.
+- **Repo hygiene.** `.DS_Store` and `aermod/.DS_Store` are no longer tracked
+  (they were already gitignored, so they showed as perpetually modified). A
+  `Makefile` adds `test`, `test-full` (installs `.[dev,all]`, then the whole
+  suite with coverage), `lint` and `typecheck` targets mirroring CI;
+  `CONTRIBUTING.md` documents the GDAL prerequisite for the `[geo]` extra and
+  `make test-full` as the pre-PR check.
 
 ### Fixed
 - **EPA fixture tests skipped silently after EPA renamed the archive sets.**
@@ -199,6 +310,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code N" instead of the `FATAL` line. Both files are now read as Latin-1
   with replacement, only `OSError` is tolerated, and that is logged at
   DEBUG. Tests cover non-UTF-8 bytes in both files and the logged fallback.
+- **GUI v2 Run/Results/editor crashes found by the new smoke tests:**
+  - the Run button always raised `ImportError` (`from ..._optional import
+    HAS_TERRAIN` — no such name), so AERMOD could never be launched from the
+    GUI; the stray import is removed;
+  - the Run tab wrote its deck as `aermod.inp`, the name `AERMODRunner`
+    reserves for the symlink it points at the deck — the runner unlinked the
+    deck and replaced it with a self-referencing symlink, and then failed
+    renaming `aermod.out` onto itself. The deck is now written as
+    `pyaermod_gui.inp`;
+  - the Results tab read `run_info.title` / `.pollutant` and iterated
+    `results.concentrations` as a list of objects with `max_x` / `max_y` /
+    `source_group`; the parser provides `jobname` / `pollutant_id`, a
+    `{period: ConcentrationResult}` mapping and a `max_location` tuple, so any
+    real output raised `AttributeError`;
+  - the source/receptor editor dialog crashed (`float() argument ... not
+    'list'`) for every source with polygon `vertices`, because the form
+    helper's numeric check was a substring test that claimed
+    `List[Tuple[float, float]]` — and silently rendered
+    `Optional[Tuple[DepositionMethod, float]]` as a number box, letting a
+    float be written into a tuple-typed field. `is_numeric` now resolves the
+    annotation (`typing.get_type_hints`, `get_origin`/`get_args`, unwrapping
+    `Optional`/`Union`, with a structural parser for unresolvable string
+    annotations) and is true only when the type *is* `int`/`float`,
+    optionally with `None`; list annotations are still dispatched first;
+  - tightening `is_numeric` then made the five building-downwash dimensions
+    (`building_height`, `building_width`, `building_length`,
+    `building_x_offset`, `building_y_offset` on the point/volume/area
+    sources) uneditable: they are `Optional[Union[float, List[float]]]`,
+    which is correctly *not* numeric, and fell through to the read-only-label
+    escape hatch, so a building height could no longer be typed at all.
+    `emit_field` now dispatches these on the current value — a number box
+    (clearable) while the field holds a scalar or nothing, the one-per-line
+    list editor once it holds a 36-sector vector — so neither shape is
+    thrown away. Clearing either widget stores `None` rather than `0.0` or
+    `[]`: the writer emits the keyword for any non-`None` value, and an
+    empty list is rejected as "not 36 values";
+  - `Optional[str]` fields (e.g. `OutputPathway.summary_file`) were rendered
+    as read-only labels instead of text inputs.
 - **`AERMAPRunner.run` passed the input file *stem* instead of its full
   name** as AERMAP's command-line argument, so AERMAP could not locate the
   runstream and exited without processing (still returning code 0) — runs

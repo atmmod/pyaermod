@@ -4,24 +4,31 @@ PyAERMOD Visualization Tools
 Create publication-ready plots and interactive maps for AERMOD results.
 """
 
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
+# Optional back-ends. Importing this module must stay silent on stdout /
+# stderr: a missing optional dependency is recorded at DEBUG level only,
+# and the user-facing signal is the ImportError (with an install hint)
+# raised by the first feature that actually needs the package.
 try:
     import matplotlib.pyplot as plt
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
-    print("Warning: matplotlib not installed. Static plotting unavailable.")
+    logger.debug("matplotlib not installed; static plotting unavailable (pip install 'pyaermod[viz]')")
 
 try:
     import folium
     HAS_FOLIUM = True
 except ImportError:
     HAS_FOLIUM = False
-    print("Warning: folium not installed. Interactive maps unavailable.")
+    logger.debug("folium not installed; interactive maps unavailable (pip install 'pyaermod[viz]')")
 
 
 class AERMODVisualizer:
@@ -176,7 +183,7 @@ class AERMODVisualizer:
         # Save if requested
         if save_path:
             plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-            print(f"Figure saved to: {save_path}")
+            logger.info("Figure saved to: %s", save_path)
 
         return fig
 
@@ -275,7 +282,7 @@ class AERMODVisualizer:
         # Save if requested
         if save_path:
             m.save(str(save_path))
-            print(f"Interactive map saved to: {save_path}")
+            logger.info("Interactive map saved to: %s", save_path)
 
         return m
 

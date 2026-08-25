@@ -34,20 +34,27 @@ jobs:
       - name: Lint with ruff
         run: ruff check src/ tests/
 
-      - name: Type-check with mypy (advisory)
-        # mypy is advisory in v1.x: counts errors and prints the trend
-        # but doesn't fail the build. Ratchet to strict mode once the
-        # baseline is clean.
-        # See https://github.com/atmmod/pyaermod/issues for the cleanup
-        # tracking issue (TODO: link).
+      - name: Type-check with mypy (ratchet gate)
+        # Not yet clean, but no longer advisory: scripts/mypy_gate.py fails
+        # the job only if the error count exceeds the integer committed in
+        # mypy-baseline.txt. When you fix errors, lower the baseline with
+        #   python scripts/mypy_gate.py --update
+        # The pin below must move together with the baseline (different
+        # mypy releases report different counts). The count also depends on
+        # which optional extras are importable — typed packages (nicegui,
+        # ezdxf, ...) surface errors that ignore_missing_imports hides — and
+        # on their versions: numpy 2.5 types ArrayLike far more precisely
+        # than 2.4 did, which alone accounts for nine errors in geospatial.py
+        # and visualization.py. So the baseline is only meaningful measured
+        # exactly here: this leg's Python, `.[dev,all]`, and the mypy pinned
+        # below. Measuring it on an older local environment understates it,
+        # which is how it was first committed nine too low. Note there is
+        # deliberately no python_version pin in [tool.mypy]: pinning 3.11
+        # while this leg runs 3.12 made mypy reject numpy 2.5's own stubs.
         if: matrix.python-version == '3.12'
-        continue-on-error: true
         run: |
-          pip install --quiet mypy
-          mypy src/pyaermod --ignore-missing-imports --no-error-summary || true
-          # Print a summary line CI can grep for
-          ERRS=$(mypy src/pyaermod --ignore-missing-imports 2>&1 | tail -1)
-          echo "::notice title=mypy baseline::$ERRS"
+          pip install --quiet "mypy==2.3.1"
+          python scripts/mypy_gate.py
 
       - name: Run tests with coverage
         # --cov-fail-under gates the build at 95% coverage on the
@@ -67,3 +74,33 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  min-deps:
+    # Validates the lower bounds declared in pyproject.toml: installs the
+    # oldest versions pinned in min-constraints.txt and runs the suite
+    # against them. Bump a pin there and the matching floor together.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev gdal-bin
+
+      - name: Install oldest supported dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,all]" -c min-constraints.txt
+          echo "::group::Resolved versions"
+          pip list --format=columns | grep -iE "^(numpy|pandas|scipy|matplotlib|folium|pyproj|shapely|geopandas|rasterio|requests|tqdm|ezdxf|nicegui) " || true
+          echo "::endgroup::"
+
+      - name: Run core test suite against minimum versions
+        # Coverage is gated on the main matrix; here only pass/fail matters.
+        run: pytest --tb=short -q -p no:cacheprovider --no-cov

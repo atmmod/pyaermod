@@ -36,55 +36,59 @@ Repository = "https://github.com/atmmod/pyaermod"
 Issues = "https://github.com/atmmod/pyaermod/issues"
 Changelog = "https://github.com/atmmod/pyaermod/blob/main/CHANGELOG.md"
 
+# Lower bounds are validated in CI: the `min-deps` job installs the oldest
+# versions pinned in min-constraints.txt and runs the suite. Keep the two
+# files in sync when raising a floor.
 [project.optional-dependencies]
 viz = [
-    "matplotlib>=3.3.0",
-    "scipy>=1.7.0",
-    "folium>=0.12.0",
+    "matplotlib>=3.7.0",
+    "scipy>=1.10.0",
+    "folium>=0.14.0",
 ]
 geo = [
-    "pyproj>=3.0.0",
-    "geopandas>=0.10.0",
-    "rasterio>=1.2.0",
-    "shapely>=1.8.0",
-    "scipy>=1.7.0",
+    "pyproj>=3.4.0",
+    "geopandas>=0.14.0",
+    "rasterio>=1.3.0",
+    "shapely>=2.0.0",
+    "scipy>=1.10.0",
 ]
 terrain = [
-    "requests>=2.25.0",
+    "requests>=2.32.2",
 ]
 met = [
-    "requests>=2.25.0",
+    "requests>=2.32.2",
 ]
 hpc = [
     "tqdm>=4.60.0",
-    "requests>=2.25.0",
+    "requests>=2.32.2",
 ]
 cad = [
     "ezdxf>=1.0.0",
 ]
 gui = [
-    "nicegui>=2.0",
+    "nicegui>=3.0",
 ]
 gui-desktop = [
-    "nicegui>=2.0",
+    "nicegui>=3.0",
     "pywebview>=5.0",
 ]
 all = [
-    "matplotlib>=3.3.0",
-    "scipy>=1.7.0",
+    "matplotlib>=3.7.0",
+    "scipy>=1.10.0",
     "folium>=0.14.0",
-    "pyproj>=3.0.0",
-    "geopandas>=0.10.0",
-    "rasterio>=1.2.0",
-    "shapely>=1.8.0",
-    "requests>=2.25.0",
+    "pyproj>=3.4.0",
+    "geopandas>=0.14.0",
+    "rasterio>=1.3.0",
+    "shapely>=2.0.0",
+    "requests>=2.32.2",
     "tqdm>=4.60.0",
     "ezdxf>=1.0.0",
-    "nicegui>=2.0",
+    "nicegui>=3.0",
 ]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",  # NiceGUI headless User harness (tests/test_gui_v2_smoke.py)
     "ruff>=0.4.0",
     "hypothesis>=6.82.0",
     "build",
@@ -105,7 +109,11 @@ pyaermod = ["py.typed"]
 [tool.mypy]
 # Advisory configuration as of v1.5; ratchet toward strict mode over
 # time. The baseline error count is published in CI logs.
-python_version = "3.11"
+# No python_version pin: mypy targets whatever interpreter runs it. Pinning
+# 3.11 while the gate runs on the 3.12 CI leg made mypy reject numpy 2.5's
+# own stubs ("Type statement is only supported in Python 3.12 and greater"),
+# which aborts the run before any of our code is checked. The installed
+# numpy always matches the interpreter, so following it keeps the two in step.
 ignore_missing_imports = true
 warn_unused_configs = true
 warn_redundant_casts = true

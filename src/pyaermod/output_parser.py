@@ -887,7 +887,7 @@ class AERMODResults:
             filename = f"{prefix}_concentrations_{period}.csv"
             result.data.to_csv(output_path / filename, index=False)
 
-        print(f"Exported results to {output_path}")
+        logger.info("Exported results to %s", output_path)
 
 
 # ============================================================================

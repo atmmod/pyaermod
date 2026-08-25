@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "30 7 * * 1"  # Monday 07:30 UTC (staggered from real_aermod)
   workflow_dispatch:
+    inputs:
+      source_url:
+        description: "EPA SCRAM AERMAP source archive URL (override to try a new EPA release)"
+        required: false
+        default: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip"
   pull_request:
     paths:
       - "src/pyaermod/terrain.py"
@@ -16,6 +21,11 @@ on:
       - "tests/test_real_aermap.py"
       - ".github/workflows/real_aermap.yml"
       - "aermap/**/*.f"
+
+env:
+  # `inputs.source_url` is only set for workflow_dispatch; every other
+  # trigger falls through to the pinned default.
+  AERMAP_SOURCE_URL: ${{ inputs.source_url || 'https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip' }}
 
 jobs:
   aermap_smoke:
@@ -36,13 +46,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Compute EPA source cache key
+        id: src
+        # Keyed on the URL (so an override never reuses the default's archive)
+        # plus the calendar month, so a same-URL EPA re-release is picked up
+        # within a month while gaftp flakiness inside the month is absorbed.
+        run: |
+          echo "key=epa-aermap-source-$(printf '%s' "$AERMAP_SOURCE_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache EPA source archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/aermap_build/aermap_source.zip
+          key: ${{ steps.src.outputs.key }}
+
       - name: Download + compile AERMAP from EPA source
         run: |
           set -euxo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
           mkdir -p /tmp/aermap_build && cd /tmp/aermap_build
+          # fetch_epa_source.sh reuses a cache-restored archive, prints the
+          # archive's top-level dir (EPA's version) and adds it to the job summary.
           bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
-            "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/related/aermap/aermap_source.zip" \
+            "$AERMAP_SOURCE_URL" \
             aermap_source.zip
           unzip -q aermap_source.zip
           # Derive the extracted source dir from the archive so a future EPA

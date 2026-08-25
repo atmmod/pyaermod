@@ -62,8 +62,9 @@ def render(state: AppState) -> None:
     if info is not None:
         with ui.card().classes("q-mt-sm"):
             ui.markdown(
-                f"**Title:** {info.title or '(none)'}  \n"
-                f"**Pollutant:** {info.pollutant or '(none)'}  \n"
+                f"**Job:** {info.jobname or '(none)'}  \n"
+                f"**AERMOD version:** {info.version or '(none)'}  \n"
+                f"**Pollutant:** {info.pollutant_id or '(none)'}  \n"
                 f"**Sources:** {len(results.sources)}  \n"
                 f"**Receptors:** {len(results.receptors)}",
             )
@@ -88,18 +89,20 @@ def render(state: AppState) -> None:
             rows=rows, row_key="id",
         ).classes("w-full")
 
-    # Concentration block
+    # Concentration block. ``results.concentrations`` is a
+    # ``{period: ConcentrationResult}`` mapping; the max location is a
+    # ``(x, y)`` tuple on ``ConcentrationResult.max_location``.
     if results.concentrations:
         ui.label("Max concentrations").classes("text-subtitle1 q-mt-md")
         rows = [
             {
-                "period":   c.averaging_period,
+                "period":   period,
                 "value":    f"{c.max_value:.4g}",
-                "x":        c.max_x,
-                "y":        c.max_y,
-                "group":    c.source_group,
+                "x":        c.max_location[0],
+                "y":        c.max_location[1],
+                "units":    c.units,
             }
-            for c in results.concentrations
+            for period, c in results.concentrations.items()
         ]
         ui.table(
             columns=[
@@ -107,7 +110,7 @@ def render(state: AppState) -> None:
                 {"name": "value",  "label": "Max",    "field": "value"},
                 {"name": "x",      "label": "X",      "field": "x"},
                 {"name": "y",      "label": "Y",      "field": "y"},
-                {"name": "group",  "label": "Group",  "field": "group"},
+                {"name": "units",  "label": "Units",  "field": "units"},
             ],
             rows=rows, row_key="period",
         ).classes("w-full")

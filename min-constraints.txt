@@ -1,0 +1,44 @@
+# Oldest dependency versions that the lower bounds declared in
+# pyproject.toml are believed to satisfy *together* on Python 3.11.
+#
+# CI's `min-deps` leg (.github/workflows/tests.yml) installs
+#     pip install -e ".[dev,all]" -c min-constraints.txt
+# and runs the test suite against them, so the floors are validated in CI
+# rather than guessed. When you bump a pin here, bump the matching
+# `>=` floor in pyproject.toml in the same change (and vice versa).
+#
+# pip constraints only pin packages that are actually installed; test
+# tooling (pytest, ruff, hypothesis, ...) is intentionally left at latest.
+
+# core
+numpy==1.24.4
+pandas==2.0.3
+
+# [viz]
+matplotlib==3.7.1
+scipy==1.10.1
+folium==0.14.0
+
+# [geo]
+pyproj==3.4.1
+shapely==2.0.1
+geopandas==0.14.0
+# Cap, not a floor: geopandas 0.14 calls fiona.path.ParsedPath, which
+# fiona removed in 1.10, and geopandas declares only `fiona >=1.8.21`
+# with no upper bound -- so an unpinned resolve pairs it with a fiona
+# that cannot work and every shapefile read fails with
+# `module 'fiona' has no attribute 'path'`. 1.9.6 is the last 1.9.x.
+fiona==1.9.6
+rasterio==1.3.8
+
+# [terrain] / [met] / [hpc]
+# 2.32.0 and 2.32.1 are yanked on PyPI ("conflicts with CVE-2024-35195
+# mitigation"); 2.32.2 is the oldest 2.32.x still installable.
+requests==2.32.2
+tqdm==4.60.0
+
+# [cad]
+ezdxf==1.0.3
+
+# [gui]
+nicegui==3.0.0
