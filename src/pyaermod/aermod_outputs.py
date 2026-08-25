@@ -168,7 +168,11 @@ def parse_fortran_format(spec: str) -> List[Tuple[str, int]]:
             rep = int(m.group("rep") or 1)
             code = m.group("code").upper()
             width = int(m.group("w") or 1)
-            out.extend([("skip" if code == "X" else "data", width)] * rep)
+            if code == "X":
+                # nX is "skip n columns", not "n one-column fields".
+                out.append(("skip", rep * width))
+            else:
+                out.extend([("data", width)] * rep)
             i = m.end()
         return out
 

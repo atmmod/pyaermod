@@ -6,6 +6,7 @@ import pytest
 
 from pyaermod.aermod_outputs import (
     parse_aermod_header,
+    parse_fortran_format,
     read_aermod_aux_file,
     read_deposition,
     read_maxifile,
@@ -214,3 +215,120 @@ class TestGenericReader:
         df = read_aermod_aux_file(path).to_dataframe()
         assert list(df.columns) == ["X", "Y", "CONC"]
         assert len(df) == 2
+
+
+# ---------------------------------------------------------------------------
+# Fortran FORMAT-driven fixed-width parsing
+# ---------------------------------------------------------------------------
+
+class TestParseFortranFormat:
+    def test_expands_repeats_and_groups(self):
+        fields = parse_fortran_format("(3(1X,F13.5),2X,A8)")
+        assert fields == [
+            ("skip", 1), ("data", 13),
+            ("skip", 1), ("data", 13),
+            ("skip", 1), ("data", 13),
+            ("skip", 2), ("data", 8),
+        ]
+
+    def test_field_count_of_every_format_aermod_writes(self):
+        # The distinct FORMAT statements found across EPA's reference
+        # outputs, with the number of data fields each declares.
+        cases = [
+            ("(3(1X,F13.5),3(1X,F8.2),2X,A6,2X,A8,2X,I8.8,2X,A8)", 10),
+            ("(3(1X,F13.5),3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)", 11),
+            ("(2(1X,F13.5),1(1X,E13.6),3(1X,F7.2),2X,A8,2X,3(I4,2X),A8)", 11),
+            ("(5(1X,F13.5),3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)", 13),
+            ("(1X,I3,1X,A8,1X,I8.8,2(1X,F13.5),3(1X,F7.2),1X,F13.5)", 9),
+            # Trailing group with a colon terminator (MAXDAILY-style files).
+            ("(3(1X,F13.5),3(1X,F8.2),2X,A6,2X,A8,2X,A5,5X,A8,2X,"
+             "               10(F13.5,2X,I8.8,2X:))", 30),
+        ]
+        for spec, expected in cases:
+            fields = parse_fortran_format(spec)
+            n_data = sum(1 for kind, _ in fields if kind == "data")
+            assert n_data == expected, spec
+
+    def test_ignores_trailing_padding_after_the_closing_paren(self):
+        padded = "(1X,F13.5)" + " " * 60
+        assert parse_fortran_format(padded) == [("skip", 1), ("data", 13)]
+
+    def test_rejects_non_format_text(self):
+        with pytest.raises(ValueError):
+            parse_fortran_format("X Y CONC")
+        with pytest.raises(ValueError):
+            parse_fortran_format("(1X,F13.5")
+
+
+# A PLOTFILE row with a blank NET ID -- what AERMOD writes for discrete
+# receptors. Whitespace splitting yields ten tokens for eleven columns and
+# silently files the date under NET_ID; the FORMAT widths keep them apart.
+_BLANK_NETID_PLT = (
+    "* AERMOD (26135 ):  test case                                     06/29/26\n"
+    "*         PLOT FILE OF  HIGH   1ST HIGH 24-HR VALUES FOR SOURCE GROUP: ALL\n"
+    "*         FORMAT: (3(1X,F13.5),3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)\n"
+    "*        X             Y      AVERAGE CONC    ZELEV    ZHILL    ZFLAG"
+    "    AVE     GRP       RANK     NET ID   DATE(CONC)\n"
+    "   -1249.68000   -3810.00000      11.01517  1000.00  1000.00     3.40"
+    "   24-HR  ALL         1ST               93071824\n"
+)
+
+
+class TestFixedWidthRows:
+    def _read(self, tmp_path):
+        path = tmp_path / "blank_netid.plt"
+        path.write_text(_BLANK_NETID_PLT)
+        return read_plotfile(path)
+
+    def test_two_word_labels_stay_one_column(self, tmp_path):
+        res = self._read(tmp_path)
+        assert res.column_names == [
+            "X", "Y", "AVERAGE_CONC", "ZELEV", "ZHILL", "ZFLAG",
+            "AVE", "GRP", "RANK", "NET_ID", "DATE(CONC)",
+        ]
+
+    def test_blank_field_does_not_shift_later_columns(self, tmp_path):
+        rec = self._read(tmp_path).records[0]
+        assert rec["AVERAGE_CONC"] == pytest.approx(11.01517)
+        assert rec["RANK"] == "1ST"
+        assert rec["NET_ID"] == ""
+        # Without fixed-width slicing the date lands in NET_ID and this
+        # key holds nothing at all.
+        assert rec["DATE(CONC)"] == 93071824
+
+    def test_concentration_column_is_discoverable(self, tmp_path):
+        res = self._read(tmp_path)
+        assert res.concentration_column == "AVERAGE_CONC"
+        assert res.values() == [pytest.approx(11.01517)]
+
+    def test_header_records_the_format_it_used(self, tmp_path):
+        h = self._read(tmp_path).header
+        assert h.record_format.startswith("(3(1X,F13.5)")
+        assert h.field_widths[:3] == [13, 13, 13]
+
+
+class TestFileTypeDetection:
+    def test_modeling_options_line_is_not_a_file_type(self, tmp_path):
+        # "MODELING OPTIONS USED: ... DDEP WDEP ..." names deposition
+        # options; the file is still a PLOTFILE.
+        path = tmp_path / "dep_run.plt"
+        path.write_text(
+            "* AERMOD (26135 ):  gaseous deposition test          06/29/26\n"
+            "* MODELING OPTIONS USED:   NonDFAULT  CONC  DDEP  WDEP  FLAT\n"
+            "*         PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR "
+            "SOURCE GROUP: ALL\n"
+            "*        X              Y       CONC\n"
+            "       0.00000     100.00000      15.23407\n"
+        )
+        res = read_plotfile(path)
+        assert res.header.file_type == "PLOTFILE"
+        assert res.records[0]["CONC"] == pytest.approx(15.23407)
+
+    def test_type_without_a_file_of_line_still_resolves(self, tmp_path):
+        path = tmp_path / "x.rnk"
+        path.write_text(
+            "* AERMOD (23132):  RANKFILE\n"
+            "* RANK        X           Y         CONC         DATE\n"
+            "     1     500.00      500.00       1.234    2020012400\n"
+        )
+        assert read_rankfile(path).header.file_type == "RANKFILE"
