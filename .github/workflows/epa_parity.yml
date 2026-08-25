@@ -239,6 +239,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "before:"; du -sh test_cases aermet_test_cases
+          # EPA's archives carry read-only directory bits (dr-xr-xr-x), and
+          # unlinking a child needs write permission on its *parent*, so
+          # shutil.rmtree below dies with EACCES on the first AERMET
+          # subdirectory. Make the trees writable before pruning them.
+          chmod -R u+w test_cases aermet_test_cases
           python - <<'EOF'
           import os
           import shutil
