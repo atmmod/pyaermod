@@ -13,11 +13,12 @@ PIP    ?= $(PYTHON) -m pip
 # (mypy-baseline.txt is authoritative for the `.[dev,all]` environment).
 MYPY_VERSION ?= 2.3.1
 
-.PHONY: help install install-full test test-full lint typecheck benchmark clean
+.PHONY: help install install-full test test-full test-binaries lint typecheck benchmark clean
 
 help:
 	@echo "make test        - core suite (-m 'not slow', coverage per pytest.ini)"
 	@echo "make test-full   - pip install -e '.[dev,all]' then the full suite incl. slow tests"
+	@echo "make test-binaries - full suite with ./bin on PATH (real EPA binaries)"
 	@echo "make lint        - ruff check src/ tests/"
 	@echo "make typecheck   - mypy ratchet gate (fails only if the error count grows)"
 	@echo "make benchmark   - benchmarks/run_benchmarks.py -> benchmark_results.json"
@@ -35,6 +36,20 @@ test:
 test-full: install-full
 	$(PYTHON) -m pytest -o addopts="" -q -p no:cacheprovider --strict-markers --tb=short \
 	    --cov=pyaermod --cov-config=.coveragerc --cov-report=term-missing:skip-covered
+
+# Everything test-full runs, plus the tests that need a real EPA binary
+# (the EPA parity suite, the bit-exact AERTEST regression, the CLI run
+# smoke tests). Those SKIP silently when nothing named `aermod` is on
+# PATH, so a green `make test-full` says nothing about them -- build the
+# binaries first with `scripts/build_aermod.sh` and use this target,
+# which puts ./bin on PATH for you.
+test-binaries: install-full
+	@test -x bin/aermod || { \
+	    echo "bin/aermod not found -- run scripts/build_aermod.sh first"; \
+	    exit 1; \
+	}
+	PATH="$(CURDIR)/bin:$$PATH" $(PYTHON) -m pytest -o addopts="" -q \
+	    -p no:cacheprovider --strict-markers --tb=short
 
 lint:
 	$(PYTHON) -m ruff check src/ tests/
