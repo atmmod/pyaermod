@@ -173,6 +173,12 @@ class ControlPathway:
     # Low wind options
     low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
 
+    # Non-regulatory model options. AERMOD gates some source types and
+    # features behind these: RLINEXT is rejected outright with
+    # "Non-DFAULT ALPHA Option Required" unless ALPHA is present.
+    alpha: bool = False
+    beta: bool = False
+
     # Event file reference
     eventfil: Optional[str] = None
 
@@ -209,6 +215,13 @@ class ControlPathway:
         # Regulatory default mode
         if self.regulatory_default:
             model_opts.append("DFAULT")
+
+        # Non-regulatory options, which AERMOD requires before it will
+        # accept certain source types and keywords.
+        if self.alpha:
+            model_opts.append("ALPHA")
+        if self.beta:
+            model_opts.append("BETA")
 
         # Append chemistry method to MODELOPT
         if self.chemistry is not None:

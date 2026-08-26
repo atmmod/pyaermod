@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Deck-acceptance tests for every source type** —
+  `tests/test_source_deck_acceptance.py` generates a minimal deck for
+  each of pyaermod's ten source types and runs AERMOD's own setup pass
+  (`RUNORNOT NOT`) over it, asserting no fatal errors. It carries a
+  coverage guard that fails when a new source type is added without a
+  case, and a self-check that a deliberately broken deck *is* reported,
+  so the suite cannot pass vacuously.
+- **Property-based round-trip over all ten source types** —
+  `tests/test_property_all_sources.py`. The existing property tests
+  covered the three types the reader supported when they were written.
+- **`ControlPathway.alpha` / `.beta`** — the non-regulatory MODELOPT
+  options. AERMOD refuses RLINEXT outright without ALPHA.
+
 - **Real-binary parity for BPIP-PRIME and AERSURFACE.** Both had EPA
   Fortran available and neither had ever been run against it.
   `scripts/build_bpip.sh` and `scripts/build_aersurface.sh` fetch and
@@ -309,6 +322,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **Three of the ten source types produced decks AERMOD rejects.**
+  Verified against the real binary's setup pass:
+  - `AREAPOLY` wrote its `LOCATION` at the polygon *centroid* while
+    AERMOD requires the first vertex ("ARVERT: First Vertex Does Not
+    Match LOCATION"), and omitted the vertex count from `SRCPARAM`,
+    which is a fatal "Not Enough Parameters" and then makes every
+    `AREAVERT` line overflow an unset limit. Four distinct fatal errors
+    from one source.
+  - `BUOYLINE` wrote `BLPINPUT` with no group ID, so AERMOD filed the
+    parameters under the implicit group `ALL` and then failed with "No
+    BLPINPUT record for BLPGROUP ID".
+  - `RLINEXT` needs `MODELOPT ... ALPHA`, which `ControlPathway` had no
+    way to emit.
+- **The reader silently dropped AREAPOLY, RLINEXT and BUOYLINE
+  sources.** `parse_aermod_input` returned successfully with an empty
+  source list -- no error, no warning -- so a project could lose its
+  emissions with nothing to show for it. All three are now
+  reconstructed, including `AREAVERT` vertex rings and the
+  `BLPINPUT`/`BLPGROUP` pairing that turns buoyant line *segments* back
+  into a source. All ten source types now round-trip.
+
 - **AERSURFACE decks used keywords AERSURFACE does not have.**
   `AERSURFACEConfig.to_aersurface_input()` emitted `TITLE`, `LOCATION`,
   `NLCDFILE`, `NLCDYEAR`, `SNOW_TEMPER`, `SECTORS_LIST`, `OUTPATH` and

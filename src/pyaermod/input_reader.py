@@ -45,9 +45,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
+    AreaPolySource,
     AreaSource,
     BackgroundConcentration,
     BackgroundSector,
+    BuoyLineSegment,
+    BuoyLineSource,
     CartesianGrid,
     ChemistryMethod,
     ChemistryOptions,
@@ -64,6 +67,7 @@ from .input_generator import (
     PolarGrid,
     PollutantType,
     ReceptorPathway,
+    RLineExtSource,
     RLineSource,
     SourceGroupDefinition,
     SourcePathway,
@@ -350,6 +354,11 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     part_dep_data: Dict[str, Dict[str, List[float]]] = {}  # srcid -> {diameters/fractions/densities}
     urbansrc_data: Dict[str, str] = {}  # srcid -> urban_area_name
 
+    # Buoyant-line accumulation: BLPINPUT carries the group's averaged
+    # geometry, BLPGROUP names the member line segments.
+    blp_params: Dict[str, List[float]] = {}
+    blp_groups: Dict[str, List[str]] = {}
+
     # Background concentration accumulation
     bg_uniform: Optional[float] = None
     bg_period_values: Dict[str, float] = {}
@@ -370,7 +379,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             #   srcid TYPE x_start y_start x_end y_end [elev]  (LINE/RLINE)
             #   srcid TYPE x_start y_start z_start x_end y_end z_end (RLINEXT)
             # Non-LINE sources use the 5th token as base_elevation.
-            if stype in ("LINE", "RLINE") and len(toks) >= 6:
+            if stype in ("LINE", "RLINE", "BUOYLINE") and len(toks) >= 6:
                 locs[sid]["extra_loc"] = [float(toks[4]), float(toks[5])]
                 if len(toks) > 6:
                     locs[sid]["z_elev"] = float(toks[6])
@@ -410,6 +419,44 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             field_name = _BUILDING_KW_TO_FIELD[kw]
             bucket = locs.setdefault(sid, {}).setdefault("_building", {})
             bucket.setdefault(field_name, []).extend(values)
+        elif kw == "AREAVERT":
+            # AREAVERT srcid x1 y1 x2 y2 ...  -- may repeat for one source,
+            # six coordinate pairs to a line.
+            if len(toks) < 3:
+                continue
+            sid = toks[0]
+            try:
+                values = [float(t) for t in toks[1:]]
+            except ValueError:
+                continue
+            bucket = locs.setdefault(sid, {}).setdefault("_vertices", [])
+            bucket.extend(
+                (values[i], values[i + 1]) for i in range(0, len(values) - 1, 2)
+            )
+        elif kw == "BLPINPUT":
+            # BLPINPUT [grpid] avg_line_len avg_bldg_hgt avg_bldg_wid
+            #          avg_line_wid avg_bldg_sep avg_buoyancy
+            # The group ID is optional; without it AERMOD files the
+            # parameters under the implicit group "ALL".
+            # Disambiguate on field count, as AERMOD does (IFC 8 vs 9 in
+            # soset.f), not on whether the first token parses as a
+            # number: a source group named "0" is legal and would
+            # otherwise be eaten as the first parameter.
+            if len(toks) >= 7:
+                grp, rest = toks[0], toks[1:7]
+            elif len(toks) == 6:
+                grp, rest = "ALL", toks
+            else:
+                continue
+            try:
+                values = [float(t) for t in rest]
+            except ValueError:
+                continue
+            blp_params[grp] = values[:6]
+        elif kw == "BLPGROUP":
+            if len(toks) < 2:
+                continue
+            blp_groups[toks[0]] = list(toks[1:])
         elif kw == "SRCGROUP":
             if not toks:
                 continue
@@ -526,8 +573,10 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
         elif kw in ("EMISFACT", "HOUREMIS", "INCLUDED", "ELEVUNIT"):
             pass  # Recognized keyword; no structural field in SourcePathway
 
-    # Build source objects
-    sources = []
+    # Build source objects. The concrete type is chosen per LOCATION
+    # keyword, so this list is deliberately heterogeneous.
+    sources: List[Any] = []
+    src: Any
     for sid, data in locs.items():
         stype = src_types.get(sid, "POINT")
         params = data.get("params", [])
@@ -624,10 +673,41 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 radius=params[2] if len(params) > 2 else 100.0,
                 num_vertices=int(params[3]) if len(params) > 3 else 20,
             )
-        # AREAPOLY, BUOYLINE, RLINEXT: require additional multi-line
-        # constructs (AREAVERT vertex lists, BLPINPUT parameter blocks,
-        # per-endpoint z values) that we don't yet reconstruct. Skipped
-        # with a soft-warning path so the rest of the project still parses.
+        elif stype == "AREAPOLY":
+            # LOCATION is the polygon's first vertex; AREAVERT carries
+            # the full ring. SRCPARAM: emission relhgt nverts [szinit]
+            vertices = data.get("_vertices", [])
+            if not params or len(vertices) < 3:
+                continue
+            src = AreaPolySource(
+                source_id=sid,
+                vertices=vertices,
+                emission_rate=params[0],
+                release_height=params[1] if len(params) > 1 else 0.0,
+            )
+        elif stype == "RLINEXT":
+            # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end,
+            # so extra_loc holds (z_start, x_end, y_end, z_end).
+            # SRCPARAM: emission dcl width init_sigma_z
+            extra = data.get("extra_loc", [])
+            if len(extra) < 4 or not params:
+                continue
+            src = RLineExtSource(
+                source_id=sid,
+                x_start=common["x_coord"], y_start=common["y_coord"],
+                z_start=extra[0],
+                x_end=extra[1], y_end=extra[2], z_end=extra[3],
+                emission_rate=params[0],
+                dcl=params[1] if len(params) > 1 else 0.0,
+                road_width=params[2] if len(params) > 2 else 0.0,
+                init_sigma_z=params[3] if len(params) > 3 else 0.0,
+            )
+        elif stype == "BUOYLINE":
+            # Each BUOYLINE LOCATION is one *segment*; the source proper
+            # is the BLPGROUP that names them, parameterised by BLPINPUT.
+            # Segments are assembled after this loop, so nothing to build
+            # here.
+            continue
 
         if src is None:
             continue
@@ -658,6 +738,50 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             src.urban_area_name = urbansrc_data[sid]
 
         sources.append(src)
+
+    # Assemble buoyant-line sources. Each BUOYLINE LOCATION is a single
+    # line segment; the source is the BLPGROUP naming them, carrying the
+    # averaged geometry from its BLPINPUT record. A deck with one
+    # buoyant line may omit both the BLPGROUP and the group ID on
+    # BLPINPUT, in which case every BUOYLINE segment belongs to "ALL".
+    buoyline_ids = [sid for sid, t in src_types.items() if t == "BUOYLINE"]
+    if buoyline_ids:
+        groups = blp_groups or {"ALL": buoyline_ids}
+        for grp_id, member_ids in groups.items():
+            avg = blp_params.get(grp_id) or blp_params.get("ALL")
+            if avg is None:
+                continue
+            segments = []
+            for member in member_ids:
+                seg_data = locs.get(member)
+                if seg_data is None:
+                    continue
+                extra = seg_data.get("extra_loc", [])
+                seg_params = seg_data.get("params", [])
+                if len(extra) < 2:
+                    continue
+                segments.append(BuoyLineSegment(
+                    source_id=member,
+                    x_start=seg_data.get("x_coord", 0.0),
+                    y_start=seg_data.get("y_coord", 0.0),
+                    x_end=extra[0], y_end=extra[1],
+                    emission_rate=seg_params[0] if seg_params else 0.0,
+                    release_height=(
+                        seg_params[1] if len(seg_params) > 1 else 0.0
+                    ),
+                ))
+            if not segments:
+                continue
+            sources.append(BuoyLineSource(
+                source_id=grp_id,
+                avg_line_length=avg[0],
+                avg_building_height=avg[1],
+                avg_building_width=avg[2],
+                avg_line_width=avg[3],
+                avg_building_separation=avg[4],
+                avg_buoyancy_parameter=avg[5],
+                line_segments=segments,
+            ))
 
     # Build BackgroundConcentration if any BACKGRND keywords were found
     background: Optional[BackgroundConcentration] = None

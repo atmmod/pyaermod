@@ -8,7 +8,9 @@ import pytest
 
 from pyaermod import (
     AERMODProject,
+    AreaPolySource,
     AreaSource,
+    BuoyLineSource,
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
@@ -18,6 +20,7 @@ from pyaermod import (
     PointSource,
     PollutantType,
     ReceptorPathway,
+    RLineExtSource,
     SourcePathway,
     TerrainType,
     VolumeSource,
@@ -966,11 +969,58 @@ class TestSOKeywordsV26135:
         assert (src.x_end, src.y_end) == (100.0, 0.0)
         assert src.initial_lateral_dimension == pytest.approx(3.0)
 
-    def test_rlinext_location_parsed_but_not_constructed(self):
-        # RLINEXT carries z at both ends; the reader records it but does not
-        # yet build an RLineExtSource (documented follow-up in the audit).
-        so = "   LOCATION R1 RLINEXT 0 0 1 100 0 1\n   SRCPARAM R1 1 2 3 4\n"
-        assert _wrap(so_body=so).sources.sources == []
+    def test_rlinext_is_constructed_with_both_endpoint_elevations(self):
+        # RLINEXT carries z at both ends; SRCPARAM is
+        # (emission, dcl, road width, initial sigma-z).
+        so = "   LOCATION R1 RLINEXT 0 0 1 100 0 2\n   SRCPARAM R1 1 2 3 4\n"
+        src = _wrap(so_body=so).sources.sources[0]
+        assert isinstance(src, RLineExtSource)
+        assert (src.x_start, src.y_start, src.z_start) == (0.0, 0.0, 1.0)
+        assert (src.x_end, src.y_end, src.z_end) == (100.0, 0.0, 2.0)
+        assert src.emission_rate == pytest.approx(1.0)
+        assert src.dcl == pytest.approx(2.0)
+        assert src.road_width == pytest.approx(3.0)
+        assert src.init_sigma_z == pytest.approx(4.0)
+
+    def test_areapoly_is_constructed_from_areavert(self):
+        so = (
+            "   LOCATION A1 AREAPOLY 0 0 0\n"
+            "   SRCPARAM A1 1 5 4\n"
+            "   AREAVERT A1 0 0 10 0 10 10 0 10\n"
+        )
+        src = _wrap(so_body=so).sources.sources[0]
+        assert isinstance(src, AreaPolySource)
+        assert src.vertices == [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0),
+                                (0.0, 10.0)]
+        assert src.release_height == pytest.approx(5.0)
+
+    def test_buoyline_group_is_assembled_from_its_segments(self):
+        so = (
+            "   LOCATION SEG1 BUOYLINE 0 0 100 50 0\n"
+            "   SRCPARAM SEG1 1.5 10\n"
+            "   BLPINPUT B1 100 10 8 5 12 30\n"
+            "   BLPGROUP B1 SEG1\n"
+        )
+        src = _wrap(so_body=so).sources.sources[0]
+        assert isinstance(src, BuoyLineSource)
+        assert src.source_id == "B1"
+        assert src.avg_line_length == pytest.approx(100.0)
+        assert src.avg_buoyancy_parameter == pytest.approx(30.0)
+        assert [s.source_id for s in src.line_segments] == ["SEG1"]
+        assert src.line_segments[0].emission_rate == pytest.approx(1.5)
+
+    def test_buoyline_without_a_group_id_uses_all(self):
+        # An 8-field BLPINPUT (no group ID) puts every BUOYLINE segment
+        # in the implicit group "ALL", as AERMOD does.
+        so = (
+            "   LOCATION SEG1 BUOYLINE 0 0 100 50 0\n"
+            "   SRCPARAM SEG1 1 10\n"
+            "   BLPINPUT 100 10 8 5 12 30\n"
+        )
+        src = _wrap(so_body=so).sources.sources[0]
+        assert isinstance(src, BuoyLineSource)
+        assert src.source_id == "ALL"
+        assert len(src.line_segments) == 1
 
     @pytest.mark.parametrize(("so", "why"), [
         ("   LOCATION S1 POINT 0 0 0\n   SRCPARAM S1 1 30\n", "POINT needs 5 SRCPARAM values"),
