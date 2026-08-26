@@ -95,6 +95,7 @@ nav:
           - chemistry_presets: api/chemistry_presets.md
       - Validation:
           - regulatory_parity: api/regulatory_parity.md
+          - epa_sources: api/epa_sources.md
       - GUI:
           - gui_v2 (NiceGUI): api/gui_v2.md
 
