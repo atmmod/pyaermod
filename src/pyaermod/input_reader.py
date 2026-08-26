@@ -75,6 +75,15 @@ from .input_generator import (
     VolumeSource,
 )
 
+#: Leading digits of a rank token, so "8TH" reads as 8.
+_LEADING_DIGITS_RE = re.compile(r"\d+")
+
+#: Ordinal words AERMOD accepts for a RECTABLE rank, mapped to the rank.
+_ORDINAL_WORDS = {
+    "FIRST": 1, "SECOND": 2, "THIRD": 3, "FOURTH": 4, "FIFTH": 5,
+    "SIXTH": 6, "SEVENTH": 7, "EIGHTH": 8, "NINTH": 9, "TENTH": 10,
+}
+
 # ---------------------------------------------------------------------------
 # Lexer / pathway splitter
 # ---------------------------------------------------------------------------
@@ -988,11 +997,19 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
     for kw, toks, _ln in _group_keywords(block):
         if kw == "RECTABLE" and len(toks) >= 2:
             receptor_table = True
-            # AERMOD accepts either a numeric rank or the special keyword
-            # form "FIRST-THIRD" (still represented as rank 3).
-            rank_tok = toks[1]
-            with contextlib.suppress(ValueError):
-                rect_rank = int(rank_tok)
+            # AERMOD accepts a bare rank ("8"), a numeric range ("1-10"),
+            # or the ordinal-word forms ("FIRST", "FIRST-THIRD"). All are
+            # represented here by their highest rank.
+            rank_tok = toks[1].upper()
+            if "-" in rank_tok:
+                rank_tok = rank_tok.rsplit("-", 1)[-1]
+            if rank_tok in _ORDINAL_WORDS:
+                rect_rank = _ORDINAL_WORDS[rank_tok]
+            else:
+                # "8TH" and "8" both mean rank 8.
+                digits = _LEADING_DIGITS_RE.match(rank_tok)
+                if digits:
+                    rect_rank = int(digits.group())
         elif kw == "MAXTABLE" and len(toks) >= 2:
             max_table = True
             with contextlib.suppress(ValueError):
@@ -1004,16 +1021,26 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
         elif kw == "MAXIFILE" and toks:
             max_file = toks[0]
         elif kw == "PLOTFILE":
-            # PLOTFILE <avg_period> <source_group> <rank> <filename>
-            if len(toks) >= 4:
-                period, group, _rank, fname = toks[0], toks[1], toks[2], toks[3]
+            # PLOTFILE PERIOD|ANNUAL <group> <filename> [unit]
+            # PLOTFILE <hours>       <group> <rank> <filename> [unit]
+            # The period forms carry no rank, so the filename is one
+            # field earlier; taking a fixed position reads the rank as
+            # the filename.
+            if len(toks) >= 3:
+                period, group = toks[0], toks[1]
+                is_period = period.strip().upper() in ("PERIOD", "ANNUAL")
+                fname = toks[2] if is_period else (
+                    toks[3] if len(toks) >= 4 else None
+                )
+                if fname is None:
+                    continue
                 if group.upper() == "ALL" and plot_file is None:
                     plot_file = fname
                     plot_file_averaging = period
                 else:
                     plot_file_groups.append((period, group, fname))
         elif kw == "POSTFILE":
-            # POSTFILE <avg_period> <source_group> <format> <filename>
+            # POSTFILE <avg_period> <group> <format> <filename> [unit]
             if len(toks) >= 4:
                 postfile_averaging = toks[0]
                 postfile_source_group = toks[1]

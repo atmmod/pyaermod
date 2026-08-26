@@ -154,8 +154,10 @@ class TestOutputPathwayPlotFileGroups:
             ],
         )
         output = op.to_aermod_input()
-        assert "PLOTFILE  ANNUAL  STACKS  CONC  FIRST  stacks_annual.plt" in output
-        assert "PLOTFILE  24  AREAS  CONC  FIRST  areas_24hr.plt" in output
+        # PERIOD/ANNUAL plotfiles take no rank; short-term ones do, and
+        # neither takes an output type.
+        assert "PLOTFILE  ANNUAL  STACKS  stacks_annual.plt" in output
+        assert "PLOTFILE  24  AREAS  FIRST  areas_24hr.plt" in output
 
     def test_per_group_plotfile_with_main_plotfile(self):
         op = OutputPathway(

@@ -196,6 +196,69 @@ def test_every_source_type_is_covered():
     )
 
 
+# ---------------------------------------------------------------------
+# OU pathway: the output keywords have field-count-sensitive syntax
+# ---------------------------------------------------------------------
+
+OUTPUT_CASES = [
+    ("period-files", OutputPathway(
+        summary_file="s.dat", plot_file="p.dat", postfile="q.dat",
+    )),
+    ("short-term-files", OutputPathway(
+        plot_file="p.dat", plot_file_averaging="1",
+        postfile="q.dat", postfile_averaging="24",
+    )),
+    ("rank-one", OutputPathway(
+        receptor_table_rank=1, plot_file="p.dat", plot_file_averaging="1",
+    )),
+    ("unformatted-post", OutputPathway(
+        postfile="q.dat", postfile_averaging="1", postfile_format="UNFORM",
+    )),
+    ("tables-only", OutputPathway(
+        receptor_table=True, receptor_table_rank=4,
+        max_table=True, max_table_rank=20,
+    )),
+]
+
+
+@pytest.mark.parametrize(
+    "label,output", OUTPUT_CASES, ids=[c[0] for c in OUTPUT_CASES]
+)
+def test_output_pathway_deck_passes_aermod_setup(label, output, tmp_path):
+    """PLOTFILE / POSTFILE / RECTABLE syntax varies with the period.
+
+    PLOTFILE takes a rank for short-term averages and none for
+    PERIOD/ANNUAL, POSTFILE takes a format keyword that must be PLOT or
+    UNFORM, and a bare rank on RECTABLE selects only that rank rather
+    than the range up to it. AERMOD counts fields, so each of these is a
+    fatal error rather than something it shrugs off.
+    """
+    project = AERMODProject(
+        control=ControlPathway(
+            title_one=f"output acceptance: {label}",
+            averaging_periods=["1", "24", "ANNUAL"],
+        ),
+        sources=SourcePathway(sources=[SOURCE_CASES[0][1]]),
+        receptors=ReceptorPathway(
+            discrete_receptors=[DiscreteReceptor(500.0, 500.0)]
+        ),
+        meteorology=MeteorologyPathway(
+            surface_file=SURFACE.name, profile_file=PROFILE.name,
+            surface_station_id=14735, upper_air_station_id=14735,
+            data_start_year=1988,
+        ),
+        output=output,
+    )
+    deck = re.sub(
+        r"RUNORNOT\s+\w+", "RUNORNOT NOT", project.to_aermod_input()
+    )
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, (
+        f"AERMOD rejected the {label} output deck:\n  "
+        + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+    )
+
+
 def test_the_check_can_actually_fail(tmp_path):
     """Guard the assertion above against silently passing on everything.
 

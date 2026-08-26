@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Property-based round-trip over the ME and OU pathways, and polar
+  receptor grids** — `tests/test_property_pathways.py`. Those pathways
+  were pinned to fixed values in the existing property tests, so every
+  field on them went unexercised.
+- **Deck-acceptance cases for the output pathway** — the PLOTFILE,
+  POSTFILE and RECTABLE keywords have field-count-sensitive syntax that
+  varies with the averaging period, so each configuration is now run
+  through AERMOD's setup check.
+
 - **Deck-acceptance tests for every source type** —
   `tests/test_source_deck_acceptance.py` generates a minimal deck for
   each of pyaermod's ten source types and runs AERMOD's own setup pass
@@ -322,6 +331,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **PLOTFILE and POSTFILE wrote a field AERMOD does not have.** Both
+  carried an output-type token (`CONC`, `DDEP`, ...), and PLOTFILE also
+  wrote a rank on the PERIOD/ANNUAL form, which takes none. AERMOD
+  counts fields: the result was a fatal "Too Many Parameters Specified
+  For the Keyword of PLOTFILE" and "Invalid Parameter Specified.
+  Troubled Parameter: FORMAT". There is no per-file output type in
+  AERMOD -- the quantity written is a MODELOPT setting -- so
+  `OutputPathway.output_type` is now documented as inert and no longer
+  emitted.
+- **The reader read the PLOTFILE rank as the filename.** It took a fixed
+  field position, so a PERIOD-form plotfile round-tripped
+  `plot_file="p.dat"` into `plot_file="FIRST"`.
+- **`RECTABLE ALLAVE 10` asks AERMOD for the tenth-highest value alone,
+  not the top ten.** `receptor_table_rank=10` therefore produced a table
+  of one rank, and any PLOTFILE requesting FIRST against it was rejected
+  as an invalid HIVALU. The writer now emits the range form
+  (`ALLAVE 1-10`), and the reader understands bare ranks, ranges and the
+  ordinal-word forms (`FIRST-THIRD`, `EIGHTH`) alike -- it previously
+  fell back to the default rank for all but a bare number.
+
 - **Three of the ten source types produced decks AERMOD rejects.**
   Verified against the real binary's setup pass:
   - `AREAPOLY` wrote its `LOCATION` at the polygon *centroid* while

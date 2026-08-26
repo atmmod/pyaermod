@@ -1121,8 +1121,13 @@ OU FINISHED
     def test_rectable_numeric_and_keyword_ranks(self):
         out = self._deck(ou_body="   RECTABLE ALLAVE 2").output
         assert out.receptor_table and out.receptor_table_rank == 2
+        # Ordinal-word and range forms both resolve to their highest rank.
         out = self._deck(ou_body="   RECTABLE ALLAVE FIRST-THIRD").output
-        assert out.receptor_table and out.receptor_table_rank == 10  # keyword rank keeps default
+        assert out.receptor_table and out.receptor_table_rank == 3
+        out = self._deck(ou_body="   RECTABLE ALLAVE 1-10").output
+        assert out.receptor_table and out.receptor_table_rank == 10
+        out = self._deck(ou_body="   RECTABLE ALLAVE EIGHTH").output
+        assert out.receptor_table and out.receptor_table_rank == 8
 
     def test_maxtable(self):
         out = self._deck(ou_body="   MAXTABLE ALLAVE 50").output
