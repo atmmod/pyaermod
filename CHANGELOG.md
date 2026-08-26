@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Real-binary parity for BPIP-PRIME and AERSURFACE.** Both had EPA
+  Fortran available and neither had ever been run against it.
+  `scripts/build_bpip.sh` and `scripts/build_aersurface.sh` fetch and
+  compile them (into `./bin`), and `make test-binaries` puts that
+  directory on PATH so the binary-backed suite is one command.
+  - `tests/test_bpip_known_answers.py` compares `pyaermod.bpip` against
+    EPA's BPIP-PRIME direction by direction, at the F8.2 print
+    resolution BPIP writes with.
+  - `tests/test_real_aersurface.py` builds the deck for EPA's published
+    RDU test case with `AERSURFACEConfig`, runs it, and compares the
+    surface characteristics to EPA's shipped reference file. They are
+    identical apart from the run timestamp.
+- **`pyaermod.epa_sources`** — registry of EPA SCRAM download locations
+  for AERMOD, AERMET, AERMAP, AERSURFACE, AERSCREEN, MAKEMET, BPIP and
+  BPIP-PRIME source and test-case archives. Every URL was discovered by
+  listing its SCRAM directory and verified to return a zip; an opt-in
+  network test (`PYAERMOD_NETWORK_TESTS=1`) re-lists each directory so
+  an EPA rename fails a test instead of 404-ing in CI later.
+- **`pyaermod.bpip` GEP influence-zone test** — `BPIPCalculator` now
+  reports zeros for wind directions where the stack lies outside the
+  structure influence zone, as BPIP does, with `influence_test=False`
+  to inspect the raw projected geometry.
+
 - **NAAQS design-value known-answer tests** — the design-value math is now
   pinned against evidence rather than smoke-tested. `tests/test_naaqs_rank_tables.py`
   transcribes 40 CFR part 50 appendix N Table 1, appendix S Table 1 and
@@ -286,6 +309,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **AERSURFACE decks used keywords AERSURFACE does not have.**
+  `AERSURFACEConfig.to_aersurface_input()` emitted `TITLE`, `LOCATION`,
+  `NLCDFILE`, `NLCDYEAR`, `SNOW_TEMPER`, `SECTORS_LIST`, `OUTPATH` and
+  friends -- none of which exist. The real format is pathway-based
+  (`CO STARTING` / `OU STARTING`) with `TITLEONE`, `CENTERLL`,
+  `DATAFILE`, `ZORADIUS`, `CLIMATE`, `FREQ_SECT`, `SECTOR`, `SEASON`,
+  `RUNORNOT`, `SFCCHAR`. Fed the old deck, AERSURFACE v26135 aborted
+  immediately with a Fortran bounds error in its control-file parser.
+  Rewritten to the real format, with sectors as
+  `(start, end, "AP"|"NONAP")` triples, season-to-month assignment
+  (including `WINTERWS` for continuous snow cover), and the canopy and
+  impervious rasters that 2001-and-later NLCD releases carry. This is a
+  breaking change to `AERSURFACEConfig`'s fields; the class never
+  produced a usable deck, so no working code depended on them.
+- **BPIP reported downwash where EPA reports none.** `BPIPCalculator`
+  had no structure-influence-zone test, so a stack 400 m from a 13 m
+  building came back with a full-size building for all 36 directions
+  instead of zeros -- enough to make AERMOD apply downwash the GEP
+  criteria exclude.
+- **BPIP's XBADJ and YBADJ were the projected centroid.** XBADJ is the
+  along-flow coordinate of the projected building's *upwind face*
+  (`-BUILDLEN/2` for a stack at the building centre, where the old code
+  returned 0) and YBADJ the negated crosswind midpoint. The rotation
+  also ran the wrong way, which an axis-aligned rectangle cannot reveal
+  because its projected width and length are symmetric in wind
+  direction.
+- **`Building` rejected any footprint that was not a quadrilateral**,
+  including the six-corner L-shape in EPA's own first BPIP test case.
+  Any polygon of three or more corners is accepted.
+
 - **NAAQS percentiles were interpolated quantiles, not the regulatory
   order statistics.** `pm25_24hr_design_value`, `no2_1hr_design_value`
   and `so2_1hr_design_value` computed the annual percentile with

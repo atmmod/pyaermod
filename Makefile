@@ -38,16 +38,19 @@ test-full: install-full
 	    --cov=pyaermod --cov-config=.coveragerc --cov-report=term-missing:skip-covered
 
 # Everything test-full runs, plus the tests that need a real EPA binary
-# (the EPA parity suite, the bit-exact AERTEST regression, the CLI run
-# smoke tests). Those SKIP silently when nothing named `aermod` is on
-# PATH, so a green `make test-full` says nothing about them -- build the
-# binaries first with `scripts/build_aermod.sh` and use this target,
-# which puts ./bin on PATH for you.
+# (the EPA parity suite, the bit-exact AERTEST regression, the BPIP and
+# AERSURFACE known-answer comparisons, the CLI run smoke tests). Those
+# SKIP silently when the binaries are not on PATH, so a green
+# `make test-full` says nothing about them -- build them with
+# scripts/build_aermod.sh, build_bpip.sh and build_aersurface.sh, then
+# use this target, which puts ./bin on PATH for you.
 test-binaries: install-full
 	@test -x bin/aermod || { \
 	    echo "bin/aermod not found -- run scripts/build_aermod.sh first"; \
 	    exit 1; \
 	}
+	@test -x bin/bpipprm || echo "note: bin/bpipprm missing (scripts/build_bpip.sh) - BPIP parity tests will skip"
+	@test -x bin/aersurface || echo "note: bin/aersurface missing (scripts/build_aersurface.sh) - AERSURFACE parity tests will skip"
 	PATH="$(CURDIR)/bin:$$PATH" $(PYTHON) -m pytest -o addopts="" -q \
 	    -p no:cacheprovider --strict-markers --tb=short
 
