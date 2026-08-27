@@ -426,11 +426,29 @@ class TestTerrainProcessor:
 
 
 class TestConvenienceFunction:
+    """A missing *executable* raises; a missing *input file* does not.
 
-    def test_run_aermap_missing_exe(self):
-        """run_aermap should fail gracefully when no executable exists."""
-        with pytest.raises(FileNotFoundError):
-            run_aermap("/nonexistent/input.inp")
+    These used to be one test that passed for the wrong reason: it
+    asserted FileNotFoundError while passing a nonexistent input path,
+    and only raised because the machine had no `aermap` on PATH. With a
+    real AERMAP installed it failed. Both paths are pinned explicitly
+    now, so neither depends on what happens to be installed.
+    """
+
+    def test_run_aermap_missing_executable_raises(self, tmp_path):
+        real_input = tmp_path / "input.inp"
+        real_input.write_text("CO STARTING\nCO FINISHED\n")
+        with pytest.raises(FileNotFoundError, match="executable"):
+            run_aermap(real_input, executable_path="/nonexistent/aermap")
+
+    def test_run_aermap_missing_input_returns_failed_result(self, tmp_path):
+        """Matches AERMODRunner: a bad input path is a result, not a raise."""
+        fake_exe = tmp_path / "aermap"
+        fake_exe.write_text("#!/bin/sh\nexit 0\n")
+        fake_exe.chmod(0o755)
+        result = run_aermap("/nonexistent/input.inp", executable_path=fake_exe)
+        assert result.success is False
+        assert "not found" in result.error_message
 
 
 # ============================================================================
