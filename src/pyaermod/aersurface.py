@@ -33,8 +33,82 @@ Typical usage::
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+# ---------------------------------------------------------------------
+# Migration from the pre-2026-08 field names
+# ---------------------------------------------------------------------
+#
+# The deck this class used to emit was not in any AERSURFACE format:
+# it used keywords (TITLE, LOCATION, NLCDFILE, SNOW_TEMPER, OUTPATH...)
+# that AERSURFACE has never accepted, and the real binary aborted in its
+# control-file parser. Correcting the format meant changing the fields.
+#
+# A dataclass would reject the old names with a bare "unexpected keyword
+# argument", which says nothing about what to use instead. These two
+# tables turn that into an answer. They are deliberately not a silent
+# translation layer: three of the old fields describe nothing AERSURFACE
+# has, so accepting and dropping them would turn code that never worked
+# into code that still does not work, quietly.
+
+#: Old field name -> new field name, where the meaning carries over.
+_RENAMED_FIELDS: Dict[str, str] = {
+    "nlcd_file": "land_cover_file",
+    "radius_roughness_km": "zo_radius_km",
+}
+
+#: Old field name -> why there is no direct replacement.
+_REMOVED_FIELDS: Dict[str, str] = {
+    "utc_offset": (
+        "AERSURFACE has no UTC-offset keyword; it derives nothing from "
+        "the time zone. Drop it."
+    ),
+    "snow_regime": (
+        "AERSURFACE has no snow *temperature* regime. Use snow=True/False "
+        "for the CLIMATE keyword, and put months with continuous snow "
+        "cover in the WINTERWS season via seasons=."
+    ),
+    "moisture_per_month": (
+        "AERSURFACE takes one surface-moisture setting on CLIMATE, not "
+        "twelve. Use moisture='AVERAGE' | 'WET' | 'DRY'."
+    ),
+    "snow_cover_per_month": (
+        "Express continuous snow cover by assigning those months to the "
+        "WINTERWS season, e.g. seasons={'WINTERWS': (1,), 'WINTERNS': "
+        "(12, 2, 3), ...}."
+    ),
+    "radius_albedo_bowen_km": (
+        "AERSURFACE averages over the single ZORADIUS; there is no "
+        "separate albedo/Bowen radius. Use zo_radius_km."
+    ),
+    "output_dir": (
+        "Name the output file itself: sfcchar_file='path/to/sfc.txt' "
+        "(and land_cover_grid_file / canopy_grid_file / "
+        "impervious_grid_file for the optional grid outputs)."
+    ),
+    "extra_lines": (
+        "The deck has two pathways now, so say which one the lines "
+        "belong to: extra_co_lines= or extra_ou_lines=."
+    ),
+}
+
+
+def _reject_legacy_kwargs(kwargs: Dict[str, Any]) -> None:
+    """Raise a TypeError naming the replacement for an old field name."""
+    for old, new in _RENAMED_FIELDS.items():
+        if old in kwargs:
+            raise TypeError(
+                f"AERSURFACEConfig has no field {old!r}; it is now {new!r}. "
+                "The old field names built a deck AERSURFACE rejects -- see "
+                "the CHANGELOG upgrade notes."
+            )
+    for old, why in _REMOVED_FIELDS.items():
+        if old in kwargs:
+            raise TypeError(
+                f"AERSURFACEConfig has no field {old!r}. {why}"
+            )
 
 #: NLCD release years AERSURFACE accepts for the land-cover raster.
 _VALID_NLCD_YEARS = {1992, 2001, 2006, 2011, 2013, 2016, 2019, 2021}
@@ -236,6 +310,15 @@ class AERSURFACEConfig:
         if self.sectors is not None:
             if not self.sectors:
                 raise ValueError("sectors must be non-empty when given")
+            if any(isinstance(s, (int, float)) for s in self.sectors):
+                # The old shape was a flat list of boundary angles.
+                raise ValueError(
+                    "sectors is now a list of (start, end, 'AP'|'NONAP') "
+                    "triples, not boundary angles: AERSURFACE's SECTOR "
+                    "keyword names both ends and the airport designation. "
+                    "Convert [30, 60, 225] to [(30, 60, 'NONAP'), "
+                    "(60, 225, 'AP'), (225, 30, 'NONAP')]."
+                )
             for start, end, kind in self.sectors:
                 for ang in (start, end):
                     if not (0 <= ang <= 360):
@@ -340,6 +423,21 @@ class AERSURFACEConfig:
         ou.append("OU FINISHED")
 
         return "\n".join([*co, "", *ou]) + "\n"
+
+
+# The dataclass generates __init__, so the legacy-name check has to wrap
+# it rather than live in __post_init__ (which never sees an unexpected
+# keyword -- __init__ has already raised by then).
+_generated_init = AERSURFACEConfig.__init__
+
+
+@functools.wraps(_generated_init)
+def _init_with_legacy_check(self: AERSURFACEConfig, *args: Any, **kwargs: Any) -> None:
+    _reject_legacy_kwargs(kwargs)
+    _generated_init(self, *args, **kwargs)
+
+
+AERSURFACEConfig.__init__ = _init_with_legacy_check  # type: ignore[method-assign]
 
 
 __all__ = [

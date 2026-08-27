@@ -190,6 +190,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
   99.8 % (the one remaining line is an unreachable guard).
 
+### Upgrade notes — `AERSURFACEConfig`
+
+`AERSURFACEConfig`'s fields changed, because the deck it built was not
+in any AERSURFACE format: it emitted `TITLE`, `LOCATION`, `NLCDFILE`,
+`SNOW_TEMPER`, `OUTPATH` and friends, none of which AERSURFACE has ever
+accepted, and the real binary aborted in its control-file parser. No
+code that ran AERSURFACE can have depended on the old fields; code
+written against them can.
+
+Passing an old field name now raises a `TypeError` naming the
+replacement, rather than a bare "unexpected keyword argument".
+
+| Old | New |
+|-----|-----|
+| `nlcd_file` | `land_cover_file` |
+| `radius_roughness_km` | `zo_radius_km` |
+| `snow_cover_per_month=[...]` | months in the `WINTERWS` season: `seasons={"WINTERWS": (1,), ...}` |
+| `moisture_per_month=[...]` | one `moisture="AVERAGE" \| "WET" \| "DRY"` |
+| `output_dir` | `sfcchar_file` (plus `*_grid_file` for the optional grid outputs) |
+| `extra_lines` | `extra_co_lines` / `extra_ou_lines` |
+| `sectors=[30, 60, 225]` | `sectors=[(30, 60, "NONAP"), (60, 225, "AP"), (225, 30, "NONAP")]` |
+| `utc_offset` | *removed* — AERSURFACE has no UTC-offset keyword |
+| `snow_regime` | *removed* — use `snow=True/False`; `CLIMATE` has no temperature regime |
+| `radius_albedo_bowen_km` | *removed* — AERSURFACE averages over the single `ZORADIUS` |
+
+```python
+# Old — produced a deck AERSURFACE rejected
+cfg = AERSURFACEConfig(
+    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
+    utc_offset=-8, nlcd_file="NLCD_2019.img", nlcd_year=2019,
+    snow_regime="CONTINENTAL_WARM", radius_roughness_km=1.0,
+)
+
+# New
+cfg = AERSURFACEConfig(
+    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
+    land_cover_file="NLCD_2019_LC.tiff", nlcd_year=2019,
+    zo_radius_km=1.0, moisture="AVERAGE", snow=True,
+    sfcchar_file="salem_sfc.txt",
+)
+```
+
+These fields are new and have no old equivalent: `title_two`, `datum`,
+`canopy_file`, `impervious_file`, `site_type`, `zo_method`, `frequency`,
+`debug_options`, `run`, and the `*_grid_file` outputs.
+
 ### Changed
 - **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
   build, EPA set `aermet26135_aermod26135`): **142 / 142** POSTFILE

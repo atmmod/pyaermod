@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 
 from pyaermod import AERSURFACEConfig
-from pyaermod.aersurface import DEFAULT_SEASONS, SEASON_NAMES
+from pyaermod.aersurface import (
+    _REMOVED_FIELDS,
+    _RENAMED_FIELDS,
+    DEFAULT_SEASONS,
+    SEASON_NAMES,
+)
 
 
 @pytest.fixture
@@ -269,3 +274,69 @@ class TestDeckGeneration:
                          "SECTORS_LIST", "MOISTURE  ", "SNOW_COVER",
                          "OUTPATH"):
             assert invented not in deck, invented
+
+
+class TestLegacyFieldNames:
+    """The pre-2026-08 fields must fail with an answer, not a puzzle.
+
+    The old field set built a deck AERSURFACE rejects outright, so no
+    working code depends on it -- but code written against it exists,
+    and `unexpected keyword argument 'utc_offset'` does not say what to
+    do instead. Nothing is silently translated: three of the old fields
+    describe nothing AERSURFACE has.
+    """
+
+    BASE = dict(
+        title="t", site_id="S", latitude=0.0, longitude=0.0,
+        land_cover_file="/x", nlcd_year=2019,
+    )
+
+    @pytest.mark.parametrize("old,new", sorted(_RENAMED_FIELDS.items()))
+    def test_renamed_field_names_its_replacement(self, old, new):
+        with pytest.raises(TypeError) as exc:
+            AERSURFACEConfig(**self.BASE, **{old: None})
+        assert old in str(exc.value)
+        assert new in str(exc.value)
+
+    @pytest.mark.parametrize("old", sorted(_REMOVED_FIELDS))
+    def test_removed_field_explains_why(self, old):
+        with pytest.raises(TypeError) as exc:
+            AERSURFACEConfig(**self.BASE, **{old: None})
+        message = str(exc.value)
+        assert old in message
+        # Every explanation must point somewhere, not just say "gone".
+        assert len(message) > len(f"AERSURFACEConfig has no field {old!r}.") + 20
+
+    def test_renamed_and_removed_sets_are_disjoint(self):
+        assert not set(_RENAMED_FIELDS) & set(_REMOVED_FIELDS)
+
+    def test_every_dropped_field_is_accounted_for(self):
+        """No old field may fail with a bare "unexpected keyword"."""
+        previous = {
+            "title", "site_id", "latitude", "longitude", "utc_offset",
+            "nlcd_file", "nlcd_year", "arid", "airport", "snow_regime",
+            "moisture_per_month", "snow_cover_per_month", "sectors",
+            "radius_roughness_km", "radius_albedo_bowen_km", "output_dir",
+            "extra_lines",
+        }
+        import dataclasses
+        current = {f.name for f in dataclasses.fields(AERSURFACEConfig)}
+        dropped = previous - current
+        covered = set(_RENAMED_FIELDS) | set(_REMOVED_FIELDS)
+        assert dropped == covered, (
+            f"unexplained: {sorted(dropped - covered)}; "
+            f"stale entries: {sorted(covered - dropped)}"
+        )
+
+    def test_old_sector_shape_is_diagnosed(self):
+        # `sectors` survived by name but changed shape, so it slips past
+        # the keyword check and has to be caught in validation.
+        with pytest.raises(ValueError, match="triples"):
+            AERSURFACEConfig(**self.BASE, sectors=[30.0, 60.0, 225.0])
+
+    def test_new_field_names_still_work(self):
+        cfg = AERSURFACEConfig(
+            **self.BASE, zo_radius_km=0.5, moisture="WET", snow=False,
+        )
+        assert cfg.zo_radius_km == 0.5
+        assert "CLIMATE   WET  NOSNOW  NONARID" in cfg.to_aersurface_input()
