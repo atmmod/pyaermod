@@ -437,6 +437,26 @@ These fields are new and have no old equivalent: `title_two`, `datum`,
   building came back with a full-size building for all 36 directions
   instead of zeros -- enough to make AERMOD apply downwash the GEP
   criteria exclude.
+- **BPIP now agrees with EPA's BPIP-PRIME exactly** (6,480 direction
+  comparisons over rectangles, an L-shape and randomised polygons; worst
+  difference 0.005, which is what BPIP's `F8.2` output can express).
+  Closing the last gap needed two things that projection geometry alone
+  does not give, both transcribed from `Bpipprm.for`:
+  - **BPIP applies two different influence tests.** The downwash pass
+    admits a stack within half an `L` of either edge of the projected
+    width and no more than `2 L` upwind of the near face -- with *no*
+    downwind limit (it computes `CYMX = YMAX + 5 L` and never tests
+    against it). The GEP pass is stricter and separate. An empirically
+    fitted single zone matched 501 of 504 cases and was wrong in kind.
+  - **The GEP clamp.** When a direction's wake-effect height
+    `H + 1.5 L` would exceed the stack's GEP stack height, BPIP reports
+    the GEP-controlling structure's height and width instead of that
+    direction's projection. This shows up as a flat cap across a run of
+    directions that tracks the *stack position*, not the footprint --
+    on one test case pyaermod reported 58.68 m where BPIP reports 42.18.
+    The GEP height itself comes from a quarter-degree sweep, far finer
+    than the 36 reported directions, so the capped width is generally
+    not any direction's projected width.
 - **BPIP's XBADJ and YBADJ were the projected centroid.** XBADJ is the
   along-flow coordinate of the projected building's *upwind face*
   (`-BUILDLEN/2` for a stack at the building centre, where the old code

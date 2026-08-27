@@ -10,10 +10,22 @@ This module provides:
   - BPIPCalculator: direction-dependent projection engine
   - BPIPResult: container for the 36-value arrays
 
-The geometry here is verified against EPA's own BPIP-PRIME Fortran
+This is verified against EPA's own BPIP-PRIME Fortran
 (``bpipprime.zip`` on SCRAM), which reproduces EPA's shipped reference
-output for all eight of its example cases. See
-``tests/test_bpip_known_answers.py``.
+output for all eight of its example cases. Within the scope below the
+agreement is exact -- every direction, to the 0.005 that BPIP's F8.2
+output can express. See ``tests/test_bpip_known_answers.py``.
+
+Two things here are not pure projection geometry, and both come
+straight from ``Bpipprm.for`` rather than from first principles:
+
+* the two influence tests (:meth:`BPIPCalculator._in_downwash_zone` and
+  :meth:`BPIPCalculator._in_gep_zone`), which differ from each other; and
+* the GEP clamp -- when a direction's wake-effect height would exceed
+  the stack's GEP stack height, BPIP reports the GEP-controlling
+  structure's height and width instead of that direction's projection.
+  This produces a flat cap across a run of directions that depends on
+  the *stack position*, not on the footprint alone.
 
 **Scope.** This module covers a *single* building with a single tier.
 EPA BPIP additionally combines multiple structures and tiers, choosing
@@ -30,15 +42,29 @@ import warnings
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-#: Multipliers defining the GEP structure influence zone, in units of
-#: ``L`` (the lesser of building height and projected building width).
-#: A stack outside this zone gets no downwash for that wind direction --
-#: BPIP writes zeros for all five parameters. Fitted against EPA's
-#: BPIP-PRIME over 504 stack/direction combinations, where the observed
-#: boundaries fall at exactly 5.000 L and 2.000 L.
-SIZ_DOWNWIND_L = 5.0
-SIZ_UPWIND_L = 2.0
+# BPIP applies two different influence tests, and conflating them gets
+# both wrong. Both are transcribed from EPA's ``Bpipprm.for``.
+#
+# The *downwash* test (the ``DO 300`` loop) decides whether a direction
+# gets downwash parameters at all: the stack must be within half an
+# ``L`` of either edge of the projected width, and no more than ``2 L``
+# upwind of the building's near face. Note there is no downwind limit --
+# BPIP computes ``CYMX = YMAX + 5 L`` and then never tests against it.
 SIZ_LATERAL_L = 0.5
+SIZ_UPWIND_L = 2.0
+
+# The *GEP* test (the ``DO 100`` quarter-degree sweep) is stricter, and
+# only decides which directions contribute to the GEP stack height: the
+# stack must be within the projected width proper, downwind of the near
+# face, and within ``5 L`` of one of the faces (``DISLIN``).
+SIZ_DOWNWIND_L = 5.0
+
+#: The GEP stack height is ``H + 1.5 L``. BPIP evaluates it on a
+#: quarter-degree sweep (``DO 100 D = 1, 1440`` in ``Bpipprm.for``),
+#: which is far finer than the 36 directions it reports, so the
+#: controlling width is usually not one of the reported widths.
+GEP_WAKE_FACTOR = 1.5
+GEP_SWEEP_STEPS = 1440
 
 
 @dataclass
@@ -187,6 +213,8 @@ class BPIPCalculator:
         self.stack_x = stack_x
         self.stack_y = stack_y
         self.influence_test = influence_test
+        self._gep_cache: Optional[Tuple[float, float, float]] = None
+        self._gep_done = False
         if building.tiers:
             warnings.warn(
                 f"Building {building.building_id!r} declares tiers; this "
@@ -251,16 +279,9 @@ class BPIPCalculator:
         -------
         dict with keys: buildhgt, buildwid, buildlen, xbadj, ybadj
         """
-        rotation_rad = math.radians(wind_direction_deg)
-
-        xs: List[float] = []
-        ys: List[float] = []
-        for cx, cy in self.building.corners:
-            rx, ry = self._rotate_point(
-                cx - self.stack_x, cy - self.stack_y, rotation_rad
-            )
-            xs.append(rx)
-            ys.append(ry)
+        corners = self._projection(wind_direction_deg)
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
 
         cross_lo, cross_hi = min(xs), max(xs)
         along_lo, along_hi = min(ys), max(ys)
@@ -269,11 +290,24 @@ class BPIPCalculator:
         buildlen = along_hi - along_lo
         height = self.building.get_effective_height()
 
-        if self.influence_test and not self._in_influence_zone(
-            height, buildwid, cross_lo, cross_hi, along_lo, along_hi
-        ):
-            return {"buildhgt": 0.0, "buildwid": 0.0, "buildlen": 0.0,
-                    "xbadj": 0.0, "ybadj": 0.0}
+        if self.influence_test:
+            # BPIP gates the whole downwash calculation on GEPIN, which is
+            # set only for a stack that fell inside the structure's GEP
+            # 5L area at some direction during the GEP sweep. A stack
+            # that is never within 5L of the building gets zeros for
+            # every direction, however the wind blows.
+            gep = self._gep()
+            if gep is None or not self._in_downwash_zone(corners, height):
+                return {"buildhgt": 0.0, "buildwid": 0.0, "buildlen": 0.0,
+                        "xbadj": 0.0, "ybadj": 0.0}
+            wake = height + GEP_WAKE_FACTOR * min(height, buildwid)
+            if gep[0] < wake:
+                # This direction's wake would reach above the stack's GEP
+                # stack height, so BPIP reports the GEP-controlling
+                # structure instead (MXBWH in Bpipprm.for). Length and
+                # the offsets stay as projected -- only the height and
+                # width are substituted.
+                height, buildwid = gep[1], gep[2]
 
         return {
             "buildhgt": height,
@@ -284,30 +318,112 @@ class BPIPCalculator:
         }
 
     @staticmethod
-    def _in_influence_zone(
-        height: float, buildwid: float,
-        cross_lo: float, cross_hi: float,
-        along_lo: float, along_hi: float,
+    def _downwind_of_side_within(
+        x1: float, y1: float, x2: float, y2: float,
+        reach: float, sx: float, sy: float,
     ) -> bool:
-        """True when the stack (at the origin) is in the GEP influence zone.
+        """``DISLIN``: is the stack directly downwind of this side, within ``reach``?
 
-        ``L`` is the lesser of the building height and its projected
-        width. The stack must lie within ``5 L`` downwind of the
-        building's downwind face, ``2 L`` upwind of its upwind face, and
-        ``0.5 L`` beyond either edge of the projected width.
+        The stack must lie between the side's crosswind endpoints -- so
+        it is genuinely behind *that* face, not past its end -- and the
+        along-flow gap from the side to the stack must be between zero
+        and ``reach``.
         """
-        scale = min(height, buildwid)
+        if sx < min(x1, x2) or sx > max(x1, x2):
+            return False
+        if x1 == x2:
+            # A side seen edge-on: only a stack exactly in line with it
+            # is downwind of it at all.
+            if sx != x1:
+                return False
+            return any(0.0 <= sy - y <= reach for y in (y1, y2))
+        y_on_side = y2 + (sx - x2) * (y1 - y2) / (x1 - x2)
+        return 0.0 <= sy - y_on_side <= reach
+
+    @staticmethod
+    def _in_downwash_zone(
+        corners: List[Tuple[float, float]], height: float,
+    ) -> bool:
+        """True when this direction gets downwash parameters at all.
+
+        ``corners`` are translated so the stack is the origin and rotated
+        so the flow runs along ``+y``; the building therefore sits at
+        negative ``y`` when it is upwind of the stack.
+        """
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
+        scale = min(height, max(xs) - min(xs))
         if scale <= 0.0:
             return False
-        downwind = -along_hi          # how far past the downwind face
-        upwind = along_lo             # how far short of the upwind face
-        lateral = max(cross_lo, -cross_hi, 0.0)
         tol = 1e-9
-        return (
-            downwind <= SIZ_DOWNWIND_L * scale + tol
-            and upwind <= SIZ_UPWIND_L * scale + tol
-            and lateral <= SIZ_LATERAL_L * scale + tol
+        within_width = (
+            min(xs) - SIZ_LATERAL_L * scale - tol
+            <= 0.0
+            <= max(xs) + SIZ_LATERAL_L * scale + tol
         )
+        not_too_far_upwind = min(ys) - SIZ_UPWIND_L * scale - tol <= 0.0
+        return within_width and not_too_far_upwind
+
+    @classmethod
+    def _in_gep_zone(
+        cls, corners: List[Tuple[float, float]], height: float,
+    ) -> bool:
+        """True when this direction contributes to the GEP stack height."""
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
+        if not (min(xs) <= 0.0 <= max(xs)):
+            return False
+        if min(ys) > 0.0:
+            return False
+        reach = SIZ_DOWNWIND_L * min(height, max(xs) - min(xs))
+        if reach <= 0.0:
+            return False
+        n = len(corners)
+        return any(
+            cls._downwind_of_side_within(
+                *corners[i], *corners[(i + 1) % n], reach, 0.0, 0.0
+            )
+            for i in range(n)
+        )
+
+    def _projection(self, wind_direction_deg: float) -> List[Tuple[float, float]]:
+        """Footprint corners with the stack at the origin, flow along +y."""
+        rotation_rad = math.radians(wind_direction_deg)
+        return [
+            self._rotate_point(
+                cx - self.stack_x, cy - self.stack_y, rotation_rad
+            )
+            for cx, cy in self.building.corners
+        ]
+
+    def _gep(self) -> Optional[Tuple[float, float, float]]:
+        """``(GEP stack height, controlling height, controlling width)``.
+
+        BPIP sweeps every quarter degree and keeps the direction with the
+        greatest wake-effect height ``H + 1.5 L``; ties go to the
+        *smaller* projected width (``GPC`` in ``Bpipprm.for``). Only
+        directions where the stack is in the influence zone count.
+
+        Returns None when no direction influences the stack.
+        """
+        if self._gep_done:
+            return self._gep_cache
+        height = self.building.get_effective_height()
+        best: Optional[Tuple[float, float, float]] = None
+        for step in range(1, GEP_SWEEP_STEPS + 1):
+            corners = self._projection(step * 360.0 / GEP_SWEEP_STEPS)
+            if not self._in_gep_zone(corners, height):
+                continue
+            xs = [c[0] for c in corners]
+            width = max(xs) - min(xs)
+            wake = height + GEP_WAKE_FACTOR * min(height, width)
+            if best is None or wake > best[0] + 1e-9:
+                best = (wake, height, width)
+            elif abs(wake - best[0]) <= 1e-9 and width < best[2]:
+                best = (best[0], best[1], width)
+        self._gep_cache = best
+        self._gep_done = True
+        return best
 
     def calculate_all(self) -> BPIPResult:
         """

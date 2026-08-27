@@ -17,7 +17,7 @@ That, and nothing looser, is the tolerance used below.
 Scope note: :mod:`pyaermod.bpip` models a single single-tier building.
 EPA BPIP also combines multiple structures and tiers per direction, so
 those cases are out of scope here and for the module -- see its
-docstring.
+docstring. Within that scope the agreement is exact.
 """
 
 from __future__ import annotations
@@ -234,12 +234,10 @@ def test_rotation_direction_is_visible_on_an_asymmetric_footprint():
 def test_agreement_over_a_sweep_of_rotated_rectangles():
     """Rotated rectangles at many stack positions, against the reference.
 
-    A rate rather than an all-or-nothing assertion, because a handful of
-    directions land exactly on an influence-zone boundary where EPA's
-    rounding and ours can fall either side. The floor is set well above
-    what a real convention error could survive: reverting any one of the
-    rotation sign, the XBADJ definition or the YBADJ definition drops
-    this below 50%.
+    Exact, not a rate. It was a rate while the influence zone was fitted
+    empirically rather than transcribed; with BPIP's own two zone tests
+    and the GEP clamp implemented, every direction agrees to the 0.005
+    that F8.2 output can express.
     """
     total = 0
     disagreements = 0
@@ -259,8 +257,58 @@ def test_agreement_over_a_sweep_of_rotated_rectangles():
         n, bad = compare(corners, height, stack)
         total += n
         disagreements += len(bad)
-    rate = 1.0 - disagreements / total
-    assert rate >= 0.98, (
-        f"only {rate:.3%} of {total} direction comparisons matched EPA "
-        f"BPIP-PRIME ({disagreements} disagreements)"
+    assert disagreements == 0, (
+        f"{disagreements} of {total} direction comparisons disagree with "
+        f"EPA BPIP-PRIME"
     )
+
+
+# ---------------------------------------------------------------------
+# The GEP clamp
+# ---------------------------------------------------------------------
+
+def test_gep_clamp_caps_the_reported_width():
+    """A direction whose wake exceeds the GEP stack height is clamped.
+
+    BPIP does not simply report each direction's projected width. When
+    the wake-effect height ``H + 1.5 L`` for a direction would exceed
+    the stack's GEP stack height, it substitutes the width and height of
+    the structure that set the GEP (``MXBWH`` in Bpipprm.for). The
+    result is a flat cap across a run of directions that no purely
+    geometric calculation produces.
+
+    This footprint and stack are the case that first exposed it: without
+    the clamp, pyaermod reported 58.68 m where BPIP reports 42.18 m.
+    """
+    corners = [(-32.21, -2.65), (-3.91, -15.54),
+               (9.72, -21.76), (27.54, -1.71)]
+    _, bad = compare(corners, 42.38, (-41.64, -11.09))
+    assert not bad, "disagrees with EPA BPIP-PRIME:\n  " + "\n  ".join(bad)
+
+    res = BPIPCalculator(
+        Building("B", corners, 42.38), -41.64, -11.09
+    ).calculate_all()
+    widths = [round(w, 2) for w in res.buildwid]
+    # The cap is flat across every direction it binds on, and is not the
+    # projected width at any of them.
+    assert widths.count(42.18) >= 8, widths
+    assert max(widths) == 42.18, widths
+
+
+def test_gep_clamp_depends_on_the_stack_not_the_footprint():
+    """Same building, different stack: the cap moves or vanishes.
+
+    Pins the fact that this is a GEP effect rather than a geometric
+    property of the footprint -- the reading that sent the first
+    investigation down the wrong path.
+    """
+    corners = [(-32.21, -2.65), (-3.91, -15.54),
+               (9.72, -21.76), (27.54, -1.71)]
+    capped = BPIPCalculator(
+        Building("B", corners, 42.38), -41.64, -11.09
+    ).calculate_all()
+    uncapped = BPIPCalculator(
+        Building("B", corners, 42.38), 0.0, 60.0
+    ).calculate_all()
+    assert max(capped.buildwid) == pytest.approx(42.18, abs=0.01)
+    assert max(uncapped.buildwid) == pytest.approx(59.75, abs=0.01)
