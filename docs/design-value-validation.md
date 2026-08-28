@@ -86,6 +86,20 @@ receptor, not the *n*-th largest value in the record. On AERTEST the
 second row is 421.98845, while the second largest hourly value in the
 `.PST` is 746.09714 at a different receptor.
 
+## The same method, elsewhere
+
+The pattern here -- find the artefact that already contains the answer,
+and let the tool that consumes a format be the judge of it -- is what
+the rest of this phase used too:
+
+| Component | Oracle | Result |
+|---|---|---|
+| Design values | 40 CFR 50 app. N/S/T tables; EPA's `.PLT` / `DA1-8` / `.SUM` | exact |
+| BPIP | EPA's BPIP-PRIME, compiled from source | exact, 6,480 direction comparisons |
+| AERSURFACE | the binary's own setup pass (`RUNORNOT NOT`) | EPA's reference reproduced byte-for-byte; ~30 configurations accepted |
+| AERMOD decks | AERMOD's setup pass, all 10 source types | accepted |
+| AERSCREEN | *none yet* | see the known limitation in `pyaermod.aerscreen` |
+
 ## Running it
 
 ```bash

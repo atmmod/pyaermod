@@ -200,6 +200,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
   99.8 % (the one remaining line is an unreachable guard).
 
+### Known limitations
+
+- **`pyaermod.aerscreen` writes a deck AERSCREEN does not read.** The
+  `KEY: value` layout `AERSCREENConfig.to_aerscreen_input()` produces is
+  not an AERSCREEN format; AERSCREEN is interactive, taking an ordered
+  sequence of answers on stdin, and reloads a previous run from the
+  `**`-prefixed header of its output file (which is otherwise an AERMOD
+  runstream it generates). This is the same defect `pyaermod.aersurface`
+  had, found the same way -- by comparing against EPA's own reference
+  files in `aerscreen_test_cases.zip`. It is *not* fixed: EPA's
+  `AERSCREEN.FOR` does not build under gfortran without patching (a
+  missing continuation comma at line 7995 swallows a FORMAT label, and
+  the source uses an Intel format extension), so there is no reference
+  implementation to validate a rewrite against. The module docstring now
+  says so instead of claiming conformance to the User's Guide.
+
 ### Upgrade notes — `AERSURFACEConfig`
 
 `AERSURFACEConfig`'s fields changed, because the deck it built was not
