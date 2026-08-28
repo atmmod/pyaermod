@@ -149,14 +149,11 @@ def _cmd_plotfile(args: argparse.Namespace) -> int:
     print(f"  averaging:    {h.averaging_period or '?'}")
     print(f"  source grp:   {h.source_group or '?'}")
     print(f"  records:      {result.n_records}")
-    # Try to find a concentration-like column and report extrema
-    for col in ("CONC", "AVERAGE", "VALUE"):
-        if col in result.column_names:
-            vals = [r[col] for r in result.records
-                    if isinstance(r[col], (int, float))]
-            if vals:
-                print(f"  {col} range:  {min(vals):.4g} .. {max(vals):.4g}")
-                break
+    # Report extrema of the concentration column, whatever AERMOD called it
+    col = result.concentration_column
+    vals = result.values(col) if col else []
+    if vals:
+        print(f"  {col} range:  {min(vals):.4g} .. {max(vals):.4g}")
     return 0
 
 

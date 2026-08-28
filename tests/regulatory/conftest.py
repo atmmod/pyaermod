@@ -71,6 +71,11 @@ def fixtures_ready() -> bool:
     return _fixtures_available() and _aermod_available()
 
 
+def reference_outputs_ready() -> bool:
+    """True when the EPA reference outputs are on disk (no binary needed)."""
+    return _fixtures_available()
+
+
 def missing_reason() -> str:
     """Why the regulatory suite cannot run (path, chosen set, binary)."""
     return _missing_reason()
@@ -98,6 +103,20 @@ def epa_testcase_dir() -> Path:
             "changes rather than pyaermod regressions.",
             stacklevel=1,
         )
+    return EPA_TESTCASE_DIR
+
+
+@pytest.fixture(scope="session")
+def epa_reference_set() -> Path:
+    """The EPA set, for tests that read its shipped outputs only.
+
+    Unlike :func:`epa_testcase_dir` this does not need an AERMOD binary:
+    the known-answer tests compare pyaermod's post-processing against
+    the reference ``.PST`` / ``.PLT`` / ``.SUM`` files EPA ships, so
+    nothing has to be re-run.
+    """
+    if not _fixtures_available():
+        pytest.skip(_missing_reason())
     return EPA_TESTCASE_DIR
 
 

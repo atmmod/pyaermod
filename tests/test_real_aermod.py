@@ -50,9 +50,6 @@ FIXT = Path(__file__).parent / "fixtures" / "epa_official"
 REL_TOL = 1e-4
 ABS_TOL = 1e-3
 
-# The plotfile concentration column. read_plotfile() splits the "AVERAGE CONC"
-# header field into two tokens; the value lives in AVERAGE.
-CONC_COL = "AVERAGE"
 
 
 def _aermod_available() -> bool:
@@ -111,9 +108,11 @@ def aertest_run(tmp_path_factory):
 
 def _receptor_conc_map(plot) -> dict[tuple[float, float], float]:
     """Map (x, y) -> concentration for every receptor in a parsed plotfile."""
+    conc_col = plot.concentration_column
+    assert conc_col, f"no concentration column in plotfile: {plot.column_names}"
     out: dict[tuple[float, float], float] = {}
     for r in plot.records:
-        val = r[CONC_COL]
+        val = r[conc_col]
         if isinstance(val, (int, float)):
             out[(round(r["X"], 3), round(r["Y"], 3))] = val
     return out

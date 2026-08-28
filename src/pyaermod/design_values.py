@@ -19,7 +19,10 @@ pollutant pairing rules are in the function docstring.
 
 from __future__ import annotations
 
+import math
+import warnings
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Optional, Union
 
 import numpy as np
@@ -65,28 +68,201 @@ def _parse_yymmddhh_to_date(date_col: pd.Series) -> pd.Series:
     )
 
 
-def _agg_daily_max(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-(receptor, day) max of hourly concentration."""
-    g = df.assign(_d=_parse_yymmddhh_to_date(df["date"]))
+# ---------------------------------------------------------------------
+# EPA rank-based percentiles (40 CFR Part 50, Appendices N, S and T)
+# ---------------------------------------------------------------------
+#
+# The NAAQS percentiles are *not* interpolated quantiles. Each appendix
+# sorts the year's daily values from highest to lowest and reads the
+# design value off a lookup table keyed on the number of days with
+# valid data. The tables below are transcribed verbatim from the
+# regulation; ``naaqs_percentile_rank`` reproduces them with the closed
+# form ``ceil((1 - percentile/100) * n_days)``, and
+# ``tests/test_naaqs_rank_tables.py`` checks the closed form against
+# every row of every table for every day count.
+
+#: 40 CFR 50 App. N Table 1 (24-hour PM2.5) and App. S Table 1 (1-hour
+#: NO2): ``(max days in range, rank)`` for the 98th percentile.
+PERCENTILE_98_RANK_TABLE: tuple[tuple[int, int], ...] = (
+    (50, 1), (100, 2), (150, 3), (200, 4),
+    (250, 5), (300, 6), (350, 7), (366, 8),
+)
+
+#: 40 CFR 50 App. T Table 1 (1-hour SO2): ``(max days in range, rank)``
+#: for the 99th percentile.
+PERCENTILE_99_RANK_TABLE: tuple[tuple[int, int], ...] = (
+    (100, 1), (200, 2), (300, 3), (366, 4),
+)
+
+
+def naaqs_percentile_rank(n_days: int, percentile: float) -> int:
+    """Rank of the ``percentile``-th value in a descending-sorted year.
+
+    Parameters
+    ----------
+    n_days
+        Number of days in the year with valid data.
+    percentile
+        98.0 or 99.0 (any percentile in (0, 100) is accepted and uses
+        the same closed form the appendices tabulate).
+
+    Returns
+    -------
+    int
+        1 for the highest value, 2 for the second highest, and so on --
+        ``ceil((1 - percentile/100) * n_days)``, clamped to at least 1.
+
+    Notes
+    -----
+    Per 40 CFR 50 Appendix S Table 1, a full year (351-366 days) puts
+    the 98th percentile at the **8th highest** daily value; Appendix T
+    Table 1 puts the 99th percentile at the **4th highest**. Linear
+    interpolation between order statistics -- what a naive
+    ``Series.quantile`` does -- lands between ranks and reports a value
+    the regulation never defines.
+    """
+    if n_days < 1:
+        raise ValueError(f"n_days must be >= 1, got {n_days}")
+    if not 0.0 < percentile < 100.0:
+        raise ValueError(f"percentile must be in (0, 100), got {percentile}")
+    # Exact rational arithmetic, not floats: 0.02 * 50 is 1.0000000000000002
+    # in binary, whose ceiling is 2, which would put a 50-day year on the
+    # second-highest value where appendix S Table 1 says the highest.
+    fraction = 1 - Fraction(percentile).limit_denominator(10 ** 9) / 100
+    return max(1, math.ceil(fraction * n_days))
+
+
+# ---------------------------------------------------------------------
+# Frame preparation
+# ---------------------------------------------------------------------
+
+def _one_source_group(df: pd.DataFrame) -> pd.DataFrame:
+    """Reject frames holding more than one source group.
+
+    A POSTFILE written with several ``SRCGROUP``s stacks their rows in
+    one file. Pooling them would rank a mixture of unrelated impact
+    series and quietly report a design value for no group at all, so
+    the caller has to pick one.
+    """
+    if "grp" not in df.columns:
+        return df
+    groups = pd.unique(df["grp"].astype(str))
+    if len(groups) > 1:
+        raise ValueError(
+            "design-value inputs must hold a single source group; found "
+            f"{sorted(groups)}. Filter first, e.g. df[df['grp'] == "
+            f"{groups[0]!r}]."
+        )
+    return df
+
+
+def _dedupe_receptors(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse receptors that a POSTFILE lists more than once.
+
+    AERMOD writes one row per receptor per period, and a deck may
+    declare the same location twice (EPA's own ``surfcoal`` test case
+    does). Those rows are byte-identical repeats, and leaving them in
+    makes the 2nd-highest value a copy of the 1st. Distinct receptors
+    that merely share (x, y) -- different flagpole heights, say -- are
+    not something (x, y) grouping can represent, so they raise.
+    """
+    key = ["x", "y", "date"]
+    out = df.drop_duplicates(subset=[*key, "concentration"])
+    if out.duplicated(subset=key).any():
+        clash = out[out.duplicated(subset=key, keep=False)].head(4)
+        raise ValueError(
+            "two receptors share (x, y) but report different "
+            "concentrations for the same period, so they cannot be "
+            f"ranked as one receptor:\n{clash[[*key, 'concentration']]}"
+        )
+    return out
+
+
+def _is_hourly(df: pd.DataFrame) -> bool:
+    """True when the frame carries 1-hour values needing daily rollup."""
+    if "ave" not in df.columns:
+        return False
+    return "1-HR" in {str(a).strip().upper() for a in pd.unique(df["ave"])}
+
+
+def _daily_series(df: pd.DataFrame, how: str) -> pd.DataFrame:
+    """Per-(receptor, day) daily value, as ``x, y, date, concentration``.
+
+    ``how`` is ``"mean"`` for standards whose daily value is the 24-hour
+    average (PM2.5, PM10) and ``"max"`` for standards whose daily value
+    is the maximum of the shorter-period values within the day (the
+    1-hour NO2 and SO2 forms, and the 8-hour ozone form). Frames that
+    already hold the standard's own averaging period -- AERMOD
+    ``AVE='24-HR'`` block averages, one per day -- are passed through
+    with a per-day max, which is a no-op on one value per day.
+    """
+    work = _dedupe_receptors(_one_source_group(df))
+    agg = how if _is_hourly(work) else "max"
+    g = work.assign(_d=_parse_yymmddhh_to_date(work["date"]))
     return (
         g.groupby(["x", "y", "_d"], as_index=False, sort=False)["concentration"]
-        .max()
+        .agg(agg)
         .rename(columns={"_d": "date"})
     )
 
 
-def _annual_percentile_per_receptor(
+def _agg_daily_max(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-(receptor, day) max -- the daily-maximum series."""
+    return _daily_series(df, "max")
+
+
+def _nth_highest(values: np.ndarray, rank: int) -> float:
+    """``rank``-th highest of ``values`` (1 = highest)."""
+    n = len(values)
+    if n == 0:
+        return float("nan")
+    return float(np.sort(values)[-min(rank, n)])
+
+
+def _annual_rank_per_receptor(
     df_daily: pd.DataFrame, percentile: float,
 ) -> pd.DataFrame:
-    """For each (receptor, year), compute the requested percentile of the
-    daily-max series."""
+    """Annual EPA-rank percentile of the daily series, per receptor.
+
+    The rank is chosen per (receptor, year) from that year's own count
+    of days with data, exactly as the appendices prescribe -- a short
+    year moves the design value up the sorted list rather than
+    interpolating.
+    """
     df = df_daily.copy()
     df["_year"] = df["date"].dt.year
     return (
         df.groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"]
-        .quantile(percentile / 100.0, interpolation="linear")
+        .agg(lambda s: _nth_highest(
+            s.to_numpy(), naaqs_percentile_rank(len(s), percentile)
+        ))
     )
+
+
+def _average_across_years(
+    per_year: pd.DataFrame, *, expected_years: Optional[int], label: str,
+) -> pd.DataFrame:
+    """Mean of the annual values, with the year count carried through.
+
+    AERMOD forms the multi-year design value the same way
+    (``SUMHNH / NUMYRS`` in ``aermod.f``): average the annual ranked
+    values, do not re-rank the pooled record.
+    """
+    n_years = int(per_year["_year"].nunique())
+    if expected_years is not None and n_years != expected_years:
+        warnings.warn(
+            f"{label} is defined over {expected_years} years but the input "
+            f"covers {n_years}; the returned value averages the "
+            f"{n_years} year(s) present.",
+            stacklevel=3,
+        )
+    out = (
+        per_year.groupby(["x", "y"], as_index=False, sort=False)
+        ["concentration"].mean()
+    )
+    out["n_years"] = n_years
+    return out
 
 
 # ---------------------------------------------------------------------
@@ -136,11 +312,66 @@ def annual_mean(
 
     Returns one row per (x, y, year) with column ``concentration``.
     """
-    g = df.assign(_year=_parse_yymmddhh_to_year(df["date"]))
+    work = _dedupe_receptors(_one_source_group(df))
+    g = work.assign(_year=_parse_yymmddhh_to_year(work["date"]))
     return (
         g.groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"].mean()
         .rename(columns={"_year": "year"})
+    )
+
+
+def nth_highest_daily_max_design_value(
+    df: pd.DataFrame,
+    rank: int,
+    *,
+    daily: str = "max",
+    n_years: Optional[int] = None,
+    pollutant: str = "",
+    averaging_period: str = "",
+) -> pd.DataFrame:
+    """Multi-year average of the annual ``rank``-th-highest daily value.
+
+    This is the general form behind the 1-hour NO2, 1-hour SO2 and
+    24-hour PM2.5 standards, and the one AERMOD itself computes under
+    ``NO2AVE`` / ``SO2AVE`` / ``PM25AVE``: rank each year's daily series
+    independently, then take the arithmetic mean of those annual values
+    across the years modelled (``SUMHNH / NUMYRS`` in ``aermod.f``).
+
+    Parameters
+    ----------
+    df
+        POSTFILE-shaped frame for a single source group.
+    rank
+        1 for the annual maximum, 8 for the NO2/PM2.5 98th percentile of
+        a full year, 4 for the SO2 99th percentile of a full year. See
+        :func:`naaqs_percentile_rank` to derive it from a percentile.
+    daily
+        ``"max"`` (default) to take each day's maximum sub-daily value,
+        ``"mean"`` to take each day's 24-hour average.
+    n_years
+        Number of years the standard is defined over; a mismatch with
+        the data warns rather than fails.
+
+    Returns
+    -------
+    One row per receptor with ``x``, ``y``, ``concentration`` and the
+    actual ``n_years`` averaged.
+    """
+    if rank < 1:
+        raise ValueError(f"rank must be >= 1, got {rank}")
+    per_day = _daily_series(df, daily)
+    per_day["_year"] = per_day["date"].dt.year
+    per_year = (
+        per_day.groupby(["x", "y", "_year"], as_index=False, sort=False)
+        ["concentration"].agg(lambda s: _nth_highest(s.to_numpy(), rank))
+    )
+    label = f"{pollutant or 'design value'} H{rank}H"
+    out = _average_across_years(per_year, expected_years=n_years, label=label)
+    return out.assign(
+        form=f"annual {rank}-highest daily {daily}",
+        averaging_period=averaging_period,
+        pollutant=pollutant,
     )
 
 
@@ -149,26 +380,24 @@ def pm25_24hr_design_value(
 ) -> pd.DataFrame:
     """PM2.5 24-hour design value: 3-year avg of annual 98th percentiles.
 
-    Per 40 CFR 50, Appendix N. Standard: 35 µg/m³.
+    Per 40 CFR 50 Appendix N. Standard: 35 µg/m³.
 
-    Input ``df`` must contain hourly (or 24-hr-averaged) concentrations;
-    24-hr daily values are computed by averaging within each (receptor,
-    day) group when the AVE column equals "1-HR", otherwise rows are
-    used as-is.
-
-    Returns one row per receptor with the n-year average of annual 98th
-    percentile daily-max concentrations.
+    The daily value is the **24-hour average**, so hourly input
+    (``AVE='1-HR'``) is averaged within each (receptor, day) group;
+    input that already carries AERMOD's ``AVE='24-HR'`` block averages
+    is used as-is. Each year's 98th percentile is the rank Appendix N
+    Table 1 assigns to that year's day count -- the 8th highest for a
+    full year -- and the design value is the mean of those annual
+    values.
     """
-    daily = _agg_daily_max(df) if "1-HR" in df["ave"].unique() else df.copy()
-    if "date" in daily and not pd.api.types.is_datetime64_any_dtype(daily["date"]):
-        daily["date"] = _parse_yymmddhh_to_date(daily["date"])
-    pct = _annual_percentile_per_receptor(daily, percentile=98.0)
-    return (
-        pct.groupby(["x", "y"], as_index=False, sort=False)["concentration"]
-        .mean()
-        .assign(form="98th percentile", averaging_period="24-hour",
-                pollutant="PM2.5", n_years=n_years)
+    per_year = _annual_rank_per_receptor(
+        _daily_series(df, "mean"), percentile=98.0,
     )
+    out = _average_across_years(
+        per_year, expected_years=n_years, label="The 24-hour PM2.5 NAAQS",
+    )
+    return out.assign(form="98th percentile", averaging_period="24-hour",
+                      pollutant="PM2.5")
 
 
 def no2_1hr_design_value(
@@ -177,18 +406,18 @@ def no2_1hr_design_value(
     """NO2 1-hour design value: 3-year avg of annual 98th percentile of
     daily max 1-hour concentrations.
 
-    Per 40 CFR 50, Appendix S. Standard: 100 ppb.
-
-    Returns one row per receptor.
+    Per 40 CFR 50 Appendix S. Standard: 100 ppb. The annual 98th
+    percentile is the rank Appendix S Table 1 assigns to that year's day
+    count -- the 8th highest daily maximum for a full year.
     """
-    daily = _agg_daily_max(df)
-    pct = _annual_percentile_per_receptor(daily, percentile=98.0)
-    return (
-        pct.groupby(["x", "y"], as_index=False, sort=False)["concentration"]
-        .mean()
-        .assign(form="98th percentile of daily max", averaging_period="1-hour",
-                pollutant="NO2", n_years=n_years)
+    per_year = _annual_rank_per_receptor(
+        _daily_series(df, "max"), percentile=98.0,
     )
+    out = _average_across_years(
+        per_year, expected_years=n_years, label="The 1-hour NO2 NAAQS",
+    )
+    return out.assign(form="98th percentile of daily max",
+                      averaging_period="1-hour", pollutant="NO2")
 
 
 def so2_1hr_design_value(
@@ -197,36 +426,47 @@ def so2_1hr_design_value(
     """SO2 1-hour design value: 3-year avg of annual 99th percentile of
     daily max 1-hour concentrations.
 
-    Per 40 CFR 50, Appendix T. Standard: 75 ppb.
+    Per 40 CFR 50 Appendix T. Standard: 75 ppb. The annual 99th
+    percentile is the rank Appendix T Table 1 assigns to that year's day
+    count -- the 4th highest daily maximum for a full year.
     """
-    daily = _agg_daily_max(df)
-    pct = _annual_percentile_per_receptor(daily, percentile=99.0)
-    return (
-        pct.groupby(["x", "y"], as_index=False, sort=False)["concentration"]
-        .mean()
-        .assign(form="99th percentile of daily max", averaging_period="1-hour",
-                pollutant="SO2", n_years=n_years)
+    per_year = _annual_rank_per_receptor(
+        _daily_series(df, "max"), percentile=99.0,
     )
+    out = _average_across_years(
+        per_year, expected_years=n_years, label="The 1-hour SO2 NAAQS",
+    )
+    return out.assign(form="99th percentile of daily max",
+                      averaging_period="1-hour", pollutant="SO2")
 
 
-def pm10_24hr_design_value(df: pd.DataFrame) -> pd.DataFrame:
-    """PM10 24-hour design value: max daily concentration not to be
-    exceeded more than once per year on average over 5 years.
+def pm10_24hr_design_value(
+    df: pd.DataFrame, *, rank: Optional[int] = None,
+) -> pd.DataFrame:
+    """PM10 24-hour design value: highest Nth-highest 24-hour value.
 
-    Per 40 CFR 50.6. Standard: 150 µg/m³. Functionally we return the
-    "high, second-high" (H2H) per receptor — the 2nd-highest daily-max
-    concentration in the multi-year record (allowing one exceedance).
+    Per 40 CFR 50.6 the standard (150 µg/m³) may not be exceeded more
+    than once per year on average. Unlike the percentile standards this
+    one is **not** averaged across years: Appendix W Table 8-2 ranks the
+    pooled multi-year record and takes the *highest sixth-high* (H6H)
+    when five years of NWS meteorology are modelled -- five allowed
+    exceedances plus one -- or the *highest second-high* (H2H) with a
+    single year of site-specific data.
 
-    Caller decides how to average the H2H across the standard's 5-year
-    window; this function returns one H2H per receptor.
+    ``rank`` defaults to that rule (6 for a five-year record, 2
+    otherwise) and can be set explicitly. The daily value is the
+    24-hour average, so hourly input is averaged within each day.
     """
-    daily = _agg_daily_max(df) if "1-HR" in df["ave"].unique() else df.copy()
+    daily = _daily_series(df, "mean")
+    n_years = int(daily["date"].dt.year.nunique())
+    if rank is None:
+        rank = 6 if n_years >= 5 else 2
     out = (
         daily.groupby(["x", "y"], as_index=False, sort=False)["concentration"]
-        .apply(lambda s: float(np.sort(s.values)[-2]) if len(s) >= 2
-               else float(s.max()))
+        .agg(lambda s: _nth_highest(s.to_numpy(), rank))
     )
-    out["form"] = "H2H (high-second-high)"
+    out["n_years"] = n_years
+    out["form"] = f"H{rank}H (highest {rank}-highest 24-hour)"
     out["averaging_period"] = "24-hour"
     out["pollutant"] = "PM10"
     return out
@@ -244,21 +484,10 @@ def o3_8hr_design_value(
     input (AERMOD AVE='8-HR' column). Each (receptor, day) max is
     taken to obtain the daily 8-hr max series.
     """
-    daily = _agg_daily_max(df_8hr)
-    daily["_year"] = daily["date"].dt.year
-    h4h = (
-        daily.groupby(["x", "y", "_year"], as_index=False, sort=False)
-        ["concentration"]
-        .apply(lambda s: float(np.sort(s.values)[-4]) if len(s) >= 4
-               else float(s.max()))
-    )
-    return (
-        h4h.groupby(["x", "y"], as_index=False, sort=False)["concentration"]
-        .mean()
-        .assign(form="annual 4th-highest daily max",
-                averaging_period="8-hour",
-                pollutant="O3", n_years=n_years)
-    )
+    return nth_highest_daily_max_design_value(
+        df_8hr, rank=4, daily="max", n_years=n_years,
+        pollutant="O3", averaging_period="8-hour",
+    ).assign(form="annual 4th-highest daily max")
 
 
 def naaqs_compliance_report(
@@ -331,11 +560,15 @@ def naaqs_compliance_report(
 
 
 __all__ = [
+    "PERCENTILE_98_RANK_TABLE",
+    "PERCENTILE_99_RANK_TABLE",
     "DesignValue",
     "add_background",
     "annual_mean",
     "naaqs_compliance_report",
+    "naaqs_percentile_rank",
     "no2_1hr_design_value",
+    "nth_highest_daily_max_design_value",
     "o3_8hr_design_value",
     "pm10_24hr_design_value",
     "pm25_24hr_design_value",

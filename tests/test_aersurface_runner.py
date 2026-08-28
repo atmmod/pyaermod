@@ -19,8 +19,7 @@ def cfg(tmp_path):
         site_id="UTEST",
         latitude=44.0,
         longitude=-123.0,
-        utc_offset=-8,
-        nlcd_file=str(nlcd),
+        land_cover_file=str(nlcd),
         nlcd_year=2019,
     )
 
@@ -62,7 +61,7 @@ class TestRun:
         # Deck staged at the expected location.
         assert (work / "aersurface.inp").exists()
         deck_text = (work / "aersurface.inp").read_text()
-        assert "TITLE  UnitTest" in deck_text
+        assert "TITLEONE  UnitTest" in deck_text
 
     def test_nonzero_exit_marks_failure(self, tmp_path, cfg):
         fake = _fake_aersurface(tmp_path, exit_code=1, stdout="bad\n")

@@ -85,14 +85,10 @@ class TestAertestPlotfile:
         catches regressions without being brittle to pyaermod's output
         scaling choices."""
         result = read_plotfile(FIXT / "AERTEST_01H.PLT")
-        # Column name: third column after X, Y holds the concentration
-        # (AERMOD labels it "AVERAGE CONC" and we tokenize as AVERAGE).
-        conc_col = next(
-            c for c in result.column_names
-            if c in ("CONC", "AVERAGE")
-        )
-        peaks = [r[conc_col] for r in result.records if isinstance(r[conc_col], (int, float))]
-        peak = max(peaks)
+        # AERMOD labels the column "AVERAGE CONC"; ask the reader for it
+        # rather than pinning one spelling.
+        assert result.concentration_column == "AVERAGE_CONC"
+        peak = max(result.values())
         assert 500 < peak < 1500, f"unexpected peak {peak}; EPA AERTEST ~750"
 
 

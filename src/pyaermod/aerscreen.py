@@ -8,8 +8,31 @@ at the start of every permit project to decide whether full AERMOD
 modeling is even required.
 
 This module is the deck-builder; binary dispatch lives in
-:mod:`pyaermod.aerscreen_runner`. The deck format follows the EPA
-AERSCREEN v24 User's Guide.
+:mod:`pyaermod.aerscreen_runner`.
+
+.. warning::
+
+   **The deck this module writes has never been accepted by AERSCREEN,
+   and its format does not match what AERSCREEN reads.** The
+   ``KEY: value`` layout below is not an AERSCREEN format. EPA's
+   AERSCREEN is interactive: it takes an ordered sequence of answers on
+   stdin, and can reload a previous run from the ``**``-prefixed header
+   its output file carries (that file is otherwise an AERMOD runstream
+   AERSCREEN generates -- see EPA's ``aerscreen_test_cases.zip``, e.g.
+   ``point_horiz/AERSCREEN_FLAT_NODW.inp``).
+
+   This is the same defect that :mod:`pyaermod.aersurface` had before it
+   was checked against the real binary, and it was found the same way --
+   by comparing against EPA's own reference files. Unlike AERSURFACE it
+   is not yet fixed: EPA's ``AERSCREEN.FOR`` does not compile under
+   gfortran without patching (a missing continuation comma at line 7995
+   swallows FORMAT label 5001, and the source uses an Intel format
+   extension, needing ``-fdec -std=legacy``), so there is no reference
+   implementation wired up to validate against yet.
+
+   Treat :class:`AERSCREENConfig` as a parameter container, not as
+   something that will drive AERSCREEN. Do not rely on
+   :meth:`AERSCREENConfig.to_aerscreen_input`.
 
 Typical usage::
 
