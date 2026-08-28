@@ -227,6 +227,7 @@ class AERSURFACEConfig:
     site_type: str = "PRIMARY"
     zo_method: str = "ZORAD"
     zo_radius_km: float = 1.0
+    anemometer_height_m: Optional[float] = None
 
     moisture: str = "AVERAGE"
     snow: bool = True
@@ -293,6 +294,21 @@ class AERSURFACEConfig:
             )
         if self.zo_radius_km <= 0:
             raise ValueError("zo_radius_km must be > 0")
+        if self.zo_method == "ZOEFF" and self.anemometer_height_m is None:
+            raise ValueError(
+                "zo_method='ZOEFF' requires anemometer_height_m: AERSURFACE "
+                "computes the effective roughness over a fetch derived from "
+                "the anemometer height and rejects the deck without it "
+                "(\"Anem. height is required when ZOEFF option is used\")."
+            )
+        if self.anemometer_height_m is not None and self.anemometer_height_m <= 0:
+            raise ValueError("anemometer_height_m must be > 0")
+        if self.arid and self.snow:
+            raise ValueError(
+                "arid=True conflicts with snow=True: AERSURFACE rejects "
+                "\"Arid Climate is Invalid With Continuous Snow\". Set "
+                "snow=False for an arid site."
+            )
 
         for label, path, year in (
             ("canopy", self.canopy_file, self.canopy_year),
@@ -330,7 +346,28 @@ class AERSURFACEConfig:
                         f"sector type must be one of {sorted(_VALID_AP)}; "
                         f"got {kind!r}"
                     )
+            # AERSURFACE requires the sectors to tile the compass: each
+            # one must start where the previous ended, and the last must
+            # wrap to the first. A gap or overlap is a fatal E267,
+            # "Gap or Overlap in Sector Start/End Directions".
+            for (_, end, _k), (start, _e, _k2) in zip(
+                self.sectors, [*self.sectors[1:], self.sectors[0]]
+            ):
+                if abs((end % 360.0) - (start % 360.0)) > 1e-6:
+                    raise ValueError(
+                        "sectors must tile the compass with no gap or "
+                        f"overlap: a sector ends at {end} but the next "
+                        f"starts at {start}. AERSURFACE rejects the deck "
+                        "otherwise."
+                    )
 
+        if self.seasons is not None and self.frequency == "SEASONAL":
+            raise ValueError(
+                "seasons= cannot be combined with frequency='SEASONAL': "
+                "AERSURFACE uses its own month-to-season mapping there and "
+                "rejects the SEASON keyword. Use frequency='MONTHLY' (or "
+                "'ANNUAL') to assign months to seasons yourself."
+            )
         if self.seasons is not None:
             bad = set(self.seasons) - set(SEASON_NAMES)
             if bad:
@@ -361,7 +398,11 @@ class AERSURFACEConfig:
         return lines
 
     def _season_lines(self) -> List[str]:
-        if self.frequency == "ANNUAL":
+        # AERSURFACE accepts SEASON with ANNUAL and MONTHLY only. With
+        # FREQ_SECT SEASONAL it uses its own built-in month-to-season
+        # mapping and rejects the keyword outright ("SEASON Keyword Only
+        # Valid with ANNUAL and MONTHLY").
+        if self.frequency == "SEASONAL":
             return []
         seasons = self.seasons if self.seasons is not None else DEFAULT_SEASONS
         lines = []
@@ -400,6 +441,8 @@ class AERSURFACEConfig:
             year = self.impervious_year or self.nlcd_year
             co.append(f'   DATAFILE  MPRV{year}  "{self.impervious_file}"')
         co.append(f"   ZORADIUS  {self.zo_radius_km:g}")
+        if self.anemometer_height_m is not None:
+            co.append(f"   ANEM_HGT  {self.anemometer_height_m:g}")
         co.append(
             f"   CLIMATE   {self.moisture}  "
             f"{'SNOW' if self.snow else 'NOSNOW'}  "

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AERSURFACE deck-acceptance tests across the configuration space** —
+  `tests/test_aersurface_deck_acceptance.py` runs AERSURFACE's own setup
+  pass (`RUNORNOT NOT`) over ~30 configurations. Setup needs the raster
+  files to exist but never reads them, so ten-byte placeholders suffice:
+  no test-case archive, and the sweep runs in under a second. The
+  existing end-to-end test proves one configuration byte-for-byte; this
+  covers the rest of the space, where four more defects were hiding.
+- **`AERSURFACEConfig.anemometer_height_m`** — emitted as `ANEM_HGT`,
+  and required when `zo_method="ZOEFF"`.
+
 - **Property-based round-trip over the ME and OU pathways, and polar
   receptor grids** — `tests/test_property_pathways.py`. Those pathways
   were pinned to fixed values in the existing property tests, so every
@@ -377,6 +387,27 @@ These fields are new and have no old equivalent: `title_two`, `datum`,
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **Four AERSURFACE configurations produced decks the binary rejects**,
+  all outside the single case the end-to-end test covers:
+  - `frequency="SEASONAL"` still wrote `SEASON` keywords, which
+    AERSURFACE accepts only with `ANNUAL` and `MONTHLY`. Now omitted,
+    and an explicit `seasons=` under `SEASONAL` raises rather than being
+    silently dropped.
+  - `zo_method="ZOEFF"` never emitted `ANEM_HGT`, which AERSURFACE
+    requires for it.
+  - `arid=True` with the default `snow=True` is refused by AERSURFACE
+    ("Arid Climate is Invalid With Continuous Snow"); the combination
+    now raises.
+  - Sectors with a gap or overlap were accepted here and refused there
+    (`E267`); they must tile the compass, and now must here too.
+- **`datum="NAD27"` could never work.** AERSURFACE reads NADCON grid
+  files (`conus`/`alaska`/`hawaii`/`prvi` `.las` and `.los`) from its
+  working directory and fails without them. `scripts/build_aersurface.sh`
+  now installs them beside the binary, `AERSURFACERunner` stages them
+  into the run directory for NAD27 runs (overridable with
+  `$PYAERMOD_NADCON_DIR`), and a run with no grids available fails with
+  a message saying where to get them instead of a Fortran error code.
+
 - **PLOTFILE and POSTFILE wrote a field AERMOD does not have.** Both
   carried an output-type token (`CONC`, `DDEP`, ...), and PLOTFILE also
   wrote a rank on the PERIOD/ANNUAL form, which takes none. AERMOD

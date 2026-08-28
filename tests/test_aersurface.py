@@ -205,11 +205,24 @@ class TestDeckGeneration:
         assert "   SEASON  WINTERWS  1" in deck
         assert "   SEASON  WINTERNS  12 2 3" in deck
 
-    def test_annual_frequency_writes_no_seasons(self, base_cfg):
+    def test_annual_frequency_still_writes_seasons(self, base_cfg):
+        """SEASON is valid with ANNUAL -- it is SEASONAL that forbids it.
+
+        Counterintuitive, and the reason to ask AERSURFACE rather than
+        guess: "SEASON Keyword Only Valid with ANNUAL and MONTHLY".
+        """
         base_cfg.frequency = "ANNUAL"
         deck = base_cfg.to_aersurface_input()
         assert "   FREQ_SECT  ANNUAL  1  VARYAP" in deck
-        assert "SEASON" not in deck
+        assert "   SEASON  WINTERNS  12 1 2" in deck
+
+    def test_seasonal_frequency_writes_no_seasons(self, base_cfg):
+        base_cfg.frequency = "SEASONAL"
+        deck = base_cfg.to_aersurface_input()
+        assert "   FREQ_SECT  SEASONAL  1  VARYAP" in deck
+        assert not [
+            ln for ln in deck.splitlines() if ln.strip().startswith("SEASON ")
+        ]
 
     def test_ancillary_rasters(self, base_cfg):
         base_cfg.canopy_file = "canopy.tiff"

@@ -107,6 +107,18 @@ done
 "$FC" -o "$BIN_DIR/aersurface" -O2 "${OBJECTS[@]}"
 echo "  -> $BIN_DIR/aersurface"
 
+# NADCON datum-shift grids (conus/alaska/hawaii/prvi .las/.los). AERSURFACE
+# reads these from its working directory and fails with "NAD Grid Files
+# Missing" for any NAD27 run without them, so install them beside the
+# binary where AERSURFACERunner can find and stage them.
+grids=0
+for grid in "$SRCDIR"/*.las "$SRCDIR"/*.los; do
+    [ -f "$grid" ] || continue
+    cp "$grid" "$BIN_DIR/"
+    grids=$((grids + 1))
+done
+echo "  -> $grids NADCON grid file(s) in $BIN_DIR (needed for datum NAD27)"
+
 if [ "$WITH_TESTCASE" = "1" ]; then
     mkdir -p "$TESTCASE_DIR"
     TCZIP="$WORK/aersurface_testcase.zip"
