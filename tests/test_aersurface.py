@@ -353,3 +353,51 @@ class TestLegacyFieldNames:
         )
         assert cfg.zo_radius_km == 0.5
         assert "CLIMATE   WET  NOSNOW  NONARID" in cfg.to_aersurface_input()
+
+
+class TestLegacyCheckDoesNotBreakDataclassMachinery:
+    """Wrapping the generated ``__init__`` must stay invisible otherwise.
+
+    The legacy-name check has to wrap ``__init__`` -- ``__post_init__``
+    never sees an unexpected keyword, because ``__init__`` has already
+    raised by then. That wrapping is the kind of thing that quietly
+    breaks ``replace``/``deepcopy``/pickle, so it is pinned here rather
+    than assumed.
+    """
+
+    BASE = dict(
+        title="t", site_id="S", latitude=1.0, longitude=2.0,
+        land_cover_file="lc.tiff", nlcd_year=2021,
+    )
+
+    def _config(self):
+        return AERSURFACEConfig(**self.BASE)
+
+    def test_replace_works(self):
+        import dataclasses
+        replaced = dataclasses.replace(self._config(), zo_radius_km=0.5)
+        assert replaced.zo_radius_km == 0.5
+        assert replaced.title == "t"
+
+    def test_replace_still_rejects_legacy_names(self):
+        import dataclasses
+        with pytest.raises(TypeError, match="land_cover_file"):
+            dataclasses.replace(self._config(), **{"nlcd_file": "x"})
+
+    def test_asdict_and_deepcopy(self):
+        import copy
+        import dataclasses
+        cfg = self._config()
+        assert dataclasses.asdict(cfg)["nlcd_year"] == 2021
+        assert copy.deepcopy(cfg).title == "t"
+
+    def test_pickle_roundtrip(self):
+        import pickle
+        assert pickle.loads(pickle.dumps(self._config())).nlcd_year == 2021
+
+    def test_signature_is_the_dataclass_signature(self):
+        """functools.wraps keeps introspection pointing at the real fields."""
+        import inspect
+        params = inspect.signature(AERSURFACEConfig).parameters
+        assert "land_cover_file" in params
+        assert "args" not in params and "kwargs" not in params
