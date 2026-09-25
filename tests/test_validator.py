@@ -990,10 +990,12 @@ class TestDepositionValidation:
 
     def _project_with_deposition(self, gas_dep=None, particle_dep=None,
                                   dep_method=None, dep_enabled=True):
+        # GASDEPOS is an ALPHA keyword (E198), and ALPHA excludes DFAULT.
         control = ControlPathway(
             title_one="Test", pollutant_id="OTHER",
             averaging_periods=["ANNUAL"],
             calculate_dry_deposition=dep_enabled,
+            alpha=True, regulatory_default=False,
         )
         sp = SourcePathway()
         sp.add_source(PointSource(
@@ -1009,19 +1011,30 @@ class TestDepositionValidation:
     def test_valid_gas_deposition(self):
         result = Validator.validate(self._project_with_deposition(
             gas_dep=GasDepositionParams(
-                diffusivity=0.22, alpha_r=1000.0,
-                reactivity=0.5, henry_constant=0.011,
+                diffusivity=0.22, diffusivity_water=1.8e-5,
+                cuticular_resistance=732.0, henry_constant=0.011,
             ),
         ))
         dep_errors = [e for e in result.errors
                       if "deposition" in e.field.lower() or "gas_deposition" in e.field]
         assert len(dep_errors) == 0
 
+    def test_epa_testgas_values_are_accepted(self):
+        """EPA's testgas deck: Da Dw rcl Henry = 0.08962 1.04E-5 2.51E4 557.0.
+
+        The previous validator read the third field as a 0-1 reactivity
+        and rejected AERMOD's own reference deck (audit follow-up 7).
+        """
+        result = Validator.validate(self._project_with_deposition(
+            gas_dep=GasDepositionParams(0.08962, 1.04e-5, 2.51e4, 557.0),
+        ))
+        assert not [e for e in result.errors if "gas_deposition" in e.field], result
+
     def test_gas_dep_no_modelopt_warning(self):
         result = Validator.validate(self._project_with_deposition(
             gas_dep=GasDepositionParams(
-                diffusivity=0.22, alpha_r=1000.0,
-                reactivity=0.5, henry_constant=0.011,
+                diffusivity=0.22, diffusivity_water=1.8e-5,
+                cuticular_resistance=732.0, henry_constant=0.011,
             ),
             dep_enabled=False,
         ))
@@ -1032,32 +1045,53 @@ class TestDepositionValidation:
     def test_gas_dep_invalid_diffusivity(self):
         result = Validator.validate(self._project_with_deposition(
             gas_dep=GasDepositionParams(
-                diffusivity=-0.1, alpha_r=1000.0,
-                reactivity=0.5, henry_constant=0.011,
+                diffusivity=-0.1, diffusivity_water=1.8e-5,
+                cuticular_resistance=732.0, henry_constant=0.011,
             ),
         ))
         errors = [e for e in result.errors if "diffusivity" in e.field]
         assert len(errors) >= 1
 
-    def test_gas_dep_invalid_reactivity(self):
+    @pytest.mark.parametrize("field_name", [
+        "diffusivity", "diffusivity_water", "cuticular_resistance", "henry_constant",
+    ])
+    def test_gas_dep_zero_field_rejected_for_unknown_pollutant(self, field_name):
+        """A 0 is E380 unless AERMOD has a built-in value for the pollutant."""
+        kwargs = dict(diffusivity=0.22, diffusivity_water=1.8e-5,
+                      cuticular_resistance=732.0, henry_constant=0.011)
+        kwargs[field_name] = 0.0
         result = Validator.validate(self._project_with_deposition(
-            gas_dep=GasDepositionParams(
-                diffusivity=0.22, alpha_r=1000.0,
-                reactivity=1.5, henry_constant=0.011,
-            ),
+            gas_dep=GasDepositionParams(**kwargs),
         ))
-        errors = [e for e in result.errors if "reactivity" in e.field]
-        assert len(errors) >= 1
+        assert [e for e in result.errors if e.field == f"gas_deposition.{field_name}"]
 
-    def test_gas_dep_missing_henry_and_vd(self):
-        result = Validator.validate(self._project_with_deposition(
-            gas_dep=GasDepositionParams(
-                diffusivity=0.22, alpha_r=1000.0,
-                reactivity=0.5,
-            ),
-        ))
-        errors = [e for e in result.errors if "henry" in e.message.lower() or "dep_velocity" in e.message.lower()]
-        assert len(errors) >= 1
+    def test_gas_dep_zero_field_allowed_for_lookup_pollutant(self):
+        """soset.f GASDEP substitutes its own value for a 0 field when the
+        pollutant is HG0, HGII, TCDD, BAP, SO2 or NO2 (warning W473)."""
+        project = self._project_with_deposition(
+            gas_dep=GasDepositionParams(0.0, 0.0, 0.0, 0.0),
+        )
+        project.control.pollutant_id = "SO2"
+        result = Validator.validate(project)
+        assert not [e for e in result.errors if "gas_deposition" in e.field], result
+
+    def test_gas_dep_requires_alpha(self):
+        project = self._project_with_deposition(
+            gas_dep=GasDepositionParams(0.08962, 1.04e-5, 2.51e4, 557.0),
+        )
+        project.control.alpha = False
+        result = Validator.validate(project)
+        assert any("E198" in e.message for e in result.errors
+                   if e.field == "gas_deposition"), result
+
+    def test_gas_dep_conflicts_with_gasdepvd(self):
+        project = self._project_with_deposition(
+            gas_dep=GasDepositionParams(0.08962, 1.04e-5, 2.51e4, 557.0),
+        )
+        project.control.gas_deposition_velocity = 0.01
+        result = Validator.validate(project)
+        assert any("E195" in e.message for e in result.errors
+                   if e.field == "gas_deposition"), result
 
     def test_valid_particle_deposition(self):
         result = Validator.validate(self._project_with_deposition(

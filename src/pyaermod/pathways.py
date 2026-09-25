@@ -468,9 +468,13 @@ class ControlPathway:
     # Regulatory default mode
     regulatory_default: bool = True  # Include DFAULT in MODELOPT
 
-    # Urban/rural
+    # Urban/rural. URBANOPT takes ``population [name] [roughness]`` for a
+    # single urban area (coset.f URBOPT); ``urban_option`` is the optional
+    # descriptive name in field 2. (The multi-area ``URBANOPT id pop``
+    # form needs several URBANOPT cards and is not modelled.)
     urban_option: Optional[str] = None  # Urban area name if urban
     urban_population: Optional[float] = None  # Required population for URBANOPT
+    urban_roughness: Optional[float] = None  # Optional urban surface roughness, m
 
     # Low wind options
     low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
@@ -480,6 +484,10 @@ class ControlPathway:
     # "Non-DFAULT ALPHA Option Required" unless ALPHA is present.
     alpha: bool = False
     beta: bool = False
+    # PSDCREDIT: PSD increment-credit run. Sources are then grouped with
+    # PSDGROUP (INCRCONS / RETRBASE / NONRBASE) and SRCGROUP is refused
+    # (soset.f, E105); see SourcePathway.psd_groups.
+    psd_credit: bool = False
 
     # Event file reference
     eventfil: Optional[str] = None
@@ -538,6 +546,8 @@ class ControlPathway:
             model_opts.append("ALPHA")
         if self.beta:
             model_opts.append("BETA")
+        if self.psd_credit:
+            model_opts.append("PSDCREDIT")
 
         # Append chemistry method to MODELOPT
         if self.chemistry is not None:
@@ -565,10 +575,22 @@ class ControlPathway:
         if self.flag_pole_height is not None:
             lines.append(f"   FLAGPOLE  {self.flag_pole_height:.2f}")
 
-        if self.urban_option:
-            # URBANOPT format: UrbanID Population [Name] [Roughness]
-            pop = self.urban_population or 1000000.0
-            lines.append(f"   URBANOPT  {self.urban_option}  {pop:.1f}")
+        if self.urban_option or self.urban_population is not None:
+            # Single-area URBANOPT: population [name] [roughness]. The
+            # earlier "name population" order is the multi-area form,
+            # which AERMOD reads as an illegal numeric field (E208) when
+            # the deck has only one URBANOPT card.
+            pop = self.urban_population if self.urban_population is not None else 1000000.0
+            line = f"   URBANOPT  {pop:.1f}"
+            if self.urban_option:
+                line += f"  {self.urban_option}"
+            if self.urban_roughness is not None:
+                if not self.urban_option:
+                    raise ValueError(
+                        "urban_roughness needs urban_option: AERMOD reads the "
+                        "roughness from the third URBANOPT field")
+                line += f"  {self.urban_roughness:.2f}"
+            lines.append(line)
 
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")

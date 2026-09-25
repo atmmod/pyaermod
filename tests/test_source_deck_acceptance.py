@@ -398,13 +398,11 @@ def test_keyword_deck_passes_aermod_setup(label, control, output, extra, tmp_pat
     from pyaermod.sources import GasDepositionParams
 
     source = _stack()
-    # EPA's GASDEPOS values are AERMOD's (Da, Dw, rcl, Henry); pyaermod's
-    # GasDepositionParams validator reads the third field as a 0-1
-    # reactivity, so this deck is checked by AERMOD alone.
-    validate = "__gasdepos__" not in extra
     if extra.pop("__gasdepos__", False):
         # EPA's testgas deck: benzene diffusivities, cuticular resistance
-        # and Henry's law constant.
+        # and Henry's law constant (Da, Dw, rcl, Henry). pyaermod's
+        # validator now reads the fields as AERMOD does, so this deck is
+        # validated like every other one before AERMOD sees it.
         source = PointSource(
             "SRC1", 0.0, 0.0, stack_height=50.0, stack_diameter=2.0,
             stack_temp=400.0, exit_velocity=15.0, emission_rate=10.0,
@@ -423,8 +421,7 @@ def test_keyword_deck_passes_aermod_setup(label, control, output, extra, tmp_pat
         ),
         output=output,
     )
-    deck = re.sub(r"RUNORNOT\s+\w+", "RUNORNOT NOT",
-                  project.to_aermod_input(validate=validate))
+    deck = re.sub(r"RUNORNOT\s+\w+", "RUNORNOT NOT", project.to_aermod_input())
     errors = run_setup_check(deck, tmp_path)
     assert not errors, (
         f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
