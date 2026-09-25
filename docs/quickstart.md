@@ -433,7 +433,9 @@ v26135 Fortran source in [`keyword-audit-v26135.md`](keyword-audit-v26135.md)):
 
 STARTING, FINISHED, TITLEONE, TITLETWO, MODELOPT, AVERTIME, POLLUTID,
 RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND,
-EVENTFIL, O3VALUES, OZONEFIL, NO2RATIO, NOXFIL
+EVENTFIL, NO2STACK, NO2EQUIL, OZONEVAL, OZONEFIL, O3VALUES, O3SECTOR,
+OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF,
+GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE, INITFILE, MULTYEAR
 
 ### Source Pathway (SO)
 
@@ -454,7 +456,19 @@ SURFFILE, PROFFILE, SURFDATA, UAIRDATA, STARTEND, WDROTATE
 
 ### Output Pathway (OU)
 
-RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE, POSTFILE
+RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE, POSTFILE,
+FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
+
+The 1-hour NO2/SO2 (and 24-hour PM2.5) design-value workflow is one call
+on each side of the model run:
+
+```python
+from pyaermod import naaqs_output_pathway, read_maxdaily, so2_1hr_design_value
+
+project.output = naaqs_output_pathway("SO2", stem="so2")   # MAXDAILY, MXDYBYYR, MAXDCONT at rank 4
+# ... run AERMOD ...
+design = so2_1hr_design_value(read_maxdaily("so2_maxdaily.dat"))
+```
 
 ### Event Pathway (EV)
 
