@@ -101,6 +101,10 @@ TERRAIN_CASES = [
 _TIMESTAMP = re.compile(
     r"\d{2}/\d{2}/\d{2}|\d{2}:\d{2}:\d{2}"
 )
+#: A path token: the .OUT echoes the DEM files as they were listed in
+#: DEMlist.txt, which in EPA's runs is a Windows relative path
+#: (``NED_32948525\NED_32948525.tif``); the runner stages them flat.
+_PATH_TOKEN = re.compile(r"\S*[\\/](\S+)")
 
 
 def _case_id(case):
@@ -149,7 +153,8 @@ def _dems_from_demlist(directory: Path) -> tuple[list[str], str]:
 
 
 def normalise(text: str, *, restart_title: bool = False) -> list[str]:
-    """An AERSCREEN .OUT with its run date and time blanked.
+    """An AERSCREEN .OUT with its run date and time blanked and file
+    paths reduced to their basenames.
 
     ``restart_title`` applies what AERSCREEN's restart reader does to
     the title -- it keeps it only up to the first comma, upper-cased --
@@ -159,6 +164,7 @@ def normalise(text: str, *, restart_title: bool = False) -> list[str]:
     out = []
     for ln in lines:
         ln = _TIMESTAMP.sub("##", ln.rstrip())
+        ln = _PATH_TOKEN.sub(r"\1", ln)
         if restart_title and ln.startswith(" TITLE:"):
             ln = " TITLE: " + ln[7:].split(",")[0].strip().upper()
         out.append(ln)
