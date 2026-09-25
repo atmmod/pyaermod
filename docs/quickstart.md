@@ -447,8 +447,11 @@ DEPRESS
 
 ### Receptor Pathway (RE)
 
-GRIDCART (with ELEV/HILL terrain support), GRIDPOLR (with ELEV/HILL
-terrain support), DISCCART, ELEVUNIT
+GRIDCART (XYINC or explicit XPNTS/YPNTS, ELEV/HILL/FLAG rows), GRIDPOLR
+(ORIG by coordinates or by source ID, DIST as the list of ring distances,
+GDIR as `num init delta` or DDIR as an explicit list, ELEV/HILL/FLAG rows),
+DISCCART, ELEVUNIT. Lines whose keyword columns are blank continue the
+previous keyword, as EPA's own decks write their GRIDPOLR blocks.
 
 ### Meteorology Pathway (ME)
 
@@ -456,8 +459,29 @@ SURFFILE, PROFFILE, SURFDATA, UAIRDATA, STARTEND, WDROTATE
 
 ### Output Pathway (OU)
 
-RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE, POSTFILE,
-FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
+RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE (`OutputPathway.maxi_files`,
+one `MaxiFile(aveper, group, threshold, filename)` per line), PLOTFILE,
+POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
+
+### Everything else: `unparsed_lines`
+
+Any other line of a deck -- RANKFILE, SEASONHR, EMISFACT, HOUREMIS, INCLUDED,
+SITEDATA, a BACKGRND hourly file, a source type the reader does not construct
+-- is kept verbatim in `project.unparsed_lines` (pathway, keyword, fields,
+line number), reported with one `logging` warning per pathway and keyword,
+and written back into its pathway by `project.write()` /
+`project.to_aermod_input()`. Pass `preserve_unparsed=False` to write only
+what the model represents.
+
+```python
+import logging
+logging.basicConfig(level=logging.WARNING)
+project = read_aermod_input("epa_deck.inp")
+# WARNING:pyaermod.input_reader:OU SEASONHR: 6 lines not modelled by pyaermod; ...
+for line in project.unparsed_lines:
+    print(line.pathway, line.keyword, line.fields)
+project.write("epa_deck_copy.inp")   # the SEASONHR lines are in the OU pathway
+```
 
 The 1-hour NO2/SO2 (and 24-hour PM2.5) design-value workflow is one call
 on each side of the model run:

@@ -8,6 +8,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Nothing the reader cannot model is dropped any more:
+  `AERMODProject.unparsed_lines`.** `pyaermod.input_reader` keeps every
+  runstream line it has no field for -- an unmodelled keyword (RANKFILE,
+  SEASONHR, EMISFACT, HOUREMIS, INCLUDED, SITEDATA, ERRORFIL, ...), an
+  unmodelled form of a known keyword (a BACKGRND hourly file, a PLOTFILE
+  with a lower rank, a second POSTFILE), the definition lines of a source
+  type it does not construct (POINTCAP, POINTHOR), or an inline EV
+  pathway -- as an `UnparsedLine` (pathway, keyword, fields as written,
+  line number), logs one warning per pathway and keyword, and the writer
+  puts them back into their pathway (`to_aermod_input(preserve_unparsed=
+  True)`, the default) where AERMOD accepts them: ELEVUNIT first, SO lines
+  before the group keywords, the rest before FINISHED. The module
+  docstring had promised this collection since the reader was written;
+  the implementation silently discarded the lines.
+- **The runstream layout AERMOD actually parses.** A line blank through
+  the keyword columns continues the previous keyword (setup.f EXKEY), as
+  twenty of EPA's decks write their GRIDPOLR blocks (`POL1 DIST 100.
+  1000.`); the reader took `POL1` for the keyword and dropped the line.
+- **Receptor networks as reset.f defines them.** `PolarGrid.distances`
+  (GRIDPOLR DIST is only ever a list of ring distances), `.directions`
+  (DDIR), `.origin_source_id` (`ORIG srcid`), `.elevations`/`.hills`/
+  `.flags`; `CartesianGrid.x_points`/`.y_points` (XPNTS/YPNTS) and
+  `.grid_flags`; `ring_distances()`, `direction_angles()`, `x_values()`,
+  `y_values()` and `receptor_count` for consumers, which the geospatial
+  expansion and the advanced validator now use. The reader fills the
+  GRIDCART ELEV/HILL rows the writer already emitted.
+- **`OutputPathway.maxi_files` (`MaxiFile`)**: MAXIFILE in the layout
+  ouset.f reads, `aveper grpid thresh filename [funit]`, one per
+  averaging period and group (audit item 1).
+- **`ControlPathway.urban_areas` (`UrbanArea`)** for decks with several
+  URBANOPT lines (EPA's multurb.inp), `.extra_model_options` for MODELOPT
+  tokens without a field (SCREEN, PSDCREDIT, NOCHKD, ...), `.run_model`
+  (RUNORNOT NOT round-trips), `ChemistryMethod.TTRM`/`TTRM2`,
+  `MeteorologyPathway.start_hour`/`.end_hour` (the eight-field STARTEND),
+  `SourcePathway.include_all_group` (a deck that groups its sources with
+  PSDGROUP gets no invented `SRCGROUP ALL`).
+- **The round-trip guarantee over EPA's whole archive.**
+  `tests/test_epa_deck_roundtrip.py` now compares the CO, RE, ME and OU
+  pathways field for field, the source groups and IDs, and the preserved
+  lines, and asserts every line of each of the 53 v26135 decks is either
+  modelled or in `unparsed_lines`; eleven decks are vendored so the check
+  runs without the archive. `tests/test_epa_deck_acceptance.py` runs
+  every deck pyaermod writes for the archive through AERMOD's setup pass
+  next to EPA's original: 49 are accepted clean, the four chained
+  MULTYEAR years report the same missing-save-file E500 as EPA's own
+  deck. The writer forms this release changed have setup-pass cases of
+  their own. Probe decks 13-19 under `scripts/oracle_decks/` record what
+  AERMOD said about the previous forms.
+
+### Fixed
+- **Every polar grid pyaermod wrote had no receptors (RE E185).** The
+  writer emitted `DIST init num delta` and `GDIR init num delta`;
+  reset.f reads every DIST field as a ring and GDIR as `num init delta`,
+  so `GDIR 0.0 36 10.0` generated zero directions. The reader's
+  three-token heuristic for the same lines (audit item 3) read EPA's
+  `GDIR 36 10 10` as 10 directions starting at 36 degrees. Both now
+  follow the Fortran; there is no heuristic.
+- **Elevated terrain was written as `MODELOPT ... ELEVATED`, which
+  coset.f does not know (E203).** The token is `ELEV`; `FLATSRCS` is the
+  pair `FLAT ELEV`, and the reader maps `FLAT ELEV` back to
+  `TerrainType.FLATSRCS` and ignores a FLAT after ELEV as AERMOD does.
+- **`NO2STACK` was written for ARM2 runs, which reject it (E600).** It
+  is written only for OLM, PVMRM, GRSM and TTRM.
+- **A single `URBANOPT` was written name-first (E208).** With one card
+  coset.f reads `pop [name [z0]]`; the ID-first form belongs to decks
+  with several cards. The reader still accepts the old spelling.
+- **`GRIDCART` with `XPNTS`/`YPNTS` became a default 10 x 10 grid**, and
+  `STARTEND` with hours lost its last two fields; a source defined in an
+  INCLUDED file with SRCPARAM inline was re-defined at the origin (E310).
+
+### Changed
+- **`OutputPathway.max_file` is removed.** It wrote `MAXIFILE filename`,
+  which every AERMOD release rejects (E201: four fields are required);
+  use `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`. The
+  GUI's output page lists the new field.
+- `Validator` accepts explicit receptor lists (`distances`, `directions`,
+  `x_points`, `y_points`) in place of the generator fields they replace.
+
+### Added (reader tranche 1)
 - **Structural reading and writing of the regulatory-critical CO and OU
   keywords** the v26135 audit listed as pass-through only. Each is stored
   on the project model, written back in the field layout AERMOD's
