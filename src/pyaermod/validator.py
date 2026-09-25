@@ -236,6 +236,10 @@ class Validator:
         if sources.group_definitions:
             cls._validate_source_groups(sources, result)
 
+        cls._validate_psd_groups(sources, control, result)
+        cls._validate_unit_conversions(sources, control, result)
+        cls._validate_solid_barriers(sources, control, result)
+
     @classmethod
     def _validate_background(cls, background, result: ValidationResult):
         pathway = "BackgroundConcentration"
@@ -328,6 +332,18 @@ class Validator:
         # Deposition validation for all source types
         cls._validate_deposition_params(source, control, result)
 
+        # Per-source NO2/NOx ratio (NO2RATIO applies to any source type;
+        # soset.f NO2RAT rejects values outside 0-1 with E336)
+        ratio = getattr(source, "no2_ratio", None)
+        if ratio is not None and not (0 <= ratio <= 1):
+            result.errors.append(ValidationError(
+                f"{type(source).__name__}({source.source_id})", "no2_ratio",
+                f"must be between 0 and 1, got {ratio}"
+            ))
+
+        if isinstance(source, RLineExtSource):
+            cls._validate_rline_configuration(source, control, result)
+
     @classmethod
     def _validate_deposition_params(cls, source, control, result: ValidationResult):
         name = f"{type(source).__name__}({source.source_id})"
@@ -347,19 +363,7 @@ class Validator:
             ))
 
         if gas_dep:
-            if gas_dep.diffusivity <= 0:
-                result.errors.append(ValidationError(
-                    name, "gas_deposition.diffusivity", "must be > 0"
-                ))
-            if not (0 <= gas_dep.reactivity <= 1):
-                result.errors.append(ValidationError(
-                    name, "gas_deposition.reactivity", "must be between 0 and 1"
-                ))
-            if gas_dep.henry_constant is None and gas_dep.dry_dep_velocity is None:
-                result.errors.append(ValidationError(
-                    name, "gas_deposition",
-                    "either henry_constant or dry_dep_velocity must be set"
-                ))
+            cls._validate_gas_deposition(name, gas_dep, control, result)
 
         if particle_dep:
             if len(particle_dep.diameters) != len(particle_dep.mass_fractions):
@@ -395,6 +399,46 @@ class Validator:
                     name, "particle_deposition.densities",
                     "all densities must be > 0"
                 ))
+
+    #: Pollutants for which soset.f GASDEP substitutes a built-in value
+    #: when a GASDEPOS field is 0 (warning W473); any other zero is E380.
+    GASDEPOS_LOOKUP_POLLUTANTS = frozenset({"HG0", "HGII", "TCDD", "BAP", "SO2", "NO2"})
+
+    @classmethod
+    def _validate_gas_deposition(cls, name, gas_dep, control, result: ValidationResult):
+        """GASDEPOS as soset.f GASDEP reads it: ``Da Dw rcl Henry``.
+
+        Every field must be positive (E380) unless it is 0 for a
+        pollutant AERMOD has a built-in value for; the keyword needs the
+        ALPHA option (E198) and is refused alongside GASDEPVD (E195).
+        """
+        pollutant = getattr(control.pollutant_id, "value", control.pollutant_id)
+        zero_ok = str(pollutant).upper() in cls.GASDEPOS_LOOKUP_POLLUTANTS
+        for field_name, label in (("diffusivity", "Da"),
+                                  ("diffusivity_water", "Dw"),
+                                  ("cuticular_resistance", "rcl"),
+                                  ("henry_constant", "Henry")):
+            value = getattr(gas_dep, field_name)
+            if value < 0 or (value == 0 and not zero_ok):
+                result.errors.append(ValidationError(
+                    name, f"gas_deposition.{field_name}",
+                    f"must be > 0 ({label} in GASDEPOS; AERMOD E380), got {value}"
+                    + ("" if zero_ok else
+                       "; 0 selects AERMOD's built-in value only for "
+                       "HG0, HGII, TCDD, BAP, SO2 and NO2")
+                ))
+        if not getattr(control, "alpha", False):
+            result.errors.append(ValidationError(
+                name, "gas_deposition",
+                "GASDEPOS needs ControlPathway.alpha=True: AERMOD requires "
+                "the non-DFAULT ALPHA option for gas deposition (E198)"
+            ))
+        if getattr(control, "gas_deposition_velocity", None) is not None:
+            result.errors.append(ValidationError(
+                name, "gas_deposition",
+                "cannot be combined with ControlPathway.gas_deposition_velocity: "
+                "AERMOD rejects GASDEPOS with GASDEPVD (E195)"
+            ))
 
     @classmethod
     def _validate_point_source(cls, src, result: ValidationResult):
@@ -439,13 +483,6 @@ class Validator:
                     name, field_name,
                     f"must have exactly 36 values (one per 10° sector), got {len(val)}"
                 ))
-
-        # Per-source NO2/NOx ratio
-        if getattr(src, "no2_ratio", None) is not None and not (0 <= src.no2_ratio <= 1):
-            result.errors.append(ValidationError(
-                name, "no2_ratio",
-                f"must be between 0 and 1, got {src.no2_ratio}"
-            ))
 
         # Cross-field: building height < stack height for downwash to be meaningful
         bh = src.building_height
@@ -810,6 +847,150 @@ class Validator:
     # Source groups
     # ------------------------------------------------------------------
 
+    #: The only PSDGROUP IDs soset.f PSDGRP accepts (E287 otherwise).
+    PSD_GROUP_IDS = ("INCRCONS", "RETRBASE", "NONRBASE")
+
+    @staticmethod
+    def _is_flat_terrain(control) -> bool:
+        terrain = getattr(control.terrain_type, "value", control.terrain_type)
+        return str(terrain).upper() == "FLAT"
+
+    @classmethod
+    def _validate_psd_groups(cls, sources, control, result: ValidationResult):
+        """PSDGROUP needs PSDCREDIT (E146), which in turn forbids SRCGROUP
+        (E105) and accepts only three group IDs (E287)."""
+        psd_credit = getattr(control, "psd_credit", False)
+        groups = getattr(sources, "psd_groups", [])
+        if groups and not psd_credit:
+            result.errors.append(ValidationError(
+                "SourcePathway", "psd_groups",
+                "PSDGROUP needs ControlPathway.psd_credit=True (AERMOD E146)"
+            ))
+        if psd_credit and sources.group_definitions:
+            result.errors.append(ValidationError(
+                "SourcePathway", "group_definitions",
+                "SRCGROUP is not allowed with the PSDCREDIT option (AERMOD "
+                "E105); use psd_groups (INCRCONS / RETRBASE / NONRBASE)"
+            ))
+        if psd_credit and not groups:
+            result.errors.append(ValidationError(
+                "SourcePathway", "psd_groups",
+                "the PSDCREDIT option needs at least one PSDGROUP"
+            ))
+        for group in groups:
+            if group.group_name.upper() not in cls.PSD_GROUP_IDS:
+                result.errors.append(ValidationError(
+                    "SourcePathway", "psd_groups",
+                    f"PSDGROUP ID must be one of {cls.PSD_GROUP_IDS} "
+                    f"(AERMOD E287), got '{group.group_name}'"
+                ))
+            if not group.member_source_ids:
+                result.errors.append(ValidationError(
+                    "SourcePathway", "psd_groups",
+                    f"PSDGROUP {group.group_name} lists no sources (ALL is not "
+                    "valid for PSDGROUP; AERMOD E201)"
+                ))
+
+    @classmethod
+    def _validate_unit_conversions(cls, sources, control, result: ValidationResult):
+        """EMISUNIT conflicts with CONCUNIT/DEPOUNIT (E159) and needs a
+        single output type (E158); every factor must be positive."""
+        emis = getattr(sources, "emission_units", None)
+        conc = getattr(sources, "concentration_units", None)
+        depo = getattr(sources, "deposition_units", None)
+        for field_name, units in (("emission_units", emis),
+                                  ("concentration_units", conc),
+                                  ("deposition_units", depo)):
+            if units is not None and units.factor <= 0:
+                result.errors.append(ValidationError(
+                    "SourcePathway", f"{field_name}.factor",
+                    f"must be > 0, got {units.factor}"
+                ))
+        if emis is not None and (conc is not None or depo is not None):
+            result.errors.append(ValidationError(
+                "SourcePathway", "emission_units",
+                "EMISUNIT cannot be combined with CONCUNIT or DEPOUNIT (AERMOD E159)"
+            ))
+        n_types = sum(bool(getattr(control, attr, False)) for attr in (
+            "calculate_concentration", "calculate_deposition",
+            "calculate_dry_deposition", "calculate_wet_deposition"))
+        if emis is not None and n_types > 1:
+            result.errors.append(ValidationError(
+                "SourcePathway", "emission_units",
+                "EMISUNIT applies to a run with one output type; with CONC and "
+                "deposition together use concentration_units and "
+                "deposition_units (AERMOD E158)"
+            ))
+
+    @classmethod
+    def _validate_solid_barriers(cls, sources, control, result: ValidationResult):
+        barriers = getattr(sources, "solid_barriers", [])
+        if not barriers:
+            return
+        cls._require_alpha_and_flat("SourcePathway", "solid_barriers", "SBARRIER",
+                                    control, result)
+        for barrier in barriers:
+            name = f"SolidBarrier({barrier.barrier_id})"
+            if not 1 <= len(barrier.segments) <= 50:
+                result.errors.append(ValidationError(
+                    name, "segments",
+                    f"must have 1-50 segments (AERMOD E320), got {len(barrier.segments)}"
+                ))
+            for i, seg in enumerate(barrier.segments, start=1):
+                if not 2.0 < seg.height <= 12.0:
+                    result.errors.append(ValidationError(
+                        name, f"segments[{i}].height",
+                        f"must be > 2 and <= 12 m (AERMOD E320), got {seg.height}"
+                    ))
+
+    @classmethod
+    def _require_alpha_and_flat(cls, pathway, field_name, keyword, control,
+                                result: ValidationResult):
+        if not getattr(control, "alpha", False):
+            result.errors.append(ValidationError(
+                pathway, field_name,
+                f"{keyword} needs ControlPathway.alpha=True: AERMOD requires "
+                "the non-DFAULT ALPHA option (E198)"
+            ))
+        if not cls._is_flat_terrain(control):
+            result.errors.append(ValidationError(
+                pathway, field_name,
+                f"{keyword} needs terrain_type=FLAT: AERMOD rejects RLINE "
+                "barriers and depressions in ELEV runs (E713)"
+            ))
+
+    @classmethod
+    def _validate_rline_configuration(cls, src, control, result: ValidationResult):
+        """RBARRIER / RDEPRESS / VBARRIER gates and ranges from soset.f."""
+        name = f"RLineExtSource({src.source_id})"
+        has_barrier = src.barrier_height_1 is not None and src.barrier_dcl_1 is not None
+        has_depress = (src.depression_depth is not None
+                       and src.depression_wtop is not None
+                       and src.depression_wbottom is not None)
+        veg = list(getattr(src, "vegetative_barriers", []) or [])
+        if has_barrier:
+            cls._require_alpha_and_flat(name, "barrier_height_1", "RBARRIER", control, result)
+        if has_depress:
+            cls._require_alpha_and_flat(name, "depression_depth", "RDEPRESS", control, result)
+        if veg:
+            cls._require_alpha_and_flat(name, "vegetative_barriers", "VBARRIER", control, result)
+            if len(veg) > 2:
+                result.errors.append(ValidationError(
+                    name, "vegetative_barriers",
+                    f"VBARRIER takes at most two barriers, got {len(veg)}"
+                ))
+            for i, b in enumerate(veg[:2], start=1):
+                for attr, lo, hi, code in (("height", 2.0, 10.0, "E371"),
+                                           ("width", 2.5, 13.0, "E372"),
+                                           ("leaf_area_index", 4.0, 10.92, "E373"),
+                                           ("mixing_length", 0.55, 3.75, "E374")):
+                    value = getattr(b, attr)
+                    if not lo <= value <= hi:
+                        result.errors.append(ValidationError(
+                            name, f"vegetative_barriers[{i}].{attr}",
+                            f"must be within {lo}-{hi} (AERMOD {code}), got {value}"
+                        ))
+
     @classmethod
     def _validate_source_groups(cls, sources, result: ValidationResult):
         """Validate centralized source group definitions."""
@@ -1110,7 +1291,12 @@ class Validator:
                     f"must be one of {BACKGROUND_UNITS}, got {nox.units!r}"
                 ))
 
-        # OLM groups: validate member IDs
+        # OLM groups: OLMGROUP is only accepted with the OLM option (E144)
+        if chemistry.olm_groups and chemistry.method != ChemistryMethod.OLM:
+            result.errors.append(ValidationError(
+                pathway, "olm_groups",
+                f"OLMGROUP needs method=OLM (AERMOD E144), got {chemistry.method.value}"
+            ))
         for olm_group in chemistry.olm_groups:
             if len(olm_group.group_name) > 8:
                 result.errors.append(ValidationError(

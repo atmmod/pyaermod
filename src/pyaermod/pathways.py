@@ -507,13 +507,17 @@ class ControlPathway:
     # Regulatory default mode
     regulatory_default: bool = True  # Include DFAULT in MODELOPT
 
-    # Urban/rural. urban_option/urban_population describe one urban
-    # area; urban_areas holds every URBANOPT line of a deck (AERMOD
-    # allows several, each with its own ID, and switches URBANOPT and
-    # URBANSRC to the ID-first form when there is more than one). When
-    # urban_areas is set it is what the writer emits.
+    # Urban/rural. URBANOPT takes ``population [name] [roughness]`` for a
+    # single urban area (coset.f URBOPT); ``urban_option`` is the optional
+    # descriptive name in field 2. (The multi-area ``URBANOPT id pop``
+    # form needs several URBANOPT cards and is not modelled.)
     urban_option: Optional[str] = None  # Urban area name if urban
     urban_population: Optional[float] = None  # Required population for URBANOPT
+    urban_roughness: Optional[float] = None  # Optional urban surface roughness, m
+    # Every URBANOPT line of a deck (AERMOD allows several areas, each
+    # with its own ID, and switches URBANOPT and URBANSRC to the ID-first
+    # layout when there is more than one). When set, this is what the
+    # writer emits; the three fields above describe the first area.
     urban_areas: List[UrbanArea] = field(default_factory=list)
 
     # Low wind options
@@ -524,11 +528,15 @@ class ControlPathway:
     # "Non-DFAULT ALPHA Option Required" unless ALPHA is present.
     alpha: bool = False
     beta: bool = False
+    # PSDCREDIT: PSD increment-credit run. Sources are then grouped with
+    # PSDGROUP (INCRCONS / RETRBASE / NONRBASE) and SRCGROUP is refused
+    # (soset.f, E105); see SourcePathway.psd_groups.
+    psd_credit: bool = False
 
     # MODELOPT options pyaermod has no field for (SCREEN, FASTALL,
-    # PSDCREDIT, NOCHKD, ...). The reader fills this with the tokens it
-    # did not recognise so a deck keeps its options when rewritten; the
-    # writer appends them to MODELOPT as given.
+    # NOCHKD, ...). The reader fills this with the tokens it did not
+    # recognise so a deck keeps its options when rewritten; the writer
+    # appends them to MODELOPT as given.
     extra_model_options: List[str] = field(default_factory=list)
 
     # RUNORNOT: False writes ``RUNORNOT NOT``, which makes AERMOD parse
@@ -592,6 +600,8 @@ class ControlPathway:
             model_opts.append("ALPHA")
         if self.beta:
             model_opts.append("BETA")
+        if self.psd_credit:
+            model_opts.append("PSDCREDIT")
 
         # Append chemistry method to MODELOPT
         if self.chemistry is not None:
@@ -630,18 +640,28 @@ class ControlPathway:
             multi = len(self.urban_areas) > 1
             for area in self.urban_areas:
                 fields = [area.urban_id] if multi and area.urban_id else []
-                fields.append(_num(area.population))
+                fields.append(f"{area.population:.1f}")
                 if area.name or area.roughness is not None:
                     fields.append(area.name or "URBAN")
                 if area.roughness is not None:
-                    fields.append(_num(area.roughness))
+                    fields.append(f"{area.roughness:.2f}")
                 lines.append("   URBANOPT  " + "  ".join(fields))
-        elif self.urban_option:
-            # One URBANOPT card: coset.f reads ``pop [name [z0]]``; the
-            # ID-first form belongs to decks with several cards, and
-            # ``URBANOPT name pop`` is an illegal population (E208).
-            pop = self.urban_population or 1000000.0
-            lines.append(f"   URBANOPT  {pop:.1f}  {self.urban_option}")
+        elif self.urban_option or self.urban_population is not None:
+            # Single-area URBANOPT: population [name] [roughness]. The
+            # earlier "name population" order is the multi-area form,
+            # which AERMOD reads as an illegal numeric field (E208) when
+            # the deck has only one URBANOPT card.
+            pop = self.urban_population if self.urban_population is not None else 1000000.0
+            line = f"   URBANOPT  {pop:.1f}"
+            if self.urban_option:
+                line += f"  {self.urban_option}"
+            if self.urban_roughness is not None:
+                if not self.urban_option:
+                    raise ValueError(
+                        "urban_roughness needs urban_option: AERMOD reads the "
+                        "roughness from the third URBANOPT field")
+                line += f"  {self.urban_roughness:.2f}"
+            lines.append(line)
 
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")

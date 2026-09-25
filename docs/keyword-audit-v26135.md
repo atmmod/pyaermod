@@ -59,7 +59,7 @@ keywords therefore never reach the validator.
 | Pathway | v26135 keywords | Handled + tested | Handled + untested | Unhandled |
 |---|---:|---:|---:|---:|
 | CO | 37 | 32 | 0 | 5 |
-| SO | 36 | 18 | 0 | 18 |
+| SO | 36 | 32 | 0 | 4 |
 | RE | 7 | 7 | 0 | 0 |
 | ME | 14 | 8 | 0 | 6 |
 | OU | 16 | 11 | 0 | 5 |
@@ -77,8 +77,26 @@ the writer emits passes AERMOD's setup pass in
 checks that all 53 EPA decks round-trip those keyword lines token for
 token (five are vendored so the check also runs without the archive).
 
-Tranche 2 (`claude/wp3-audit-roundtrip`) changed no count in the
-table -- the SO keywords are WP-2's -- but closed the audit's items 1, 3,
+Reader completeness tranche 2 (source construction) moved 14 SO keywords
+from "Unhandled" to "Handled + tested": AREAVERT, BLPINPUT, BLPGROUP,
+OLMGROUP, PSDGROUP, NO2RATIO, EMISUNIT, CONCUNIT, DEPOUNIT, RBARRIER,
+RDEPRESS, SBARRIER, VBARRIER and RLEMCONV, so AREAPOLY, BUOYLINE and
+RLINEXT sources are constructed and written back, and the OLM, PSD-credit,
+unit-conversion and RLINE-barrier keywords round-trip. The field layouts
+came from `soset.f` (ARVERT, APPARM, BL_AVGINP, BLPGRP, OLMGRP, PSDGRP,
+NO2RAT, EMUNIT, COUNIT, DPUNIT, RLINEBAR_INPUTS, RLINEDPR_INPUTS,
+SBARRIER_INPUTS, VBARRIER_INPUTS, GASDEP, URBANS, SOLOCA, SOPARM); the
+probe decks `scripts/oracle_decks/13`-`18` record what AERMOD said about
+the first guesses. Evidence: `tests/test_so_deck_acceptance.py` (20 forms
+through the setup pass), `tests/test_epa_source_roundtrip.py` (token for
+token on all 53 decks, seven more vendored), and
+`tests/regulatory/test_epa_rewritten_so.py`, which runs the fourteen EPA
+decks that use these keywords with pyaermod's rewritten SO pathway and
+scores every POSTFILE against EPA's reference (all at slope 1.000000).
+Handled keywords now total 91 of 115.
+
+Reader completeness tranche 3 (`claude/wp3-audit-roundtrip`) changed no
+count in the table but closed the audit's items 1, 3,
 4 and 5 and, in doing so, re-read the RE and OU parsers and the CO writer
 against `reset.f`, `ouset.f`, `coset.f` and `setup.f`. What it found is
 in "Round-trip guarantee" and "Discrepancies and follow-ups" below; the
@@ -122,7 +140,8 @@ one of PPB, PPM, UG/M3; `GASDEPDF fo fseas2 fseas5 [refspe]`;
 in 1-9. Ozone and NOx sector forms are stored per sector
 (`OzoneData.by_sector`, `NOxBackground.by_sector`).
 MODELOPT options with a field: CONC, DEPOS, DDEP, WDEP, FLAT, ELEV,
-DFAULT, ALPHA, BETA, OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2. Terrain follows
+DFAULT, ALPHA, BETA, PSDCREDIT (tranche 2: `ControlPathway.alpha` /
+`.beta` / `.psd_credit`), OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2. Terrain follows
 `coset.f` MODOPT: `ELEV` is the token (the writer used to emit
 `ELEVATED`, which is E203), `FLAT` then `ELEV` on one line means flat
 sources in elevated terrain (`TerrainType.FLATSRCS`, which has no token
@@ -130,16 +149,59 @@ of its own and is written as that pair), and a `FLAT` after `ELEV` is
 ignored (W206). Every other option token (FASTALL, SCREEN, TOXICS,
 PSDCREDIT, NOCHKD, NOURBTRAN, VECTORWS, SCIM, ...) is kept in
 `ControlPathway.extra_model_options` and written back as given.
+`URBANOPT` follows `coset.f` URBOPT: with one card the fields are
+`pop [name [z0]]`, with several `id pop [name [z0]]` (PREURB counts the
+cards). Every card is kept (`ControlPathway.urban_areas`, a `UrbanArea`
+per line, closing item 9 below); `urban_option` / `urban_population` /
+`urban_roughness` describe the first area and are written in the one-card
+layout when `urban_areas` is empty. The name-first single card earlier
+releases wrote (E208 in AERMOD) is still read.
 
-**SO (18):** BACKGRND, BACKUNIT, BGSECTOR, BUILDHGT, BUILDLEN, BUILDWID,
-ELEVUNIT, EMISFACT, GASDEPOS, HOUREMIS, INCLUDED, LOCATION, MASSFRAX,
-PARTDENS, PARTDIAM, SRCGROUP, SRCPARAM, URBANSRC — plus XBADJ and YBADJ,
+**SO (32):** AREAVERT, BACKGRND, BACKUNIT, BGSECTOR, BLPGROUP, BLPINPUT,
+BUILDHGT, BUILDLEN, BUILDWID, CONCUNIT, DEPOUNIT, ELEVUNIT, EMISFACT,
+EMISUNIT, GASDEPOS, HOUREMIS, INCLUDED, LOCATION, MASSFRAX, NO2RATIO,
+OLMGROUP, PARTDENS, PARTDIAM, PSDGROUP, RBARRIER, RDEPRESS, RLEMCONV,
+SBARRIER, SRCGROUP, SRCPARAM, URBANSRC, VBARRIER — plus XBADJ and YBADJ,
 which are in the keyword table but dispatched outside the
 `KEYWRD .EQ.` pattern in `soset.f`.
 LOCATION source types constructed: POINT, AREA, VOLUME, LINE, RLINE,
-OPENPIT, AREACIRC. Recognised but **not constructed** (the LOCATION line
-parses, the source is dropped): RLINEXT, AREAPOLY, BUOYLINE, POINTCAP,
-POINTHOR, SWPOINT, OPEN_PIT (v26135 spelling).
+OPENPIT, AREACIRC, and (tranche 2) AREAPOLY, BUOYLINE, RLINEXT.
+Recognised but **not constructed** (the LOCATION line parses, the source
+is dropped): POINTCAP, POINTHOR, SWPOINT, OPEN_PIT (v26135 spelling);
+POINTCAP and POINTHOR take POINT's SRCPARAM layout and are the natural
+next step (EPA's `capped` decks).
+Field layouts, from `soset.f`: `LOCATION srcid TYPE x y [zelev|FLAT]`,
+with `x1 y1 x2 y2` for LINE/RLINE/BUOYLINE and `x1 y1 z1 x2 y2 z2` for
+RLINEXT before the optional elevation (SOLOCA; every elevation is now
+applied to `base_elevation`, which the reader used to drop); SRCPARAM
+field counts per type (SOPARM): AREAPOLY `emis relhgt nverts [szinit]`,
+LINE `emis relhgt width [szinit]`, RLINEXT exactly `emis dcl width
+szinit`, BUOYLINE exactly `emis relhgt`; `AREAVERT srcid x y ...` in pairs
+over any number of lines, the first pair equal to LOCATION (E262), up to
+`nverts+1` pairs read (ARVERT); `BLPINPUT [grpid] len bhgt bwid lwid bsep
+fprm` — eight fields file the parameters under the implicit group ALL,
+nine name the group, a second eight-field record is E201 (BL_AVGINP);
+`BLPGROUP grpid members|ALL` with ranges and continuation (BLPGRP);
+`OLMGROUP grpid [members]` (bare ALL allowed, OLM required, E144);
+`PSDGROUP INCRCONS|RETRBASE|NONRBASE members` (PSDCREDIT required, E146;
+SRCGROUP then E105; other IDs E287); `NO2RATIO srcid|range ratio`
+(exactly two fields, 0-1, E336); `EMISUNIT|CONCUNIT|DEPOUNIT factor
+emislabel outlabel` (exactly three; EMISUNIT with CONCUNIT/DEPOUNIT E159,
+with two output types E158); `RBARRIER srcid ht dcl [ht2 dcl2]`,
+`RDEPRESS srcid depth wtop wbottom`, `VBARRIER srcid ht wt dcl lai lm
+[x2]` (8 or 13 fields), `SBARRIER barid STA n` / `barid xbb ybb xbe ybe
+ht z` / `barid END`, all needing ALPHA and FLAT (E198 / E713);
+`RLEMCONV` bare; `GASDEPOS srcid|range Da Dw rcl Henry` (exactly four,
+positive, 0 selecting a built-in value for HG0/HGII/TCDD/BAP/SO2/NO2;
+ALPHA required, GASDEPVD excluded); `URBANSRC ALL`, `URBANSRC ids...`
+(one urban area) or `URBANSRC urbanid ids...` (several), with ranges.
+Two behaviours of `soset.f` shape the writer: a group continuation card
+(SRCGROUP, OLMGROUP, PSDGROUP, BLPGROUP) that is not adjacent to its
+group is filed under the *last* group defined, and the BACKGROUND flag
+of `SRCGROUP ALL` is read only from the card that defines ALL, so
+continuation lines are merged on read and each group is written on
+consecutive cards; and STODBL reads an exponent only after a mantissa
+with a decimal point (`1.0e+06`, not `1e+06`).
 
 **RE (7):** DISCCART, DISCPOLR, ELEVUNIT, EVALCART, GRIDCART, GRIDPOLR,
 INCLUDED. DISCPOLR, EVALCART and INCLUDED have no field and travel in
@@ -206,16 +268,12 @@ common in practice and are the natural next reader features.
 **CO (4):** ARCFTOPT, ARMRATIO, AWMADWNW, ORD_DWNW. (EVENTFIL is now read
 into `ControlPathway.eventfil` when it has one field.)
 
-**SO (18):** ARCFTSRC, AREAVERT, BLPGROUP, BLPINPUT, CONCUNIT, DEPOUNIT,
-EMISUNIT, HBPSRCID, METHOD_2, NO2RATIO, OLMGROUP, PLATFORM, PSDGROUP,
-RBARRIER, RDEPRESS, RLEMCONV, SBARRIER, VBARRIER.
-Highest value: `AREAVERT` (needed before AREAPOLY sources can be
-constructed), `BLPINPUT`/`BLPGROUP` (BUOYLINE), `OLMGROUP`/`PSDGROUP`
-(group semantics for OLM and PSD-credit runs), `NO2RATIO`, `EMISUNIT`/
-`CONCUNIT`/`DEPOUNIT`, and the RLINE barrier/depression keywords
-(`RBARRIER`, `RDEPRESS`, `SBARRIER`, `VBARRIER`, `RLEMCONV`). (`SBARSRCGRP`
-appears in `soset.f` only as a commented-out dispatch line — `soset.f:596`
-— and nowhere in the canonical `modules.f` table, so it is not counted.)
+**SO (4):** ARCFTSRC, HBPSRCID, METHOD_2, PLATFORM.
+`METHOD_2` matters most: EPA's `testpart` and `testprt2` decks use it for
+particle deposition, so a rewrite of either changes the answer.
+(`SBARSRCGRP` appears in `soset.f` only as a commented-out dispatch line —
+`soset.f:596` — and nowhere in the canonical `modules.f` table, so it is
+not counted.)
 
 **ME (6):** DAYRANGE, NOTURBCO, NOTURBST, NUMYEARS, SCIMBYHR, WINDCATS.
 The keyword table also lists NOTURB, NOSA, NOSW, NOSAST, NOSWST, NOSACO,
@@ -283,14 +341,16 @@ starting in column 2 (E100: columns 1-2 are the pathway field).
    line through AERMOD, and EPA's `testpm10.inp`/`testpm25.inp` lines
    round-trip token for token. `OutputPathway.max_file` is removed: the
    one-field line it wrote was E201 in every AERMOD release (probe 16).
-2. **RLINEXT / AREAPOLY / BUOYLINE** LOCATION lines are now constructed
-   (`main` at PR #10 already carried AREAVERT and BLPINPUT/BLPGROUP);
-   POINTCAP, POINTHOR, SWPOINT and OPEN_PIT are not. Left for WP-2. Until
-   then the definition lines of such a source (LOCATION, SRCPARAM, the
-   building and deposition keywords, URBANSRC) are kept verbatim and
-   written back before the group keywords, so EPA's `capped.inp` passes
-   AERMOD's setup pass unchanged in meaning; the reader logs which source
-   it did not construct.
+2. **RLINEXT / AREAPOLY / BUOYLINE** — closed by tranche 2. All three are
+   constructed from their multi-line companions and written back;
+   `tests/regulatory/test_epa_rewritten_so.py` shows EPA's `allsrcs`,
+   `blp_urban`, the three `aermod-baldwin*` and the four RLINEXT `Test*`
+   decks at slope 1.000000 with pyaermod's SO pathway. Still dropped:
+   POINTCAP, POINTHOR, SWPOINT (see the SO section). Until they are, such a source's
+   definition lines (LOCATION, SRCPARAM, the downwash arrays, URBANSRC)
+   are kept verbatim and written back before the group keywords, so
+   EPA's `capped.inp` passes AERMOD's setup pass unchanged in meaning
+   and the reader logs which source it did not construct.
 3. **`GRIDPOLR DIST/GDIR` heuristics.** Resolved; there is no heuristic.
    `reset.f` never has an init/num/delta form for DIST (POLDST reads a
    list) and GDIR is always the three fields `num init delta` (GENPOL);
@@ -324,10 +384,25 @@ starting in column 2 (E100: columns 1-2 are the pathway field).
    the writer emits; the two legacy `O3VALUES` spellings (`O3VALUES
    <file>`, `O3VALUES UNIFORM v`) stay readable so decks written by
    pyaermod < 2.1 open, and are written back in the correct form.
-7. **`GasDepositionParams` field semantics.** Unchanged, left for WP-2:
-   AERMOD's `GASDEPOS` fields are `Da Dw rcl Henry` and the validator
-   reads the third as a 0-1 reactivity. The values round-trip (EPA's
-   `testgas.inp` and `testgas2.inp` pass the acceptance sweep).
+7. **`GasDepositionParams` field semantics** — closed by tranche 2. The
+   dataclass is now `diffusivity`, `diffusivity_water`,
+   `cuticular_resistance`, `henry_constant` (`GASDEPOS srcid Da Dw rcl
+   Henry`, all required), the validator applies `soset.f` GASDEP's rules
+   (positive, 0 only for the six pollutants with built-in values, ALPHA
+   required, GASDEPVD excluded), and EPA's `testgas` values validate and
+   are written back unchanged (`tests/test_so_deck_acceptance.py`
+   `gasdepos-epa-testgas`).
+8. **Rewriting whole EPA decks** -- closed by tranche 3 for the receptor
+   and output forms it named: `GRIDPOLR DIST` lists and `ORIG` by source
+   ID are modelled (item 3), two-field `DISCCART` lines are read as the
+   FLAT form, and further `POSTFILE` lines are kept verbatim. All 53
+   rewritten decks now pass AERMOD's setup pass ("Round-trip guarantee"
+   above). A multi-rank `RECTABLE` still collapses to one `ALLAVE` line
+   at the highest rank, which changes the tables printed, not the run.
+9. **Urban areas** -- closed by tranche 3: `ControlPathway.urban_areas`
+   keeps every `URBANOPT` card in the layout `coset.f` reads for the
+   number of cards; EPA's `multurb` deck round-trips all four areas and
+   passes the setup pass.
 
 Found by the acceptance sweep and fixed here rather than listed, because
 each made a written deck fatal: `ELEVATED` as a MODELOPT token, NO2STACK

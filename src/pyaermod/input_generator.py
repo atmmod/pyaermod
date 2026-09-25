@@ -68,6 +68,7 @@ from .sources import (  # noqa: F401  -- re-exports
     BuoyLineSegment,
     BuoyLineSource,
     DepositionMethod,
+    EmissionUnits,
     GasDepositionParams,
     LineSource,
     OpenPitSource,
@@ -75,9 +76,12 @@ from .sources import (  # noqa: F401  -- re-exports
     PointSource,
     RLineExtSource,
     RLineSource,
+    SolidBarrier,
+    SolidBarrierSegment,
     SourceGroupDefinition,
     SourcePathway,
     StreetCanyon,
+    VegetativeBarrier,
     VolumeSource,
     _building_downwash_lines,
     _deposition_to_aermod_lines,
@@ -185,7 +189,10 @@ class AERMODProject:
 
         pathways = [
             ("CO", self.control.to_aermod_input()),
-            ("SO", self.sources.to_aermod_input(chemistry=chemistry)),
+            ("SO", self.sources.to_aermod_input(
+                chemistry=chemistry,
+                psd_credit=getattr(self.control, "psd_credit", False),
+            )),
             ("RE", self.receptors.to_aermod_input()),
             ("ME", self.meteorology.to_aermod_input()),
             ("OU", self.output.to_aermod_input()),

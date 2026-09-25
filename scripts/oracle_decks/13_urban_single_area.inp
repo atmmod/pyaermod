@@ -1,0 +1,41 @@
+** Probe: the single-urban-area forms of URBANOPT and URBANSRC.
+** First guesses, from pyaermod's own writer, were "URBANOPT name pop"
+** and "URBANSRC srcid name". AERMOD said E208 (URBOPT: Illegal Numerical
+** Field in URB-POP) and E300 (URBANS: Specified SRCID Has Not Been
+** Defined Yet): with one URBANOPT card the first field is the
+** population and every URBANSRC field is a source ID (coset.f URBOPT,
+** soset.f URBANS with ISTR=3). The id-first forms are only read when
+** the deck has several URBANOPT cards (L_MULTURB).
+CO STARTING
+   TITLEONE  oracle 13: URBANOPT population [name] [z0]; URBANSRC ids
+   MODELOPT  CONC  FLAT  DFAULT
+   AVERTIME  1
+   POLLUTID  SO2
+   URBANOPT  700000.  INDIANAPOLIS
+   RUNORNOT  NOT
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   LOCATION  STACK2  POINT  50.0  0.0  0.0
+   SRCPARAM  STACK2  500.0  65.00  425.  15.0  5.
+   URBANSRC  STACK1  STACK2
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.0  500.0  0.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

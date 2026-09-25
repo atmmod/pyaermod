@@ -167,20 +167,19 @@ class PollutantDepositionDefaults:
     notes: str = ""
 
 
-def _gas(diffusivity: float, alpha_r: float, reactivity: float,
-         henry: Optional[float] = None, vd: Optional[float] = None) -> GasDepositionParams:
-    """Build GasDepositionParams with AERMOD GASDEPOS keyword fields.
+def _gas(diffusivity: float, diffusivity_water: float,
+         cuticular_resistance: float, henry: float) -> GasDepositionParams:
+    """Build GasDepositionParams in AERMOD's GASDEPOS field order.
 
-    Maps to the AERMOD parameters:
-      diffusivity (cm^2/s), alpha_r (dimensionless), reactivity (dimensionless),
-      henry_constant (M/atm) or dry_dep_velocity (cm/s).
+    ``GASDEPOS srcid Da Dw rcl Henry`` (soset.f, GASDEP): diffusivity in
+    air and in water (cm^2/s), cuticular resistance (s/cm) and Henry's
+    law constant (Pa m^3/mol).
     """
     return GasDepositionParams(
         diffusivity=diffusivity,
-        alpha_r=alpha_r,
-        reactivity=reactivity,
+        diffusivity_water=diffusivity_water,
+        cuticular_resistance=cuticular_resistance,
         henry_constant=henry,
-        dry_dep_velocity=vd,
     )
 
 
@@ -194,30 +193,47 @@ def _particle(diameters_um: List[float], mass_fractions: List[float],
     )
 
 
-# Very approximate literature-based defaults — a real modeling protocol
-# should cite measured / recommended values for the pollutant and
-# surface type. These are intended as "sensible starting point."
+# The gas values are the ones AERMOD itself substitutes when a GASDEPOS
+# field is 0 for a pollutant it knows (soset.f, GASDEP, warning W473):
+# they are EPA's own defaults, not literature estimates. Elemental and
+# divalent mercury are listed under AERMOD's POLLUTID spellings HG0 and
+# HGII; "HG" is kept as an alias of HG0. NOX has no AERMOD default and
+# borrows NO2's. Particle presets remain sensible starting points that a
+# modelling protocol should replace with measured size distributions.
+_GAS_SO2 = _gas(diffusivity=0.1112, diffusivity_water=1.83e-5,
+                cuticular_resistance=732.0, henry=72.0)
+_GAS_NO2 = _gas(diffusivity=0.1361, diffusivity_water=1.4e-5,
+                cuticular_resistance=1.2e4, henry=8444.0)
+_GAS_HG0 = _gas(diffusivity=0.055, diffusivity_water=6.4e-6,
+                cuticular_resistance=1.0e5, henry=719.0)
+_GAS_HGII = _gas(diffusivity=0.045, diffusivity_water=5.2e-6,
+                 cuticular_resistance=1.0e5, henry=7.2e-5)
+_GAS_TCDD = _gas(diffusivity=0.05196, diffusivity_water=4.392e-6,
+                 cuticular_resistance=9.67, henry=1.46)
+_GAS_BAP = _gas(diffusivity=0.0513, diffusivity_water=4.44e-6,
+                cuticular_resistance=0.441, henry=0.046)
+
 DEPOSITION_DEFAULTS: Dict[str, PollutantDepositionDefaults] = {
     "SO2":  PollutantDepositionDefaults(
-        pollutant="SO2",
-        gas=_gas(diffusivity=0.126, alpha_r=10.0, reactivity=8.0, henry=1.2e-3, vd=0.5),
-        method=DepositionMethod.GASDEPVD,
-        notes="Vd ~ 0.5 cm/s typical for grassland / cropland",
+        pollutant="SO2", gas=_GAS_SO2, method=DepositionMethod.GASDEPVD,
+        notes="AERMOD's built-in SO2 GASDEPOS values (soset.f GASDEP)",
     ),
     "NOX":  PollutantDepositionDefaults(
-        pollutant="NOX",
-        gas=_gas(diffusivity=0.136, alpha_r=1.0, reactivity=1.0, henry=1.9e-3, vd=0.3),
+        pollutant="NOX", gas=_GAS_NO2,
+        notes="AERMOD has no NOX entry; NO2's built-in values are used",
     ),
-    "NO2":  PollutantDepositionDefaults(
-        pollutant="NO2",
-        gas=_gas(diffusivity=0.136, alpha_r=1.0, reactivity=1.0, henry=1.0e-2, vd=0.2),
+    "NO2":  PollutantDepositionDefaults(pollutant="NO2", gas=_GAS_NO2),
+    "HG0":  PollutantDepositionDefaults(
+        pollutant="HG0", gas=_GAS_HG0, method=DepositionMethod.GASDEPVD,
+        notes="Elemental Hg; divalent Hg(II) (HGII) deposits far faster",
     ),
     "HG":   PollutantDepositionDefaults(
-        pollutant="HG",
-        gas=_gas(diffusivity=0.068, alpha_r=0.0, reactivity=0.0, henry=0.3, vd=0.03),
-        method=DepositionMethod.GASDEPVD,
-        notes="Elemental Hg; divalent Hg(II) deposits ~30x faster",
+        pollutant="HG", gas=_GAS_HG0, method=DepositionMethod.GASDEPVD,
+        notes="Alias of HG0 (elemental mercury)",
     ),
+    "HGII": PollutantDepositionDefaults(pollutant="HGII", gas=_GAS_HGII),
+    "TCDD": PollutantDepositionDefaults(pollutant="TCDD", gas=_GAS_TCDD),
+    "BAP":  PollutantDepositionDefaults(pollutant="BAP", gas=_GAS_BAP),
     "PM25": PollutantDepositionDefaults(
         pollutant="PM25",
         particle=_particle(diameters_um=[1.0], mass_fractions=[1.0], densities=[1.5]),

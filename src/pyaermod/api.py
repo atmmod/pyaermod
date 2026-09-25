@@ -125,6 +125,7 @@ from .input_generator import (
     ControlPathway,
     DepositionMethod,
     DiscreteReceptor,
+    EmissionUnits,
     EventPathway,
     EventPeriod,
     GasDepositionDefaults,
@@ -148,6 +149,8 @@ from .input_generator import (
     RLineExtSource,
     RLineSource,
     SaveFile,
+    SolidBarrier,
+    SolidBarrierSegment,
     SourceGroupDefinition,
     SourcePathway,
     SourceType,
@@ -156,6 +159,7 @@ from .input_generator import (
     TerrainType,
     UnparsedLine,
     UrbanArea,
+    VegetativeBarrier,
     VolumeSource,
 )
 from .input_reader import parse_aermod_input, read_aermod_input
@@ -316,8 +320,8 @@ __all__ = [
     "SourceGroupDefinition", "ChemistryMethod", "ChemistryOptions", "OzoneData",
     "BackgroundSpec", "TemporalValues", "NOxBackground",
     "SaveFile", "InitFile", "MultiYear", "GasDepositionDefaults",
-    "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea",
-    "UnparsedLine",
+    "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea", "UnparsedLine",
+    "EmissionUnits", "SolidBarrier", "SolidBarrierSegment", "VegetativeBarrier",
     # validation
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution

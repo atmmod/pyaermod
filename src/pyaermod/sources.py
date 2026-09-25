@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from .pathways import ChemistryOptions
 
@@ -33,12 +33,37 @@ class DepositionMethod(Enum):
 
 @dataclass
 class GasDepositionParams:
-    """Gas deposition parameters for the GASDEPOS keyword."""
+    """Gas dry-deposition parameters for the ``GASDEPOS`` keyword.
+
+    The four fields are, in AERMOD's order (``soset.f``, subroutine
+    ``GASDEP``): ``GASDEPOS srcid Da Dw rcl Henry``. All four are
+    required by AERMOD (E201/E202 otherwise) and must be positive
+    (E380), except that a ``0`` in any field selects AERMOD's built-in
+    value for the pollutants it knows (HG0, HGII, TCDD, BAP, SO2, NO2;
+    warning W473). GASDEPOS is an ALPHA-option keyword (E198) and is
+    rejected when ``GASDEPVD`` is also given (E195).
+
+    Earlier pyaermod releases named the second and third fields
+    ``alpha_r`` and ``reactivity`` and validated the third as a 0-1
+    fraction; EPA's own ``testgas`` deck (``0.08962 1.04E-5 2.51E4
+    557.0``) was rejected by that validator. The values themselves
+    always went through unchanged.
+
+    Parameters
+    ----------
+    diffusivity : float
+        Molecular diffusivity in air, ``Da`` (cm^2/s).
+    diffusivity_water : float
+        Molecular diffusivity in water, ``Dw`` (cm^2/s).
+    cuticular_resistance : float
+        Lipid cuticle resistance for individual leaves, ``rcl`` (s/cm).
+    henry_constant : float
+        Henry's law constant (Pa m^3/mol).
+    """
     diffusivity: float
-    alpha_r: float
-    reactivity: float
-    henry_constant: Optional[float] = None
-    dry_dep_velocity: Optional[float] = None
+    diffusivity_water: float
+    cuticular_resistance: float
+    henry_constant: float
 
 
 @dataclass
@@ -47,6 +72,20 @@ class ParticleDepositionParams:
     diameters: List[float] = field(default_factory=list)
     mass_fractions: List[float] = field(default_factory=list)
     densities: List[float] = field(default_factory=list)
+
+
+def _aermod_number(value: float) -> str:
+    """A numeric field AERMOD's STODBL accepts.
+
+    ``.6g`` is compact but writes ``1e+06``; STODBL reads an exponent
+    only after a mantissa with a decimal point (``1.0e+06`` and ``1.e6``
+    pass, ``1e6`` and ``1E6`` are E208), so one is inserted when needed.
+    """
+    text = f"{value:.6g}"
+    mantissa, sep, exponent = text.partition("e")
+    if sep and "." not in mantissa:
+        mantissa += ".0"
+    return mantissa + sep + exponent
 
 
 def _deposition_to_aermod_lines(
@@ -59,13 +98,11 @@ def _deposition_to_aermod_lines(
     lines = []
     if gas_deposition:
         gd = gas_deposition
-        last_val = gd.henry_constant if gd.henry_constant is not None else gd.dry_dep_velocity
-        if last_val is not None:
-            lines.append(
-                f"   GASDEPOS  {source_id:<8} "
-                f"{gd.diffusivity:.4g}  {gd.alpha_r:.4g}  "
-                f"{gd.reactivity:.4g}  {last_val:.4g}"
-            )
+        lines.append(
+            f"   GASDEPOS  {source_id:<8} "
+            f"{_aermod_number(gd.diffusivity)}  {_aermod_number(gd.diffusivity_water)}  "
+            f"{_aermod_number(gd.cuticular_resistance)}  {_aermod_number(gd.henry_constant)}"
+        )
     if particle_deposition:
         pd = particle_deposition
         d_vals = "  ".join(f"{d:.4g}" for d in pd.diameters)
@@ -286,8 +323,8 @@ class PointSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -329,6 +366,9 @@ class AreaSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
+
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
@@ -361,6 +401,10 @@ class AreaSource:
         # Building downwash parameters
         lines.extend(_building_downwash_lines(self.source_id, self))
 
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
@@ -373,8 +417,8 @@ class AreaSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -408,6 +452,9 @@ class AreaCircSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
+
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
@@ -430,6 +477,10 @@ class AreaCircSource:
             f"{self.radius:8.2f} {self.num_vertices:3d}"
         )
 
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
@@ -442,8 +493,8 @@ class AreaCircSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -461,6 +512,9 @@ class AreaPolySource:
 
     # Area parameters
     release_height: float = 0.0  # meters above ground
+    # Optional initial vertical dimension (SRCPARAM field 4, ``szinit``,
+    # metres). ``None`` writes the three-field form; AERMOD then uses 0.
+    initial_vertical_dimension: Optional[float] = None
 
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m^2
@@ -471,6 +525,9 @@ class AreaPolySource:
     # Urban source
     is_urban: bool = False
     urban_area_name: Optional[str] = None
+
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -494,11 +551,14 @@ class AreaPolySource:
         # number of vertices) -- see APPARM in AERMOD's soset.f. Omitting
         # the vertex count is a fatal "Not Enough Parameters" error, and
         # then every AREAVERT line is counted against an unset limit.
-        lines.append(
+        srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{len(self.vertices):8d}"
         )
+        if self.initial_vertical_dimension is not None:
+            srcparam += f" {self.initial_vertical_dimension:8.2f}"
+        lines.append(srcparam)
 
         # AREAVERT keyword - vertices
         # Format: 6 coordinate pairs per line maximum
@@ -507,6 +567,10 @@ class AreaPolySource:
             chunk = self.vertices[i:i+coords_per_line]
             coord_str = "  ".join(f"{x:12.4f} {y:12.4f}" for x, y in chunk)
             lines.append(f"   AREAVERT  {self.source_id:<8} {coord_str}")
+
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -520,8 +584,8 @@ class AreaPolySource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -562,6 +626,9 @@ class VolumeSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
+
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
@@ -591,6 +658,10 @@ class VolumeSource:
         # Building downwash parameters
         lines.extend(_building_downwash_lines(self.source_id, self))
 
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
@@ -603,8 +674,8 @@ class VolumeSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -628,6 +699,9 @@ class LineSource:
     # Line parameters
     release_height: float = 0.0  # meters above ground
     initial_lateral_dimension: float = 1.0  # meters (initial sigma_y perpendicular to line)
+    # Optional initial vertical dimension (SRCPARAM field 4, ``szinit``,
+    # metres; soset.f LPARM). ``None`` writes the three-field form.
+    initial_vertical_dimension: Optional[float] = None
 
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m (per unit length)
@@ -638,6 +712,9 @@ class LineSource:
     # Urban source
     is_urban: bool = False
     urban_area_name: Optional[str] = None
+
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -655,12 +732,19 @@ class LineSource:
             f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
         )
 
-        # SRCPARAM keyword
-        lines.append(
+        # SRCPARAM keyword: emission relhgt width [szinit] (soset.f LPARM)
+        srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
             f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
             f"{self.initial_lateral_dimension:8.2f}"
         )
+        if self.initial_vertical_dimension is not None:
+            srcparam += f" {self.initial_vertical_dimension:8.2f}"
+        lines.append(srcparam)
+
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -674,8 +758,8 @@ class LineSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -774,6 +858,9 @@ class RLineSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
+
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
@@ -804,6 +891,10 @@ class RLineSource:
             f"{self.initial_lateral_dimension:8.2f} {vert_dim:8.2f}"
         )
 
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
@@ -816,8 +907,8 @@ class RLineSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -857,6 +948,11 @@ class RLineExtSource:
     depression_wtop: Optional[float] = None    # top width of depression (meters, >= 0)
     depression_wbottom: Optional[float] = None  # bottom width of depression (meters, [0, wtop])
 
+    # Vegetative barriers (VBARRIER, v26135; at most two, requires
+    # ALPHA + FLAT). AERMOD keeps only the barrier nearer the road when
+    # both lie on the same side (warning W375).
+    vegetative_barriers: List[VegetativeBarrier] = field(default_factory=list)
+
     # Street canyon (optional)
     street_canyon: Optional[StreetCanyon] = None
 
@@ -866,6 +962,9 @@ class RLineExtSource:
     # Urban source
     is_urban: bool = False
     urban_area_name: Optional[str] = None
+
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -884,11 +983,15 @@ class RLineExtSource:
             sigma_z = self.street_canyon.adjusted_sigma_z(sigma_z)
 
         # LOCATION keyword -- RLINEXT: srcid RLINEXT XSB YSB ZSB XSE YSE ZSE
-        # (no base_elevation -- ZSB/ZSE are the heights at each endpoint)
+        # [Zelev]. ZSB/ZSE are the release heights at each endpoint; the
+        # optional eleventh field is the base elevation, read by soset.f
+        # SOLOCA since RLINEXT gained terrain (2022). It is always written
+        # so an ELEV run never falls back to ZS = 0.0 with warning W205.
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINEXT "
             f"{self.x_start:12.4f} {self.y_start:12.4f} {self.z_start:8.2f} "
-            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.z_end:8.2f}"
+            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.z_end:8.2f} "
+            f"{self.base_elevation:8.2f}"
         )
 
         # SRCPARAM keyword: Qemis DCL Width InitSigmaZ
@@ -920,6 +1023,20 @@ class RLineExtSource:
                 f"{self.depression_wbottom:8.2f}"
             )
 
+        # Optional VBARRIER: one barrier is 5 values, two are 10
+        # (VBARRIER_INPUTS accepts 8 or 13 fields, nothing in between).
+        if self.vegetative_barriers:
+            vals = " ".join(
+                f"{b.height:8.2f} {b.width:8.2f} {b.dcl:8.2f} "
+                f"{b.leaf_area_index:8.2f} {b.mixing_length:8.2f}"
+                for b in self.vegetative_barriers[:2]
+            )
+            lines.append(f"   VBARRIER  {self.source_id:<8} {vals}")
+
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
@@ -932,8 +1049,8 @@ class RLineExtSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -948,6 +1065,9 @@ class BuoyLineSegment:
     y_end: float
     emission_rate: float = 1.0       # g/s (average emission release rate)
     release_height: float = 10.0     # meters
+    # Base elevation on this segment's LOCATION line; ``None`` uses the
+    # group's :attr:`BuoyLineSource.base_elevation`.
+    base_elevation: Optional[float] = None
 
 
 @dataclass
@@ -981,6 +1101,9 @@ class BuoyLineSource:
     is_urban: bool = False
     urban_area_name: Optional[str] = None
 
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
+
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
@@ -1003,30 +1126,43 @@ class BuoyLineSource:
 
         # LOCATION and SRCPARAM for each line segment
         for seg in self.line_segments:
+            elev = (seg.base_elevation if seg.base_elevation is not None
+                    else self.base_elevation)
             lines.append(
                 f"   LOCATION  {seg.source_id:<8} BUOYLINE "
                 f"{seg.x_start:12.4f} {seg.y_start:12.4f} "
-                f"{seg.x_end:12.4f} {seg.y_end:12.4f} {self.base_elevation:8.2f}"
+                f"{seg.x_end:12.4f} {seg.y_end:12.4f} {elev:8.2f}"
             )
             lines.append(
                 f"   SRCPARAM  {seg.source_id:<8} "
                 f"{seg.emission_rate:10.6f} {seg.release_height:8.2f}"
             )
 
-        # BLPINPUT - average plume rise parameters. The group ID is
-        # required whenever a BLPGROUP names one: without it AERMOD
-        # registers the parameters under the implicit group "ALL" and
-        # then fails with "No BLPINPUT record for BLPGROUP ID".
-        lines.append(
-            f"   BLPINPUT  {self.source_id:<8} "
+        # BLPINPUT - average plume rise parameters. soset.f BL_AVGINP
+        # takes two forms: nine fields with a group ID, or eight without,
+        # in which case AERMOD files the parameters under the implicit
+        # group "ALL" and, when no BLPGROUP follows, puts every BUOYLINE
+        # source in it (the pre-2020 single-line-source syntax; EPA's
+        # baldwin and allsrcs decks). A group named "ALL" therefore
+        # writes the eight-field form and no BLPGROUP; any other group
+        # ID is written on both keywords, since a BLPGROUP whose ID has
+        # no BLPINPUT record is E502.
+        avg = (
             f"{self.avg_line_length:8.2f} {self.avg_building_height:8.2f} "
             f"{self.avg_building_width:8.2f} {self.avg_line_width:8.2f} "
             f"{self.avg_building_separation:8.2f} {self.avg_buoyancy_parameter:10.6f}"
         )
+        if self.source_id.upper() == "ALL":
+            lines.append(f"   BLPINPUT  {avg}")
+        else:
+            lines.append(f"   BLPINPUT  {self.source_id:<8} {avg}")
+            seg_ids = " ".join(seg.source_id for seg in self.line_segments)
+            lines.append(f"   BLPGROUP  {self.source_id:<8} {seg_ids}")
 
-        # BLPGROUP - associate all segments
-        seg_ids = " ".join(seg.source_id for seg in self.line_segments)
-        lines.append(f"   BLPGROUP  {self.source_id:<8} {seg_ids}")
+        # Per-source NO2/NOx ratio (NO2RATIO names sources, not groups)
+        if self.no2_ratio is not None:
+            for seg in self.line_segments:
+                lines.append(f"   NO2RATIO  {seg.source_id:<8} {self.no2_ratio:.4f}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1041,9 +1177,9 @@ class BuoyLineSource:
                     lines.append(f"   SRCGROUP  {group:<8} {seg.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
+        if self.is_urban:
             for seg in self.line_segments:
-                lines.append(f"   URBANSRC  {seg.source_id:<8} {self.urban_area_name}")
+                lines.append(f"   URBANSRC  {seg.source_id}")
 
         return "\n".join(lines)
 
@@ -1076,6 +1212,9 @@ class OpenPitSource:
     # Urban source
     is_urban: bool = False
     urban_area_name: Optional[str] = None
+
+    # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
+    no2_ratio: Optional[float] = None
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -1115,6 +1254,10 @@ class OpenPitSource:
                 f"{self.pit_volume:12.2f}"
             )
 
+        # Per-source NO2/NOx ratio
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
@@ -1127,8 +1270,8 @@ class OpenPitSource:
                 lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
-        if self.is_urban and self.urban_area_name:
-            lines.append(f"   URBANSRC  {self.source_id:<8} {self.urban_area_name}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
 
         return "\n".join(lines)
 
@@ -1184,6 +1327,86 @@ class BackgroundConcentration:
 
 
 @dataclass
+class VegetativeBarrier:
+    """One vegetative barrier beside an RLINEXT road (``VBARRIER``, v26135).
+
+    ``VBARRIER srcid ht wt dcl lai lm [ht2 wt2 dcl2 lai2 lm2]`` in
+    ``soset.f`` (VBARRIER_INPUTS): eight fields for one barrier, thirteen
+    for two, nothing in between (E201). AERMOD range-checks every field:
+    height 2-10 m (E371), width 2.5-13 m (E372), leaf area index
+    4-10.92 (E373), mixing length 0.55-3.75 m (E374). ``dcl`` is the
+    signed distance from the road centreline; a second barrier on the
+    same side as the first is discarded with warning W375. Requires the
+    ALPHA and FLAT options (E198 / E713).
+    """
+    height: float
+    width: float
+    dcl: float
+    leaf_area_index: float
+    mixing_length: float
+
+
+@dataclass
+class SolidBarrierSegment:
+    """One straight piece of a solid barrier (``SBARRIER`` segment line)."""
+    x_start: float
+    y_start: float
+    x_end: float
+    y_end: float
+    height: float              # metres; AERMOD accepts 2 < ht <= 12 (E320)
+    elevation: float = 0.0     # metres; currently ignored by AERMOD (W326 if non-zero)
+
+
+@dataclass
+class SolidBarrier:
+    """A free-standing solid barrier for RLINE modelling (``SBARRIER``, v26135).
+
+    Written as AERMOD's SBARRIER_INPUTS reads it: an opening
+    ``SBARRIER barid STA nseg`` line, one ``SBARRIER barid xbb ybb xbe
+    ybe ht z`` line per segment (1-50 segments, E320), and a closing
+    ``SBARRIER barid END`` line whose segment count must match (E306).
+    AERMOD re-orders a segment's endpoints west-to-east (or north-to-south
+    for vertical segments) on read, so the coordinates may come back
+    swapped. Requires the ALPHA and FLAT options (E198 / E713).
+    """
+    barrier_id: str
+    segments: List[SolidBarrierSegment] = field(default_factory=list)
+
+    def to_aermod_input(self) -> str:
+        lines = [f"   SBARRIER  {self.barrier_id:<8} STA  {len(self.segments)}"]
+        for seg in self.segments:
+            lines.append(
+                f"   SBARRIER  {self.barrier_id:<8} "
+                f"{seg.x_start:12.4f} {seg.y_start:12.4f} "
+                f"{seg.x_end:12.4f} {seg.y_end:12.4f} "
+                f"{seg.height:8.2f} {seg.elevation:8.2f}"
+            )
+        lines.append(f"   SBARRIER  {self.barrier_id:<8} END")
+        return "\n".join(lines)
+
+
+@dataclass
+class EmissionUnits:
+    """Emission-rate unit conversion (``EMISUNIT``, ``CONCUNIT``, ``DEPOUNIT``).
+
+    All three keywords take exactly ``factor emission_label output_label``
+    (``soset.f`` EMUNIT / COUNIT / DPUNIT; E201/E202 otherwise). The factor
+    multiplies the model's g/s output into the output units; the labels
+    are printed in the output headers. EMISUNIT applies to a run with a
+    single output type and conflicts with CONCUNIT or DEPOUNIT (E158,
+    E159); CONCUNIT and DEPOUNIT set the concentration and deposition
+    units separately when both are calculated.
+    """
+    factor: float
+    emission_label: str
+    output_label: str
+
+    def to_aermod_input(self, keyword: str) -> str:
+        return (f"   {keyword}  {_aermod_number(self.factor)}  "
+                f"{self.emission_label}  {self.output_label}")
+
+
+@dataclass
 class SourceGroupDefinition:
     """
     Centralized source group definition.
@@ -1205,6 +1428,21 @@ class SourceGroupDefinition:
     description: str = ""
 
 
+def _group_lines(keyword: str, group: SourceGroupDefinition,
+                 allow_bare_all: bool = False) -> List[str]:
+    """One ``<keyword> grpid members...`` line, or the bare ``ALL`` form.
+
+    Member tokens are written as given, so an AERMOD range such as
+    ``STK1-STK9`` survives a round trip.
+    """
+    if group.member_source_ids:
+        return [f"   {keyword}  {group.group_name:<8} "
+                f"{' '.join(group.member_source_ids)}"]
+    if allow_bare_all and group.group_name.upper() == "ALL":
+        return [f"   {keyword}  ALL"]
+    return []
+
+
 @dataclass
 class SourcePathway:
     """Collection of sources"""
@@ -1213,11 +1451,31 @@ class SourcePathway:
                         RLineExtSource, BuoyLineSource, OpenPitSource]] = field(default_factory=list)
     background: Optional[BackgroundConcentration] = None
     group_definitions: List[SourceGroupDefinition] = field(default_factory=list)
-    # The bare ``SRCGROUP ALL`` line: None writes it whenever the pathway
-    # has sources (the default for a project built in Python), True
-    # always (a deck that had the line, even with its sources brought in
-    # by INCLUDED), False never (a deck that defines groups without it;
-    # a PSDCREDIT run takes PSDGROUP instead and rejects SRCGROUP, E140).
+
+    #: PSDGROUP definitions for a PSDCREDIT run. AERMOD accepts only the
+    #: group IDs INCRCONS, RETRBASE and NONRBASE (E287), requires the
+    #: PSDCREDIT option (E146) and then forbids SRCGROUP (E105), so the
+    #: writer emits these *instead of* SRCGROUP when
+    #: ``ControlPathway.psd_credit`` is set.
+    psd_groups: List[SourceGroupDefinition] = field(default_factory=list)
+
+    #: EMISUNIT / CONCUNIT / DEPOUNIT (see :class:`EmissionUnits`).
+    emission_units: Optional[EmissionUnits] = None
+    concentration_units: Optional[EmissionUnits] = None
+    deposition_units: Optional[EmissionUnits] = None
+
+    #: RLEMCONV: RLINE emissions are in MOVES units (g/hr/link) and AERMOD
+    #: converts them. A bare, non-repeatable keyword (E135 / E202).
+    rline_moves_units: bool = False
+
+    #: SBARRIER solid barriers (v26135).
+    solid_barriers: List[SolidBarrier] = field(default_factory=list)
+
+    #: The bare ``SRCGROUP ALL`` line: None writes it whenever the pathway
+    #: has sources (the default for a project built in Python), True
+    #: always (a deck that had the line, even with its sources brought in
+    #: by INCLUDED), False never (a deck that grouped its sources without
+    #: it). The reader sets it from the deck.
     include_all_group: Optional[bool] = None
 
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
@@ -1241,46 +1499,75 @@ class SourcePathway:
                 ids.append(source.source_id)
         return ids
 
-    def to_aermod_input(self, chemistry: Optional[ChemistryOptions] = None) -> str:
+    def to_aermod_input(self, chemistry: Optional[ChemistryOptions] = None,
+                        psd_credit: bool = False) -> str:
         """Generate AERMOD SO pathway text.
 
         Parameters
         ----------
         chemistry : ChemistryOptions, optional
             Chemistry options from ControlPathway for OLM group emission.
+        psd_credit : bool
+            The PSDCREDIT option is on (``ControlPathway.psd_credit``):
+            write :attr:`psd_groups` and no SRCGROUP lines, as AERMOD
+            requires (E105).
         """
         lines = ["SO STARTING"]
+
+        # RLEMCONV precedes the source cards it applies to; like every
+        # other SO keyword it must come before SRCGROUP (E140).
+        if self.rline_moves_units:
+            lines.append("   RLEMCONV")
 
         for source in self.sources:
             lines.append(source.to_aermod_input())
 
+        for keyword, units in (("EMISUNIT", self.emission_units),
+                               ("CONCUNIT", self.concentration_units),
+                               ("DEPOUNIT", self.deposition_units)):
+            if units is not None:
+                lines.append(units.to_aermod_input(keyword))
+
         if self.background:
             lines.append(self.background.to_aermod_input())
 
-        # OLM groups (from chemistry options)
+        for barrier in self.solid_barriers:
+            lines.append(barrier.to_aermod_input())
+
+        # OLM groups (from chemistry options). ``OLMGROUP ALL`` is the
+        # bare form soset.f OLMGRP accepts with no member list.
         if chemistry is not None and chemistry.olm_groups:
             for olm_group in chemistry.olm_groups:
-                if olm_group.member_source_ids:
-                    lines.append(
-                        f"   OLMGROUP  {olm_group.group_name:<8} "
-                        f"{' '.join(olm_group.member_source_ids)}"
-                    )
+                lines.extend(_group_lines("OLMGROUP", olm_group, allow_bare_all=True))
 
-        # Centralized SRCGROUP definitions. SRCGROUP ALL takes no IDs:
-        # AERMOD includes every source, those a deck brings in with
-        # INCLUDED too, so it is written whenever the group is wanted.
-        write_all = (bool(self._collect_all_source_ids())
-                     if self.include_all_group is None else self.include_all_group)
-        if write_all:
-            lines.append("   SRCGROUP  ALL")
-
-        # Custom group definitions
-        for group in self.group_definitions:
-            if group.member_source_ids:
-                lines.append(
-                    f"   SRCGROUP  {group.group_name:<8} "
-                    f"{' '.join(group.member_source_ids)}"
-                )
+        if psd_credit:
+            for group in self.psd_groups:
+                lines.extend(_group_lines("PSDGROUP", group))
+        else:
+            # SRCGROUP ALL -- AERMOD includes every source itself; the
+            # only members it reads from the ALL card are the BACKGROUND
+            # / NOBACKGROUND flags (soset.f SOGRP), and only from the
+            # card that defines the group: a later "SRCGROUP ALL
+            # BACKGROUND" is a continuation, and SOGRP files a
+            # continuation under the *last* group defined, whichever ID
+            # it names. So a definition named ALL is written on the ALL
+            # card, and every group's lines are written together.
+            all_ids = self._collect_all_source_ids()
+            by_name: Dict[str, List[SourceGroupDefinition]] = {}
+            for group in self.group_definitions:
+                by_name.setdefault(group.group_name, []).append(group)
+            write_all = (bool(all_ids) or any(n.upper() == "ALL" for n in by_name)
+                         if self.include_all_group is None else self.include_all_group)
+            if write_all:
+                all_members = [m for n, defs in by_name.items() if n.upper() == "ALL"
+                               for g in defs for m in g.member_source_ids]
+                lines.append("   SRCGROUP  ALL" + ("  " + " ".join(all_members)
+                                                   if all_members else ""))
+            for name, defs in by_name.items():
+                if name.upper() == "ALL":
+                    continue
+                for group in defs:
+                    lines.extend(_group_lines("SRCGROUP", group))
 
         lines.append("SO FINISHED")
         return "\n".join(lines)

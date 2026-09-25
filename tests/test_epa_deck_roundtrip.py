@@ -35,8 +35,13 @@ from pathlib import Path
 
 import pytest
 
-from pyaermod.epa_testcases import find_epa_testcase_set
+from pyaermod.epa_testcases import (
+    ENV_VAR,
+    find_epa_testcase_set,
+    list_epa_testcase_sets,
+)
 from pyaermod.input_reader import _group_keywords, _split_pathways, parse_aermod_input
+from pyaermod.versions import VALIDATED_AERMOD_VERSIONS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "epa_official"
 ROOT = Path(__file__).resolve().parent.parent
@@ -65,7 +70,9 @@ MODELLED_KEYWORDS = {
            "EVENTFIL"},
     "SO": {"LOCATION", "SRCPARAM", "SRCGROUP", "BACKGRND", "BGSECTOR", "GASDEPOS",
            "PARTDIAM", "MASSFRAX", "PARTDENS", "URBANSRC", "BUILDHGT", "BUILDWID",
-           "BUILDLEN", "XBADJ", "YBADJ", "AREAVERT", "BLPINPUT", "BLPGROUP"},
+           "BUILDLEN", "XBADJ", "YBADJ", "AREAVERT", "BLPINPUT", "BLPGROUP",
+           "OLMGROUP", "PSDGROUP", "NO2RATIO", "EMISUNIT", "CONCUNIT", "DEPOUNIT",
+           "RLEMCONV", "RBARRIER", "RDEPRESS", "SBARRIER", "VBARRIER"},
     "RE": {"GRIDCART", "GRIDPOLR", "DISCCART", "ELEVUNIT"},
     "ME": {"SURFFILE", "PROFFILE", "SURFDATA", "UAIRDATA", "PROFBASE", "STARTEND",
            "WDROTATE"},
@@ -157,8 +164,12 @@ def structural_differences(first, second) -> list[str]:
         for f in dataclasses.fields(a):
             if getattr(a, f.name) != getattr(b, f.name):
                 diffs.append(f"{pathway}.{f.name}: {getattr(a, f.name)!r} -> {getattr(b, f.name)!r}")
-    if first.sources.group_definitions != second.sources.group_definitions:
-        diffs.append("sources.group_definitions")
+    # The writer puts SRCGROUP ALL first and joins continuation lines
+    # (soset.f SOGRP semantics); membership per group is what must hold.
+    groups = lambda p: sorted(  # noqa: E731
+        (g.group_name, tuple(g.member_source_ids)) for g in p.sources.group_definitions)
+    if groups(first) != groups(second):
+        diffs.append(f"sources.group_definitions {groups(first)} -> {groups(second)}")
     if first.sources.include_all_group != second.sources.include_all_group:
         diffs.append("sources.include_all_group")
     ids = lambda p: [s.source_id for s in p.sources.sources]  # noqa: E731
@@ -246,14 +257,52 @@ def test_vendored_decks_exercise_the_unparsed_path():
     for path in VENDORED:
         project = parse_aermod_input(path.read_text(encoding="latin-1"))
         kept |= {(u.pathway, u.keyword) for u in project.unparsed_lines}
-    expected = {("CO", "ERRORFIL"), ("SO", "EMISFACT"), ("SO", "INCLUDED"), ("SO", "PSDGROUP"),
+    expected = {("CO", "ERRORFIL"), ("SO", "EMISFACT"), ("SO", "INCLUDED"),
                 ("SO", "LOCATION"), ("RE", "INCLUDED"), ("RE", "DISCPOLR"), ("RE", "EVALCART"),
                 ("ME", "SITEDATA"), ("OU", "SEASONHR"), ("OU", "POSTFILE")}
     assert expected <= kept, sorted(expected - kept)
 
 
-_SET = find_epa_testcase_set(ROOT / "test_cases")
-_ARCHIVE_DECKS = sorted(_SET.inputs.glob("*.inp")) if _SET and _SET.inputs.is_dir() else []
+def archive_inputs_dir(root: Path, env=None) -> Path | None:
+    """The ``inputs/`` directory of an EPA reference set under ``root``.
+
+    ``find_epa_testcase_set`` accepts a set only when its ``postfiles/``
+    tree is present too, because the parity harness scores against
+    those references. This check reads decks alone, so a set unpacked
+    with just ``inputs/`` (what the keyword-oracle workflow and a
+    developer checking the reader typically have) must count. The
+    resolver's choice wins when it has one; otherwise the newest
+    validated release with an ``inputs/`` directory, then the newest on
+    disk. ``$PYAERMOD_EPA_TESTCASES`` is honoured either way.
+    """
+    full = find_epa_testcase_set(root, env=env)
+    if full is not None:
+        return full.inputs if full.inputs.is_dir() else None
+    partial = [s for s in list_epa_testcase_sets(root) if s.inputs.is_dir()]
+    if not partial:
+        return None
+    for validated in VALIDATED_AERMOD_VERSIONS:
+        matching = [s for s in partial if s.aermod_version == validated]
+        if matching:
+            return matching[-1].inputs
+    return max(partial, key=lambda s: (int(s.aermod_version or 0), s.name)).inputs
+
+
+def test_archive_inputs_dir_accepts_an_inputs_only_unpack(tmp_path):
+    """An inputs-only unpack is enough for this module; postfiles are not needed."""
+    older = tmp_path / "aermet24142_aermod24142" / "inputs"
+    newer = tmp_path / "aermet26135_aermod26135" / "inputs"
+    for d in (older, newer):
+        d.mkdir(parents=True)
+        (d / "x.inp").write_text("")
+    assert archive_inputs_dir(tmp_path, env={}) == newer
+    # The override names a set directory, as everywhere else in pyaermod.
+    assert archive_inputs_dir(tmp_path, env={ENV_VAR: str(older.parent)}) == older
+    assert archive_inputs_dir(tmp_path / "missing", env={}) is None
+
+
+_ARCHIVE_INPUTS = archive_inputs_dir(ROOT / "test_cases")
+_ARCHIVE_DECKS = sorted(_ARCHIVE_INPUTS.glob("*.inp")) if _ARCHIVE_INPUTS else []
 
 
 @pytest.mark.skipif(not _ARCHIVE_DECKS, reason="EPA test-case archive not unpacked under test_cases/")

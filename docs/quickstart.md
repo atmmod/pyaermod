@@ -243,13 +243,21 @@ stack = PointSource(
     emission_rate=1.5,
     deposition_method=DepositionMethod.GASDEPVD,
     gas_deposition=GasDepositionParams(
-        diffusivity=0.126,     # cm^2/s  (SO2 reference value)
-        alpha_r=10.0,          # dimensionless
-        reactivity=8.0,        # dimensionless
-        henry_constant=1.2e-3, # M/atm (alternative to dry_dep_velocity)
+        diffusivity=0.1112,          # cm^2/s in air (Da)
+        diffusivity_water=1.83e-5,   # cm^2/s in water (Dw)
+        cuticular_resistance=732.0,  # s/cm (rcl)
+        henry_constant=72.0,         # Pa m^3/mol
     ),
 )
 ```
+
+The four `GasDepositionParams` fields are AERMOD's `GASDEPOS srcid Da Dw
+rcl Henry`, all required; the values above are the ones AERMOD itself
+substitutes for SO2 when a field is 0 (`pyaermod.chemistry_presets.
+deposition_defaults_for("SO2")` returns them). GASDEPOS is an ALPHA
+keyword: set `ControlPathway(alpha=True, regulatory_default=False)`,
+and give the run `gas_deposition_seasons` and `gas_deposition_land_use`
+(GDSEASON / GDLANUSE) or AERMOD stops with E244.
 
 Set `OutputPathway(output_type="DEPOS")` to get deposition flux instead of
 concentration in the output.

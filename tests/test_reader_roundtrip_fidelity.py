@@ -485,7 +485,7 @@ class TestSourceLinesKeptVerbatim:
         so = SO_DEFAULT + ("   LOCATION  S1C  POINTCAP  0  0  0\n"
                            "   SRCPARAM  S1C  1  30  400  10  2\n"
                            "   BUILDHGT  S1C  36*50.\n"
-                           "   URBANSRC  S1C  URB\n")
+                           "   URBANSRC  S1C\n")
         with caplog.at_level(logging.WARNING, logger="pyaermod.input_reader"):
             project = parse(so_body=so)
         assert [s.source_id for s in project.sources.sources] == ["S1"]
@@ -516,10 +516,14 @@ class TestSourceLinesKeptVerbatim:
         # EPA's psdcred.inp groups with PSDGROUP; SRCGROUP is E140 there.
         so = ("   LOCATION S1 POINT 0 0 0\n   SRCPARAM S1 1 30 400 10 2\n"
               "   PSDGROUP INCRCONS S1\n")
-        project = parse(so_body=so)
+        project = parse(modelopt="FLAT PSDCREDIT", so_body=so)
         assert project.sources.include_all_group is False
         text = project.to_aermod_input(validate=False)
-        assert "SRCGROUP" not in text and "PSDGROUP  INCRCONS  S1" in text
+        assert "SRCGROUP" not in text and "PSDGROUP" in text
+        # ... and a deck that names custom groups without ALL gets no ALL either.
+        project = parse(so_body=SO_DEFAULT.replace("SRCGROUP  ALL", "SRCGROUP  G1  S1"))
+        assert project.sources.include_all_group is False
+        assert "SRCGROUP  ALL" not in project.to_aermod_input(validate=False)
 
     def test_python_projects_keep_the_automatic_all_group(self):
         pathway = SourcePathway(sources=[PointSource("S1", 0, 0, stack_height=10)])
@@ -553,8 +557,8 @@ class TestControlPathwayFidelity:
 
     def test_unknown_modelopt_tokens_survive(self):
         control = parse(modelopt="FLAT SCREEN PSDCREDIT NOCHKD ALPHA BETA").control
-        assert control.extra_model_options == ["SCREEN", "PSDCREDIT", "NOCHKD"]
-        assert control.alpha and control.beta
+        assert control.extra_model_options == ["SCREEN", "NOCHKD"]
+        assert control.alpha and control.beta and control.psd_credit
         opts = keyword_lines(control.to_aermod_input(), "MODELOPT")[0]
         assert {"SCREEN", "PSDCREDIT", "NOCHKD", "ALPHA", "BETA"} <= set(opts)
 
@@ -591,7 +595,7 @@ class TestControlPathwayFidelity:
         control = parse(co_extra="   URBANOPT  2000000  Denver  1.0").control
         assert control.urban_areas == [UrbanArea(2000000.0, None, "Denver", 1.0)]
         assert (control.urban_option, control.urban_population) == ("Denver", 2000000.0)
-        assert keyword_lines(control.to_aermod_input(), "URBANOPT") == [["2000000", "Denver", "1"]]
+        assert keyword_lines(control.to_aermod_input(), "URBANOPT") == [["2000000.0", "Denver", "1.00"]]
 
     def test_several_urbanopt_lines_are_id_first(self):
         # EPA's multurb.inp; coset.f PREURB switches the layout when
@@ -602,7 +606,7 @@ class TestControlPathwayFidelity:
         assert [a.urban_id for a in control.urban_areas] == ["URBAREA1", "URBAREA2"]
         assert control.urban_areas[1] == UrbanArea(1500000.0, "URBAREA2")
         assert keyword_lines(control.to_aermod_input(), "URBANOPT") == [
-            ["URBAREA1", "2500000", "Somewhere", "1"], ["URBAREA2", "1500000"],
+            ["URBAREA1", "2500000.0", "Somewhere", "1.00"], ["URBAREA2", "1500000.0"],
         ]
         assert rewrite(parse(co_extra=co)).control.urban_areas == control.urban_areas
 
