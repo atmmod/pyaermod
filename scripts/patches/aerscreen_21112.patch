@@ -1,5 +1,5 @@
 --- aerscreen.f	2026-09-25 20:16:34.369703403 +0000
-+++ aerscreen_patched.f	2026-09-25 21:06:31.968531558 +0000
++++ aerscreen_patched.f	2026-09-25 21:25:49.601983521 +0000
 @@ -1819,7 +1819,7 @@
        read(*,'(a)')title
        write(ilog,102)title
@@ -471,6 +471,22 @@
  
  c --- Check to see if stack is GEP ---
        igep = 1
+@@ -10163,13 +10168,13 @@
+ c --- Save Stage2 aermap.kil file for possible re-use in next run ---
+ !      if(istage .eq. 2)call system("copy aermap.kil aermap.lst > kil")
+       if(istage .eq. 2) then
+-          infil1='aermap.kil'
++          infil1='AERMAP.KIL'
+           outfil3='aermap.lst'
+           call aermapout
+       endif
+   15    if (istage .ne. 0) then
+ c  -- Find stack base elevation and clean up data file ---
+-        open(aermpkil,file='aermap.kil',status='unknown')
++        open(aermpkil,file='AERMAP.KIL',status='unknown')
+         open(aermpdat,file='aermap.dat')
+ 
+ c --- Find stack base elevation ---
 @@ -10271,7 +10276,7 @@
            nadpath1=trim(adjustl(line(n+9:n+9+199)))
            l=len_trim(nadpath1)
@@ -533,6 +549,15 @@
          read(aermpout,70,iostat=eof)line
   75     if (eof .eq. 0) then
            if (index(line,'CO DATATYPE') .gt. 0) then  !get datatype, NED or DEM
+@@ -10831,7 +10836,7 @@
+ 
+ !      call system("copy aermap.lst aermap.kil > nul")
+       infil1='aermap.lst'
+-      outfil3='aermap.kil'
++      outfil3='AERMAP.KIL'
+       call aermapout
+       iexist = 1
+ 
 @@ -10879,7 +10884,7 @@
        version = '     '
        eof=0
