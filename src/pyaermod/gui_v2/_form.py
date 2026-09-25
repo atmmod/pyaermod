@@ -262,7 +262,7 @@ def emit_field(parent, obj: Any, fmeta) -> None:
     label = fname.replace("_", " ")
 
     if type_str in ("str", "Optional[str]"):
-        # Optional[str] fields (OutputPathway.summary_file, max_file, ...)
+        # Optional[str] fields (OutputPathway.summary_file, plot_file, ...)
         # are plain text inputs too; an empty box reads back as "".
         with parent:
             ui.input(label=label, value=cur or "").bind_value(obj, fname)

@@ -371,10 +371,22 @@ class TestChemistryControlPathway:
         ctrl = ControlPathway(
             title_one="Test",
             pollutant_id=PollutantType.NO2,
-            chemistry=ChemistryOptions(default_no2_ratio=0.75),
+            chemistry=ChemistryOptions(method=ChemistryMethod.OLM,
+                                       default_no2_ratio=0.75),
         )
         output = ctrl.to_aermod_input()
         assert "NO2STACK  0.7500" in output
+
+    def test_no2stack_not_emitted_for_arm2(self):
+        # coset.f: NO2STACK is E600 without PVMRM/OLM/GRSM/TTRM, and the
+        # ARM2 default is what an EPA ARM2 deck reads back as.
+        ctrl = ControlPathway(
+            title_one="Test",
+            pollutant_id=PollutantType.NO2,
+            chemistry=ChemistryOptions(default_no2_ratio=0.75),
+        )
+        assert ctrl.chemistry.method == ChemistryMethod.ARM2
+        assert "NO2STACK" not in ctrl.to_aermod_input()
 
     def test_no_chemistry_no_extra_keywords(self):
         ctrl = ControlPathway(title_one="Test", pollutant_id=PollutantType.NO2)

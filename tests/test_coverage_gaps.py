@@ -306,9 +306,11 @@ class TestControlPathwayOptions:
         assert "FLAGPOLE  1.50" in output
 
     def test_urban_option(self):
+        # One URBANOPT card is ``pop [name]`` in coset.f; the name-first
+        # form pyaermod once wrote was read as a bad population (E208).
         ctrl = self._make_control(urban_option="URBANOPT1")
         output = ctrl.to_aermod_input()
-        assert "URBANOPT  URBANOPT1" in output
+        assert "URBANOPT  1000000.0  URBANOPT1" in output
 
     def test_low_wind_option(self):
         ctrl = self._make_control(low_wind_option="LOWWIND3")
@@ -1110,7 +1112,7 @@ class TestMeteorologyFeatures:
 
 
 class TestOutputPathwayFeatures:
-    """Test optional OutputPathway features (day_table, max_file)."""
+    """Test optional OutputPathway features (day_table, maxi_files)."""
 
     def test_day_table_output(self):
         """day_table=True produces DAYTABLE keyword."""
@@ -1118,11 +1120,12 @@ class TestOutputPathwayFeatures:
         output = out.to_aermod_input()
         assert "DAYTABLE  ALLAVE" in output
 
-    def test_max_file_output(self):
-        """max_file produces MAXIFILE keyword."""
-        out = OutputPathway(max_file="maxconc.out")
+    def test_maxi_file_output(self):
+        """maxi_files produce the four-field MAXIFILE line (ouset.f OUMXFL)."""
+        from pyaermod.input_generator import MaxiFile
+        out = OutputPathway(maxi_files=[MaxiFile("24", "ALL", 30.0, "maxconc.out")])
         output = out.to_aermod_input()
-        assert "MAXIFILE  maxconc.out" in output
+        assert "MAXIFILE  24  ALL  30  maxconc.out" in output
 
     def test_output_defaults_omit_optional(self):
         """Default OutputPathway omits DAYTABLE and MAXIFILE."""

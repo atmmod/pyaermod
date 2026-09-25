@@ -81,6 +81,23 @@ class ChemistryMethod(Enum):
     PVMRM = "PVMRM"
     ARM2 = "ARM2"
     GRSM = "GRSM"
+    TTRM = "TTRM"
+    TTRM2 = "TTRM2"
+
+
+#: MODELOPT tokens for each terrain type. coset.f knows only FLAT and
+#: ELEV; ``FLAT ELEV`` together is how it spells "flat sources in elevated
+#: terrain" (it sets FLATSRCS), so ELEVATED and FLATSRCS have no token of
+#: their own. Writing ``ELEVATED`` was a fatal E203.
+TERRAIN_MODELOPT_TOKENS = {
+    "FLAT": ("FLAT",),
+    "ELEVATED": ("ELEV",),
+    "FLATSRCS": ("FLAT", "ELEV"),
+}
+
+#: NO2 methods that take the NO2STACK in-stack ratio; with any other
+#: (ARM2, or none) the keyword is E600 in coset.f.
+NO2STACK_METHODS = ("OLM", "PVMRM", "GRSM", "TTRM", "TTRM2")
 
 
 #: Concentration units AERMOD accepts on the background keywords
@@ -440,6 +457,28 @@ class GasDepositionDefaults:
 # ============================================================================
 
 @dataclass
+class UrbanArea:
+    """One ``CO URBANOPT`` line.
+
+    Parameters
+    ----------
+    population : float
+        Urban population (AERMOD rejects values below 100, E203).
+    urban_id : str, optional
+        Urban area ID; required by AERMOD when a deck defines more than
+        one area, meaningless when it defines one.
+    name : str, optional
+        Descriptive name (free text without blanks).
+    roughness : float, optional
+        Urban surface roughness length in metres (default 1.0 in AERMOD).
+    """
+    population: float
+    urban_id: Optional[str] = None
+    name: Optional[str] = None
+    roughness: Optional[float] = None
+
+
+@dataclass
 class ControlPathway:
     """
     AERMOD Control (CO) pathway configuration
@@ -468,9 +507,14 @@ class ControlPathway:
     # Regulatory default mode
     regulatory_default: bool = True  # Include DFAULT in MODELOPT
 
-    # Urban/rural
+    # Urban/rural. urban_option/urban_population describe one urban
+    # area; urban_areas holds every URBANOPT line of a deck (AERMOD
+    # allows several, each with its own ID, and switches URBANOPT and
+    # URBANSRC to the ID-first form when there is more than one). When
+    # urban_areas is set it is what the writer emits.
     urban_option: Optional[str] = None  # Urban area name if urban
     urban_population: Optional[float] = None  # Required population for URBANOPT
+    urban_areas: List[UrbanArea] = field(default_factory=list)
 
     # Low wind options
     low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
@@ -480,6 +524,16 @@ class ControlPathway:
     # "Non-DFAULT ALPHA Option Required" unless ALPHA is present.
     alpha: bool = False
     beta: bool = False
+
+    # MODELOPT options pyaermod has no field for (SCREEN, FASTALL,
+    # PSDCREDIT, NOCHKD, ...). The reader fills this with the tokens it
+    # did not recognise so a deck keeps its options when rewritten; the
+    # writer appends them to MODELOPT as given.
+    extra_model_options: List[str] = field(default_factory=list)
+
+    # RUNORNOT: False writes ``RUNORNOT NOT``, which makes AERMOD parse
+    # and cross-check the deck without running the model.
+    run_model: bool = True
 
     # Event file reference
     eventfil: Optional[str] = None
@@ -524,9 +578,9 @@ class ControlPathway:
         if self.calculate_wet_deposition:
             model_opts.append("WDEP")
 
-        # Add terrain type
+        # Add terrain type, spelled as coset.f reads it (ELEV, not ELEVATED)
         terrain = self.terrain_type.value if isinstance(self.terrain_type, TerrainType) else self.terrain_type
-        model_opts.append(terrain)
+        model_opts.extend(TERRAIN_MODELOPT_TOKENS.get(str(terrain).upper(), (str(terrain),)))
 
         # Regulatory default mode
         if self.regulatory_default:
@@ -542,6 +596,11 @@ class ControlPathway:
         # Append chemistry method to MODELOPT
         if self.chemistry is not None:
             model_opts.append(self.chemistry.method.value)
+
+        # Options read from a deck that have no field of their own.
+        for opt in self.extra_model_options:
+            if opt.upper() not in model_opts:
+                model_opts.append(opt.upper())
 
         lines.append(f"   MODELOPT  {' '.join(model_opts)}")
 
@@ -565,10 +624,24 @@ class ControlPathway:
         if self.flag_pole_height is not None:
             lines.append(f"   FLAGPOLE  {self.flag_pole_height:.2f}")
 
-        if self.urban_option:
-            # URBANOPT format: UrbanID Population [Name] [Roughness]
+        if self.urban_areas:
+            # coset.f URBOPT: with one URBANOPT card the fields are
+            # ``pop [name [z0]]``; with several, ``id pop [name [z0]]``.
+            multi = len(self.urban_areas) > 1
+            for area in self.urban_areas:
+                fields = [area.urban_id] if multi and area.urban_id else []
+                fields.append(_num(area.population))
+                if area.name or area.roughness is not None:
+                    fields.append(area.name or "URBAN")
+                if area.roughness is not None:
+                    fields.append(_num(area.roughness))
+                lines.append("   URBANOPT  " + "  ".join(fields))
+        elif self.urban_option:
+            # One URBANOPT card: coset.f reads ``pop [name [z0]]``; the
+            # ID-first form belongs to decks with several cards, and
+            # ``URBANOPT name pop`` is an illegal population (E208).
             pop = self.urban_population or 1000000.0
-            lines.append(f"   URBANOPT  {self.urban_option}  {pop:.1f}")
+            lines.append(f"   URBANOPT  {pop:.1f}  {self.urban_option}")
 
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
@@ -599,8 +672,10 @@ class ControlPathway:
             if chem.ozone_data is not None:
                 lines += _ozone_lines(chem.ozone_data)
 
-            # NO2STACK (default in-stack ratio)
-            lines.append(f"   NO2STACK  {chem.default_no2_ratio:.4f}")
+            # NO2STACK (default in-stack ratio); ARM2 has no in-stack
+            # ratio and rejects the keyword (E600).
+            if chem.method.value in NO2STACK_METHODS:
+                lines.append(f"   NO2STACK  {chem.default_no2_ratio:.4f}")
 
             # NOx background (GRSM)
             nox = chem.effective_nox_background()
@@ -637,7 +712,7 @@ class ControlPathway:
             lines.append(f"   EVENTFIL  {self.eventfil}")
 
         # Run command
-        lines.append("   RUNORNOT  RUN")
+        lines.append(f"   RUNORNOT  {'RUN' if self.run_model else 'NOT'}")
         lines.append("CO FINISHED")
 
         return "\n".join(lines)
@@ -679,6 +754,10 @@ class MeteorologyPathway:
     end_year: Optional[int] = None
     end_month: Optional[int] = None
     end_day: Optional[int] = None
+    # meset.f STAEND takes six fields (dates) or eight (dates with an
+    # hour after each date). Both hours must be set to write the latter.
+    start_hour: Optional[int] = None
+    end_hour: Optional[int] = None
 
     # Wind direction rotation
     wind_rotation: Optional[float] = None  # degrees
@@ -702,10 +781,18 @@ class MeteorologyPathway:
         # Date range (if specified)
         if all(x is not None for x in [self.start_year, self.start_month, self.start_day,
                                         self.end_year, self.end_month, self.end_day]):
-            lines.append(
-                f"   STARTEND  {self.start_year:4d} {self.start_month:2d} {self.start_day:2d}  "
-                f"{self.end_year:4d} {self.end_month:2d} {self.end_day:2d}"
-            )
+            if self.start_hour is not None and self.end_hour is not None:
+                lines.append(
+                    f"   STARTEND  {self.start_year:4d} {self.start_month:2d} "
+                    f"{self.start_day:2d} {self.start_hour:2d}  "
+                    f"{self.end_year:4d} {self.end_month:2d} {self.end_day:2d} "
+                    f"{self.end_hour:2d}"
+                )
+            else:
+                lines.append(
+                    f"   STARTEND  {self.start_year:4d} {self.start_month:2d} {self.start_day:2d}  "
+                    f"{self.end_year:4d} {self.end_month:2d} {self.end_day:2d}"
+                )
 
         # Wind rotation
         if self.wind_rotation is not None:
@@ -729,6 +816,37 @@ def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
     if str(averaging).strip().upper() in ("PERIOD", "ANNUAL"):
         return f"{averaging}  {source_group}  {filename}"
     return f"{averaging}  {source_group}  FIRST  {filename}"
+
+
+@dataclass
+class MaxiFile:
+    """``OU MAXIFILE aveper grpid thresh filnam [funit]``.
+
+    Every value above ``threshold`` for one averaging period and source
+    group is written to ``filename`` as it occurs. ouset.f (OUMXFL)
+    counts fields: fewer than four data fields is fatal (E201), so there
+    is no shorter form -- the one-field ``MAXIFILE filename`` pyaermod
+    once wrote was rejected by every AERMOD release.
+
+    Parameters
+    ----------
+    averaging_period : str
+        One of the AVERTIME periods (``1``, ``24``, ... or ``MONTH``).
+        PERIOD and ANNUAL averages have no threshold file.
+    source_group : str
+        Source group ID (``ALL`` or one defined with SRCGROUP).
+    threshold : float
+        Concentration above which a value is written.
+    filename : str
+        Output file.
+    file_unit : int, optional
+        Fortran unit number; AERMOD allocates one when omitted.
+    """
+    averaging_period: str
+    source_group: str
+    threshold: float
+    filename: str
+    file_unit: Optional[int] = None
 
 
 @dataclass
@@ -815,8 +933,10 @@ class OutputPathway:
 
     # File outputs
     summary_file: Optional[str] = None
-    max_file: Optional[str] = None
     plot_file: Optional[str] = None
+    # MAXIFILE threshold files, one per (averaging period, source group).
+    # There is no filename-only form: see MaxiFile.
+    maxi_files: List[MaxiFile] = field(default_factory=list)
     plot_file_averaging: str = "ANNUAL"  # Averaging period for default PLOTFILE
 
     # POSTFILE outputs
@@ -877,9 +997,13 @@ class OutputPathway:
         if self.summary_file:
             lines.append(f"   SUMMFILE  {self.summary_file}")
 
-        # Max file
-        if self.max_file:
-            lines.append(f"   MAXIFILE  {self.max_file}")
+        # Threshold files: MAXIFILE aveper grpid thresh filnam [funit]
+        for mf in self.maxi_files:
+            line = (f"   MAXIFILE  {mf.averaging_period}  {mf.source_group}  "
+                    f"{_num(mf.threshold)}  {mf.filename}")
+            if mf.file_unit is not None:
+                line += f"  {mf.file_unit}"
+            lines.append(line)
 
         # Plot file. AERMOD's PLOTFILE syntax depends on the averaging
         # period and carries no output-type field:

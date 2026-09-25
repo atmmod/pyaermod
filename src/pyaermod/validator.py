@@ -1151,19 +1151,33 @@ class Validator:
     def _validate_cartesian_grid(cls, grid, result: ValidationResult):
         name = f"CartesianGrid({grid.grid_name})"
 
-        if grid.x_num <= 0:
+        # Explicit XPNTS/YPNTS lists replace the generator on that axis.
+        x_points = getattr(grid, "x_points", None)
+        y_points = getattr(grid, "y_points", None)
+        if x_points is not None and not x_points:
+            result.errors.append(ValidationError(
+                name, "x_points", "explicit XPNTS list must not be empty"
+            ))
+        if y_points is not None and not y_points:
+            result.errors.append(ValidationError(
+                name, "y_points", "explicit YPNTS list must not be empty"
+            ))
+        if x_points is not None and y_points is not None:
+            return
+
+        if x_points is None and grid.x_num <= 0:
             result.errors.append(ValidationError(
                 name, "x_num", f"must be > 0, got {grid.x_num}"
             ))
-        if grid.y_num <= 0:
+        if y_points is None and grid.y_num <= 0:
             result.errors.append(ValidationError(
                 name, "y_num", f"must be > 0, got {grid.y_num}"
             ))
-        if grid.x_delta <= 0:
+        if x_points is None and grid.x_delta <= 0:
             result.errors.append(ValidationError(
                 name, "x_delta", f"must be > 0, got {grid.x_delta}"
             ))
-        if grid.y_delta <= 0:
+        if y_points is None and grid.y_delta <= 0:
             result.errors.append(ValidationError(
                 name, "y_delta", f"must be > 0, got {grid.y_delta}"
             ))
@@ -1172,22 +1186,41 @@ class Validator:
     def _validate_polar_grid(cls, grid, result: ValidationResult):
         name = f"PolarGrid({grid.grid_name})"
 
-        if grid.dist_num <= 0:
-            result.errors.append(ValidationError(
-                name, "dist_num", f"must be > 0, got {grid.dist_num}"
-            ))
-        if grid.dist_delta <= 0:
-            result.errors.append(ValidationError(
-                name, "dist_delta", f"must be > 0, got {grid.dist_delta}"
-            ))
-        if grid.dir_num <= 0:
-            result.errors.append(ValidationError(
-                name, "dir_num", f"must be > 0, got {grid.dir_num}"
-            ))
-        if grid.dir_delta <= 0:
-            result.errors.append(ValidationError(
-                name, "dir_delta", f"must be > 0, got {grid.dir_delta}"
-            ))
+        # An explicit DIST / DDIR list replaces the generator it stands for.
+        distances = getattr(grid, "distances", None)
+        directions = getattr(grid, "directions", None)
+        if distances is not None:
+            if not distances:
+                result.errors.append(ValidationError(
+                    name, "distances", "explicit DIST list must not be empty"
+                ))
+            elif min(distances) <= 0:
+                result.errors.append(ValidationError(
+                    name, "distances", "ring distances must be > 0"
+                ))
+        else:
+            if grid.dist_num <= 0:
+                result.errors.append(ValidationError(
+                    name, "dist_num", f"must be > 0, got {grid.dist_num}"
+                ))
+            if grid.dist_delta <= 0:
+                result.errors.append(ValidationError(
+                    name, "dist_delta", f"must be > 0, got {grid.dist_delta}"
+                ))
+        if directions is not None:
+            if not directions:
+                result.errors.append(ValidationError(
+                    name, "directions", "explicit DDIR list must not be empty"
+                ))
+        else:
+            if grid.dir_num <= 0:
+                result.errors.append(ValidationError(
+                    name, "dir_num", f"must be > 0, got {grid.dir_num}"
+                ))
+            if grid.dir_delta <= 0:
+                result.errors.append(ValidationError(
+                    name, "dir_delta", f"must be > 0, got {grid.dir_delta}"
+                ))
 
     # ------------------------------------------------------------------
     # Meteorology pathway

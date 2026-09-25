@@ -133,6 +133,7 @@ from .input_generator import (
     LineSource,
     MaxDailyContribution,
     MaxDailyFile,
+    MaxiFile,
     MeteorologyPathway,
     MultiYear,
     NOxBackground,
@@ -153,6 +154,8 @@ from .input_generator import (
     StreetCanyon,
     TemporalValues,
     TerrainType,
+    UnparsedLine,
+    UrbanArea,
     VolumeSource,
 )
 from .input_reader import parse_aermod_input, read_aermod_input
@@ -313,7 +316,8 @@ __all__ = [
     "SourceGroupDefinition", "ChemistryMethod", "ChemistryOptions", "OzoneData",
     "BackgroundSpec", "TemporalValues", "NOxBackground",
     "SaveFile", "InitFile", "MultiYear", "GasDepositionDefaults",
-    "MaxDailyFile", "MaxDailyContribution",
+    "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea",
+    "UnparsedLine",
     # validation
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution

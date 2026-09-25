@@ -1213,6 +1213,12 @@ class SourcePathway:
                         RLineExtSource, BuoyLineSource, OpenPitSource]] = field(default_factory=list)
     background: Optional[BackgroundConcentration] = None
     group_definitions: List[SourceGroupDefinition] = field(default_factory=list)
+    # The bare ``SRCGROUP ALL`` line: None writes it whenever the pathway
+    # has sources (the default for a project built in Python), True
+    # always (a deck that had the line, even with its sources brought in
+    # by INCLUDED), False never (a deck that defines groups without it;
+    # a PSDCREDIT run takes PSDGROUP instead and rejects SRCGROUP, E140).
+    include_all_group: Optional[bool] = None
 
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
@@ -1260,10 +1266,12 @@ class SourcePathway:
                         f"{' '.join(olm_group.member_source_ids)}"
                     )
 
-        # Centralized SRCGROUP definitions
-        all_ids = self._collect_all_source_ids()
-        if all_ids:
-            # SRCGROUP ALL -- AERMOD auto-includes all sources; no IDs listed
+        # Centralized SRCGROUP definitions. SRCGROUP ALL takes no IDs:
+        # AERMOD includes every source, those a deck brings in with
+        # INCLUDED too, so it is written whenever the group is wanted.
+        write_all = (bool(self._collect_all_source_ids())
+                     if self.include_all_group is None else self.include_all_group)
+        if write_all:
             lines.append("   SRCGROUP  ALL")
 
         # Custom group definitions

@@ -24,9 +24,9 @@ and 24142; see :mod:`pyaermod.versions`).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 # ---- Re-export everything from the new submodules --------------------------
 from .pathways import (  # noqa: F401  -- re-exports
@@ -40,6 +40,7 @@ from .pathways import (  # noqa: F401  -- re-exports
     InitFile,
     MaxDailyContribution,
     MaxDailyFile,
+    MaxiFile,
     MeteorologyPathway,
     MultiYear,
     NOxBackground,
@@ -50,6 +51,7 @@ from .pathways import (  # noqa: F401  -- re-exports
     SourceType,
     TemporalValues,
     TerrainType,
+    UrbanArea,
 )
 from .receptors import (  # noqa: F401  -- re-exports
     CartesianGrid,
@@ -82,10 +84,52 @@ from .sources import (  # noqa: F401  -- re-exports
     _format_building_keyword,
     _set_building_from_bpip,
 )
+from .unparsed import UnparsedLine, preserved_block
 
 # ============================================================================
 # MAIN PROJECT CLASS
 # ============================================================================
+
+# Keywords a pathway's preserved lines must precede. SRCGROUP (and the
+# other group keywords) look their members up among the sources defined
+# so far (soset.f, E300), so a LOCATION or INCLUDED kept verbatim has to
+# come before the groups the writer generates.
+_PRESERVE_BEFORE = {"SO": ("SRCGROUP", "OLMGROUP", "PSDGROUP")}
+
+# Keywords AERMOD requires as the first card of their pathway (soset.f /
+# reset.f, E152); a preserved one goes straight after ``<code> STARTING``.
+_PRESERVE_FIRST = ("ELEVUNIT",)
+
+
+def _with_preserved(code: str, text: str, kept: List[UnparsedLine]) -> str:
+    """Splice ``code``'s preserved lines into its pathway text.
+
+    A keyword in :data:`_PRESERVE_FIRST` goes right after the STARTING
+    line. The rest go in front of the first keyword listed in
+    :data:`_PRESERVE_BEFORE` for the pathway, or just before
+    ``<code> FINISHED``.
+    """
+    mine = [ln for ln in kept if ln.pathway == code]
+    first = [ln for ln in mine if ln.keyword in _PRESERVE_FIRST]
+    rest = preserved_block(code, [ln for ln in mine if ln.keyword not in _PRESERVE_FIRST])
+    if not first and not rest:
+        return text
+    lines = text.split("\n")
+    if first:
+        start = next(i for i, line in enumerate(lines)
+                     if line.strip().upper() == f"{code} STARTING")
+        lines[start + 1:start + 1] = [ln.to_aermod_line() for ln in first]
+    if rest:
+        idx = max(i for i, line in enumerate(lines)
+                  if line.strip().upper() == f"{code} FINISHED")
+        for i, line in enumerate(lines):
+            toks = line.split()
+            if toks and toks[0].upper() in _PRESERVE_BEFORE.get(code, ()):
+                idx = i
+                break
+        lines[idx:idx] = rest
+    return "\n".join(lines)
+
 
 @dataclass
 class AERMODProject:
@@ -101,9 +145,16 @@ class AERMODProject:
     output: OutputPathway
     events: Optional[EventPathway] = None
 
+    # Lines of a deck read by pyaermod.input_reader that have no field
+    # on this model (see pyaermod.unparsed). The writer puts them back
+    # into their pathway so a rewritten deck keeps them; a project built
+    # in Python has none.
+    unparsed_lines: List[UnparsedLine] = field(default_factory=list)
+
     def to_aermod_input(self,
                         validate: bool = True,
-                        check_files: bool = False) -> str:
+                        check_files: bool = False,
+                        preserve_unparsed: bool = True) -> str:
         """
         Generate complete AERMOD input file.
 
@@ -117,6 +168,11 @@ class AERMODProject:
         check_files : bool
             If True (and validate is True), also verify that meteorology
             files exist on disk.
+        preserve_unparsed : bool
+            If True (default), every :attr:`unparsed_lines` entry is
+            written back into its pathway, just before the pathway's
+            ``FINISHED`` line, under a ``**`` comment banner. Pass
+            ``False`` to write only what the model represents.
         """
         if validate:
             from pyaermod.validator import Validator
@@ -127,18 +183,21 @@ class AERMODProject:
         # Pass chemistry options to SO pathway for OLMGROUP emission
         chemistry = getattr(self.control, "chemistry", None)
 
-        sections = [
-            self.control.to_aermod_input(),
-            "",
-            self.sources.to_aermod_input(chemistry=chemistry),
-            "",
-            self.receptors.to_aermod_input(),
-            "",
-            self.meteorology.to_aermod_input(),
-            "",
-            self.output.to_aermod_input()
+        pathways = [
+            ("CO", self.control.to_aermod_input()),
+            ("SO", self.sources.to_aermod_input(chemistry=chemistry)),
+            ("RE", self.receptors.to_aermod_input()),
+            ("ME", self.meteorology.to_aermod_input()),
+            ("OU", self.output.to_aermod_input()),
         ]
-        return "\n".join(sections)
+        kept = self.unparsed_lines if preserve_unparsed else []
+        sections = [_with_preserved(code, text, kept) for code, text in pathways]
+        ev_lines = preserved_block("EV", kept)
+        if ev_lines:
+            # The reader keeps an inline EV pathway whole; AERMOD wants
+            # it last, after OU.
+            sections.append("\n".join(["EV STARTING", *ev_lines, "EV FINISHED"]))
+        return "\n\n".join(sections)
 
     def write(self, filename: Union[str, Path],
               event_filename: Optional[Union[str, Path]] = None,
