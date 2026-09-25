@@ -147,8 +147,12 @@ def _dems_from_demlist(directory: Path) -> tuple[list[str], str]:
         ln = ln.strip()
         if not ln or ln.upper().startswith("NADGRIDS") or ln.startswith("-"):
             continue
-        rel = ln.split()[0].replace("\\", "/")
-        dems.append(str(directory / rel))
+        # Spelled for Windows: ``BC\aerscrn28.DEM`` names the archive's
+        # ``bc/aerscrn28.DEM``, so each component is matched by case.
+        path = directory
+        for part in ln.split()[0].replace("\\", "/").split("/"):
+            path = _find(path, part)
+        dems.append(str(path))
     return dems, dem_type
 
 
