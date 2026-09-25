@@ -7,9 +7,10 @@ letting invalid parameters silently produce bad input files that
 AERMOD rejects at runtime.
 """
 
+import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # Valid AERMOD averaging periods
 VALID_AVERAGING_PERIODS = {
@@ -107,7 +108,7 @@ class Validator:
         cls._validate_sources(project.sources, project.control, result)
         cls._validate_receptors(project.receptors, result)
         cls._validate_meteorology(project.meteorology, result, check_files)
-        cls._validate_output(project.output, result)
+        cls._validate_output(project.output, result, project.control)
         if getattr(project, "events", None) is not None:
             cls._validate_events(project.events, project.control, result)
 
@@ -131,6 +132,9 @@ class Validator:
             result.errors.append(ValidationError(
                 pathway, "title_one", "must not be empty"
             ))
+
+        cls._validate_restart_options(control, result)
+        cls._validate_gas_deposition_defaults(control, result)
 
         # Chemistry options
         if getattr(control, "chemistry", None) is not None:
@@ -850,6 +854,160 @@ class Validator:
     # ------------------------------------------------------------------
 
     @classmethod
+    def _validate_restart_options(cls, control, result: ValidationResult):
+        """CO SAVEFILE / INITFILE / MULTYEAR: AERMOD's own exclusions.
+
+        ``coset.f`` refuses MULTYEAR alongside either restart keyword
+        (E150 in MYEAR, SAVEFL and INITFL) and accepts MULTYEAR only for
+        the pollutants it can chain (PM10, PM2.5, NO2, SO2, LEAD, OTHER).
+        """
+        pathway = "ControlPathway"
+        my = getattr(control, "multiyear", None)
+        if my is None:
+            return
+        for attr in ("save_file", "init_file"):
+            if getattr(control, attr, None) is not None:
+                result.errors.append(ValidationError(
+                    pathway, attr,
+                    f"{attr} cannot be combined with multiyear: AERMOD "
+                    "rejects SAVEFILE/INITFILE together with MULTYEAR (E150)"
+                ))
+        pollutant = control.pollutant_id
+        name = pollutant.value if hasattr(pollutant, "value") else str(pollutant)
+        allowed = {"PM10", "PM-10", "NO2", "SO2", "LEAD", "OTHER",
+                   "PM25", "PM-2.5", "PM-25", "PM2.5"}
+        if name.upper() not in allowed:
+            result.errors.append(ValidationError(
+                pathway, "multiyear",
+                f"AERMOD accepts MULTYEAR only for {sorted(allowed)}, "
+                f"not POLLUTID {name} (E150)"
+            ))
+        if not my.save_file:
+            result.errors.append(ValidationError(
+                pathway, "multiyear.save_file", "must not be empty"
+            ))
+
+    @classmethod
+    def _validate_gas_deposition_defaults(cls, control, result: ValidationResult):
+        """CO GASDEPDF / GASDEPVD / GDSEASON / GDLANUSE.
+
+        All four need the ALPHA option (E198); GASDEPVD excludes GDSEASON
+        and GDLANUSE (E195); GDSEASON is 12 categories in 1..5 and
+        GDLANUSE 36 categories in 1..9 (``coset.f`` GDSEAS / GDLAND).
+        """
+        pathway = "ControlPathway"
+        fields = {
+            "gas_deposition_defaults": control.gas_deposition_defaults,
+            "gas_deposition_velocity": control.gas_deposition_velocity,
+            "gas_deposition_seasons": control.gas_deposition_seasons,
+            "gas_deposition_land_use": control.gas_deposition_land_use,
+        }
+        present = [name for name, value in fields.items() if value is not None]
+        if not present:
+            return
+        if not getattr(control, "alpha", False):
+            result.errors.append(ValidationError(
+                pathway, present[0],
+                "gas deposition defaults need ControlPathway.alpha=True: "
+                "AERMOD requires the non-DFAULT ALPHA option for "
+                f"{', '.join(present)} (E198)"
+            ))
+        if control.gas_deposition_velocity is not None:
+            for name in ("gas_deposition_seasons", "gas_deposition_land_use"):
+                if fields[name] is not None:
+                    result.errors.append(ValidationError(
+                        pathway, name,
+                        "cannot be combined with gas_deposition_velocity: "
+                        "AERMOD rejects GDSEASON/GDLANUSE with GASDEPVD (E195)"
+                    ))
+            if control.gas_deposition_velocity <= 0:
+                result.errors.append(ValidationError(
+                    pathway, "gas_deposition_velocity",
+                    f"must be > 0 m/s, got {control.gas_deposition_velocity}"
+                ))
+        for name, count, hi in (("gas_deposition_seasons", 12, 5),
+                                ("gas_deposition_land_use", 36, 9)):
+            values = fields[name]
+            if values is None:
+                continue
+            if len(values) != count:
+                result.errors.append(ValidationError(
+                    pathway, name, f"needs exactly {count} values, got {len(values)}"
+                ))
+            bad = [v for v in values if not 1 <= int(v) <= hi]
+            if bad:
+                result.errors.append(ValidationError(
+                    pathway, name, f"categories must be 1..{hi}, got {bad[:4]}"
+                ))
+
+    @classmethod
+    def _validate_background_spec(cls, label, spec, pathway, result,
+                                  *, n_sectors: int, sector=None):
+        """Checks shared by the ozone and NOx background specifications."""
+        from .pathways import BACKGROUND_UNITS, TEMPORAL_FLAG_COUNTS
+        where = f"{label}.by_sector[{sector}]" if sector is not None else label
+        if sector is not None and not n_sectors:
+            result.errors.append(ValidationError(
+                pathway, where,
+                "sector form used without sectors: AERMOD rejects SECTn "
+                "without O3SECTOR/NOXSECTR (E171)"
+            ))
+        elif sector is not None and not 1 <= sector <= n_sectors:
+            result.errors.append(ValidationError(
+                pathway, where,
+                f"sector {sector} is not one of the {n_sectors} sectors declared"
+            ))
+        if spec.value is not None and spec.varying is not None:
+            result.errors.append(ValidationError(
+                pathway, where,
+                "a constant value and a temporal profile cannot both be given "
+                "(AERMOD E605 for NOXVALUE + NOX_VALS)"
+            ))
+        for units in (spec.value_units, spec.file_units):
+            if units is not None and units.upper() not in BACKGROUND_UNITS:
+                result.errors.append(ValidationError(
+                    pathway, where,
+                    f"units must be one of {BACKGROUND_UNITS}, got {units!r}"
+                ))
+        if spec.varying is not None:
+            expected = TEMPORAL_FLAG_COUNTS.get(spec.varying.flag.upper())
+            if expected is None:
+                result.errors.append(ValidationError(
+                    pathway, where,
+                    f"unknown temporal flag {spec.varying.flag!r}; AERMOD "
+                    f"accepts {sorted(TEMPORAL_FLAG_COUNTS)}"
+                ))
+            elif len(spec.varying.values) != expected:
+                result.errors.append(ValidationError(
+                    pathway, where,
+                    f"{spec.varying.flag} needs {expected} values, "
+                    f"got {len(spec.varying.values)}"
+                ))
+
+    @classmethod
+    def _validate_sectors(cls, label, sectors, pathway, result):
+        """O3SECTOR / NOXSECTR: 2..6 ascending directions, >= 30 deg apart."""
+        if not sectors:
+            return
+        if not 2 <= len(sectors) <= 6:
+            result.errors.append(ValidationError(
+                pathway, label, f"needs 2 to 6 sector start directions, got {len(sectors)}"
+            ))
+        if any(not 0 <= d <= 360 for d in sectors):
+            result.errors.append(ValidationError(
+                pathway, label, "sector start directions must be within 0..360 degrees"
+            ))
+        widths = [b - a for a, b in itertools.pairwise(sectors)]
+        if len(sectors) >= 2:
+            widths.append(sectors[0] + 360.0 - sectors[-1])
+        if any(w < 30 for w in widths):
+            result.errors.append(ValidationError(
+                pathway, label,
+                "sectors must be in ascending order and at least 30 degrees "
+                "wide (AERMOD E222/E227)"
+            ))
+
+    @classmethod
     def _validate_chemistry(cls, chemistry, control, result: ValidationResult):
         """Validate NO2 chemistry options."""
         from pyaermod.input_generator import ChemistryMethod
@@ -899,13 +1057,58 @@ class Validator:
                             f"sector {sector_id} value must be >= 0, got {value}"
                         ))
 
-        # NOx file required for GRSM
-        if chemistry.method == ChemistryMethod.GRSM and not chemistry.nox_file:
+        # Ozone sector forms and units
+        if chemistry.ozone_data is not None:
+            oz = chemistry.ozone_data
+            from .pathways import BACKGROUND_UNITS
+            cls._validate_sectors("ozone_data.sectors", oz.sectors, pathway, result)
+            cls._validate_background_spec(
+                "ozone_data", oz.spec(), pathway, result, n_sectors=len(oz.sectors))
+            for sector, spec in sorted(oz.by_sector.items()):
+                cls._validate_background_spec(
+                    "ozone_data", spec, pathway, result,
+                    n_sectors=len(oz.sectors), sector=sector)
+            if oz.sector_values and not oz.sectors:
+                result.errors.append(ValidationError(
+                    pathway, "ozone_data.sector_values",
+                    "sector values need ozone_data.sectors (O3SECTOR); AERMOD "
+                    "rejects SECTn without it (E171)"
+                ))
+            if oz.units is not None and oz.units.upper() not in BACKGROUND_UNITS:
+                result.errors.append(ValidationError(
+                    pathway, "ozone_data.units",
+                    f"must be one of {BACKGROUND_UNITS}, got {oz.units!r}"
+                ))
+
+        # NOx background: GRSM needs one, and only GRSM accepts one
+        nox = chemistry.effective_nox_background()
+        if chemistry.method == ChemistryMethod.GRSM and (nox is None or nox.is_empty()):
             result.errors.append(ValidationError(
-                pathway, "nox_file",
-                "NOx background file required for GRSM method",
+                pathway, "nox_background",
+                "NOx background (NOXVALUE, NOX_FILE or NOX_VALS) required "
+                "for GRSM method",
                 severity="warning",
             ))
+        if nox is not None and chemistry.method != ChemistryMethod.GRSM:
+            result.errors.append(ValidationError(
+                pathway, "nox_background",
+                f"AERMOD accepts the NOx background keywords only with GRSM, "
+                f"not {chemistry.method.value} (E602)"
+            ))
+        if nox is not None:
+            from .pathways import BACKGROUND_UNITS
+            cls._validate_sectors("nox_background.sectors", nox.sectors, pathway, result)
+            cls._validate_background_spec(
+                "nox_background", nox, pathway, result, n_sectors=len(nox.sectors))
+            for sector, spec in sorted(nox.by_sector.items()):
+                cls._validate_background_spec(
+                    "nox_background", spec, pathway, result,
+                    n_sectors=len(nox.sectors), sector=sector)
+            if nox.units is not None and nox.units.upper() not in BACKGROUND_UNITS:
+                result.errors.append(ValidationError(
+                    pathway, "nox_background.units",
+                    f"must be one of {BACKGROUND_UNITS}, got {nox.units!r}"
+                ))
 
         # OLM groups: validate member IDs
         for olm_group in chemistry.olm_groups:
@@ -1031,9 +1234,94 @@ class Validator:
     # Output pathway
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def naaqs_processing(control) -> Optional[str]:
+        """Which NAAQS special processing AERMOD would run for ``control``.
+
+        Returns ``"1-hour"`` for NO2/SO2 with 1-hour as the only short-term
+        average, ``"24-hour"`` for PM2.5 with 24-hour as the only
+        short-term average and no PERIOD, else ``None``. This is the
+        condition under which AERMOD accepts MAXDAILY, MXDYBYYR and
+        MAXDCONT (``coset.f`` sets NO2AVE/SO2AVE/PM25AVE; ``ouset.f``
+        raises E162/E163 otherwise).
+        """
+        pollutant = control.pollutant_id
+        name = (pollutant.value if hasattr(pollutant, "value") else str(pollutant)).upper()
+        periods = [str(p).upper() for p in control.averaging_periods]
+        short = {p for p in periods if p not in ("PERIOD", "ANNUAL", "MONTH")}
+        if name in ("NO2", "SO2") and short == {"1"}:
+            return "1-hour"
+        if name in ("PM25", "PM-2.5", "PM-25", "PM2.5") and short == {"24"} \
+                and "PERIOD" not in periods:
+            return "24-hour"
+        return None
+
     @classmethod
-    def _validate_output(cls, output, result: ValidationResult):
+    def _validate_design_value_outputs(cls, output, control, result):
+        """OU MAXDAILY / MXDYBYYR / MAXDCONT / FILEFORM against ouset.f."""
         pathway = "OutputPathway"
+        if output.file_format is not None and output.file_format.upper()[:3] not in ("FIX", "EXP"):
+            result.errors.append(ValidationError(
+                pathway, "file_format",
+                f"FILEFORM must be FIX or EXP, got {output.file_format!r} (E203)"
+            ))
+        requested = (output.max_daily_files or output.max_daily_by_year_files
+                     or output.max_daily_contributions)
+        if not requested:
+            return
+        if control is not None and cls.naaqs_processing(control) is None:
+            result.errors.append(ValidationError(
+                pathway, "max_daily_files",
+                "MAXDAILY/MXDYBYYR/MAXDCONT apply only to the 1-hour NO2/SO2 "
+                "and 24-hour PM2.5 NAAQS processing: POLLUTID NO2 or SO2 with "
+                "1 as the only short-term average, or PM25 with 24 (E162/E163)"
+            ))
+        if not output.max_daily_contributions:
+            return
+        for attr in ("multiyear", "save_file", "init_file"):
+            if control is not None and getattr(control, attr, None) is not None:
+                result.errors.append(ValidationError(
+                    pathway, "max_daily_contributions",
+                    f"MAXDCONT cannot be combined with ControlPathway.{attr} "
+                    "(AERMOD E153)"
+                ))
+        n_ranks = output.receptor_table_rank if output.receptor_table else 0
+        pollutant = control.pollutant_id if control is not None else ""
+        name = (pollutant.value if hasattr(pollutant, "value") else str(pollutant)).upper()
+        thresh_floor = 8 if name == "SO2" else 12
+        for mdc in output.max_daily_contributions:
+            where = f"max_daily_contributions[{mdc.source_group}]"
+            if mdc.upper_rank > n_ranks:
+                result.errors.append(ValidationError(
+                    pathway, where,
+                    f"upper_rank {mdc.upper_rank} exceeds the RECTABLE range "
+                    f"({n_ranks}); raise receptor_table_rank (AERMOD E290)"
+                ))
+            if mdc.lower_rank is not None:
+                if mdc.lower_rank > n_ranks:
+                    result.errors.append(ValidationError(
+                        pathway, where,
+                        f"lower_rank {mdc.lower_rank} exceeds the RECTABLE range "
+                        f"({n_ranks}) (AERMOD E290)"
+                    ))
+                if mdc.lower_rank < mdc.upper_rank:
+                    result.errors.append(ValidationError(
+                        pathway, where,
+                        f"lower_rank {mdc.lower_rank} is above upper_rank "
+                        f"{mdc.upper_rank} (AERMOD E272)"
+                    ))
+            elif n_ranks <= thresh_floor:
+                result.errors.append(ValidationError(
+                    pathway, where,
+                    f"the THRESH form needs a RECTABLE range beyond rank "
+                    f"{thresh_floor} for {name or 'this pollutant'}, got "
+                    f"{n_ranks} (AERMOD E273)"
+                ))
+
+    @classmethod
+    def _validate_output(cls, output, result: ValidationResult, control=None):
+        pathway = "OutputPathway"
+        cls._validate_design_value_outputs(output, control, result)
 
         if output.receptor_table and output.receptor_table_rank <= 0:
             result.errors.append(ValidationError(

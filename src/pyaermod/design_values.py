@@ -23,10 +23,14 @@ import math
 import warnings
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Optional, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .pathways import OutputPathway
 
 
 @dataclass(frozen=True)
@@ -490,6 +494,153 @@ def o3_8hr_design_value(
     ).assign(form="annual 4th-highest daily max")
 
 
+# ---------------------------------------------------------------------
+# AERMOD's own design-value outputs (OU MAXDAILY / MXDYBYYR / MAXDCONT)
+# ---------------------------------------------------------------------
+
+_MAXDAILY_COLUMNS = ("x", "y", "concentration", "zelev", "zhill", "zflag",
+                     "ave", "grp", "jday", "hr", "date", "netid")
+
+
+def _read_maxdaily_like(path: Union[str, Path], kind: str) -> pd.DataFrame:
+    """Parse a MAXDAILY or MXDYBYYR file into a POSTFILE-shaped frame.
+
+    Both files share one record layout (``ouset.f`` format MXDFRM): X, Y,
+    concentration, ZELEV, ZHILL, ZFLAG, then AVE (MAXDAILY) or RANK
+    (MXDYBYYR), GRP, Julian day, hour, YYMMDDHH date and network ID.
+    The network ID is blank for discrete receptors, so the row is split
+    on whitespace and the last field is optional.
+    """
+    rows = []
+    with open(path, encoding="latin-1") as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("*"):
+                continue
+            parts = line.split()
+            if len(parts) < 11:
+                raise ValueError(
+                    f"{path}: expected at least 11 fields per {kind} record, "
+                    f"got {len(parts)}: {line.rstrip()!r}"
+                )
+            netid = parts[11] if len(parts) > 11 else ""
+            rows.append((
+                float(parts[0]), float(parts[1]), float(parts[2]),
+                float(parts[3]), float(parts[4]), float(parts[5]),
+                parts[6], parts[7], int(parts[8]), int(parts[9]),
+                parts[10].zfill(8), netid,
+            ))
+    df = pd.DataFrame(rows, columns=list(_MAXDAILY_COLUMNS))
+    if kind == "MXDYBYYR":
+        # AERMOD prints the rank as an ordinal ("1ST", "4TH", "10TH").
+        df = df.rename(columns={"ave": "rank"})
+        df["rank"] = df["rank"].str.extract(r"^(\d+)", expand=False).astype(int)
+    return df
+
+
+def read_maxdaily(path: Union[str, Path]) -> pd.DataFrame:
+    """Read an AERMOD ``OU MAXDAILY`` file.
+
+    The file holds every day's maximum 1-hour value (24-hour value for
+    PM2.5) at every receptor, which is exactly the daily series the
+    NAAQS percentile forms rank. The frame has the POSTFILE columns
+    (``x``, ``y``, ``concentration``, ``ave``, ``grp``, ``date`` in
+    YYMMDDHH) plus ``zelev``, ``zhill``, ``zflag``, ``jday``, ``hr`` and
+    ``netid``, so it feeds :func:`no2_1hr_design_value`,
+    :func:`so2_1hr_design_value` and :func:`pm25_24hr_design_value`
+    directly.
+    """
+    return _read_maxdaily_like(path, "MAXDAILY")
+
+
+def read_mxdybyyr(path: Union[str, Path]) -> pd.DataFrame:
+    """Read an AERMOD ``OU MXDYBYYR`` file.
+
+    One row per receptor, year and rank: the ranked daily maxima AERMOD
+    itself computed (``rank`` 1 is that year's highest daily value). The
+    date column carries the day the ranked value occurred.
+    """
+    return _read_maxdaily_like(path, "MXDYBYYR")
+
+
+def mxdybyyr_design_value(df: pd.DataFrame, rank: int) -> pd.DataFrame:
+    """Design value from AERMOD's own ranked daily maxima.
+
+    Averages the ``rank``-th ranked value across the years in an
+    MXDYBYYR frame (:func:`read_mxdybyyr`), receptor by receptor: the
+    same ``SUMHNH / NUMYRS`` form AERMOD prints, and the cross-check for
+    :func:`no2_1hr_design_value` / :func:`so2_1hr_design_value` computed
+    from the MAXDAILY series.
+    """
+    work = _one_source_group(df)
+    sel = work[work["rank"] == rank].copy()
+    if sel.empty:
+        raise ValueError(
+            f"no rank-{rank} rows; the deck's RECTABLE range must reach "
+            f"rank {rank} for MXDYBYYR to write it"
+        )
+    sel["_year"] = _parse_yymmddhh_to_year(sel["date"])
+    out = _average_across_years(
+        sel[["x", "y", "_year", "concentration"]], expected_years=None,
+        label=f"rank {rank}",
+    )
+    return out.assign(form=f"annual rank {rank} (AERMOD MXDYBYYR)")
+
+
+def naaqs_output_pathway(
+    pollutant: str,
+    *,
+    source_group: str = "ALL",
+    stem: str = "design",
+    threshold: Optional[float] = None,
+    receptor_table_rank: Optional[int] = None,
+) -> OutputPathway:
+    """An :class:`~pyaermod.pathways.OutputPathway` for a NAAQS design value.
+
+    Requests the three AERMOD outputs the 1-hour NO2/SO2 and 24-hour
+    PM2.5 design-value workflow needs, with the rank taken from the
+    NAAQS table rather than typed by hand:
+
+    - ``MAXDAILY`` (``<stem>_maxdaily.dat``): the daily series, for
+      :func:`read_maxdaily` and the design-value functions;
+    - ``MXDYBYYR`` (``<stem>_mxdybyyr.dat``): AERMOD's ranked values,
+      for :func:`mxdybyyr_design_value` as a cross-check;
+    - ``MAXDCONT`` (``<stem>_maxdcont.dat``): source-group contributions
+      at the design rank, or from the design rank down to ``threshold``
+      when one is given (the THRESH form).
+
+    ``receptor_table_rank`` defaults to the design rank, or to the
+    smallest range AERMOD accepts for the THRESH form (design rank plus
+    five, ``ouset.f`` E273). The control pathway must select the
+    matching processing: POLLUTID NO2/SO2 with AVERTIME 1, or PM25 with
+    AVERTIME 24; :class:`pyaermod.validator.Validator` checks that.
+    """
+    from .naaqs import get_naaqs
+    from .pathways import MaxDailyContribution, MaxDailyFile, OutputPathway
+
+    key = pollutant.strip().upper()
+    period = "24-hour" if key in ("PM2.5", "PM25") else "1-hour"
+    standard = get_naaqs(pollutant, period)
+    rank = standard.design_rank()
+    if receptor_table_rank is None:
+        receptor_table_rank = rank if threshold is None else rank + 5
+    if threshold is None:
+        contribution = MaxDailyContribution(
+            source_group, rank, f"{stem}_maxdcont.dat", lower_rank=rank,
+        )
+    else:
+        contribution = MaxDailyContribution(
+            source_group, rank, f"{stem}_maxdcont.dat", threshold=threshold,
+        )
+    return OutputPathway(
+        receptor_table=True,
+        receptor_table_rank=receptor_table_rank,
+        max_table=False,
+        max_daily_files=[MaxDailyFile(source_group, f"{stem}_maxdaily.dat")],
+        max_daily_by_year_files=[MaxDailyFile(source_group, f"{stem}_mxdybyyr.dat")],
+        max_daily_contributions=[contribution],
+    )
+
+
 def naaqs_compliance_report(
     pollutant: str,
     df: pd.DataFrame,
@@ -565,12 +716,16 @@ __all__ = [
     "DesignValue",
     "add_background",
     "annual_mean",
+    "mxdybyyr_design_value",
     "naaqs_compliance_report",
+    "naaqs_output_pathway",
     "naaqs_percentile_rank",
     "no2_1hr_design_value",
     "nth_highest_daily_max_design_value",
     "o3_8hr_design_value",
     "pm10_24hr_design_value",
     "pm25_24hr_design_value",
+    "read_maxdaily",
+    "read_mxdybyyr",
     "so2_1hr_design_value",
 ]

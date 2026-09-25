@@ -47,6 +47,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The restart reader, it turns out, keeps a title only up to its first
     comma and upper-cases it; the restart-file tests allow for that and
     the docstrings say so.
+- **Structural reading and writing of the regulatory-critical CO and OU
+  keywords** the v26135 audit listed as pass-through only. Each is stored
+  on the project model, written back in the field layout AERMOD's
+  `coset.f` / `ouset.f` read, and checked against the binary's own setup
+  pass (`tests/test_source_deck_acceptance.py`) and against every EPA
+  test deck that uses it (`tests/test_epa_deck_roundtrip.py`, token for
+  token). Reader coverage goes from 59 to 77 of the 115 dispatched
+  keywords.
+  - Restart and multi-year runs: `ControlPathway.save_file`
+    (`SaveFile`: SAVEFILE with its day increment and alternate file),
+    `.init_file` (`InitFile`, bare or named) and `.multiyear`
+    (`MultiYear`: MULTYEAR with the optional previous-year file and the
+    legacy `H6H` field AERMOD still tolerates). EPA's five-year
+    `testpm10_1986`–`1990` chain round-trips.
+  - The NOx background family for GRSM: `ChemistryOptions.nox_background`
+    (`NOxBackground`) carries NOXVALUE, NOX_FILE (units and Fortran
+    format), NOX_VALS (any of the twelve EMISFACT-style temporal flags,
+    accumulated over continuation lines), NOX_UNIT and NOXSECTR with
+    per-sector `BackgroundSpec`s. `OzoneData` gains the matching
+    O3SECTOR (`sectors`), OZONUNIT (`units`), per-sector `by_sector`,
+    the units on OZONEVAL/OZONEFIL and the OZONEFIL read format, and an
+    O3VALUES temporal profile (`TemporalValues`).
+  - Gas dry-deposition defaults: `ControlPathway.gas_deposition_defaults`
+    (`GasDepositionDefaults`: GASDEPDF), `.gas_deposition_velocity`
+    (GASDEPVD), `.gas_deposition_seasons` (GDSEASON) and
+    `.gas_deposition_land_use` (GDLANUSE).
+  - The 1-hour NO2/SO2 and 24-hour PM2.5 design-value outputs:
+    `OutputPathway.max_daily_files` / `.max_daily_by_year_files`
+    (`MaxDailyFile`: MAXDAILY, MXDYBYYR), `.max_daily_contributions`
+    (`MaxDailyContribution`: MAXDCONT in both the rank and the THRESH
+    form) and `.file_format` (FILEFORM).
+- **The 1-hour NAAQS workflow end to end.**
+  `design_values.naaqs_output_pathway(pollutant)` builds the OU pathway
+  for a design value with the rank taken from the NAAQS table
+  (`NAAQSStandard.percentile` / `.design_rank()`, new), `read_maxdaily()`
+  and `read_mxdybyyr()` parse AERMOD's MAXDAILY / MXDYBYYR files into
+  the frames the design-value functions take, and
+  `mxdybyyr_design_value()` reads AERMOD's own ranking back as a
+  cross-check. On EPA's Anchorage 1999 meteorology the SO2 and NO2 design
+  values pyaermod computes from MAXDAILY equal AERMOD's MXDYBYYR rank and
+  MAXDCONT total to the last printed digit
+  (`tests/fixtures/epa_style/{so2,no2}_1hr_*`, produced by the vendored
+  decks, which `naaqs_output_pathway` wrote).
+- **Validator rules for the cross-checks AERMOD applies to these
+  keywords**: MULTYEAR excludes SAVEFILE/INITFILE (E150) and is limited
+  to the pollutants it can chain; the gas-deposition defaults need ALPHA
+  (E198) and GASDEPVD excludes GDSEASON/GDLANUSE (E195); NOXVALUE and
+  NOX_VALS conflict (E605), sector forms need their sector keyword (E171)
+  and sectors must be ascending and at least 30 degrees apart (E222/E227);
+  MAXDAILY/MXDYBYYR/MAXDCONT require the NAAQS processing to be active
+  (`Validator.naaqs_processing`, E162/E163), MAXDCONT excludes restarts
+  (E153) and its ranks must sit inside the RECTABLE range (E290/E272),
+  with the THRESH form needing room beyond the design rank (E273).
+- **`scripts/keyword_oracle.py` and `.github/workflows/keyword_oracle.yml`**
+  — print, from EPA's Fortran and a freshly built binary, what AERMOD
+  does with a keyword: the dispatch branch and parsing subroutine, every
+  EPA test deck that uses it, and the setup-pass messages and produced
+  files from probe decks (`scripts/oracle_decks/`). Manual dispatch.
+
+### Fixed
+- **The ozone and NOx writer emitted lines AERMOD rejects.** An ozone
+  file was written as `O3VALUES <file>` (E201, no numerical parameters),
+  a constant as `O3VALUES UNIFORM <value>` (E203, invalid flag) and a
+  sector value as `O3VALUES SECTOR n <value>`; the NOx background file
+  was written on `NOXVALUE`, which takes a concentration (E208). They now
+  go on OZONEFIL, OZONEVAL, `OZONEVAL SECTn` and NOX_FILE, and the
+  setup-pass acceptance tests hold them there. The reader still accepts
+  the two legacy `O3VALUES` spellings so decks written by earlier
+  releases open.
+
+### Changed
+- `Validator._validate_output` receives the control pathway so the OU
+  design-value keywords can be checked against the pollutant and
+  averaging periods; `Validator.validate` is unchanged for callers.
+- The GRSM validation warning is raised when no NOx background of any
+  kind is given, not only when `nox_file` is unset, and the NOx keywords
+  on a non-GRSM run are an error (AERMOD E602).
+
 - **AERSURFACE deck-acceptance tests across the configuration space** —
   `tests/test_aersurface_deck_acceptance.py` runs AERSURFACE's own setup
   pass (`RUNORNOT NOT`) over ~30 configurations. Setup needs the raster

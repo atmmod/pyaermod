@@ -38,6 +38,7 @@ coverage.xml
 !tests/fixtures/epa_official/*.out
 !tests/fixtures/epa_official/*.sfc
 !tests/fixtures/epa_official/*.pfl
+!scripts/oracle_decks/*.inp
 !tests/fixtures/epa_official/*.SFC
 !tests/fixtures/epa_official/*.PFL
 !tests/fixtures/epa_style/*.inp

@@ -51,12 +51,24 @@ keywords therefore never reach the validator.
 
 | Pathway | v26135 keywords | Handled + tested | Handled + untested | Unhandled |
 |---|---:|---:|---:|---:|
-| CO | 37 | 18 | 0 | 19 |
+| CO | 37 | 32 | 0 | 5 |
 | SO | 36 | 18 | 0 | 18 |
 | RE | 7 | 7 | 0 | 0 |
 | ME | 14 | 8 | 0 | 6 |
-| OU | 16 | 7 | 0 | 9 |
+| OU | 16 | 11 | 0 | 5 |
 | EV | 5 | 1 | 0 | 4 |
+
+Reader completeness tranche 1 (this branch) moved 18 keywords from
+"Unhandled" to "Handled + tested" -- the restart/multi-year trio, the NOx
+background family with the ozone sector and unit keywords, the OU
+design-value keywords and the gas-deposition defaults -- and each is
+stored structurally *and* written back, not merely recognised. The field
+layouts were read off `coset.f` / `ouset.f` with `scripts/keyword_oracle.py`
+(the same script prints them from a fresh EPA source tree) and every form
+the writer emits passes AERMOD's setup pass in
+`tests/test_source_deck_acceptance.py`; `tests/test_epa_deck_roundtrip.py`
+checks that all 53 EPA decks round-trip those keyword lines token for
+token (five are vendored so the check also runs without the archive).
 
 (`STARTING`/`FINISHED` are structural and excluded from the counts.)
 `src/pyaermod/input_reader.py` statement coverage from its own test file:
@@ -66,9 +78,22 @@ non-empty before they reach `_group_keywords`).
 
 ## Handled + tested
 
-**CO (18):** AVERTIME, DCAYCOEF, DEBUGOPT, ERRORFIL, FLAGPOLE, HALFLIFE,
-LOW_WIND, MODELOPT, NO2EQUIL, NO2STACK, O3VALUES, OZONEFIL, OZONEVAL,
-POLLUTID, RUNORNOT, TITLEONE, TITLETWO, URBANOPT.
+**CO (32):** AVERTIME, DCAYCOEF, DEBUGOPT, ERRORFIL, FLAGPOLE, GASDEPDF,
+GASDEPVD, GDLANUSE, GDSEASON, HALFLIFE, INITFILE, LOW_WIND, MODELOPT,
+MULTYEAR, NO2EQUIL, NO2STACK, NOXSECTR, NOXVALUE, NOX_FILE, NOX_UNIT,
+NOX_VALS, O3SECTOR, O3VALUES, OZONEFIL, OZONEVAL, OZONUNIT, POLLUTID,
+RUNORNOT, SAVEFILE, TITLEONE, TITLETWO, URBANOPT.
+Field layouts, from `coset.f`: `MULTYEAR [H6H] savfil [initfil]` (H6H is
+optional and warned about, W352); `SAVEFILE [savfil [dayinc [savfl2]]]`
+and `INITFILE [inifil]` (a bare keyword means `SAVE.FIL`); the background
+keywords take `[SECTn] value [units]` (OZONEVAL, NOXVALUE), `[SECTn] file
+[units [format]]` (OZONEFIL, NOX_FILE) and `[SECTn] flag values...`
+(O3VALUES, NOX_VALS, accumulating over lines, same flags as EMISFACT);
+O3SECTOR/NOXSECTR take 2-6 ascending start directions; OZONUNIT/NOX_UNIT
+one of PPB, PPM, UG/M3; `GASDEPDF fo fseas2 fseas5 [refspe]`;
+`GASDEPVD uservd`; GDSEASON 12 categories in 1-5; GDLANUSE 36 categories
+in 1-9. Ozone and NOx sector forms are stored per sector
+(`OzoneData.by_sector`, `NOxBackground.by_sector`).
 MODELOPT options understood: CONC, DEPOS, DDEP, WDEP, FLAT, ELEV/ELEVATED,
 FLATSRCS, DFAULT, OLM, PVMRM, ARM2, GRSM, NOCHKD. Any other option token
 (v26135 also accepts ALPHA, BETA, FASTALL, FASTAREA, SCREEN, TOXICS, TTRM,
@@ -96,8 +121,17 @@ INCLUDED.
 **ME (8):** PROFBASE, PROFFILE, SITEDATA, STARTEND, SURFDATA, SURFFILE,
 UAIRDATA, WDROTATE.
 
-**OU (7):** DAYTABLE, MAXIFILE, MAXTABLE, PLOTFILE (ALL and per-group),
-POSTFILE, RECTABLE (numeric and `FIRST-THIRD` style ranks), SUMMFILE.
+**OU (11):** DAYTABLE, FILEFORM, MAXDAILY, MAXDCONT, MAXIFILE, MAXTABLE,
+MXDYBYYR, PLOTFILE (ALL and per-group), POSTFILE, RECTABLE (numeric and
+`FIRST-THIRD` style ranks), SUMMFILE.
+Field layouts, from `ouset.f`: `MAXDAILY grpid filnam [funit]` and
+`MXDYBYYR grpid filnam [funit]` (no averaging-period field; the period is
+implied by the NAAQS processing, and AERMOD rejects both unless
+NO2AVE/SO2AVE/PM25AVE is active, E162/E163); `MAXDCONT grpid upper lower
+filnam [funit]` or `MAXDCONT grpid upper THRESH thresh filnam [funit]`,
+incompatible with SAVEFILE/INITFILE/MULTYEAR (E153); `FILEFORM FIX|EXP`.
+The MAXDAILY and MXDYBYYR files are read by
+`pyaermod.design_values.read_maxdaily` / `read_mxdybyyr`.
 
 **EV (1):** INCLUDED (the EV pathway is recognised by the splitter; its
 other keywords are unhandled, see below).
@@ -121,14 +155,8 @@ None of the 53 EPA decks fail because of them (they are all in the
 pass-through path), but several are common in practice and are the
 natural next reader features.
 
-**CO (19):** ARCFTOPT, ARMRATIO, AWMADWNW, EVENTFIL, GASDEPDF, GASDEPVD,
-GDLANUSE, GDSEASON, INITFILE, MULTYEAR, NOXSECTR, NOXVALUE, NOX_FILE,
-NOX_UNIT, NOX_VALS, O3SECTOR, ORD_DWNW, OZONUNIT, SAVEFILE.
-Highest value: `MULTYEAR`/`SAVEFILE`/`INITFILE` (five of the EPA decks
-chain years with them), the NOx background family (`NOXVALUE`,
-`NOX_FILE`, `NOX_VALS`, `NOX_UNIT`, `NOXSECTR`) and `O3SECTOR`/`OZONUNIT`
-for GRSM/TTRM runs, and the gas-deposition defaults (`GASDEPDF`,
-`GASDEPVD`, `GDSEASON`, `GDLANUSE`).
+**CO (5):** ARCFTOPT, ARMRATIO, AWMADWNW, EVENTFIL, ORD_DWNW.
+(`EVENTFIL` is written by `ControlPathway.eventfil` but not read back.)
 
 **SO (18):** ARCFTSRC, AREAVERT, BLPGROUP, BLPINPUT, CONCUNIT, DEPOUNIT,
 EMISUNIT, HBPSRCID, METHOD_2, NO2RATIO, OLMGROUP, PLATFORM, PSDGROUP,
@@ -146,10 +174,7 @@ The keyword table also lists NOTURB, NOSA, NOSW, NOSAST, NOSWST, NOSACO,
 NOSWCO (turbulence-suppression flags), which `meset.f` does not dispatch
 through the `KEYWRD .EQ.` pattern.
 
-**OU (9):** EVALFILE, FILEFORM, MAXDAILY, MAXDCONT, MXDYBYYR, NOHEADER,
-RANKFILE, SEASONHR, TOXXFILE. Highest value: `MAXDAILY`/`MXDYBYYR`/
-`MAXDCONT` (the 1-hour NO2/SO2 NAAQS design-value outputs) and
-`FILEFORM`.
+**OU (5):** EVALFILE, NOHEADER, RANKFILE, SEASONHR, TOXXFILE.
 
 **EV (4):** EVENTLOC, EVENTOUT, EVENTPER, FILEFORM.
 
@@ -174,4 +199,19 @@ RANKFILE, SEASONHR, TOXXFILE. Highest value: `MAXDAILY`/`MXDYBYYR`/
 5. **Pass-through tests pin behaviour, not support.** The
    `test_unhandled_*_keywords_pass_through` cases assert only that the
    deck still parses; when support for a keyword is added, replace the
-   corresponding parametrised entry with a structural assertion.
+   corresponding parametrised entry with a structural assertion. (Done
+   for the 18 keywords of tranche 1: see `TestCORestartKeywords`,
+   `TestCONOxAndOzoneBackground`, `TestCOGasDepositionDefaults` and the
+   design-value cases in `TestMEOUKeywordsV26135`.)
+6. **Ozone writer forms.** Before tranche 1 the writer emitted every
+   ozone input as `O3VALUES` (`O3VALUES <file>`, `O3VALUES UNIFORM v`,
+   `O3VALUES SECTOR n v`) and the NOx file as `NOXVALUE <file>`; AERMOD
+   rejects all four (E201/E203/E208). Fixed: OZONEFIL, OZONEVAL,
+   `OZONEVAL SECTn`, NOX_FILE. The reader keeps accepting the two legacy
+   `O3VALUES` spellings so older pyaermod decks still open.
+7. **`GasDepositionParams` field semantics.** AERMOD's `GASDEPOS` fields
+   are `Da Dw rcl Henry` (EPA's `testgas` deck: `0.08962 1.04E-5 2.51E4
+   557.0`); pyaermod's validator reads the third as a 0-1 reactivity and
+   rejects EPA's own values. Not a reader defect (the values round-trip),
+   but the writer-side model needs the same treatment as the keywords
+   above (WP-2).

@@ -231,3 +231,133 @@ class TestYearParsing:
         out = annual_mean(df)
         years = sorted(out["year"].astype(int).tolist())
         assert years == [1950, 1999, 2001, 2049]
+
+
+# ---------------------------------------------------------------------
+# AERMOD's own MAXDAILY / MXDYBYYR / MAXDCONT outputs
+# ---------------------------------------------------------------------
+#
+# tests/fixtures/epa_style/{so2,no2}_1hr_* were produced by AERMOD v26135
+# (gfortran build from EPA's source) from the decks alongside them, which
+# pyaermod wrote with naaqs_output_pathway(), on EPA's Anchorage 1999
+# meteorology (anch-99_adju, a full year). The design value pyaermod
+# computes from the MAXDAILY series must be the number AERMOD itself
+# ranked: the MXDYBYYR rank row and the MAXDCONT total, to the last
+# printed digit.
+
+from pathlib import Path as _Path  # noqa: E402
+
+_EPA_STYLE = _Path(__file__).parent / "fixtures" / "epa_style"
+
+
+def _maxdcont_totals(path):
+    rows = {}
+    for line in _Path(path).read_text().splitlines():
+        if line.startswith("*") or not line.strip():
+            continue
+        parts = line.split()
+        rows[(float(parts[0]), float(parts[1]))] = float(parts[2])
+    return rows
+
+
+class TestAermodDesignValueOutputs:
+    @pytest.mark.parametrize("pollutant, rank, fn", [
+        ("so2", 4, so2_1hr_design_value),
+        ("no2", 8, no2_1hr_design_value),
+    ])
+    def test_design_value_from_maxdaily_matches_aermod_ranking(self, pollutant, rank, fn):
+        from pyaermod.design_values import mxdybyyr_design_value, read_maxdaily, read_mxdybyyr
+
+        daily = read_maxdaily(_EPA_STYLE / f"{pollutant}_1hr_maxdaily.dat")
+        assert len(daily) == 365 * 2, "two receptors, every day of 1999"
+        assert set(daily["ave"]) == {"1-HR"} and set(daily["grp"]) == {"ALL"}
+        assert daily["date"].str.len().eq(8).all()
+
+        with pytest.warns(UserWarning, match="defined over 3 years"):
+            ours = fn(daily).set_index(["x", "y"])["concentration"]
+        ranked = read_mxdybyyr(_EPA_STYLE / f"{pollutant}_1hr_mxdybyyr.dat")
+        assert sorted(ranked["rank"].unique()) == list(range(1, rank + 1))
+        theirs = mxdybyyr_design_value(ranked, rank).set_index(["x", "y"])["concentration"]
+        totals = _maxdcont_totals(_EPA_STYLE / f"{pollutant}_1hr_maxdcont.dat")
+
+        assert len(ours) == 2
+        for key, value in ours.items():
+            assert value == theirs[key], f"{pollutant} at {key}: {value} vs AERMOD {theirs[key]}"
+            assert value == totals[key], f"{pollutant} at {key}: MAXDCONT prints {totals[key]}"
+
+    def test_mxdybyyr_needs_the_requested_rank(self):
+        from pyaermod.design_values import mxdybyyr_design_value, read_mxdybyyr
+        ranked = read_mxdybyyr(_EPA_STYLE / "so2_1hr_mxdybyyr.dat")
+        with pytest.raises(ValueError, match="rank 5"):
+            mxdybyyr_design_value(ranked, 5)
+
+    def test_short_record_is_an_error(self, tmp_path):
+        from pyaermod.design_values import read_maxdaily
+        bad = tmp_path / "bad.dat"
+        bad.write_text("* header\n 1.0 2.0 3.0\n")
+        with pytest.raises(ValueError, match="at least 11 fields"):
+            read_maxdaily(bad)
+
+    def test_fixture_decks_are_what_naaqs_output_pathway_writes(self):
+        from pyaermod.design_values import naaqs_output_pathway
+        for pollutant in ("so2", "no2"):
+            deck = (_EPA_STYLE / f"{pollutant}_1hr_design.inp").read_text()
+            expected = naaqs_output_pathway(pollutant.upper(), stem=f"{pollutant}_1hr").to_aermod_input()
+            assert expected in deck
+
+
+class TestNaaqsOutputPathway:
+    def test_ranks_come_from_the_naaqs_table(self):
+        from pyaermod.design_values import naaqs_output_pathway
+        from pyaermod.naaqs import get_naaqs
+        assert get_naaqs("NO2", "1-hour").design_rank() == 8
+        assert get_naaqs("SO2", "1-hour").design_rank() == 4
+        assert get_naaqs("PM2.5", "24-hour").design_rank() == 8
+        assert get_naaqs("SO2", "1-hour").design_rank(n_days=100) == 1
+        with pytest.raises(ValueError, match="not a percentile form"):
+            get_naaqs("CO", "1-hour").design_rank()
+
+        so2 = naaqs_output_pathway("SO2")
+        assert so2.receptor_table_rank == 4
+        mdc = so2.max_daily_contributions[0]
+        assert (mdc.upper_rank, mdc.lower_rank, mdc.threshold) == (4, 4, None)
+        assert [f.filename for f in so2.max_daily_files] == ["design_maxdaily.dat"]
+        assert [f.filename for f in so2.max_daily_by_year_files] == ["design_mxdybyyr.dat"]
+
+        pm = naaqs_output_pathway("PM2.5", source_group="STK", stem="pm")
+        assert pm.max_daily_contributions[0].upper_rank == 8
+        assert pm.max_daily_files[0].source_group == "STK"
+        assert pm.max_daily_files[0].filename == "pm_maxdaily.dat"
+
+    def test_thresh_form_widens_the_rectable_range(self):
+        from pyaermod.design_values import naaqs_output_pathway
+        no2 = naaqs_output_pathway("NO2", threshold=188.0)
+        mdc = no2.max_daily_contributions[0]
+        assert (mdc.upper_rank, mdc.lower_rank, mdc.threshold) == (8, None, 188.0)
+        # ouset.f E273: the range must exceed the design rank plus 4.
+        assert no2.receptor_table_rank == 13
+        assert naaqs_output_pathway("NO2", threshold=188.0, receptor_table_rank=25).receptor_table_rank == 25
+
+    def test_validator_accepts_the_generated_pathway(self):
+        from pyaermod.design_values import naaqs_output_pathway
+        from pyaermod.input_generator import (
+            AERMODProject,
+            CartesianGrid,
+            ControlPathway,
+            MeteorologyPathway,
+            PointSource,
+            ReceptorPathway,
+            SourcePathway,
+        )
+        from pyaermod.validator import Validator
+        sources = SourcePathway()
+        sources.add_source(PointSource("S", 0.0, 0.0, stack_height=30.0, stack_diameter=1.5,
+                                       stack_temp=400.0, exit_velocity=10.0, emission_rate=1.0))
+        project = AERMODProject(
+            control=ControlPathway(title_one="t", pollutant_id="NO2", averaging_periods=["1"]),
+            sources=sources, receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
+            meteorology=MeteorologyPathway(surface_file="a.sfc", profile_file="a.pfl"),
+            output=naaqs_output_pathway("NO2", threshold=188.0),
+        )
+        result = Validator.validate(project, advanced=False)
+        assert not [e for e in result.errors if e.severity == "error"], str(result)

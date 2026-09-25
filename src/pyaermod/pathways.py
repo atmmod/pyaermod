@@ -83,26 +83,227 @@ class ChemistryMethod(Enum):
     GRSM = "GRSM"
 
 
+#: Concentration units AERMOD accepts on the background keywords
+#: (OZONEVAL, OZONEFIL, OZONUNIT, NOXVALUE, NOX_FILE, NOX_UNIT); anything
+#: else is a fatal E203 in ``coset.f``.
+BACKGROUND_UNITS = ("PPB", "PPM", "UG/M3")
+
+#: Temporal-variation flags for ``O3VALUES`` and ``NOX_VALS``, with the
+#: number of values each requires. Same table as EMISFACT (``coset.f``,
+#: subroutines O3VALS and NOXVALS).
+TEMPORAL_FLAG_COUNTS: Dict[str, int] = {
+    "ANNUAL": 1, "SEASON": 4, "MONTH": 12, "HROFDY": 24, "WSPEED": 6,
+    "SEASHR": 96, "HRDOW": 72, "HRDOW7": 168, "SHRDOW": 288,
+    "SHRDOW7": 672, "MHRDOW": 864, "MHRDOW7": 2016,
+}
+
+
+def _num(value: float) -> str:
+    """Shortest fixed/scientific rendering that reads back to itself."""
+    return f"{value:.10g}"
+
+
+@dataclass
+class TemporalValues:
+    """A background concentration that varies by season, month, hour...
+
+    The runstream form is ``O3VALUES <flag> <values>`` or ``NOX_VALS
+    <flag> <values>``; AERMOD accepts the values over as many lines as
+    needed and requires exactly :data:`TEMPORAL_FLAG_COUNTS` of them.
+
+    Parameters
+    ----------
+    flag : str
+        One of the keys of :data:`TEMPORAL_FLAG_COUNTS`.
+    values : list of float
+        The values, in AERMOD's order for that flag.
+    """
+    flag: str
+    values: List[float] = field(default_factory=list)
+
+
+@dataclass
+class BackgroundSpec:
+    """One background-concentration specification.
+
+    Used for the whole domain, or for one wind-direction sector when
+    ``O3SECTOR`` / ``NOXSECTR`` is in effect. AERMOD lets an hourly file
+    coexist with a value or a temporal profile (the latter substitutes
+    for hours the file is missing), but refuses ``value`` together with
+    ``varying``.
+
+    Parameters
+    ----------
+    value : float, optional
+        ``OZONEVAL`` / ``NOXVALUE`` constant.
+    value_units : str, optional
+        Units on that line (PPB, PPM, UG/M3); AERMOD's default is UG/M3.
+    hourly_file : str, optional
+        ``OZONEFIL`` / ``NOX_FILE`` path.
+    file_units : str, optional
+        Units field on the file line.
+    file_format : str, optional
+        Fortran read format on the file line, or ``FREE``.
+    varying : TemporalValues, optional
+        ``O3VALUES`` / ``NOX_VALS`` profile.
+    """
+    value: Optional[float] = None
+    value_units: Optional[str] = None
+    hourly_file: Optional[str] = None
+    file_units: Optional[str] = None
+    file_format: Optional[str] = None
+    varying: Optional[TemporalValues] = None
+
+    def is_empty(self) -> bool:
+        return (self.value is None and self.hourly_file is None
+                and self.varying is None)
+
+
 @dataclass
 class OzoneData:
     """
-    Ozone data for NO2 chemistry options.
+    Ozone data for NO2 chemistry options (CO pathway ozone keywords).
 
-    Provide either an hourly ozone file, a uniform value, or
-    sector-dependent values.
+    ``ozone_file`` and ``uniform_value`` are the simplest ways to say
+    "one file" or "one value"; the other fields express everything
+    AERMOD's OZONEVAL / OZONEFIL / O3VALUES / O3SECTOR / OZONUNIT
+    keywords can. :meth:`spec` returns the whole-domain part as a
+    :class:`BackgroundSpec`.
 
     Parameters
     ----------
     ozone_file : str, optional
-        Path to hourly ozone data file.
+        Path to the hourly ozone file (``OZONEFIL``).
     uniform_value : float, optional
-        Uniform ozone concentration in ppb.
+        Constant ozone concentration (``OZONEVAL``).
     sector_values : dict, optional
-        Mapping of sector index to ozone value in ppb.
+        Mapping of sector index to a constant ozone value
+        (``OZONEVAL SECTn``); requires ``sectors``.
+    uniform_units : str, optional
+        Units field on the ``OZONEVAL`` line (PPB, PPM, UG/M3).
+    ozone_file_units : str, optional
+        Units field on the ``OZONEFIL`` line.
+    ozone_file_format : str, optional
+        Fortran read format on the ``OZONEFIL`` line, or ``FREE``.
+    varying : TemporalValues, optional
+        ``O3VALUES`` profile.
+    sectors : list of float
+        ``O3SECTOR`` starting directions, degrees, ascending, 2 to 6.
+    by_sector : dict
+        Sector index -> :class:`BackgroundSpec` for the sector forms of
+        the three keywords.
+    units : str, optional
+        ``OZONUNIT``: units for the ``O3VALUES`` profiles.
     """
     ozone_file: Optional[str] = None
     uniform_value: Optional[float] = None
     sector_values: Optional[Dict[int, float]] = None
+    uniform_units: Optional[str] = None
+    ozone_file_units: Optional[str] = None
+    ozone_file_format: Optional[str] = None
+    varying: Optional[TemporalValues] = None
+    sectors: List[float] = field(default_factory=list)
+    by_sector: Dict[int, BackgroundSpec] = field(default_factory=dict)
+    units: Optional[str] = None
+
+    def spec(self) -> BackgroundSpec:
+        """The whole-domain (no-sector) specification."""
+        return BackgroundSpec(
+            value=self.uniform_value, value_units=self.uniform_units,
+            hourly_file=self.ozone_file, file_units=self.ozone_file_units,
+            file_format=self.ozone_file_format, varying=self.varying,
+        )
+
+
+@dataclass
+class NOxBackground(BackgroundSpec):
+    """
+    NOx background for GRSM (CO NOXVALUE / NOX_FILE / NOX_VALS / NOX_UNIT /
+    NOXSECTR).
+
+    The :class:`BackgroundSpec` fields carry the whole-domain form;
+    ``sectors`` and ``by_sector`` carry the ``NOXSECTR`` form, in which
+    every value/file/profile line names its sector. AERMOD treats
+    ``NOXVALUE`` together with ``NOX_VALS`` as a fatal conflict (E605).
+
+    Parameters
+    ----------
+    units : str, optional
+        ``NOX_UNIT``: units for the ``NOX_VALS`` profiles.
+    sectors : list of float
+        ``NOXSECTR`` starting directions, degrees, ascending, 2 to 6.
+    by_sector : dict
+        Sector index -> :class:`BackgroundSpec`.
+    """
+    units: Optional[str] = None
+    sectors: List[float] = field(default_factory=list)
+    by_sector: Dict[int, BackgroundSpec] = field(default_factory=dict)
+
+
+def _background_lines(spec: BackgroundSpec, keywords: Tuple[str, str, str],
+                      sector: Optional[int] = None) -> List[str]:
+    """Runstream lines for one :class:`BackgroundSpec`.
+
+    ``keywords`` is the (value, file, profile) keyword triple, i.e.
+    ``("OZONEVAL", "OZONEFIL", "O3VALUES")`` or its NOx counterpart.
+    Field order follows ``coset.f``: ``[SECTn] value [units]``,
+    ``[SECTn] file [units [format]]`` and ``[SECTn] flag values...``. A
+    format without units would be read as units, so UG/M3 (AERMOD's
+    default) is written in that case.
+    """
+    value_kw, file_kw, vals_kw = keywords
+    tag = f"SECT{sector}  " if sector else ""
+    lines: List[str] = []
+    if spec.value is not None:
+        line = f"   {value_kw}  {tag}{_num(spec.value)}"
+        if spec.value_units:
+            line += f"  {spec.value_units}"
+        lines.append(line)
+    if spec.hourly_file:
+        line = f"   {file_kw}  {tag}{spec.hourly_file}"
+        if spec.file_units or spec.file_format:
+            line += f"  {spec.file_units or 'UG/M3'}"
+        if spec.file_format:
+            line += f"  {spec.file_format}"
+        lines.append(line)
+    if spec.varying is not None:
+        values = spec.varying.values
+        per_line = 12
+        for start in range(0, max(len(values), 1), per_line):
+            chunk = " ".join(_num(v) for v in values[start:start + per_line])
+            lines.append(f"   {vals_kw}  {tag}{spec.varying.flag}  {chunk}".rstrip())
+    return lines
+
+
+def _ozone_lines(oz: OzoneData) -> List[str]:
+    """CO-pathway ozone keywords for an :class:`OzoneData`."""
+    lines: List[str] = []
+    if oz.sectors:
+        lines.append("   O3SECTOR  " + "  ".join(_num(d) for d in oz.sectors))
+    if oz.units:
+        lines.append(f"   OZONUNIT  {oz.units}")
+    kw = ("OZONEVAL", "OZONEFIL", "O3VALUES")
+    lines += _background_lines(oz.spec(), kw)
+    for sector, spec in sorted(oz.by_sector.items()):
+        lines += _background_lines(spec, kw, sector=sector)
+    for sector, value in sorted((oz.sector_values or {}).items()):
+        if sector not in oz.by_sector:
+            lines.append(f"   OZONEVAL  SECT{sector}  {_num(value)}")
+    return lines
+
+
+def _nox_lines(nox: NOxBackground) -> List[str]:
+    """CO-pathway NOx background keywords for a :class:`NOxBackground`."""
+    lines: List[str] = []
+    if nox.sectors:
+        lines.append("   NOXSECTR  " + "  ".join(_num(d) for d in nox.sectors))
+    if nox.units:
+        lines.append(f"   NOX_UNIT  {nox.units}")
+    kw = ("NOXVALUE", "NOX_FILE", "NOX_VALS")
+    lines += _background_lines(nox, kw)
+    for sector, spec in sorted(nox.by_sector.items()):
+        lines += _background_lines(spec, kw, sector=sector)
+    return lines
 
 
 @dataclass
@@ -124,13 +325,114 @@ class ChemistryOptions:
     olm_groups : list of SourceGroupDefinition
         Source groups for OLM method.
     nox_file : str, optional
-        NOx background file (GRSM only).
+        NOx background file (GRSM only): shorthand for
+        ``NOxBackground(hourly_file=...)``. Ignored when
+        ``nox_background`` is set.
+    nox_background : NOxBackground, optional
+        The full NOx background specification (GRSM only).
     """
     method: ChemistryMethod = ChemistryMethod.ARM2
     ozone_data: Optional[OzoneData] = None
     default_no2_ratio: float = 0.5
     olm_groups: List[SourceGroupDefinition] = field(default_factory=list)
     nox_file: Optional[str] = None
+    nox_background: Optional[NOxBackground] = None
+
+    def effective_nox_background(self) -> Optional[NOxBackground]:
+        """``nox_background``, or one built from the ``nox_file`` shorthand."""
+        if self.nox_background is not None:
+            return self.nox_background
+        if self.nox_file:
+            return NOxBackground(hourly_file=self.nox_file)
+        return None
+
+
+# ============================================================================
+# RESTART AND MULTI-YEAR OPTIONS (CO SAVEFILE / INITFILE / MULTYEAR)
+# ============================================================================
+
+#: Filename AERMOD uses for a bare ``SAVEFILE`` or ``INITFILE`` (coset.f,
+#: subroutines SAVEFL and INITFL).
+DEFAULT_RESTART_FILE = "SAVE.FIL"
+
+
+@dataclass
+class SaveFile:
+    """``CO SAVEFILE [savfil [dayinc [savfl2]]]``: periodic result save.
+
+    Parameters
+    ----------
+    filename : str, optional
+        Save file; ``None`` writes a bare ``SAVEFILE`` and AERMOD uses
+        :data:`DEFAULT_RESTART_FILE`.
+    day_increment : int, optional
+        Days between saves (AERMOD's default is 1).
+    alternate_filename : str, optional
+        Second file to alternate saves with.
+    """
+    filename: Optional[str] = None
+    day_increment: Optional[int] = None
+    alternate_filename: Optional[str] = None
+
+
+@dataclass
+class InitFile:
+    """``CO INITFILE [inifil]``: initialise results from a save file.
+
+    ``filename=None`` writes a bare ``INITFILE`` and AERMOD reads
+    :data:`DEFAULT_RESTART_FILE`.
+    """
+    filename: Optional[str] = None
+
+
+@dataclass
+class MultiYear:
+    """``CO MULTYEAR [H6H] savfil [initfil]``: chain one-year runs.
+
+    Each year's run saves its result arrays to ``save_file``; the next
+    year's deck names that file as its ``init_file``. AERMOD accepts the
+    keyword for PM10, PM2.5, NO2, SO2, LEAD and OTHER only, and refuses
+    it together with SAVEFILE or INITFILE.
+
+    Parameters
+    ----------
+    save_file : str
+        This year's save file.
+    init_file : str, optional
+        The previous year's save file.
+    h6h : bool
+        Write the legacy ``H6H`` field. AERMOD no longer requires it and
+        warns (W352) when it is present; kept so a deck that carries it
+        round-trips.
+    """
+    save_file: str
+    init_file: Optional[str] = None
+    h6h: bool = False
+
+
+# ============================================================================
+# GAS DRY-DEPOSITION DEFAULTS (CO GASDEPDF)
+# ============================================================================
+
+@dataclass
+class GasDepositionDefaults:
+    """``CO GASDEPDF fo fseas2 fseas5 [refspe]``: gas deposition defaults.
+
+    Parameters
+    ----------
+    reactivity : float
+        Reactivity factor ``fo`` (Wesely).
+    fseas2 : float
+        Fraction of maximum green LAI for seasonal category 2.
+    fseas5 : float
+        Fraction of maximum green LAI for seasonal category 5.
+    reference_species : str, optional
+        Optional reference species field.
+    """
+    reactivity: float
+    fseas2: float
+    fseas5: float
+    reference_species: Optional[str] = None
 
 
 # ============================================================================
@@ -184,6 +486,20 @@ class ControlPathway:
 
     # NO2 chemistry options
     chemistry: Optional[ChemistryOptions] = None
+
+    # Gas dry-deposition defaults (CO GASDEPDF / GASDEPVD / GDSEASON /
+    # GDLANUSE). AERMOD accepts these only with the ALPHA option, and
+    # refuses GDSEASON/GDLANUSE alongside GASDEPVD.
+    gas_deposition_defaults: Optional[GasDepositionDefaults] = None
+    gas_deposition_velocity: Optional[float] = None  # GASDEPVD, m/s
+    gas_deposition_seasons: Optional[List[int]] = None  # GDSEASON, 12 x 1-5
+    gas_deposition_land_use: Optional[List[int]] = None  # GDLANUSE, 36 x 1-9
+
+    # Restart and multi-year processing (CO SAVEFILE / INITFILE /
+    # MULTYEAR). MULTYEAR excludes the other two.
+    save_file: Optional[SaveFile] = None
+    init_file: Optional[InitFile] = None
+    multiyear: Optional[MultiYear] = None
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD CO pathway text"""
@@ -257,26 +573,64 @@ class ControlPathway:
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
 
-        # Chemistry-related CO keywords
+        # Gas dry-deposition defaults
+        gdd = self.gas_deposition_defaults
+        if gdd is not None:
+            line = (f"   GASDEPDF  {_num(gdd.reactivity)}  {_num(gdd.fseas2)}"
+                    f"  {_num(gdd.fseas5)}")
+            if gdd.reference_species:
+                line += f"  {gdd.reference_species}"
+            lines.append(line)
+        if self.gas_deposition_velocity is not None:
+            lines.append(f"   GASDEPVD  {_num(self.gas_deposition_velocity)}")
+        if self.gas_deposition_seasons:
+            lines.append("   GDSEASON  " + "  ".join(
+                str(int(v)) for v in self.gas_deposition_seasons))
+        if self.gas_deposition_land_use:
+            lines.append("   GDLANUSE  " + "  ".join(
+                str(int(v)) for v in self.gas_deposition_land_use))
+
+        # Chemistry-related CO keywords. The ozone keywords each have
+        # one job in coset.f: OZONEVAL takes a constant, OZONEFIL a file,
+        # O3VALUES a temporal flag and its values. (Earlier releases wrote
+        # every form as O3VALUES, which AERMOD rejects as E201/E203.)
         if self.chemistry is not None:
             chem = self.chemistry
-            # O3VALUES
             if chem.ozone_data is not None:
-                oz = chem.ozone_data
-                if oz.ozone_file:
-                    lines.append(f"   O3VALUES  {oz.ozone_file}")
-                elif oz.uniform_value is not None:
-                    lines.append(f"   O3VALUES  UNIFORM  {oz.uniform_value:.4g}")
-                elif oz.sector_values:
-                    for sector_id, value in sorted(oz.sector_values.items()):
-                        lines.append(f"   O3VALUES  SECTOR  {sector_id}  {value:.4g}")
+                lines += _ozone_lines(chem.ozone_data)
 
             # NO2STACK (default in-stack ratio)
             lines.append(f"   NO2STACK  {chem.default_no2_ratio:.4f}")
 
-            # NOx background file (GRSM)
-            if chem.nox_file:
-                lines.append(f"   NOXVALUE  {chem.nox_file}")
+            # NOx background (GRSM)
+            nox = chem.effective_nox_background()
+            if nox is not None:
+                lines += _nox_lines(nox)
+
+        # Restart / multi-year options
+        if self.multiyear is not None:
+            my = self.multiyear
+            line = "   MULTYEAR  " + ("H6H  " if my.h6h else "") + my.save_file
+            if my.init_file:
+                line += f"  {my.init_file}"
+            lines.append(line)
+        if self.save_file is not None:
+            sf = self.save_file
+            line = "   SAVEFILE"
+            if sf.filename:
+                line += f"  {sf.filename}"
+                if sf.day_increment is not None or sf.alternate_filename:
+                    # An alternate file sits in field 5, so field 4 must
+                    # hold the increment; 1 is AERMOD's own default.
+                    line += f"  {sf.day_increment if sf.day_increment is not None else 1}"
+                if sf.alternate_filename:
+                    line += f"  {sf.alternate_filename}"
+            lines.append(line)
+        if self.init_file is not None:
+            line = "   INITFILE"
+            if self.init_file.filename:
+                line += f"  {self.init_file.filename}"
+            lines.append(line)
 
         # Event file reference
         if self.eventfil:
@@ -378,6 +732,72 @@ def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
 
 
 @dataclass
+class MaxDailyFile:
+    """``OU MAXDAILY grpid filnam [funit]`` or ``OU MXDYBYYR ...``.
+
+    MAXDAILY writes every day's maximum 1-hour value (24-hour value for
+    PM2.5) at every receptor; MXDYBYYR writes each year's ranked daily
+    maxima. AERMOD accepts both only for the 1-hour NO2/SO2 and 24-hour
+    PM2.5 NAAQS processing, i.e. POLLUTID NO2/SO2 with AVERTIME 1, or
+    PM25 with AVERTIME 24 (ouset.f, E162/E163).
+
+    Parameters
+    ----------
+    source_group : str
+        Source group ID (``ALL`` or one defined with SRCGROUP).
+    filename : str
+        Output file.
+    file_unit : int, optional
+        Fortran unit number; AERMOD allocates one when omitted.
+    """
+    source_group: str
+    filename: str
+    file_unit: Optional[int] = None
+
+
+@dataclass
+class MaxDailyContribution:
+    """``OU MAXDCONT grpid upper lower filnam [funit]`` or
+    ``OU MAXDCONT grpid upper THRESH thresh filnam [funit]``.
+
+    Source-group contributions to the ranked daily maxima, from
+    ``upper_rank`` down to ``lower_rank``, or down to the rank whose
+    value first falls below ``threshold``. Exactly one of ``lower_rank``
+    and ``threshold`` is given. RECTABLE must cover ``upper_rank``, and
+    AERMOD refuses MAXDCONT together with SAVEFILE, INITFILE or
+    MULTYEAR (E153).
+
+    Parameters
+    ----------
+    source_group : str
+        Source group whose contributions are wanted.
+    upper_rank : int
+        Highest rank (1 = the highest value) to analyse.
+    filename : str
+        Output file.
+    lower_rank : int, optional
+        Lowest rank to analyse, >= ``upper_rank``.
+    threshold : float, optional
+        Stop once the ranked value drops below this concentration.
+    file_unit : int, optional
+        Fortran unit number.
+    """
+    source_group: str
+    upper_rank: int
+    filename: str
+    lower_rank: Optional[int] = None
+    threshold: Optional[float] = None
+    file_unit: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if (self.lower_rank is None) == (self.threshold is None):
+            raise ValueError(
+                "MaxDailyContribution takes exactly one of lower_rank "
+                "(rank form) or threshold (THRESH form)"
+            )
+
+
+@dataclass
 class OutputPathway:
     """
     AERMOD Output (OU) pathway
@@ -417,9 +837,24 @@ class OutputPathway:
     # .calculate_wet_deposition.
     output_type: str = "CONC"
 
+    # FILEFORM: FIX (AERMOD's default) or EXP for exponential notation
+    # in the plot/post/max files. None writes no FILEFORM line.
+    file_format: Optional[str] = None
+
+    # NAAQS design-value outputs (1-hour NO2/SO2, 24-hour PM2.5 only).
+    max_daily_files: List[MaxDailyFile] = field(default_factory=list)
+    max_daily_by_year_files: List[MaxDailyFile] = field(default_factory=list)
+    max_daily_contributions: List[MaxDailyContribution] = field(
+        default_factory=list)
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD OU pathway text"""
         lines = ["OU STARTING"]
+
+        # FILEFORM first: the POSTFILE header is written at setup with
+        # whichever format is in force when the file is opened.
+        if self.file_format:
+            lines.append(f"   FILEFORM  {self.file_format}")
 
         # Receptor table. A bare number on RECTABLE selects *only* that
         # rank -- "ALLAVE 10" is the tenth-highest alone, not the top ten
@@ -474,6 +909,25 @@ class OutputPathway:
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
                 f"{self.postfile_format}  {self.postfile}"
             )
+
+        # NAAQS design-value files: MAXDAILY / MXDYBYYR take no averaging
+        # period field (the period is implied by the pollutant); the
+        # optional trailing field is the Fortran unit.
+        for keyword, entries in (("MAXDAILY", self.max_daily_files),
+                                 ("MXDYBYYR", self.max_daily_by_year_files)):
+            for entry in entries:
+                line = f"   {keyword}  {entry.source_group}  {entry.filename}"
+                if entry.file_unit is not None:
+                    line += f"  {entry.file_unit}"
+                lines.append(line)
+        for mdc in self.max_daily_contributions:
+            bound = (f"THRESH  {_num(mdc.threshold)}" if mdc.threshold is not None
+                     else str(mdc.lower_rank))
+            line = (f"   MAXDCONT  {mdc.source_group}  {mdc.upper_rank}  {bound}"
+                    f"  {mdc.filename}")
+            if mdc.file_unit is not None:
+                line += f"  {mdc.file_unit}"
+            lines.append(line)
 
         lines.append("OU FINISHED")
         return "\n".join(lines)
