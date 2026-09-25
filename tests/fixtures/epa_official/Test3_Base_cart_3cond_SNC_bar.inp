@@ -1,0 +1,51 @@
+CO STARTING
+   TITLEONE  Test3_Base_cart_full with barrier test for comparison to R-LINE: 3 met conditions
+   TITLETWO  Single 200-m base source running north-south, centered at origin
+   MODELOPT  CONC FLAT WARNCHKD BETA ALPHA
+   FLAGPOLE
+   AVERTIME  1
+   POLLUTID  OTHER
+   RUNORNOT RUN
+   ERRORFIL  ../Outputs/Test3_Bar_cart_3cond_SNC_bar_ERRORS.OUT
+CO FINISHED
+
+SO STARTING
+   ELEVUNIT  METERS
+** RLINE Source              XSB     YSB     ZSB     XSE     YSE     ZSE     Zs
+** Location Parameters:    ------  ------  ------  ------  ------  ------  ------
+   LOCATION  BASE  RLINEXT   0.0   -100.0    1.0     0.0   100.0     1.0     0.0
+
+** RLINE Source            QEMIS    DCL      WIDTH  INIT_SIGMAZ
+**                        (g/m/s)   (m)        (m)        (m)
+** Release Parameters:    ------   ------  -----------  ------
+   SRCPARAM  BASE           1.0      0.0       3.6       2.0
+
+** RLINE Source           HTWALL    DCLWALL
+**                         (m)        (m)
+** SRC Config. Params:    ------    ------
+   RBARRIER  BASE          10.0       10.0
+
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   ELEVUNIT  METERS
+   GRIDCART CAR1 STA
+                 XYINC  -660.  13  120  -660.  13  120
+   GRIDCART CAR1 END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  ../meteorology/aermet2.sfc
+   PROFFILE  ../meteorology/aermet2.pfl
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   SITEDATA  99999  1988  HUDSON
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST-THIRD
+   MAXTABLE  ALLAVE  10
+   POSTFILE  1  ALL  PLOT  ../postfiles/Test3_Base_cart_3cond_SNC_bar.PST
+OU FINISHED

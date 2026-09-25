@@ -1,0 +1,45 @@
+** Probe: group continuation cards. SOGRP, OLMGRP, PSDGRP and BLPGRP
+** detect a continuation by a repeated group ID but never reset the
+** group index, so a continuation card that is not adjacent to its
+** group is filed under the LAST group defined. EPA's no2_1yrAK_olmgrp
+** deck ends "SRCGROUP ALL BACKGROUND"; a rewrite that put a bare
+** "SRCGROUP ALL" first and the BACKGROUND card after the other groups
+** ran clean but gave the ALL group without background (slope 0.80
+** against EPA's POSTFILE). The BACKGROUND / NOBACKGROUND flag is a field
+** of the card that defines ALL, so pyaermod writes it there and keeps
+** every group's cards together.
+CO STARTING
+   TITLEONE  oracle 15: SRCGROUP ALL BACKGROUND on the defining card
+   MODELOPT  CONC  FLAT  DFAULT
+   AVERTIME  1  ANNUAL
+   POLLUTID  SO2
+   RUNORNOT  NOT
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   LOCATION  STACK2  POINT  50.0  0.0  0.0
+   SRCPARAM  STACK2  500.0  65.00  425.  15.0  5.
+   BACKGRND  ANNUAL  5.0
+   SRCGROUP  ALL  BACKGROUND
+   SRCGROUP  STK  STACK1
+   SRCGROUP  STK  STACK2
+   SRCGROUP  BGD  BACKGROUND
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.0  500.0  0.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

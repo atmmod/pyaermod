@@ -193,10 +193,14 @@ class TestUrbanSourceAllTypes:
 
     @pytest.mark.parametrize("source_cls", ALL_SOURCE_TYPES, ids=lambda c: c.__name__)
     def test_urban_source(self, source_cls):
+        """URBANSRC lists source IDs only (soset.f URBANS with one urban
+        area); a trailing area name is read as an undefined source, E300."""
         src = _make_source(source_cls, is_urban=True, urban_area_name="METRO1")
         output = src.to_aermod_input()
-        assert "URBANSRC" in output
-        assert "METRO1" in output
+        urban_lines = [ln.split() for ln in output.splitlines() if "URBANSRC" in ln]
+        assert urban_lines
+        assert all(len(toks) == 2 for toks in urban_lines), urban_lines
+        assert "METRO1" not in output
 
     @pytest.mark.parametrize("source_cls", ALL_SOURCE_TYPES, ids=lambda c: c.__name__)
     def test_non_urban_omits_keyword(self, source_cls):
@@ -205,11 +209,11 @@ class TestUrbanSourceAllTypes:
         assert "URBANSRC" not in output
 
     @pytest.mark.parametrize("source_cls", ALL_SOURCE_TYPES, ids=lambda c: c.__name__)
-    def test_urban_without_name_omits_keyword(self, source_cls):
-        """is_urban=True but no urban_area_name -> URBANSRC not emitted."""
+    def test_urban_without_name_still_emits_keyword(self, source_cls):
+        """is_urban=True needs no area name: URBANSRC names sources only."""
         src = _make_source(source_cls, is_urban=True, urban_area_name=None)
         output = src.to_aermod_input()
-        assert "URBANSRC" not in output
+        assert "URBANSRC" in output
 
     def test_buoyline_urbansrc_uses_segment_ids(self):
         """BuoyLineSource emits URBANSRC per segment."""
@@ -231,7 +235,7 @@ class TestUrbanSourceAllTypes:
         output = blp.to_aermod_input()
         assert "URBANSRC  BS1" in output
         assert "URBANSRC  BS2" in output
-        assert "CITYAREA" in output
+        assert "CITYAREA" not in output
 
 
 # ============================================================================
@@ -306,9 +310,11 @@ class TestControlPathwayOptions:
         assert "FLAGPOLE  1.50" in output
 
     def test_urban_option(self):
+        """URBANOPT population [name]: coset.f URBOPT reads field 1 as the
+        population when the deck has one urban area (E208 otherwise)."""
         ctrl = self._make_control(urban_option="URBANOPT1")
         output = ctrl.to_aermod_input()
-        assert "URBANOPT  URBANOPT1" in output
+        assert "URBANOPT  1000000.0  URBANOPT1" in output
 
     def test_low_wind_option(self):
         ctrl = self._make_control(low_wind_option="LOWWIND3")

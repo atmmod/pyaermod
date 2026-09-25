@@ -509,8 +509,8 @@ OU FINISHED
         assert src.num_vertices == 12
 
     def test_unsupported_type_skipped_cleanly(self):
-        """AREAPOLY requires AREAVERT vertex lists we don't reconstruct;
-        the reader should skip it without crashing the whole project."""
+        """An AREAPOLY with no AREAVERT ring cannot be constructed; the
+        reader must skip it without crashing the whole project."""
         p = self._project_wrap(
             "   LOCATION  G1  AREAPOLY  0 0 0\n"
             "   LOCATION  P1  POINT    100 100 0\n"
@@ -811,8 +811,8 @@ class TestSODepositionKeywords:
         src = p.sources.sources[0]
         assert isinstance(src.gas_deposition, GasDepositionParams)
         assert src.gas_deposition.diffusivity == pytest.approx(0.25)
-        assert src.gas_deposition.alpha_r == pytest.approx(0.01)
-        assert src.gas_deposition.reactivity == pytest.approx(0.5)
+        assert src.gas_deposition.diffusivity_water == pytest.approx(0.01)
+        assert src.gas_deposition.cuticular_resistance == pytest.approx(0.5)
         assert src.gas_deposition.henry_constant == pytest.approx(0.001)
 
     def test_particle_deposition_parsed(self):
@@ -845,7 +845,16 @@ class TestSOUrbanSrc:
     """Tests for SO URBANSRC keyword."""
 
     def test_urbansrc_sets_is_urban(self):
-        p = _wrap(so_body=_DEFAULT_SO + "   URBANSRC S1 MYURBAN\n")
+        # Single urban area (soset.f URBANS, ISTR=3): every field is a
+        # source ID, so there is no area name to record.
+        p = _wrap(so_body=_DEFAULT_SO + "   URBANSRC S1\n")
+        src = p.sources.sources[0]
+        assert src.is_urban is True
+        assert src.urban_area_name is None
+
+    def test_urbansrc_multi_area_form_records_the_urban_id(self):
+        # Several URBANOPT cards: "URBANSRC urbanid srcid..." (ISTR=4).
+        p = _wrap(so_body=_DEFAULT_SO + "   URBANSRC MYURBAN S1\n")
         src = p.sources.sources[0]
         assert src.is_urban is True
         assert src.urban_area_name == "MYURBAN"
@@ -1215,15 +1224,16 @@ class TestSOKeywordsV26135:
         assert _wrap(so_body=so).sources.sources == [], why
 
     @pytest.mark.parametrize("line", [
-        "EMISUNIT 1.0 GRAMS/SEC MICROGRAMS/M**3", "CONCUNIT 1.0 GRAMS/SEC MICROGRAMS/M**3",
-        "DEPOUNIT 1.0 GRAMS/SEC GRAMS/M**2", "METHOD_2 S1 0.5 2.0", "NO2RATIO S1 0.5",
-        "AREAVERT A1 0 0 10 0 10 10", "OLMGROUP OLM1 S1", "PSDGROUP INC S1",
-        "BLPINPUT 1 30.0 5.0", "BLPGROUP BL1 S1", "RBARRIER S1 3.0 5.0",
-        "RDEPRESS S1 2.0 10.0", "RLEMCONV", "SBARRIER S1 3.0 5.0", "VBARRIER S1 3.0 5.0 0.5",
-        "PLATFORM S1 10.0 20.0", "HBPSRCID S1", "ARCFTSRC S1",
+        "METHOD_2 S1 0.5 2.0", "PLATFORM S1 10.0 20.0", "HBPSRCID S1", "ARCFTSRC S1",
     ])
     def test_unhandled_so_keywords_pass_through(self, line):
-        """v26135 SO keywords the reader does not model must not break parsing."""
+        """v26135 SO keywords the reader does not model must not break parsing.
+
+        Reader tranche 2 replaced the AREAVERT, BLPINPUT, BLPGROUP,
+        OLMGROUP, PSDGROUP, NO2RATIO, EMISUNIT, CONCUNIT, DEPOUNIT,
+        RBARRIER, RDEPRESS, SBARRIER, VBARRIER and RLEMCONV entries with
+        the structural assertions in tests/test_so_source_construction.py.
+        """
         p = _wrap(so_body=_DEFAULT_SO + f"   {line}\n")
         assert [s.source_id for s in p.sources.sources] == ["S1"]
 

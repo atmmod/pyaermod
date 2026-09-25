@@ -272,8 +272,8 @@ class TestPropertyBased:
     def test_gas_dep_to_aermod_never_crashes(self, source):
         gas_dep = GasDepositionParams(
             diffusivity=0.15,
-            alpha_r=2.0,
-            reactivity=0.5,
+            diffusivity_water=2e-5,
+            cuticular_resistance=500.0,
             henry_constant=0.01,
         )
         # Create a new source with gas deposition
