@@ -1,0 +1,39 @@
+** Probe: ARCFTOPT with an airport ID and ARCFTSRC naming a VOLUME source
+** that has an HOUREMIS file with the sixteen-field aircraft record
+** (aermod.f AHRQREAD). Setup pass only; the hourly file is 25b_hourly.dat.
+** AERMOD said: accepted. The first guess put ARCFTSRC on a POINT source:
+** SO E833, the source does not fall into the aircraft category (VOLUME
+** and AREA only).
+CO STARTING
+   TITLEONE  oracle 25b: ARCFTOPT airport and ARCFTSRC on a VOLUME source with an aircraft HOUREMIS record
+   MODELOPT  CONC  FLAT  ALPHA
+   AVERTIME  1  24
+   POLLUTID  SO2
+   ARCFTOPT  KLAX
+   RUNORNOT  NOT
+   ERRORFIL  25b.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  VOL1  VOLUME  0.0  0.0  0.0
+   SRCPARAM  VOL1  1.0  5.0  10.0  5.0
+   HOUREMIS  25b_hourly.dat  VOL1
+   ARCFTSRC  VOL1
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.  0.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

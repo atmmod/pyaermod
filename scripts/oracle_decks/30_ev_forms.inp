@@ -1,0 +1,54 @@
+** Probe: the EVENTLOC field counts evset.f EVLOC allows (IFC 8 to 10,
+** i.e. name XR= x YR= y zelev [zhill [zflag]]), the RNG=/DIR= polar form,
+** EVENTPER with its five fields, EVENTOUT DETAIL, and the EV block placed
+** before OU. Setup pass only.
+** AERMOD said: accepted. Two first guesses failed: an EVENTLOC with only
+** the coordinates (XR= x YR= y, or RNG= r DIR= d) is EV E201, so the
+** elevation is not optional; and an EV block placed after OU FINISHED is
+** never seen by PRESET (which stops at OU FINISHED), so AERMOD ran the
+** deck as a normal run: SO E120 (ME out of sequence) and OU E110
+** (EVENTOUT invalid for this pathway).
+CO STARTING
+   TITLEONE  oracle 30: EV forms: EVENTLOC with 5, 6, 7 and 8 fields, RNG=/DIR=, EVENTOUT DETAIL
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  30.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   LOCATION  STACK2  POINT  100.0  0.0  0.0
+   SRCPARAM  STACK2  50.0  35.00  400.  10.0  2.
+   LOCATION  STACK3  POINT  200.0  0.0  0.0
+   SRCPARAM  STACK3  50.0  35.00  400.  10.0  2.
+   SRCGROUP  G2  STACK2
+   SRCGROUP  ALL
+SO FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+EV STARTING
+   EVENTPER  E1  1  ALL  88030112  10.5
+   EVENTLOC  E1  XR=  500.  YR=  500.  0.  0.  0.
+   EVENTPER  E2  24  G2  88030224  0.0
+   EVENTLOC  E2  XR=  500.  YR=  500.  0.  0.
+   EVENTPER  E3  1  ALL  88030301  0.0
+   EVENTLOC  E3  RNG=  700.  DIR=  45.  0.
+   EVENTPER  E4  1  ALL  88030302  0.0
+   EVENTLOC  E4  XR=  500.  YR=  500.  0.  0.  0.
+   EVENTPER  E5  1  ALL  88030303  0.0
+   EVENTLOC  E5  XR=  500.  YR=  500.  0.
+EV FINISHED
+
+OU STARTING
+   EVENTOUT  DETAIL
+OU FINISHED

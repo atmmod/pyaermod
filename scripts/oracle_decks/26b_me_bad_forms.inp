@@ -1,0 +1,40 @@
+** Probe: the forms meset.f rejects: WINDCATS with four values, NUMYEARS
+** with two fields, two turbulence keywords. Setup pass only.
+** AERMOD said: ME E200 for WINDCATS (WSCATS takes exactly five values;
+** anything else reads as "no parameters"), ME E202 for NUMYEARS, ME E135
+** for the second turbulence keyword (NOSA after NOTURB): the nine
+** NOTURB/NOSA/NOSW keywords share one status switch.
+CO STARTING
+   TITLEONE  oracle 26b: WINDCATS with four values, NUMYEARS two, two turbulence flags
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  26b.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.  0.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+   WINDCATS  1.54  3.09  5.14  8.23
+   NUMYEARS  1  2
+   NOTURB
+   NOSA
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

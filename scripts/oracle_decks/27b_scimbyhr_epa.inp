@@ -1,0 +1,35 @@
+** Probe: SCIMBYHR start interval wetstart wetint sfcfile pflfile, the
+** eight-field form EPA's scimtest deck writes. Setup pass only.
+** AERMOD said: accepted with ME W157 (wet SCIM not supported, fields 5 and
+** 6 ignored); the two summary files are created at setup.
+CO STARTING
+   TITLEONE  oracle 27b: SCIMBYHR start interval wetstart wetint sfcfile pflfile (EPA scimtest)
+   MODELOPT  CONC  FLAT  SCIM
+   AVERTIME  ANNUAL
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  27b.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.  0.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+   SCIMBYHR  1  25  0  0  27b_scim.sfc  27b_scim.pfl
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
