@@ -1,0 +1,182 @@
+** To run the example, copy the ALLSRCS.INP file to AERMOD.INP and type:                                                                                                        
+**                                                                                                                                  
+**    AERMOD
+**                                                                                                                                  
+** The results for this example problem are provided in file AERMOD.OUT.
+                                                                                                                                    
+CO STARTING                                                                                                                         
+   TITLEONE A Simple Example Problem for the AERMOD Model with all Source Types
+   TITLETWO All receptor types are also included
+   MODELOPT  CONC   FLAT  WARNCHKD BETA  ALPHA
+   AVERTIME  1  3  8  24  PERIOD                                                                                                          
+   POLLUTID  SO2                                                                                                                    
+   RUNORNOT RUN
+   ERRORFIL  ../Outputs/ALLSRCS_ERRORS.OUT
+CO FINISHED                                                                                                                         
+                                                                                                                                    
+SO STARTING
+** Use all source types
+   ELEVUNIT  METERS
+   LOCATION  STACKDW  POINT        0.0    0.0   0.0
+   LOCATION  AREA     AREA       -10.0  -10.0   0.0
+   LOCATION  CIRC     AREACIRC     0.0    0.0   0.0
+   LOCATION  AREAP    AREAPOLY     0.0    0.0   0.0
+   LOCATION  VOL      VOLUME       0.0    0.0   0.0
+   LOCATION  STACK    POINT        10.0    10.0   0.0
+   location  OPENPIT  OPENPIT   -100.0 -100.0   0.0
+   LOCATION  BASE     RLINE       0.0   -100.0    0.0   100.0    0.0
+** RLINE Source              XSB     YSB     ZSB     XSE     YSE     ZSE     Zs  
+** Location Parameters:    ------  ------  ------  ------  ------  ------  ------
+   LOCATION  BASE2  RLINEXT   0.0   -100.0    1.0     0.0   100.0     1.0     0.0
+   LOCATION  BARR   RLINEXT   0.0    -50.0    1.0     0.0    50.0     1.0     0.0
+   LOCATION  DEP    RLINEXT   0.0    -50.0    1.0     0.0    50.0     1.0     0.0
+   LOCATION  LINE1   LINE      300.0  800.0   900.0  200.0  0.0
+   LOCATION  BLINE1  BUOYLINE  300.0  800.0   900.0  200.0  0.0
+   LOCATION  BLINE2  BUOYLINE  300.0  1100.0  900.0  400.0  0.0
+   LOCATION  BLINE3  BUOYLINE  300.0  1200.0  900.0  600.0  0.0
+
+                                                                                                                                    
+** Point Source         QS      HS     TS    VS    DS
+** Parameters:         ----    ----   ----  ----   ---
+   SRCPARAM  STACKDW   500.0   65.00  425.  15.0   5.
+**                        (g/m2/s)   (m)        (m)        (m)
+** Release Parameters:    ------   ------  -----------  ------
+   SRCPARAM  BASE           1.0      1.0        1.0       2.0
+
+   BUILDHGT  STACKDW   36*50.
+   BUILDWID  STACKDW   62.26   72.64   80.80   86.51   89.59   89.95
+   BUILDWID  STACKDW   87.58   82.54   75.00   82.54   87.58   89.95
+   BUILDWID  STACKDW   89.59   86.51   80.80   72.64   62.26   50.00
+   BUILDWID  STACKDW   62.26   72.64   80.80   86.51   89.59   89.95
+   BUILDWID  STACKDW   87.58   82.54   75.00   82.54   87.58   89.95
+   BUILDWID  STACKDW   89.59   86.51   80.80   72.64   62.26   50.00
+   BUILDLEN  STACKDW   82.54   87.58   89.95   89.59   86.51   80.80
+   BUILDLEN  STACKDW   72.64   62.26   50.00   62.26   72.64   80.80
+   BUILDLEN  STACKDW   86.51   89.59   89.95   87.58   82.54   75.00
+   BUILDLEN  STACKDW   82.54   87.58   89.95   89.59   86.51   80.80
+   BUILDLEN  STACKDW   72.64   62.26   50.00   62.26   72.64   80.80
+   BUILDLEN  STACKDW   86.51   89.59   89.95   87.58   82.54   75.00
+   XBADJ     STACKDW  -47.35  -55.76  -62.48  -67.29  -70.07  -70.71
+   XBADJ     STACKDW  -69.21  -65.60  -60.00  -65.60  -69.21  -70.71
+   XBADJ     STACKDW  -70.07  -67.29  -62.48  -55.76  -47.35  -37.50
+   XBADJ     STACKDW  -35.19  -31.82  -27.48  -22.30  -16.44  -10.09
+   XBADJ     STACKDW   -3.43    3.34   10.00    3.34   -3.43  -10.09
+   XBADJ     STACKDW  -16.44  -22.30  -27.48  -31.82  -35.19  -37.50
+   YBADJ     STACKDW   34.47   32.89   30.31   26.81   22.50   17.50
+   YBADJ     STACKDW   11.97    6.08    0.00   -6.08  -11.97  -17.50
+   YBADJ     STACKDW  -22.50  -26.81  -30.31  -32.89  -34.47  -35.00
+   YBADJ     STACKDW  -34.47  -32.89  -30.31  -26.81  -22.50  -17.50
+   YBADJ     STACKDW  -11.97   -6.08    0.00    6.08   11.97   17.50
+   YBADJ     STACKDW   22.50   26.81   30.31   32.89   34.47   35.00
+
+   SRCPARAM  AREA   0.001  1.0   20.  20.
+   SRCPARAM  CIRC   0.1    10.0  20.
+   SRCPARAM  AREAP  0.001  1.0  8  2.0
+   AREAVERT  AREAP  0.0 0.0  10.0 0.0  10.0 10.0  0.0 10.0  0.0 20.0
+   AREAVERT  AREAP  -10.0 20.0  -10.0 10.0  -10.0 0.0
+   SRCPARAM  VOL    0.1    1.0   20.  20.
+   SRCPARAM  STACK  100.0  35.00  432.  11.7  2.4
+   SRCPARAM  OPENPIT   1.0E-5   0.000       1829.       183.0      0.1674E+08  -45.0
+   SRCPARAM  LINE1   0.001  1.0   20.  20.
+
+** RLINE Source            QEMIS    DCL      WIDTH  INIT_SIGMAZ
+**                        (g/m/s)   (m)        (m)        (m)
+** Release Parameters:    ------   ------  -----------  ------ 
+   SRCPARAM  BASE2           1.0      0.0       3.6       2.0
+   SRCPARAM  BARR           1.0      0.0       1.0       2.0
+   SRCPARAM  DEP            1.0      0.0       1.0       2.0
+
+
+** Buoyant Line Source     QS     HS
+** Parameters:            ----   ----
+   SRCPARAM  BLINE1      100.0   20.0
+   SRCPARAM  BLINE2      100.0   20.0
+   SRCPARAM  BLINE3      100.0   20.0
+
+** Average values for buoyant line plume rise calculations
+
+**           BldLen BldHt BldWid LineWid BldSep BuoyParm
+**           ------ ----- ------ ------- ------ --------
+   BLPINPUT   848.0  20.0  100.0     2.0   37.5    300.0
+
+** RLINEXT Source         HTWALL    DCLWALL   
+**                         (m)        (m)     
+** SRC Config. Params:    ------    ------   
+   RBARRIER  BARR          10.0       10.0   
+
+** RLINE Source           DEPTH    WTOP    WBOTTOM
+**                         (m)        (m)      (m)    
+** SRC Config. Params:    ------    ------    -------  
+   RDEPRESS  DEP         -12.5      50.0     25.0   
+
+   SRCGROUP  STACKDW  STACKDW
+   SRCGROUP  AREA     AREA   
+   SRCGROUP  CIRC     CIRC   
+   SRCGROUP  AREAP    AREAP  
+   SRCGROUP  VOL      VOL    
+   SRCGROUP  STACK    STACK
+   SRCGROUP  OPENPIT  OPENPIT
+   SRCGROUP  LINE  LINE1
+   SRCGROUP  BLINE   BLINE1
+   SRCGROUP  BLINE   BLINE2
+   SRCGROUP  BLINE   BLINE3
+   SRCGROUP  RLINEB  BASE
+   SRCGROUP  RLINEB2  BASE2
+   SRCGROUP  RLINEBA  BARR
+   SRCGROUP  RLINEDE  DEP
+
+SO FINISHED
+                                                                                                                                    
+RE STARTING
+** Use all receptor types
+
+   GRIDCART CAR1 STA
+                 XYINC  -660.  13  120  -660.  13  120
+   GRIDCART CAR1 END
+
+   GRIDPOLR POL1 STA
+                 ORIG STACK
+                 DIST 175. 350. 500. 1000.
+                 GDIR 36 15 10
+   GRIDPOLR POL1 END
+   
+   GRIDCART CAR2 STA
+                 XPNTS  -1000. -500. 500. 1000.
+                 YPNTS  -1000. -500. 500. 1000.
+   GRIDCART CAR2 END
+
+   DISCPOLR STACK 1000.  90.
+
+   DISCCART 1000. 0.
+
+   EVALCART 1000. 0. 0. 0. 0. ARC1
+
+RE FINISHED                                                                                                                         
+                                                                                                                                    
+ME STARTING                                                                                                                         
+   SURFFILE  ../meteorology/aermet2.sfc
+   PROFFILE  ../meteorology/aermet2.pfl
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY                                                                                                 
+   SITEDATA  99999  1988  HUDSON
+   PROFBASE  0.0  METERS
+ME FINISHED                                                                                                                         
+                                                                                                                                    
+OU STARTING
+   RECTABLE  ALLAVE  FIRST-SECOND                                                                                                   
+   MAXTABLE  ALLAVE  50                                                                                                                         
+   SUMMFILE  ../Outputs/ALLSRCS.SUM                                                                                                      
+   POSTFILE   1  STACKDW   PLOT    ../postfiles/ALLSRCS_STACKDW_01H.PST 31
+   POSTFILE   1  AREA      PLOT    ../postfiles/ALLSRCS_AREA_01H.PST 32
+   POSTFILE   1  CIRC      PLOT    ../postfiles/ALLSRCS_CIRC_01H.PST 33
+   POSTFILE   1  AREAP     PLOT    ../postfiles/ALLSRCS_AREAP_01H.PST  34
+   POSTFILE   1  VOL       PLOT    ../postfiles/ALLSRCS_VOL_01H.PST 35
+   POSTFILE   1  STACK     PLOT    ../postfiles/ALLSRCS_STACK_01H.PST 36
+   POSTFILE   1  OPENPIT   PLOT    ../postfiles/ALLSRCS_OPENPIT_01H.PST 37
+   POSTFILE   1  LINE      PLOT    ../postfiles/ALLSRCS_LINE_01H.PST 38
+   POSTFILE   1  BLINE     PLOT    ../postfiles/ALLSRCS_BLINE_01H.PST 39
+   POSTFILE   1  RLINEB    PLOT    ../postfiles/ALLSRCS_RLINEB_01H.PST 40
+   POSTFILE   1  RLINEB2    PLOT    ../postfiles/ALLSRCS_RLINEB2_01H.PST 41
+   POSTFILE   1  RLINEBA    PLOT    ../postfiles/ALLSRCS_RLINEBA_01H.PST 42
+   POSTFILE   1  RLINEDE    PLOT    ../postfiles/ALLSRCS_RLINEDE_01H.PST 43
+OU FINISHED

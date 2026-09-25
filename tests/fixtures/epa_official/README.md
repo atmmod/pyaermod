@@ -22,11 +22,21 @@ Source archive:
 | `no2_1yrAK_grsm.inp` | `aermet26135_aermod26135/inputs/` | GRSM: `NOXVALUE 10.0 PPB`, `OZONEVAL`/`OZONEFIL` with units and a Fortran read format, `MAXDCONT ALL 8 8`. |
 | `testgas2.inp` | `aermet26135_aermod26135/inputs/` | Gas deposition: `GDSEASON` and `GDLANUSE 36*4`. |
 | `testprt2.inp` | `aermet26135_aermod26135/inputs/` | `FILEFORM EXP` among the plot/post files. |
+| `hrdow.inp` | `aermet26135_aermod26135/inputs/` | GRIDPOLR written with blank keyword columns (`POL1 GDIR 18 10. 20.`), 33 EMISFACT lines, six SEASONHR and six POSTFILE lines. |
+| `allsrcs.inp` | `aermet26135_aermod26135/inputs/` | GRIDCART with explicit `XPNTS`/`YPNTS`, DISCPOLR and EVALCART, every source type with RLINE barriers. |
+| `testpm25.inp` | `aermet26135_aermod26135/inputs/` | `MAXIFILE 24 ALL 35.0 <file>`, the four-field layout. |
+| `capped.inp` | `aermet26135_aermod26135/inputs/` | POINTCAP and POINTHOR sources with full downwash arrays, which the reader keeps verbatim. |
+| `multurb.inp` | `aermet26135_aermod26135/inputs/` | Four URBANOPT areas (ID-first layout) with the sources and polar grid in INCLUDED files (not vendored). |
+| `psdcred.inp` | `aermet26135_aermod26135/inputs/` | PSDCREDIT run grouped with PSDGROUP and no SRCGROUP. |
 
-The five decks in the last four rows are the round-trip fixtures for
-`tests/test_epa_deck_roundtrip.py`; together they use every form of the
-restart, NOx/ozone background, gas-deposition and design-value keywords
-that appears anywhere in the 53-deck archive.
+The eleven decks from `bg_no2_olm_ppb.inp` down are the round-trip
+fixtures for `tests/test_epa_deck_roundtrip.py`; together they use every
+form of the restart, NOx/ozone background, gas-deposition, design-value,
+MAXIFILE and URBANOPT keywords that appears anywhere in the 53-deck
+archive, and the runstream forms (blank-keyword continuation lines,
+explicit grid lists) the RE parser was rewritten for. Their trailing
+blanks are part of the fixture: the pre-commit whitespace hooks skip
+`tests/fixtures/`.
 
 All files are products of U.S. EPA and are in the public domain.
 

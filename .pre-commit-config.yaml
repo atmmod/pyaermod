@@ -9,8 +9,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
+      # EPA's reference decks and files, and the writer's golden output,
+      # are compared byte for byte; their trailing blanks and line ends
+      # are part of the fixture.
       - id: trailing-whitespace
+        exclude: ^tests/fixtures/
       - id: end-of-file-fixer
+        exclude: ^tests/fixtures/
       - id: check-yaml
       - id: check-added-large-files
         args: [--maxkb=500]
