@@ -42,8 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tests/test_real_aerscreen.py` drives every EPA case through the
     built binaries, by typing the answers and by handing over the restart
     file, and compares the `.OUT` with EPA's line for line (run
-    timestamps aside). `.github/workflows/real_aerscreen.yml` does this
-    in CI, weekly and on pull requests that touch the AERSCREEN code.
+    timestamps aside): all 12 flat cases through both interfaces and all
+    9 terrain cases (AERMAP over EPA's NED and DEM rasters) reproduce
+    EPA's outputs, one fumigation distance in the point downwash case
+    differing in its last digit. `.github/workflows/real_aerscreen.yml`
+    does this in CI, weekly and on pull requests that touch the
+    AERSCREEN code.
   - The restart reader, it turns out, keeps a title only up to its first
     comma and upper-cases it; the restart-file tests allow for that and
     the docstrings say so.

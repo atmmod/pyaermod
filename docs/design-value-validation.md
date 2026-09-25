@@ -117,7 +117,7 @@ the rest of this phase used too:
 | BPIP | EPA's BPIP-PRIME, compiled from source | exact, 6,480 direction comparisons |
 | AERSURFACE | the binary's own setup pass (`RUNORNOT NOT`) | EPA's reference reproduced byte-for-byte; ~30 configurations accepted |
 | AERMOD decks | AERMOD's setup pass, all 10 source types | accepted |
-| AERSCREEN | EPA's AERSCREEN 21112 compiled from source (patched for gfortran), spawning MAKEMET, AERMOD and BPIP-PRIME | EPA's flat test cases reproduced through both interfaces (typed answers and restart file); all 22 restart headers byte-for-byte |
+| AERSCREEN | EPA's AERSCREEN 21112 compiled from source (patched for gfortran), spawning MAKEMET, AERMOD, BPIP-PRIME and AERMAP | all 12 flat test cases reproduced line for line through both interfaces (typed answers and restart file) and all 9 terrain cases through AERMAP; all 22 restart headers byte-for-byte |
 
 ## Running it
 
