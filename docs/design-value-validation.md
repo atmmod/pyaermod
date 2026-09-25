@@ -86,6 +86,25 @@ receptor, not the *n*-th largest value in the record. On AERTEST the
 second row is 421.98845, while the second largest hourly value in the
 `.PST` is 746.09714 at a different receptor.
 
+### 4. AERMOD's own design-value files, from a deck pyaermod wrote
+
+The three checks above start from files EPA shipped. This one closes the
+loop from pyaermod's side: `naaqs_output_pathway("SO2")` writes the OU
+keywords AERMOD's 1-hour NAAQS processing uses (`MAXDAILY`, `MXDYBYYR`,
+`MAXDCONT` at the rank the NAAQS table gives), a gfortran build of AERMOD
+v26135 runs the deck on EPA's Anchorage 1999 meteorology, and
+`so2_1hr_design_value(read_maxdaily(...))` is compared with what AERMOD
+itself ranked:
+
+| pyaermod, from the MAXDAILY daily series | AERMOD's `MXDYBYYR` 4th-highest row | AERMOD's `MAXDCONT` total |
+|---|---|---|
+| 128.5329 / 108.8119 µg/m³ | identical | identical |
+
+The NO2 case (8th highest) agrees the same way. The files, and the decks
+that produced them, are `tests/fixtures/epa_style/{so2,no2}_1hr_*`;
+`tests/test_design_values.py::TestAermodDesignValueOutputs` runs the
+comparison, exact, on every commit.
+
 ## The same method, elsewhere
 
 The pattern here -- find the artefact that already contains the answer,

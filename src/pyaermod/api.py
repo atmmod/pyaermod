@@ -98,11 +98,15 @@ from .design_values import (
     DesignValue,
     add_background,
     annual_mean,
+    mxdybyyr_design_value,
     naaqs_compliance_report,
+    naaqs_output_pathway,
     no2_1hr_design_value,
     o3_8hr_design_value,
     pm10_24hr_design_value,
     pm25_24hr_design_value,
+    read_maxdaily,
+    read_mxdybyyr,
     so2_1hr_design_value,
 )
 from .input_generator import (
@@ -342,6 +346,8 @@ __all__ = [
     "pm25_24hr_design_value", "no2_1hr_design_value",
     "so2_1hr_design_value", "pm10_24hr_design_value",
     "o3_8hr_design_value", "naaqs_compliance_report",
+    "read_maxdaily", "read_mxdybyyr", "mxdybyyr_design_value",
+    "naaqs_output_pathway",
     # KMZ export
     "ContourPolygon", "to_kmz",
     # Source importers
