@@ -43,6 +43,9 @@ coverage.xml
 !tests/fixtures/epa_official/*.PFL
 !tests/fixtures/epa_style/*.inp
 !tests/fixtures/epa_style/*.inp.expected
+!tests/fixtures/epa_aerscreen/**/*.inp
+!tests/fixtures/epa_aerscreen/**/*.out
+!tests/fixtures/epa_aerscreen/**/*.OUT
 
 # Fortran source directories (download separately)
 aermod/

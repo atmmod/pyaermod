@@ -1,0 +1,171 @@
+** FLARE DATA         Rate    Height        Heat  HeatLoss
+**              0.1000E+01  100.0000  0.1000E+08     0.450
+
+** BUILDING DATA   BPIP    Height  Max dim.  Min dim.   Orient.   Direct.    Offset
+**                  N      0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+
+** MAKEMET DATA    MinT    MaxT Speed   AnemHt Surf Clim  Albedo   Bowen  Length  SC FILE
+**               273.00  310.00   0.5   10.000    9    0   0.1600   0.4500   0.0540  "flare_sc.out"
+
+** ADJUST U*      N
+
+** TERRAIN DATA   Terrain    UTM East   UTM North  Zone  Nada     Probe     PROFBASE  Use AERMAP elev
+**                   N       370354.0   4119742.0    18     4       8000.0           2.98         N
+
+** DISCRETE RECEPTORS  Discflag   Receptor file
+**                      N        "NA"
+
+** UNITS/POPULATION   Units   R/U  Population      Amb. dist.   Flagpole    Flagpole height
+**                      M     R            0.          30.000       N         0.00
+
+** FUMIGATION        Inversion Break-up  Shoreline  Distance    Direct  Run AERSCREEN
+**                         N                  N         0.00      0.0     Y
+
+** DEBUG OPTION      Debug
+**                     N
+
+** OUTPUT FILE "AERSCREEN_FLAT_NODW.OUT"
+
+** Temporal sector: Summer, spatial sector:  3
+
+CO STARTING
+   TITLEONE FLARE, FLAT, NO DOWNWASH
+**            REFINE STAGE 3
+   MODELOPT CONC SCREEN  FLAT
+   AVERTIME 1
+   POLLUTID OTHER
+   RUNORNOT RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION SOURCE POINT        0.0     0.0
+   SRCPARAM SOURCE   0.1000E+01  110.115 1273.000   20.000    2.317
+
+   SRCGROUP  ALL
+
+SO FINISHED
+
+RE STARTING
+** Fence line receptor
+   DISCCART         30.00         0.00
+** Refined receptors
+   DISCCART       1475.00         0.00
+   DISCCART       1480.00         0.00
+   DISCCART       1485.00         0.00
+   DISCCART       1490.00         0.00
+   DISCCART       1495.00         0.00
+   DISCCART       1500.00         0.00
+   DISCCART       1505.00         0.00
+   DISCCART       1510.00         0.00
+   DISCCART       1515.00         0.00
+   DISCCART       1520.00         0.00
+   DISCCART       1525.00         0.00
+   DISCCART       1530.00         0.00
+   DISCCART       1535.00         0.00
+   DISCCART       1540.00         0.00
+   DISCCART       1545.00         0.00
+   DISCCART       1550.00         0.00
+   DISCCART       1555.00         0.00
+   DISCCART       1560.00         0.00
+   DISCCART       1565.00         0.00
+   DISCCART       1570.00         0.00
+   DISCCART       1575.00         0.00
+   DISCCART       1580.00         0.00
+   DISCCART       1585.00         0.00
+   DISCCART       1590.00         0.00
+   DISCCART       1595.00         0.00
+   DISCCART       1600.00         0.00
+   DISCCART       1605.00         0.00
+   DISCCART       1610.00         0.00
+   DISCCART       1615.00         0.00
+   DISCCART       1620.00         0.00
+   DISCCART       1625.00         0.00
+   DISCCART       1630.00         0.00
+   DISCCART       1635.00         0.00
+   DISCCART       1640.00         0.00
+   DISCCART       1645.00         0.00
+   DISCCART       1650.00         0.00
+   DISCCART       1655.00         0.00
+   DISCCART       1660.00         0.00
+   DISCCART       1665.00         0.00
+   DISCCART       1670.00         0.00
+   DISCCART       1675.00         0.00
+   DISCCART       1680.00         0.00
+   DISCCART       1685.00         0.00
+   DISCCART       1690.00         0.00
+   DISCCART       1695.00         0.00
+   DISCCART       1700.00         0.00
+   DISCCART       1705.00         0.00
+   DISCCART       1710.00         0.00
+   DISCCART       1715.00         0.00
+   DISCCART       1720.00         0.00
+   DISCCART       1725.00         0.00
+   DISCCART       1730.00         0.00
+   DISCCART       1735.00         0.00
+   DISCCART       1740.00         0.00
+   DISCCART       1745.00         0.00
+   DISCCART       1750.00         0.00
+   DISCCART       1755.00         0.00
+   DISCCART       1760.00         0.00
+   DISCCART       1765.00         0.00
+   DISCCART       1770.00         0.00
+   DISCCART       1775.00         0.00
+   DISCCART       1780.00         0.00
+   DISCCART       1785.00         0.00
+   DISCCART       1790.00         0.00
+   DISCCART       1795.00         0.00
+   DISCCART       1800.00         0.00
+   DISCCART       1805.00         0.00
+   DISCCART       1810.00         0.00
+   DISCCART       1815.00         0.00
+   DISCCART       1820.00         0.00
+   DISCCART       1825.00         0.00
+   DISCCART       1830.00         0.00
+   DISCCART       1835.00         0.00
+   DISCCART       1840.00         0.00
+   DISCCART       1845.00         0.00
+   DISCCART       1850.00         0.00
+   DISCCART       1855.00         0.00
+   DISCCART       1860.00         0.00
+   DISCCART       1865.00         0.00
+   DISCCART       1870.00         0.00
+   DISCCART       1875.00         0.00
+   DISCCART       1880.00         0.00
+   DISCCART       1885.00         0.00
+   DISCCART       1890.00         0.00
+   DISCCART       1895.00         0.00
+   DISCCART       1900.00         0.00
+   DISCCART       1905.00         0.00
+   DISCCART       1910.00         0.00
+   DISCCART       1915.00         0.00
+   DISCCART       1920.00         0.00
+   DISCCART       1925.00         0.00
+   DISCCART       1930.00         0.00
+   DISCCART       1935.00         0.00
+   DISCCART       1940.00         0.00
+   DISCCART       1945.00         0.00
+   DISCCART       1950.00         0.00
+   DISCCART       1955.00         0.00
+   DISCCART       1960.00         0.00
+   DISCCART       1965.00         0.00
+   DISCCART       1970.00         0.00
+   DISCCART       1975.00         0.00
+
+RE FINISHED
+
+ME STARTING
+   SURFFILE  aerscreen_03_03.sfc  FREE
+   PROFFILE  aerscreen_03_03.pfl  FREE
+   SURFDATA  11111   2010  SCREEN
+   UAIRDATA  22222   2010  SCREEN
+   PROFBASE    3.0 METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE 1  FIRST
+   MAXTABLE  ALLAVE  50
+
+   FILEFORM  EXP
+   RANKFILE  1 10 AERSCREEN.FIL
+   PLOTFILE  1 ALL  FIRST  AERSCREEN.PLT
+OU FINISHED
