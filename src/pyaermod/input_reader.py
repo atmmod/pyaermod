@@ -15,7 +15,7 @@ Supported pathway keywords (stored on the project model and written back):
         LOW_WIND, HALFLIFE, DCAYCOEF, NO2STACK, OZONEVAL,
         OZONEFIL, O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE,
         NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF, GASDEPVD, GDSEASON,
-        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, EVENTFIL (file only)
+        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, EVENTFIL (file and option)
     SO: LOCATION (POINT/AREA/VOLUME/LINE/RLINE/RLINEXT/OPENPIT/AREACIRC/
         AREAPOLY/BUOYLINE), SRCPARAM, AREAVERT, BLPINPUT, BLPGROUP,
         SRCGROUP, OLMGROUP, PSDGROUP, NO2RATIO, BACKGRND (value forms),
@@ -28,14 +28,16 @@ Supported pathway keywords (stored on the project model and written back):
     ME: SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND (with
         or without hours), WDROTATE
     OU: RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE,
-        POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
+        POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT, EVENTOUT
+    EV: EVENTPER, EVENTLOC (an EV pathway makes the deck an EVENT run:
+        ``AERMODProject.event_processing``, no RE pathway required)
 
 Every other line -- a keyword with no field above (EMISFACT, HOUREMIS,
 INCLUDED, BACKUNIT, SO ELEVUNIT, EVALCART, DISCPOLR, SITEDATA, ERRORFIL,
-DEBUGOPT, NO2EQUIL, RANKFILE, SEASONHR, ...), a form of a known keyword
+DEBUGOPT, NO2EQUIL, RANKFILE, SEASONHR, ...) or a form of a known keyword
 the model cannot hold (a BACKGRND hourly file, a PLOTFILE with a lower
 rank or a unit, a second POSTFILE, the definition lines of a source type
-the reader does not construct), or an inline EV pathway -- is kept
+the reader does not construct) -- is kept
 verbatim in :attr:`AERMODProject.unparsed_lines` (see
 :mod:`pyaermod.unparsed`), reported through :mod:`logging` as one
 warning per pathway and keyword, and written back into its pathway by
@@ -77,6 +79,9 @@ from .input_generator import (
     ControlPathway,
     DiscreteReceptor,
     EmissionUnits,
+    EventLocation,
+    EventPathway,
+    EventPeriod,
     GasDepositionDefaults,
     GasDepositionParams,
     InitFile,
@@ -385,6 +390,7 @@ def _parse_control(block: _PathwayBlock,
     urban_lines: List[List[str]] = []
     run_model = True
     eventfil: Optional[str] = None
+    eventfil_option: Optional[str] = None
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
     chem_method: Optional[ChemistryMethod] = None
@@ -478,8 +484,11 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "NO2STACK" and toks:
             with contextlib.suppress(ValueError):
                 no2_ratio = float(toks[0])
-        elif kw == "EVENTFIL" and len(toks) == 1:
+        elif kw == "EVENTFIL" and 1 <= len(toks) <= 2:
+            # EVENTFIL evfile [SOCONT|DETAIL] (coset.f EVNTFL); the bare
+            # form (AERMOD's EVENTS.INP with W207) is kept verbatim.
             eventfil = toks[0]
+            eventfil_option = toks[1].upper() if len(toks) == 2 else None
         elif kw == "O3VALUES" and toks and toks[0].upper() == "UNIFORM":
             # Not an AERMOD form (O3VALS rejects the flag, E203) but what
             # pyaermod < 2.1 wrote for a uniform value; read it as one.
@@ -647,6 +656,7 @@ def _parse_control(block: _PathwayBlock,
         extra_model_options=extra_opts,
         run_model=run_model,
         eventfil=eventfil,
+        eventfil_option=eventfil_option,
         chemistry=chemistry,
         gas_deposition_defaults=gas_defaults,
         gas_deposition_velocity=gas_vd,
@@ -1704,6 +1714,7 @@ def _parse_output(block: _PathwayBlock,
     postfile_source_group = "ALL"
     postfile_format = "PLOT"
     file_format: Optional[str] = None
+    event_output: Optional[str] = None
     max_daily: List[MaxDailyFile] = []
     max_daily_by_year: List[MaxDailyFile] = []
     max_daily_contributions: List[MaxDailyContribution] = []
@@ -1784,6 +1795,9 @@ def _parse_output(block: _PathwayBlock,
             postfile = toks[3]
         elif kw == "FILEFORM" and toks:
             file_format = toks[0].upper()
+        elif kw == "EVENTOUT" and len(toks) == 1:
+            # The OU pathway of an EVENT deck (evset.f OEVENT: one field).
+            event_output = toks[0].upper()
         elif kw in ("MAXDAILY", "MXDYBYYR") and len(toks) >= 2:
             # MAXDAILY <group> <filename> [unit] -- no averaging period
             # field; ouset.f reads the group from field 3.
@@ -1838,10 +1852,52 @@ def _parse_output(block: _PathwayBlock,
         postfile_source_group=postfile_source_group,
         postfile_format=postfile_format,
         file_format=file_format,
+        event_output=event_output,
         max_daily_files=max_daily,
         max_daily_by_year_files=max_daily_by_year,
         max_daily_contributions=max_daily_contributions,
     )
+
+
+_EVENTLOC_TAGS = {("XR=", "YR="): False, ("RNG=", "DIR="): True}
+
+
+def _parse_events(block: _PathwayBlock,
+                  dropped: Optional[List[int]] = None) -> EventPathway:
+    """The EV pathway of an EVENT deck (evset.f EVCARD).
+
+    ``EVENTPER evname aveper grpid date conc`` takes exactly five fields
+    (EVPER); ``EVENTLOC evname XR= x YR= y zelev [zhill [zflag]]`` six to
+    eight, with ``RNG=``/``DIR=`` for a polar pair (EVLOC). An EVENTLOC
+    that names no known event, a line with another field count, and
+    ``INCLUDED`` are kept verbatim.
+    """
+    events: Dict[str, EventPeriod] = {}
+    for kw, toks, ln in _group_keywords(block):
+        if kw == "EVENTPER" and len(toks) == 5:
+            try:
+                events[toks[0]] = EventPeriod(
+                    event_name=toks[0], averaging_period=int(float(toks[1])),
+                    source_group=toks[2], date=f"{int(float(toks[3])):08d}",
+                    original_conc=float(toks[4]),
+                )
+            except ValueError:
+                _drop(dropped, ln)
+        elif kw == "EVENTLOC" and 6 <= len(toks) <= 8 and toks[0] in events:
+            tags = (toks[1].upper(), toks[3].upper())
+            values = _floats([toks[2], toks[4], *toks[5:]])
+            if tags not in _EVENTLOC_TAGS or values is None:
+                _drop(dropped, ln)
+                continue
+            events[toks[0]].location = EventLocation(
+                x=values[0], y=values[1], z_elev=values[2],
+                z_hill=values[3] if len(values) > 3 else 0.0,
+                z_flag=values[4] if len(values) > 4 else None,
+                polar=_EVENTLOC_TAGS[tags],
+            )
+        else:
+            _drop(dropped, ln)
+    return EventPathway(events=list(events.values()))
 
 
 # ---------------------------------------------------------------------------
@@ -1858,7 +1914,10 @@ def parse_aermod_input(text: str) -> AERMODProject:
     """
     blocks = _split_pathways(text)
 
-    for required in ("CO", "SO", "RE", "ME"):
+    # An EV pathway makes the deck an EVENT run (aermod.f PRESET sets
+    # EVONLY), whose pathways are CO, SO, ME, EV and OU: no RE.
+    event_processing = "EV" in blocks
+    for required in ("CO", "SO", "ME") + (() if event_processing else ("RE",)):
         if required not in blocks:
             raise ValueError(f"AERMOD input is missing required pathway {required}")
 
@@ -1872,12 +1931,11 @@ def parse_aermod_input(text: str) -> AERMODProject:
             # the deck can be repaired and written back.
             control.chemistry = ChemistryOptions(method=ChemistryMethod.OLM)
         control.chemistry.olm_groups = olm_groups
-    receptors = _parse_receptors(blocks["RE"], dropped["RE"])
+    receptors = (_parse_receptors(blocks["RE"], dropped["RE"]) if "RE" in blocks
+                 else ReceptorPathway())
     meteorology = _parse_meteorology(blocks["ME"], dropped["ME"])
     output = _parse_output(blocks.get("OU", _PathwayBlock("OU")), dropped["OU"])
-    if "EV" in blocks:
-        # An inline EV pathway has no model at all; keep it whole.
-        dropped["EV"] = [rec.lineno for rec in blocks["EV"].records]
+    events = _parse_events(blocks["EV"], dropped["EV"]) if event_processing else None
 
     unparsed: List[UnparsedLine] = []
     for code, linenos in dropped.items():
@@ -1904,7 +1962,9 @@ def parse_aermod_input(text: str) -> AERMODProject:
         receptors=receptors,
         meteorology=meteorology,
         output=output,
+        events=events,
         unparsed_lines=unparsed,
+        event_processing=event_processing,
     )
 
 

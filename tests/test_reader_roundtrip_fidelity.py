@@ -22,6 +22,7 @@ from pyaermod.input_generator import (
     ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    EventLocation,
     MaxiFile,
     MeteorologyPathway,
     OutputPathway,
@@ -89,6 +90,49 @@ def rewrite(project: AERMODProject, **kw) -> AERMODProject:
 def keyword_lines(text: str, keyword: str) -> list[list[str]]:
     return [line.split()[1:] for line in text.splitlines()
             if line.split() and line.split()[0].upper() == keyword]
+
+
+EVENT_DECK = """\
+CO STARTING
+   TITLEONE  event fidelity
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  RUN
+CO FINISHED
+SO STARTING
+   LOCATION  S1  POINT  0  0  0
+   SRCPARAM  S1  1  30  400  10  2
+   LOCATION  S2  POINT  100  0  0
+   SRCPARAM  S2  1  30  400  10  2
+   SRCGROUP  G2  S2
+   SRCGROUP  ALL
+SO FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  1988
+   UAIRDATA  1  1988
+   PROFBASE  0.0
+ME FINISHED
+EV STARTING
+{ev_body}EV FINISHED
+OU STARTING
+{ou_body}
+OU FINISHED
+"""
+
+#: The events AERMOD itself wrote for probe deck 29 (scripts/oracle_decks/29b).
+EV_GENERATED = (
+    "   EVENTPER H001H01001   1  G2         88030214          52.33812\n"
+    "   EVENTLOC H001H01001 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000\n"
+    "   EVENTPER H001H24002  24  ALL        88030224          16.54005\n"
+    "   EVENTLOC H001H24002 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000\n"
+)
+
+
+def event_deck(ev_body=EV_GENERATED, ou_body="   EVENTOUT  SOCONT"):
+    return EVENT_DECK.format(ev_body=ev_body, ou_body=ou_body)
 
 
 # ---------------------------------------------------------------------------
@@ -450,14 +494,17 @@ class TestUnparsedLines:
         so_lines = [ln for ln in text[text.index("SO STARTING"):].splitlines()[1:] if ln.strip()]
         assert so_lines[0].split() == ["ELEVUNIT", "FEET"]
 
-    def test_inline_ev_pathway_is_kept_whole(self):
-        text = deck() + "EV STARTING\n   EVENTPER  E1  1  ALL  20200101 20200102\n" \
-                        "   EVENTLOC  E1  XR=  100.  YR=  200.\nEV FINISHED\n"
-        project = parse_aermod_input(text)
-        assert [u.keyword for u in project.unparsed_lines] == ["EVENTPER", "EVENTLOC"]
+    def test_ev_lines_without_a_model_stay_in_the_ev_block(self):
+        # An EVENTPER with the wrong field count, an EVENTLOC for an
+        # unknown event and INCLUDED are kept verbatim, inside EV.
+        project = parse_aermod_input(event_deck(
+            "   EVENTPER  E1  1  ALL  88030214\n"
+            "   EVENTLOC  E9  XR=  100.  YR=  200.  0.\n"
+            "   INCLUDED  more_events.inc\n"))
+        assert [u.keyword for u in project.unparsed_lines] == ["EVENTPER", "EVENTLOC", "INCLUDED"]
         written = project.to_aermod_input(validate=False)
-        assert written.rstrip().endswith("EV FINISHED")
-        assert "EVENTLOC" in written[written.index("EV STARTING"):]
+        ev = written[written.index("EV STARTING"):written.index("EV FINISHED")]
+        assert "INCLUDED  more_events.inc" in ev and "EVENTLOC  E9" in ev
 
     def test_helpers(self):
         lines = [UnparsedLine("OU", "RANKFILE", ["1"], 9), UnparsedLine("CO", "ERRORFIL", ["e"], 2),
@@ -533,6 +580,85 @@ class TestSourceLinesKeptVerbatim:
 
 
 # ---------------------------------------------------------------------------
+# The EV pathway (evset.f EVPER / EVLOC / OEVENT; probe decks 29b and 30)
+# ---------------------------------------------------------------------------
+
+class TestEventPathway:
+    def test_an_ev_pathway_makes_the_deck_an_event_run(self):
+        project = parse_aermod_input(event_deck())
+        assert project.event_processing is True
+        assert project.receptors.discrete_receptors == [] and project.receptors.polar_grids == []
+        assert project.unparsed_lines == []
+        assert project.output.event_output == "SOCONT"
+        assert not project.output.receptor_table and not project.output.max_table
+
+    def test_eventper_and_eventloc_fields(self):
+        events = parse_aermod_input(event_deck()).events.events
+        assert [e.event_name for e in events] == ["H001H01001", "H001H24002"]
+        first = events[0]
+        assert (first.averaging_period, first.source_group, first.date) == (1, "G2", "88030214")
+        assert first.original_conc == pytest.approx(52.33812)
+        assert first.location == EventLocation(500.0, 500.0, 0.0, 0.0, 0.0)
+        assert events[1].averaging_period == 24 and events[1].source_group == "ALL"
+
+    def test_eventloc_field_counts_and_polar_form(self):
+        # EVLOC: name XR= x YR= y zelev [zhill [zflag]]; RNG=/DIR= for range
+        # and direction. Probe 30: the elevation is not optional (E201).
+        ev = ("   EVENTPER  E1  1  ALL  88030101  0.0\n   EVENTLOC  E1  XR=  1.  YR=  2.  3.\n"
+              "   EVENTPER  E2  1  ALL  88030102  0.0\n   EVENTLOC  E2  XR=  1.  YR=  2.  3.  4.\n"
+              "   EVENTPER  E3  1  ALL  88030103  0.0\n   EVENTLOC  E3  RNG=  700.  DIR=  45.  0.  0.  1.5\n"
+              "   EVENTPER  E4  1  ALL  88030104  0.0\n   EVENTLOC  E4  XR=  1.  YR=  2.\n")
+        project = parse_aermod_input(event_deck(ev))
+        locs = {e.event_name: e.location for e in project.events.events}
+        assert locs["E1"] == EventLocation(1.0, 2.0, 3.0, 0.0, None)
+        assert locs["E2"] == EventLocation(1.0, 2.0, 3.0, 4.0, None)
+        assert locs["E3"] == EventLocation(700.0, 45.0, 0.0, 0.0, 1.5, polar=True)
+        assert locs["E4"] is None
+        assert [u.fields for u in project.unparsed_lines] == [["E4", "XR=", "1.", "YR=", "2."]]
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "EVENTLOC")[0][:4] == ["E1", "XR=", "1.000000", "YR="]
+        assert len(keyword_lines(text, "EVENTLOC")[0]) == 7   # no flagpole field
+        assert len(keyword_lines(text, "EVENTLOC")[1]) == 7
+        assert keyword_lines(text, "EVENTLOC")[2] == ["E3", "RNG=", "700.000000", "DIR=", "45.000000",
+                                                       "0.0000", "0.0000", "1.5000"]
+
+    def test_event_deck_round_trips_token_for_token(self):
+        text = event_deck()
+        project = parse_aermod_input(text)
+        written = project.to_aermod_input(validate=False)
+        for kw in ("EVENTPER", "EVENTLOC", "EVENTOUT"):
+            assert keyword_lines(written, kw) == keyword_lines(text, kw), kw
+        again = rewrite(project)
+        assert again.events == project.events
+        assert again.output == project.output and again.event_processing
+
+    def test_event_deck_layout_is_co_so_me_ev_ou(self):
+        written = parse_aermod_input(event_deck()).to_aermod_input(validate=False)
+        assert [ln.split()[0] for ln in written.splitlines() if ln.endswith("STARTING")] == \
+            ["CO", "SO", "ME", "EV", "OU"]
+        ou = written[written.index("OU STARTING"):]
+        assert ou.splitlines()[1:-1] == ["   EVENTOUT  SOCONT"]
+
+    def test_validator_accepts_the_generated_deck(self):
+        project = parse_aermod_input(event_deck())
+        from pyaermod.validator import Validator
+        result = Validator.validate(project)
+        assert [e for e in result.errors if e.severity == "error"] == [], str(result)
+
+    def test_a_normal_deck_has_no_events(self):
+        project = parse()
+        assert project.events is None and project.event_processing is False
+        assert "EV STARTING" not in project.to_aermod_input(validate=False)
+
+    def test_event_deck_written_as_a_normal_run_keeps_eventout(self):
+        # Nothing is dropped; the validator, not the writer, says the
+        # combination is wrong.
+        project = parse_aermod_input(event_deck())
+        text = project.to_aermod_input(validate=False, event_processing=False)
+        assert "RE STARTING" in text and "   EVENTOUT  SOCONT" in text
+
+
+# ---------------------------------------------------------------------------
 # CO / ME fields the sweep over EPA's decks showed were lost or misspelt
 # ---------------------------------------------------------------------------
 
@@ -585,11 +711,21 @@ class TestControlPathwayFidelity:
         assert control.run_model is False
         assert keyword_lines(control.to_aermod_input(), "RUNORNOT") == [["NOT"]]
 
-    def test_eventfil_single_field_is_structural_two_fields_verbatim(self):
-        assert parse(co_extra="   EVENTFIL  ev.inp").control.eventfil == "ev.inp"
-        project = parse(co_extra="   EVENTFIL  ev.inp  DETAIL")
+    def test_eventfil_with_and_without_its_option(self):
+        # coset.f EVNTFL: EVENTFIL evfile [SOCONT|DETAIL].
+        project = parse(co_extra="   EVENTFIL  ev.inp  SOCONT")
+        assert (project.control.eventfil, project.control.eventfil_option) == ("ev.inp", "SOCONT")
+        assert project.unparsed_lines == []
+        assert keyword_lines(project.to_aermod_input(validate=False), "EVENTFIL") == [["ev.inp", "SOCONT"]]
+        project = parse(co_extra="   EVENTFIL  ev.inp")
+        assert (project.control.eventfil, project.control.eventfil_option) == ("ev.inp", None)
+        assert keyword_lines(project.to_aermod_input(validate=False), "EVENTFIL") == [["ev.inp"]]
+
+    def test_bare_eventfil_is_kept_verbatim(self):
+        # The bare form means EVENTS.INP with W207; there is no field for it.
+        project = parse(co_extra="   EVENTFIL")
         assert project.control.eventfil is None
-        assert project.unparsed_lines[0].fields == ["ev.inp", "DETAIL"]
+        assert [u.keyword for u in project.unparsed_lines] == ["EVENTFIL"]
 
     def test_single_urbanopt_is_pop_name_roughness(self):
         control = parse(co_extra="   URBANOPT  2000000  Denver  1.0").control

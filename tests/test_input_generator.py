@@ -18,6 +18,7 @@ from pyaermod.input_generator import (
     CartesianGrid,
     ControlPathway,
     DepositionMethod,
+    EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
@@ -32,6 +33,7 @@ from pyaermod.input_generator import (
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SaveFile,
     SourcePathway,
     StreetCanyon,
     TerrainType,
@@ -848,34 +850,50 @@ class TestDepositionParameters:
 
 
 class TestEventProcessing:
-    """Test event pathway generation."""
+    """The EV pathway in the layout AERMOD writes for EVENTFIL (probe 29b)."""
+
+    @staticmethod
+    def _events():
+        return EventPathway(events=[
+            EventPeriod("H001H01001", 1, "88030214", "G2", 52.33812,
+                        EventLocation(500.0, 500.0, 0.0, 0.0, 0.0)),
+            EventPeriod("EVT02", 24, 88030224, location=EventLocation(700.0, 45.0, 12.5, polar=True)),
+        ])
+
+    @staticmethod
+    def _project(**kw):
+        return AERMODProject(
+            control=ControlPathway(title_one="Test", eventfil="events.inp",
+                                   averaging_periods=["1", "24"]),
+            sources=SourcePathway(),
+            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
+            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
+            output=OutputPathway(),
+            **kw,
+        )
 
     def test_event_pathway_generation(self):
-        ep = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-            EventPeriod("EVT02", "24020101", "24020224", source_group="GRP1"),
-        ])
-        output = ep.to_aermod_input()
-        assert "EV STARTING" in output
-        assert "EV FINISHED" in output
-        assert "EVENTPER" in output
-        assert "EVT01" in output
-        assert "24010101" in output
-        assert "GRP1" in output
+        lines = self._events().to_aermod_input().splitlines()
+        assert lines[0] == "EV STARTING" and lines[-1] == "EV FINISHED"
+        # EVENTPER evname aveper grpid date conc; EVENTLOC evname XR= x YR= y ze zh zf
+        assert lines[1].split() == ["EVENTPER", "H001H01001", "1", "G2", "88030214", "52.33812"]
+        assert lines[2].split() == ["EVENTLOC", "H001H01001", "XR=", "500.000000", "YR=",
+                                    "500.000000", "0.0000", "0.0000", "0.0000"]
+        # ALL by default, an integer date is zero-padded to eight digits,
+        # a polar receptor uses RNG=/DIR=, and no flagpole leaves the field off.
+        assert lines[3].split() == ["EVENTPER", "EVT02", "24", "ALL", "88030224", "0.00000"]
+        assert lines[4].split() == ["EVENTLOC", "EVT02", "RNG=", "700.000000", "DIR=",
+                                    "45.000000", "12.5000", "0.0000"]
 
-    def test_event_pathway_default_source_group(self):
-        ep = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-        ])
-        output = ep.to_aermod_input()
-        assert "ALL" in output
+    def test_event_without_location_writes_eventper_only(self):
+        ep = EventPathway(events=[EventPeriod("E1", 1, "88030101")])
+        assert [ln.split()[0] for ln in ep.to_aermod_input().splitlines()[1:-1]] == ["EVENTPER"]
 
     def test_control_pathway_eventfil(self):
-        control = ControlPathway(
-            title_one="Test", eventfil="events.inp",
-        )
-        output = control.to_aermod_input()
-        assert "EVENTFIL  events.inp" in output
+        control = ControlPathway(title_one="Test", eventfil="events.inp")
+        assert "EVENTFIL  events.inp" in control.to_aermod_input()
+        control.eventfil_option = "SOCONT"
+        assert "   EVENTFIL  events.inp  SOCONT" in control.to_aermod_input().splitlines()
 
     def test_control_pathway_no_eventfil(self):
         control = ControlPathway(title_one="Test")
@@ -883,48 +901,57 @@ class TestEventProcessing:
         assert "EVENTFIL" not in output
 
     def test_project_with_events(self):
-        project = AERMODProject(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-            sources=SourcePathway(),
-            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
-            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
-            output=OutputPathway(),
-            events=EventPathway(events=[
-                EventPeriod("EVT01", "24010101", "24010124"),
-            ]),
-        )
-        # Main input should have EVENTFIL
+        project = self._project(events=self._events())
+        # The main deck carries EVENTFIL and no EV block.
         main_input = project.to_aermod_input(validate=False)
-        assert "EVENTFIL" in main_input
-        # Event pathway generates separately
-        ev_input = project.events.to_aermod_input()
-        assert "EV STARTING" in ev_input
+        assert "EVENTFIL" in main_input and "EV STARTING" not in main_input
+        # The event deck is CO SO ME EV OU: no RE, EV before OU, no EVENTFIL.
+        ev_input = project.to_aermod_input(validate=False, event_processing=True)
+        order = [ln.split()[0] for ln in ev_input.splitlines() if ln.endswith("STARTING")]
+        assert order == ["CO", "SO", "ME", "EV", "OU"]
+        assert "EVENTFIL" not in ev_input
+        ou = ev_input[ev_input.index("OU STARTING"):]
+        assert ou.split("\n")[1:-1] == ["   EVENTOUT  DETAIL"]
+
+    def test_event_deck_takes_eventout_from_the_project(self):
+        project = self._project(events=self._events())
+        project.control.eventfil_option = "SOCONT"
+        assert "   EVENTOUT  SOCONT" in project.to_aermod_input(validate=False, event_processing=True)
+        project.output.event_output = "DETAIL"
+        assert "   EVENTOUT  DETAIL" in project.to_aermod_input(validate=False, event_processing=True)
+        project.output.file_format = "EXP"
+        ou = project.to_aermod_input(validate=False, event_processing=True).split("OU STARTING")[1]
+        assert ou.split("\n")[1:3] == ["   FILEFORM  EXP", "   EVENTOUT  DETAIL"]
+
+    def test_event_deck_leaves_out_the_keywords_evonly_skips(self):
+        # coset.f/meset.f dispatch EVENTFIL, SAVEFILE, INITFILE, MULTYEAR
+        # and STARTEND only when .NOT.EVONLY.
+        project = self._project(events=self._events())
+        project.control.save_file = SaveFile("save.fil")
+        project.meteorology.start_year, project.meteorology.start_month = 1988, 3
+        project.meteorology.start_day = 1
+        project.meteorology.end_year, project.meteorology.end_month = 1988, 3
+        project.meteorology.end_day = 10
+        main = project.to_aermod_input(validate=False)
+        assert "SAVEFILE" in main and "STARTEND" in main
+        ev = project.to_aermod_input(validate=False, event_processing=True)
+        assert "SAVEFILE" not in ev and "STARTEND" not in ev
 
     def test_project_write_with_events(self, tmp_path):
-        project = AERMODProject(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-            sources=SourcePathway(),
-            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
-            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
-            output=OutputPathway(),
-            events=EventPathway(events=[
-                EventPeriod("EVT01", "24010101", "24010124"),
-            ]),
-        )
+        project = self._project(events=self._events())
         main_file = tmp_path / "aermod.inp"
         event_file = tmp_path / "events.inp"
         project.write(main_file, event_filename=event_file, validate=False)
-        assert main_file.exists()
-        assert event_file.exists()
         assert "EVENTFIL" in main_file.read_text()
-        assert "EVENTPER" in event_file.read_text()
+        event_text = event_file.read_text()
+        assert event_text.startswith("CO STARTING") and "EVENTPER" in event_text
+        assert "RE STARTING" not in event_text
 
     def test_add_event(self):
         ep = EventPathway()
-        ep.add_event(EventPeriod("EVT01", "24010101", "24010124"))
+        ep.add_event(EventPeriod("EVT01", 1, "88030101"))
         assert len(ep.events) == 1
-        output = ep.to_aermod_input()
-        assert "EVT01" in output
+        assert "EVT01" in ep.to_aermod_input()
 
 
 # ---------------------------------------------------------------------------

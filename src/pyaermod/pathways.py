@@ -543,8 +543,11 @@ class ControlPathway:
     # and cross-check the deck without running the model.
     run_model: bool = True
 
-    # Event file reference
+    # CO EVENTFIL [evfile [SOCONT|DETAIL]] (coset.f EVNTFL): the main run
+    # writes the event deck to ``eventfil``; ``eventfil_option`` is the
+    # EVENTOUT the event deck then carries (AERMOD's default is DETAIL).
     eventfil: Optional[str] = None
+    eventfil_option: Optional[str] = None
 
     # NO2 chemistry options
     chemistry: Optional[ChemistryOptions] = None
@@ -563,8 +566,14 @@ class ControlPathway:
     init_file: Optional[InitFile] = None
     multiyear: Optional[MultiYear] = None
 
-    def to_aermod_input(self) -> str:
-        """Generate AERMOD CO pathway text"""
+    def to_aermod_input(self, event_processing: bool = False) -> str:
+        """Generate AERMOD CO pathway text.
+
+        ``event_processing`` writes the CO pathway of an EVENT deck:
+        coset.f dispatches EVENTFIL, SAVEFILE, INITFILE and MULTYEAR
+        only when the run is not an EVENT run (``.NOT.EVONLY``), so they
+        are left off, as AERMOD leaves them off the event deck it writes.
+        """
         lines = ["CO STARTING"]
 
         # Titles — normalize whitespace so the emitted line reads back to
@@ -702,14 +711,16 @@ class ControlPathway:
             if nox is not None:
                 lines += _nox_lines(nox)
 
-        # Restart / multi-year options
-        if self.multiyear is not None:
+        # Restart / multi-year options (not dispatched in an EVENT run)
+        if event_processing:
+            pass
+        elif self.multiyear is not None:
             my = self.multiyear
             line = "   MULTYEAR  " + ("H6H  " if my.h6h else "") + my.save_file
             if my.init_file:
                 line += f"  {my.init_file}"
             lines.append(line)
-        if self.save_file is not None:
+        if self.save_file is not None and not event_processing:
             sf = self.save_file
             line = "   SAVEFILE"
             if sf.filename:
@@ -721,15 +732,18 @@ class ControlPathway:
                 if sf.alternate_filename:
                     line += f"  {sf.alternate_filename}"
             lines.append(line)
-        if self.init_file is not None:
+        if self.init_file is not None and not event_processing:
             line = "   INITFILE"
             if self.init_file.filename:
                 line += f"  {self.init_file.filename}"
             lines.append(line)
 
-        # Event file reference
-        if self.eventfil:
-            lines.append(f"   EVENTFIL  {self.eventfil}")
+        # Event file reference (the event deck itself never carries it)
+        if self.eventfil and not event_processing:
+            line = f"   EVENTFIL  {self.eventfil}"
+            if self.eventfil_option:
+                line += f"  {self.eventfil_option}"
+            lines.append(line)
 
         # Run command
         lines.append(f"   RUNORNOT  {'RUN' if self.run_model else 'NOT'}")
@@ -782,8 +796,13 @@ class MeteorologyPathway:
     # Wind direction rotation
     wind_rotation: Optional[float] = None  # degrees
 
-    def to_aermod_input(self) -> str:
-        """Generate AERMOD ME pathway text"""
+    def to_aermod_input(self, event_processing: bool = False) -> str:
+        """Generate AERMOD ME pathway text.
+
+        ``event_processing`` writes the ME pathway of an EVENT deck, which
+        meset.f reads without STARTEND (the events name their own dates;
+        the keyword is dispatched only when ``.NOT.EVONLY``).
+        """
         lines = ["ME STARTING"]
 
         # Surface and profile files
@@ -798,8 +817,9 @@ class MeteorologyPathway:
         # writing it would churn the golden reference deck.
         lines.append(f"   PROFBASE  {self.profile_base_elevation:.1f}  METERS")
 
-        # Date range (if specified)
-        if all(x is not None for x in [self.start_year, self.start_month, self.start_day,
+        # Date range (if specified; not dispatched in an EVENT run)
+        if not event_processing and all(
+                x is not None for x in [self.start_year, self.start_month, self.start_day,
                                         self.end_year, self.end_month, self.end_day]):
             if self.start_hour is not None and self.end_hour is not None:
                 lines.append(
@@ -981,20 +1001,44 @@ class OutputPathway:
     # in the plot/post/max files. None writes no FILEFORM line.
     file_format: Optional[str] = None
 
+    # EVENTOUT SOCONT|DETAIL: the one OU option of an EVENT deck besides
+    # FILEFORM (evset.f EV_OUCARD). None lets the event deck writer use
+    # ControlPathway.eventfil_option, then AERMOD's default DETAIL.
+    event_output: Optional[str] = None
+
     # NAAQS design-value outputs (1-hour NO2/SO2, 24-hour PM2.5 only).
     max_daily_files: List[MaxDailyFile] = field(default_factory=list)
     max_daily_by_year_files: List[MaxDailyFile] = field(default_factory=list)
     max_daily_contributions: List[MaxDailyContribution] = field(
         default_factory=list)
 
-    def to_aermod_input(self) -> str:
-        """Generate AERMOD OU pathway text"""
+    def to_aermod_input(self, event_processing: bool = False,
+                        event_output: Optional[str] = None) -> str:
+        """Generate AERMOD OU pathway text.
+
+        ``event_processing`` writes the OU pathway of an EVENT deck, which
+        evset.f EV_OUCARD reads: FILEFORM and EVENTOUT, nothing else (a
+        RECTABLE there is E110). ``event_output`` overrides
+        :attr:`event_output` for that line; with neither, AERMOD's own
+        default ``DETAIL`` is written.
+        """
         lines = ["OU STARTING"]
 
         # FILEFORM first: the POSTFILE header is written at setup with
         # whichever format is in force when the file is opened.
         if self.file_format:
             lines.append(f"   FILEFORM  {self.file_format}")
+
+        if event_processing:
+            option = event_output or self.event_output or "DETAIL"
+            lines.append(f"   EVENTOUT  {option.upper()}")
+            lines.append("OU FINISHED")
+            return "\n".join(lines)
+        if self.event_output:
+            # Kept for a project read from an event deck and written as a
+            # normal run; ouset.f has no EVENTOUT branch, so AERMOD would
+            # reject it (E105), which is what the validator says.
+            lines.append(f"   EVENTOUT  {self.event_output}")
 
         # Receptor table. A bare number on RECTABLE selects *only* that
         # rank -- "ALLAVE 10" is the tenth-highest alone, not the top ten
@@ -1081,13 +1125,105 @@ class OutputPathway:
 # EVENT PATHWAY
 # ============================================================================
 
+#: ``EVENTOUT`` options (evset.f OEVENT): source contributions only, or
+#: the detailed hourly output. Anything else is E203.
+EVENT_OUTPUT_OPTIONS = ("SOCONT", "DETAIL")
+
+#: Longest event name AERMOD holds (``EVNAME*10`` in modules.f; the names
+#: it generates itself, ``H001H01001``, use all ten characters).
+EVENT_NAME_LENGTH = 10
+
+
+@dataclass
+class EventLocation:
+    """``EV EVENTLOC evname XR= x YR= y zelev [zhill [zflag]]``.
+
+    The receptor of one event, in the layout evset.f EVLOC reads: the
+    coordinate pair is introduced by ``XR=``/``YR=`` (Cartesian) or
+    ``RNG=``/``DIR=`` (a range in metres and a direction in degrees,
+    which AERMOD converts to x and y). The elevation is not optional --
+    EVLOC wants at least eight fields on the card (E201 otherwise, probe
+    deck 30) -- and the hill height and flagpole height follow it.
+
+    Parameters
+    ----------
+    x, y : float
+        Receptor coordinates, or range and direction when ``polar``.
+    z_elev : float
+        Terrain elevation of the receptor (m).
+    z_hill : float
+        Hill-height scale (m).
+    z_flag : float, optional
+        Flagpole receptor height (m); ``None`` leaves the field off.
+    polar : bool
+        Write ``RNG=``/``DIR=`` instead of ``XR=``/``YR=``.
+    """
+    x: float
+    y: float
+    z_elev: float = 0.0
+    z_hill: float = 0.0
+    z_flag: Optional[float] = None
+    polar: bool = False
+
+    def to_aermod_fields(self) -> str:
+        """The fields after the event name, as AERMOD's MXEVNT writes them."""
+        tags = ("RNG=", "DIR=") if self.polar else ("XR=", "YR=")
+        text = (f"{tags[0]} {self.x:15.6f} {tags[1]} {self.y:15.6f} "
+                f"{self.z_elev:10.4f} {self.z_hill:10.4f}")
+        if self.z_flag is not None:
+            text += f" {self.z_flag:10.4f}"
+        return text
+
+
 @dataclass
 class EventPeriod:
-    """A single AERMOD event period definition."""
+    """``EV EVENTPER evname aveper grpid date conc``: one event.
+
+    evset.f EVPER reads exactly five fields: the event name, the
+    averaging period (one of the AVERTIME periods, 24 hours at most,
+    E297), the source group, the date of the *end* of the period as
+    ``YYMMDDHH``, and the concentration the main run found for it, which
+    the event run checks its own result against. AERMOD writes the
+    events it generates (``EVENTFIL``) in this form, one ``EVENTLOC``
+    after each ``EVENTPER``.
+
+    Parameters
+    ----------
+    event_name : str
+        Up to :data:`EVENT_NAME_LENGTH` characters, unique in the deck.
+    averaging_period : int
+        Hours; must appear on ``AVERTIME``.
+    date : str or int
+        ``YYMMDDHH`` of the period's last hour.
+    source_group : str
+        A ``SRCGROUP`` ID (``ALL`` by default).
+    original_conc : float
+        The concentration the main run reported (0 when unknown).
+    location : EventLocation, optional
+        The receptor; every event needs one (E130).
+    """
     event_name: str
-    start_date: str  # YYMMDDHH format
-    end_date: str    # YYMMDDHH format
+    averaging_period: int
+    date: Union[str, int]
     source_group: str = "ALL"
+    original_conc: float = 0.0
+    location: Optional[EventLocation] = None
+
+    @property
+    def date_text(self) -> str:
+        """The date as the eight-digit field AERMOD reads."""
+        return f"{int(self.date):08d}"
+
+    def to_aermod_lines(self) -> List[str]:
+        """The ``EVENTPER`` card and, when set, the ``EVENTLOC`` card."""
+        name = f"{self.event_name:<{EVENT_NAME_LENGTH}}"
+        lines = [
+            f"   EVENTPER {name} {int(self.averaging_period):3d}  "
+            f"{self.source_group:<8}   {self.date_text} {self.original_conc:17.5f}"
+        ]
+        if self.location is not None:
+            lines.append(f"   EVENTLOC {name} {self.location.to_aermod_fields()}")
+        return lines
 
 
 @dataclass
@@ -1095,8 +1231,17 @@ class EventPathway:
     """
     AERMOD Event (EV) pathway.
 
-    Defines specific time periods for event-based processing.
-    Written as a separate file referenced by EVENTFIL in the CO pathway.
+    An EVENT run re-models specific averaging periods at specific
+    receptors and reports each source's contribution. Its deck has the
+    pathways ``CO SO ME EV OU`` -- no RE, and the EV block must come
+    before OU (AERMOD's PRESET stops reading at ``OU FINISHED``, so an EV
+    block after it is never seen, probe deck 30). The OU pathway of such
+    a deck holds only ``EVENTOUT`` and ``FILEFORM``
+    (:attr:`OutputPathway.event_output`, :attr:`OutputPathway.file_format`).
+    :meth:`AERMODProject.to_aermod_input` writes that layout when
+    ``event_processing`` is set, which the reader sets for any deck with
+    an EV pathway; :meth:`AERMODProject.write` writes it to
+    ``event_filename``.
     """
     events: List[EventPeriod] = field(default_factory=list)
 
@@ -1108,9 +1253,6 @@ class EventPathway:
         """Generate AERMOD EV pathway text."""
         lines = ["EV STARTING"]
         for event in self.events:
-            lines.append(
-                f"   EVENTPER  {event.event_name:<8} "
-                f"{event.start_date}  {event.end_date}  {event.source_group}"
-            )
+            lines.extend(event.to_aermod_lines())
         lines.append("EV FINISHED")
         return "\n".join(lines)

@@ -66,6 +66,7 @@ from .aermod_outputs import (
     parse_aermod_header,
     read_aermod_aux_file,
     read_deposition,
+    read_event_output,
     read_maxifile,
     read_plotfile,
     read_rankfile,
@@ -126,6 +127,7 @@ from .input_generator import (
     DepositionMethod,
     DiscreteReceptor,
     EmissionUnits,
+    EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionDefaults,
@@ -309,7 +311,7 @@ __all__ = [
     "VALIDATED_AERMOD_VERSIONS", "VALIDATED_AERMET_VERSIONS",
     # project
     "AERMODProject", "ControlPathway", "SourcePathway", "ReceptorPathway",
-    "MeteorologyPathway", "OutputPathway", "EventPathway", "EventPeriod",
+    "MeteorologyPathway", "OutputPathway", "EventPathway", "EventPeriod", "EventLocation",
     "PointSource", "AreaSource", "AreaCircSource", "AreaPolySource",
     "VolumeSource", "LineSource", "RLineSource", "RLineExtSource",
     "BuoyLineSource", "BuoyLineSegment", "OpenPitSource", "StreetCanyon",
@@ -336,7 +338,7 @@ __all__ = [
     "PostfileHeader", "PostfileResult", "PostfileParser",
     "UnformattedPostfileParser", "read_postfile",
     "AERMODFileHeader", "AERMODAuxResult", "parse_aermod_header", "read_aermod_aux_file",
-    "read_plotfile", "read_maxifile", "read_rankfile", "read_seasonhr",
+    "read_plotfile", "read_maxifile", "read_rankfile", "read_seasonhr", "read_event_output",
     "read_toxxfile", "read_deposition",
     # visualization
     "AERMODVisualizer", "quick_plot", "quick_map",

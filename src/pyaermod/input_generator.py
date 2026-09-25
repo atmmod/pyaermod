@@ -34,6 +34,7 @@ from .pathways import (  # noqa: F401  -- re-exports
     ChemistryMethod,
     ChemistryOptions,
     ControlPathway,
+    EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionDefaults,
@@ -155,10 +156,19 @@ class AERMODProject:
     # in Python has none.
     unparsed_lines: List[UnparsedLine] = field(default_factory=list)
 
+    # True for an EVENT deck: the pathways are CO, SO, ME, EV, OU (no RE,
+    # EV before OU, an OU pathway of EVENTOUT and FILEFORM only), which is
+    # how AERMOD's PRESET recognises an event run and how AERMOD itself
+    # writes the deck named by EVENTFIL. The reader sets it for any deck
+    # with an EV pathway; ``to_aermod_input(event_processing=True)``
+    # writes that layout for any project.
+    event_processing: bool = False
+
     def to_aermod_input(self,
                         validate: bool = True,
                         check_files: bool = False,
-                        preserve_unparsed: bool = True) -> str:
+                        preserve_unparsed: bool = True,
+                        event_processing: Optional[bool] = None) -> str:
         """
         Generate complete AERMOD input file.
 
@@ -177,6 +187,14 @@ class AERMODProject:
             written back into its pathway, just before the pathway's
             ``FINISHED`` line, under a ``**`` comment banner. Pass
             ``False`` to write only what the model represents.
+        event_processing : bool, optional
+            Write the EVENT-run layout (``CO SO ME EV OU``, see
+            :attr:`event_processing`); the default is the project's own
+            flag. The RE pathway is not part of an event deck (AERMOD
+            reads it as an invalid pathway there) and is left out; the
+            events come from :attr:`events`, and the OU pathway holds
+            ``EVENTOUT`` (:attr:`OutputPathway.event_output`, else
+            :attr:`ControlPathway.eventfil_option`, else ``DETAIL``).
         """
         if validate:
             from pyaermod.validator import Validator
@@ -184,27 +202,32 @@ class AERMODProject:
             if not result.is_valid:
                 raise ValueError(str(result))
 
+        event = self.event_processing if event_processing is None else event_processing
+
         # Pass chemistry options to SO pathway for OLMGROUP emission
         chemistry = getattr(self.control, "chemistry", None)
 
         pathways = [
-            ("CO", self.control.to_aermod_input()),
+            ("CO", self.control.to_aermod_input(event_processing=event)),
             ("SO", self.sources.to_aermod_input(
                 chemistry=chemistry,
                 psd_credit=getattr(self.control, "psd_credit", False),
             )),
-            ("RE", self.receptors.to_aermod_input()),
-            ("ME", self.meteorology.to_aermod_input()),
-            ("OU", self.output.to_aermod_input()),
         ]
+        if not event:
+            pathways.append(("RE", self.receptors.to_aermod_input()))
+        pathways.append(("ME", self.meteorology.to_aermod_input(event_processing=event)))
+        if event:
+            events = self.events if self.events is not None else EventPathway()
+            pathways.append(("EV", events.to_aermod_input()))
+            pathways.append(("OU", self.output.to_aermod_input(
+                event_processing=True,
+                event_output=self.output.event_output or self.control.eventfil_option,
+            )))
+        else:
+            pathways.append(("OU", self.output.to_aermod_input()))
         kept = self.unparsed_lines if preserve_unparsed else []
-        sections = [_with_preserved(code, text, kept) for code, text in pathways]
-        ev_lines = preserved_block("EV", kept)
-        if ev_lines:
-            # The reader keeps an inline EV pathway whole; AERMOD wants
-            # it last, after OU.
-            sections.append("\n".join(["EV STARTING", *ev_lines, "EV FINISHED"]))
-        return "\n\n".join(sections)
+        return "\n\n".join(_with_preserved(code, text, kept) for code, text in pathways)
 
     def write(self, filename: Union[str, Path],
               event_filename: Optional[Union[str, Path]] = None,
@@ -217,7 +240,11 @@ class AERMODProject:
         filename : str or Path
             Path for the main AERMOD input file.
         event_filename : str or Path, optional
-            Path for the event file. Required if events are defined.
+            Path for the event deck: the same project written in the
+            EVENT-run layout (``to_aermod_input(event_processing=True)``),
+            which needs :attr:`events`. This is the deck AERMOD would
+            write itself for ``ControlPathway.eventfil``; writing it here
+            lets a hand-built or edited event set be run directly.
         validate : bool
             Forwarded to :meth:`to_aermod_input`. Default True
             (pyaermod 2.0+). Pass ``validate=False`` to skip.
@@ -237,7 +264,7 @@ class AERMODProject:
         if self.events and event_filename:
             event_path = Path(event_filename)
             with open(event_path, 'w') as f:
-                f.write(self.events.to_aermod_input())
+                f.write(self.to_aermod_input(validate=False, event_processing=True))
 
         return output_path
 

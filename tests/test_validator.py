@@ -19,6 +19,7 @@ from pyaermod.input_generator import (
     ControlPathway,
     DepositionMethod,
     DiscreteReceptor,
+    EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
@@ -33,6 +34,7 @@ from pyaermod.input_generator import (
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SourceGroupDefinition,
     SourcePathway,
     StreetCanyon,
     TerrainType,
@@ -1164,93 +1166,101 @@ class TestDepositionValidation:
 # ---------------------------------------------------------------------------
 
 class TestEventValidation:
-    """Test event processing validation."""
+    """The EV pathway as evset.f checks it (EVPER, EVLOC, OEVENT, EVCARD)."""
 
-    def _project_with_events(self, events, eventfil="events.inp"):
-        control = ControlPathway(
-            title_one="Test", pollutant_id="OTHER",
-            averaging_periods=["ANNUAL"],
-            eventfil=eventfil,
-        )
-        return _make_valid_project(
-            control=control,
-            **{"events": EventPathway(events=events)} if events else {},
-        )
+    @staticmethod
+    def _control(**kw):
+        kw.setdefault("title_one", "Test")
+        kw.setdefault("averaging_periods", ["1", "24"])
+        kw.setdefault("eventfil", "events.inp")
+        return ControlPathway(**kw)
+
+    @staticmethod
+    def _event(name="EVT01", **kw):
+        kw.setdefault("averaging_period", 1)
+        kw.setdefault("date", "88030214")
+        kw.setdefault("location", EventLocation(500.0, 500.0))
+        return EventPeriod(name, **kw)
+
+    def _errors(self, events, control=None, **kw):
+        project = _make_valid_project(control=control or self._control(), **kw)
+        project.events = EventPathway(events=events)
+        result = Validator.validate(project)
+        return [e for e in result.errors if "EventPathway" in e.pathway]
 
     def test_valid_events(self):
-        project = _make_valid_project(
-            control=ControlPathway(
-                title_one="Test", eventfil="events.inp",
-            ),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-        ])
-        result = Validator.validate(project)
-        ev_errors = [e for e in result.errors if "EventPathway" in e.pathway]
-        assert len(ev_errors) == 0
+        assert self._errors([self._event(), self._event("EVT02", averaging_period=24,
+                                                        source_group="ALL")]) == []
 
     def test_empty_events_list(self):
-        project = _make_valid_project()
-        project.events = EventPathway(events=[])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "no event periods" in e.message]
+        errors = [e for e in self._errors([]) if "no event periods" in e.message]
         assert len(errors) >= 1
 
-    def test_event_name_too_long(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("TOOLONGNAME", "24010101", "24010124"),
-        ])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "exceeds 8" in e.message]
+    def test_event_name_longer_than_evname(self):
+        # EVNAME is CHARACTER*10; AERMOD's own H001H01001 uses all ten.
+        assert self._errors([self._event("H001H01001")]) == []
+        errors = [e for e in self._errors([self._event("ELEVENCHARS")])
+                  if "exceeds 10" in e.message]
         assert len(errors) >= 1
 
     def test_duplicate_event_names(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-            EventPeriod("EVT01", "24020101", "24020224"),
-        ])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "duplicate" in e.message]
+        errors = [e for e in self._errors([self._event(), self._event()])
+                  if "duplicate" in e.message]
         assert len(errors) >= 1
 
-    def test_invalid_date_format(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "2024010", "24010124"),  # 7 digits
-        ])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "YYMMDDHH" in e.message]
+    @pytest.mark.parametrize("date", ["2024010", "2401AB01", "202401011"])
+    def test_invalid_date_format(self, date):
+        errors = [e for e in self._errors([self._event(date=date)]) if "YYMMDDHH" in e.message]
         assert len(errors) >= 1
 
-    def test_non_digit_date(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "2401AB01", "24010124"),
-        ])
+    def test_averaging_period_must_be_on_avertime_and_at_most_24(self):
+        errors = self._errors([self._event(averaging_period=3)])
+        assert any("not on AVERTIME" in e.message for e in errors)
+        errors = self._errors([self._event(averaging_period=720)],
+                              control=self._control(averaging_periods=["1", "MONTH", "720"]))
+        assert any("24 hours or less" in e.message for e in errors)
+
+    def test_source_group_must_be_defined(self):
+        errors = self._errors([self._event(source_group="G9")])
+        assert any("not defined" in e.message for e in errors)
+        sources = SourcePathway(sources=[PointSource("STK1", 0, 0, stack_height=30.0,
+                                                     stack_diameter=1.5, stack_temp=400.0,
+                                                     exit_velocity=10.0, emission_rate=1.0)],
+                                group_definitions=[SourceGroupDefinition("G9", ["STK1"])])
+        assert self._errors([self._event(source_group="G9")], sources=sources) == []
+
+    def test_every_event_needs_a_location(self):
+        errors = [e for e in self._errors([self._event(location=None)]) if "EVENTLOC" in e.message]
+        assert len(errors) == 1
+
+    def test_event_output_option(self):
+        project = _make_valid_project(control=self._control(),
+                                      output=OutputPathway(event_output="VERBOSE"))
+        project.events = EventPathway(events=[self._event()])
         result = Validator.validate(project)
-        errors = [e for e in result.errors if "YYMMDDHH" in e.message]
-        assert len(errors) >= 1
+        assert any("EVENTOUT" in e.message for e in result.errors)
+        project.output.event_output = "SOCONT"
+        assert not [e for e in Validator.validate(project).errors if "EVENTOUT" in e.message]
 
     def test_missing_eventfil_warning(self):
-        project = _make_valid_project()
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-        ])
+        project = _make_valid_project(control=self._control(eventfil=None))
+        project.events = EventPathway(events=[self._event()])
         result = Validator.validate(project)
         warnings = [e for e in result.errors
                     if "eventfil" in e.field and e.severity == "warning"]
         assert len(warnings) >= 1
+        # An event deck itself carries no EVENTFIL and needs no receptors.
+        project.event_processing = True
+        project.receptors = ReceptorPathway()
+        result = Validator.validate(project)
+        assert not [e for e in result.errors if "eventfil" in e.field]
+        assert not [e for e in result.errors if e.pathway == "ReceptorPathway"]
+
+    def test_event_run_without_events(self):
+        project = _make_valid_project(control=self._control())
+        project.event_processing = True
+        result = Validator.validate(project)
+        assert any("no events" in e.message for e in result.errors)
 
 
 # ---------------------------------------------------------------------------

@@ -104,13 +104,24 @@ class Validator:
         ValidationResult
         """
         result = ValidationResult()
+        event_run = bool(getattr(project, "event_processing", False))
         cls._validate_control(project.control, result)
         cls._validate_sources(project.sources, project.control, result)
-        cls._validate_receptors(project.receptors, result)
+        if not event_run:
+            # An EVENT deck has no RE pathway; its receptors are the
+            # EVENTLOC cards.
+            cls._validate_receptors(project.receptors, result)
         cls._validate_meteorology(project.meteorology, result, check_files)
         cls._validate_output(project.output, result, project.control)
-        if getattr(project, "events", None) is not None:
-            cls._validate_events(project.events, project.control, result)
+        events = getattr(project, "events", None)
+        if event_run and events is None:
+            result.errors.append(ValidationError(
+                "EventPathway", "events",
+                "event_processing is set but the project has no events"
+            ))
+        if events is not None:
+            cls._validate_events(events, project.control, project.sources,
+                                 project.output, result, event_run)
 
         if advanced:
             # Lazy import to avoid circulars: validator_advanced uses
@@ -1566,7 +1577,11 @@ class Validator:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _validate_events(cls, events, control, result: ValidationResult):
+    def _validate_events(cls, events, control, sources, output,
+                         result: ValidationResult, event_run: bool = False):
+        """The EV pathway as evset.f checks it (EVPER, EVLOC, OEVENT, EVCARD)."""
+        from .pathways import EVENT_NAME_LENGTH, EVENT_OUTPUT_OPTIONS
+
         pathway = "EventPathway"
 
         if not events.events:
@@ -1575,32 +1590,65 @@ class Validator:
             ))
             return
 
+        periods = {str(p).upper() for p in control.averaging_periods}
+        groups = {"ALL"} | {g.group_name.upper() for g in sources.group_definitions}
+        groups |= {g.group_name.upper() for g in getattr(sources, "psd_groups", [])}
         seen_names = set()
         for event in events.events:
-            if len(event.event_name) > 8:
+            name = event.event_name
+            if len(name) > EVENT_NAME_LENGTH:
                 result.errors.append(ValidationError(
                     pathway, "event_name",
-                    f"'{event.event_name}' exceeds 8 characters"
+                    f"'{name}' exceeds {EVENT_NAME_LENGTH} characters (AERMOD's EVNAME)"
                 ))
-
-            if event.event_name in seen_names:
+            if name in seen_names:
                 result.errors.append(ValidationError(
-                    pathway, "event_name",
-                    f"duplicate event name '{event.event_name}'"
+                    pathway, "event_name", f"duplicate event name '{name}' (E313)"
                 ))
-            seen_names.add(event.event_name)
+            seen_names.add(name)
 
-            for date_str, field_name in [
-                (event.start_date, "start_date"),
-                (event.end_date, "end_date"),
-            ]:
-                if len(date_str) != 8 or not date_str.isdigit():
-                    result.errors.append(ValidationError(
-                        pathway, field_name,
-                        f"must be YYMMDDHH format (8 digits), got '{date_str}'"
-                    ))
+            try:
+                hours = int(event.averaging_period)
+            except (TypeError, ValueError):
+                hours = -1
+            if str(hours) not in periods:
+                result.errors.append(ValidationError(
+                    pathway, "averaging_period",
+                    f"event '{name}': {event.averaging_period!r} is not on AVERTIME (E203)"
+                ))
+            if hours > 24:
+                result.errors.append(ValidationError(
+                    pathway, "averaging_period",
+                    f"event '{name}': averaging period must be 24 hours or less (E297)"
+                ))
 
-        if events.events and not control.eventfil:
+            date = str(event.date)
+            if not (len(date) == 8 and date.isdigit()):
+                result.errors.append(ValidationError(
+                    pathway, "date",
+                    f"event '{name}': must be YYMMDDHH (8 digits), got '{date}'"
+                ))
+
+            if event.source_group.upper() not in groups:
+                result.errors.append(ValidationError(
+                    pathway, "source_group",
+                    f"event '{name}': source group '{event.source_group}' is not defined (E203)"
+                ))
+
+            if event.location is None:
+                result.errors.append(ValidationError(
+                    pathway, "location",
+                    f"event '{name}' has no EVENTLOC receptor (E130)"
+                ))
+
+        option = output.event_output or control.eventfil_option
+        if option is not None and option.upper() not in EVENT_OUTPUT_OPTIONS:
+            result.errors.append(ValidationError(
+                "OutputPathway", "event_output",
+                f"EVENTOUT must be one of {EVENT_OUTPUT_OPTIONS}, got '{option}' (E203)"
+            ))
+
+        if not event_run and not control.eventfil:
             result.errors.append(ValidationError(
                 pathway, "eventfil",
                 "events defined but ControlPathway.eventfil not set",

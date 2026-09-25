@@ -37,6 +37,9 @@ from pyaermod.input_generator import (
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
+    EventLocation,
+    EventPathway,
+    EventPeriod,
     MaxiFile,
     MeteorologyPathway,
     OutputPathway,
@@ -51,6 +54,7 @@ from pyaermod.input_reader import parse_aermod_input
 
 AERMOD_EXE = shutil.which("aermod")
 ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "tests" / "fixtures" / "epa_official"
 MET_DIR = ROOT / "test_cases" / "aermet26135_aermod26135" / "meteorology"
 SURFACE = MET_DIR / "aermet2.sfc"
 PROFILE = MET_DIR / "aermet2.pfl"
@@ -218,6 +222,51 @@ def test_writer_forms_pass_aermod_setup(label, project, tmp_path):
     assert not errors, (
         f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
     )
+
+
+# ---------------------------------------------------------------------
+# The EVENT-run layout (evset.f EV_SETUP; probe decks 29b and 30)
+# ---------------------------------------------------------------------
+
+def _event_project(**output_kw) -> AERMODProject:
+    project = _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"],
+                               eventfil="events.inp", eventfil_option="SOCONT"),
+        output=OutputPathway(**output_kw),
+    )
+    project.events = EventPathway(events=[
+        EventPeriod("H001H01001", 1, "88030214", "ALL", 52.33812,
+                    EventLocation(500.0, 500.0, 0.0, 0.0, 0.0)),
+        EventPeriod("POLAR1", 24, "88030224", location=EventLocation(700.0, 45.0, 2.5, polar=True)),
+        EventPeriod("NOFLAG", 1, "88030101", location=EventLocation(500.0, 500.0, 0.0, 0.0)),
+    ])
+    return project
+
+
+@_met_ok
+@pytest.mark.parametrize("label,project", [
+    ("event-deck-socont", _event_project()),
+    ("event-deck-detail-exp", _event_project(event_output="DETAIL", file_format="EXP")),
+], ids=["event-deck-socont", "event-deck-detail-exp"])
+def test_event_deck_passes_aermod_setup(label, project, tmp_path):
+    deck = project.to_aermod_input(validate=False, event_processing=True)
+    assert "RE STARTING" not in deck and "EVENTFIL" not in deck
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+@_met_ok
+def test_rewritten_generated_event_deck_passes_aermod_setup(tmp_path):
+    """The event deck AERMOD v26135 wrote for probe 29, read and written
+    back by pyaermod, is accepted with no fatal error."""
+    text = (FIXTURES / "events_generated.inp").read_text()
+    project = parse_aermod_input(text)
+    assert project.event_processing and len(project.events.events) == 4
+    written = project.to_aermod_input(validate=True)
+    for met in ("AERMET2.SFC", "AERMET2.PFL"):
+        shutil.copy(FIXTURES / met, tmp_path / met)
+    errors = run_setup_check(written, tmp_path)
+    assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{written}"
 
 
 @_met_ok

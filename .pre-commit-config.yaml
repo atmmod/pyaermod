@@ -1,10 +1,13 @@
 repos:
+  # Same ruff release as the [dev] extra and CI's `ruff check`; an older
+  # hook cannot parse the UP045 selector in pyproject.toml and fails every
+  # commit. The formatter is not run: the code base is not ruff-formatted
+  # and CI does not check formatting.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.0
+    rev: v0.16.9
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
-      - id: ruff-format
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
