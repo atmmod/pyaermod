@@ -37,6 +37,7 @@ from pyaermod.input_generator import (
     CartesianGrid,
     ControlPathway,
     DiscreteReceptor,
+    EvalFile,
     EventLocation,
     EventPathway,
     EventPeriod,
@@ -45,9 +46,14 @@ from pyaermod.input_generator import (
     OutputPathway,
     PointSource,
     PolarGrid,
+    RankFile,
     ReceptorPathway,
+    ScimOptions,
+    SeasonHourFile,
     SourcePathway,
     TerrainType,
+    ToxxFile,
+    UnparsedLine,
     UrbanArea,
 )
 from pyaermod.input_reader import parse_aermod_input
@@ -222,6 +228,65 @@ def test_writer_forms_pass_aermod_setup(label, project, tmp_path):
     assert not errors, (
         f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
     )
+
+
+# ---------------------------------------------------------------------
+# ME and OU keywords given a field in WP-5 (probe decks 26-28c)
+# ---------------------------------------------------------------------
+
+def _met(**kw) -> MeteorologyPathway:
+    return MeteorologyPathway(
+        surface_file=SURFACE.name, profile_file=PROFILE.name,
+        surface_station_id=14735, upper_air_station_id=14735, data_start_year=1988, **kw)
+
+
+def _scim(**kw) -> AERMODProject:
+    # SCIM is a non-DFAULT option (CO E204 beside DFAULT).
+    return _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["ANNUAL"],
+                               regulatory_default=False, extra_model_options=["SCIM"]),
+        meteorology=_met(scim=ScimOptions(1, 25, **kw)))
+
+
+ME_OU_CASES = [
+    ("me-dayrange-numyears-windcats-noturbst", _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"]),
+        meteorology=_met(day_ranges=["3/1-3/31", "100", "150-160"], num_years=1,
+                         wind_speed_categories=[1.54, 3.09, 5.14, 8.23, 10.8],
+                         turbulence_option="NOTURBST"))),
+    ("scimbyhr-two-fields", _scim()),
+    ("scimbyhr-with-summary-files", _scim(surface_summary_file="scim.sfc", profile_summary_file="scim.pfl")),
+    ("scimbyhr-epa-eight-fields", _scim(wet_start_hour=0, wet_interval=0,
+                                         surface_summary_file="scim.sfc", profile_summary_file="scim.pfl")),
+    ("ou-noheader-rankfile-seasonhr-toxxfile", _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"]),
+        output=OutputPathway(max_table=True, max_table_rank=100, no_header=["RANKFILE", "SEASONHR"],
+                             rank_files=[RankFile("1", 100, "rank01.rnk"), RankFile("24", 50, "rank24.rnk", 60)],
+                             season_hour_files=[SeasonHourFile("ALL", "seas.dat", 61)],
+                             toxx_files=[ToxxFile("1", 1.0, "toxx.dat")]))),
+    ("ou-noheader-all", _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"]),
+        output=OutputPathway(no_header=["ALL"], maxi_files=[MaxiFile("1", "ALL", 30.0, "maxi01.dat")]))),
+]
+
+
+@_met_ok
+@pytest.mark.parametrize("label,project", ME_OU_CASES, ids=[c[0] for c in ME_OU_CASES])
+def test_me_ou_forms_pass_aermod_setup(label, project, tmp_path):
+    deck = project.to_aermod_input(validate=True)
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+@_met_ok
+def test_evalfile_with_a_preserved_evalcart_arc_passes_aermod_setup(tmp_path):
+    # OUTQA E256 without EVALCART receptors (probe 28); the arc is an RE
+    # line the reader keeps verbatim, written back inside RE.
+    project = _project(output=OutputPathway(eval_files=[EvalFile("SRC1", "eval.dat")]))
+    project.unparsed_lines.append(UnparsedLine("RE", "EVALCART", ["600.", "600.", "0.", "0.", "0.", "ARC1"]))
+    deck = project.to_aermod_input(validate=True)
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
 
 
 # ---------------------------------------------------------------------

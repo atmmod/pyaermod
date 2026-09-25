@@ -26,15 +26,18 @@ Supported pathway keywords (stored on the project model and written back):
         (ORIG by coordinates or source, DIST list, GDIR num/init/delta or
         DDIR list, ELEV/HILL/FLAG rows), DISCCART, ELEVUNIT
     ME: SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND (with
-        or without hours), WDROTATE
+        or without hours), WDROTATE, DAYRANGE, NUMYEARS, WINDCATS,
+        SCIMBYHR, and the turbulence keywords NOTURB, NOTURBST, NOTURBCO,
+        NOSA, NOSW, NOSAST, NOSWST, NOSACO, NOSWCO
     OU: RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE,
-        POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT, EVENTOUT
+        POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT, EVENTOUT,
+        NOHEADER, RANKFILE, SEASONHR, EVALFILE, TOXXFILE
     EV: EVENTPER, EVENTLOC (an EV pathway makes the deck an EVENT run:
         ``AERMODProject.event_processing``, no RE pathway required)
 
 Every other line -- a keyword with no field above (EMISFACT, HOUREMIS,
 INCLUDED, BACKUNIT, SO ELEVUNIT, EVALCART, DISCPOLR, SITEDATA, ERRORFIL,
-DEBUGOPT, NO2EQUIL, RANKFILE, SEASONHR, ...) or a form of a known keyword
+DEBUGOPT, NO2EQUIL, ...) or a form of a known keyword
 the model cannot hold (a BACKGRND hourly file, a PLOTFILE with a lower
 rank or a unit, a second POSTFILE, the definition lines of a source type
 the reader does not construct) -- is kept
@@ -79,6 +82,7 @@ from .input_generator import (
     ControlPathway,
     DiscreteReceptor,
     EmissionUnits,
+    EvalFile,
     EventLocation,
     EventPathway,
     EventPeriod,
@@ -99,21 +103,25 @@ from .input_generator import (
     PointSource,
     PolarGrid,
     PollutantType,
+    RankFile,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
     SaveFile,
+    ScimOptions,
+    SeasonHourFile,
     SolidBarrier,
     SolidBarrierSegment,
     SourceGroupDefinition,
     SourcePathway,
     TemporalValues,
     TerrainType,
+    ToxxFile,
     UrbanArea,
     VegetativeBarrier,
     VolumeSource,
 )
-from .pathways import TEMPORAL_FLAG_COUNTS
+from .pathways import NOHEADER_FILE_TYPES, TEMPORAL_FLAG_COUNTS, TURBULENCE_OPTIONS
 from .unparsed import UnparsedLine, unparsed_summary
 
 logger = logging.getLogger(__name__)
@@ -1643,6 +1651,11 @@ def _parse_meteorology(block: _PathwayBlock,
     }
     dates: Dict[str, Any] = {}
     wind_rotation = None
+    day_ranges: List[str] = []
+    num_years: Optional[int] = None
+    wind_cats: Optional[List[float]] = None
+    scim: Optional[ScimOptions] = None
+    turbulence: Optional[str] = None
 
     for kw, toks, ln in _group_keywords(block):
         if kw == "SURFFILE" and toks:
@@ -1677,14 +1690,55 @@ def _parse_meteorology(block: _PathwayBlock,
                 )
         elif kw == "WDROTATE" and toks:
             wind_rotation = float(toks[0])
+        elif kw == "DAYRANGE" and toks:
+            # meset.f DAYRNG: every field is a day or a range, accumulating
+            # over cards; kept as written (1/1-3/31, 50, 100-120).
+            day_ranges.extend(toks)
+        elif kw == "NUMYEARS" and len(toks) == 1:
+            try:
+                num_years = int(float(toks[0]))
+            except ValueError:
+                _drop(dropped, ln)
+        elif kw == "WINDCATS" and len(toks) == 5:
+            # WSCATS: exactly five upper bounds; another count is E200.
+            cats = _floats(toks)
+            if cats is None:
+                _drop(dropped, ln)
+            else:
+                wind_cats = cats
+        elif kw == "SCIMBYHR" and len(toks) in (2, 4, 6):
+            # SCIMIT: start interval [wetstart wetint] [sfcfile pflfile];
+            # a six-field card holds files when a field is non-numeric.
+            try:
+                scim = ScimOptions(start_hour=int(float(toks[0])), interval=int(float(toks[1])))
+            except ValueError:
+                _drop(dropped, ln)
+                continue
+            rest = toks[2:]
+            if len(rest) == 4 or (len(rest) == 2 and _is_number(rest[0]) and _is_number(rest[1])):
+                with contextlib.suppress(ValueError):
+                    scim.wet_start_hour = int(float(rest[0]))
+                    scim.wet_interval = int(float(rest[1]))
+                rest = rest[2:]
+            if rest:
+                scim.surface_summary_file, scim.profile_summary_file = rest[0], rest[1]
+        elif kw in TURBULENCE_OPTIONS and not toks and turbulence is None:
+            # TURBOPT: nine bare keywords behind one status switch; a
+            # second one is E135 and is kept verbatim so the deck shows it.
+            turbulence = kw
         else:
-            # SITEDATA, DAYRANGE, SCIMBYHR, NUMYEARS, WINDCATS, the
-            # turbulence switches, ...: no structural field, kept verbatim.
+            # SITEDATA, a malformed line of a known keyword, ...: no
+            # structural field, kept verbatim.
             _drop(dropped, ln)
 
     return MeteorologyPathway(
         **kw_map, **dates,
         wind_rotation=wind_rotation,
+        day_ranges=day_ranges,
+        num_years=num_years,
+        wind_speed_categories=wind_cats,
+        scim=scim,
+        turbulence_option=turbulence,
     )
 
 
@@ -1715,6 +1769,11 @@ def _parse_output(block: _PathwayBlock,
     postfile_format = "PLOT"
     file_format: Optional[str] = None
     event_output: Optional[str] = None
+    no_header: List[str] = []
+    rank_files: List[RankFile] = []
+    season_hour_files: List[SeasonHourFile] = []
+    eval_files: List[EvalFile] = []
+    toxx_files: List[ToxxFile] = []
     max_daily: List[MaxDailyFile] = []
     max_daily_by_year: List[MaxDailyFile] = []
     max_daily_contributions: List[MaxDailyContribution] = []
@@ -1798,6 +1857,40 @@ def _parse_output(block: _PathwayBlock,
         elif kw == "EVENTOUT" and len(toks) == 1:
             # The OU pathway of an EVENT deck (evset.f OEVENT: one field).
             event_output = toks[0].upper()
+        elif kw == "NOHEADER" and 1 <= len(toks) <= 8 and all(
+                tok.upper() in ("ALL", *NOHEADER_FILE_TYPES) for tok in toks):
+            no_header.extend(tok.upper() for tok in toks)
+        elif kw == "RANKFILE" and len(toks) in (3, 4):
+            # OURANK: aveper rank filnam [funit]
+            try:
+                rank = RankFile(toks[0].upper(), int(float(toks[1])), toks[2],
+                                int(float(toks[3])) if len(toks) > 3 else None)
+            except ValueError:
+                _drop(dropped, ln)
+                continue
+            rank_files.append(rank)
+        elif kw == "SEASONHR" and len(toks) in (2, 3):
+            # OUSEAS: grpid filnam [funit]
+            try:
+                season_hour_files.append(SeasonHourFile(
+                    toks[0], toks[1], int(float(toks[2])) if len(toks) > 2 else None))
+            except ValueError:
+                _drop(dropped, ln)
+        elif kw == "EVALFILE" and len(toks) in (2, 3):
+            # OUEVAL: srcid filnam [funit]
+            try:
+                eval_files.append(EvalFile(
+                    toks[0], toks[1], int(float(toks[2])) if len(toks) > 2 else None))
+            except ValueError:
+                _drop(dropped, ln)
+        elif kw == "TOXXFILE" and len(toks) in (3, 4):
+            # OUTOXX: aveper thresh filnam [funit]
+            try:
+                toxx_files.append(ToxxFile(
+                    toks[0].upper(), float(toks[1]), toks[2],
+                    int(float(toks[3])) if len(toks) > 3 else None))
+            except ValueError:
+                _drop(dropped, ln)
         elif kw in ("MAXDAILY", "MXDYBYYR") and len(toks) >= 2:
             # MAXDAILY <group> <filename> [unit] -- no averaging period
             # field; ouset.f reads the group from field 3.
@@ -1832,8 +1925,7 @@ def _parse_output(block: _PathwayBlock,
                 continue
             max_daily_contributions.append(contribution)
         else:
-            # RANKFILE, SEASONHR, TOXXFILE, EVALFILE, NOHEADER, a short
-            # or malformed line of a known keyword, ...: kept verbatim.
+            # A short or malformed line of a known keyword: kept verbatim.
             _drop(dropped, ln)
 
     return OutputPathway(
@@ -1853,6 +1945,11 @@ def _parse_output(block: _PathwayBlock,
         postfile_format=postfile_format,
         file_format=file_format,
         event_output=event_output,
+        no_header=no_header,
+        rank_files=rank_files,
+        season_hour_files=season_hour_files,
+        eval_files=eval_files,
+        toxx_files=toxx_files,
         max_daily_files=max_daily,
         max_daily_by_year_files=max_daily_by_year,
         max_daily_contributions=max_daily_contributions,
@@ -2031,6 +2128,10 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     met = project.meteorology
     _check("meteorology.surface_file", getattr(met, "surface_file", None))
     _check("meteorology.profile_file", getattr(met, "profile_file", None))
+    scim = getattr(met, "scim", None)
+    if scim is not None:
+        _check("meteorology.scim.surface_summary_file", scim.surface_summary_file)
+        _check("meteorology.scim.profile_summary_file", scim.profile_summary_file)
 
     control = project.control
     chem = getattr(control, "chemistry", None)
@@ -2062,6 +2163,14 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         _check(f"output.{attr}", getattr(out, attr, None))
     for mf in out.maxi_files:
         _check(f"output.maxi_files[{mf.source_group}/{mf.averaging_period}]", mf.filename)
+    for rf in out.rank_files:
+        _check(f"output.rank_files[{rf.averaging_period}]", rf.filename)
+    for sh in out.season_hour_files:
+        _check(f"output.season_hour_files[{sh.source_group}]", sh.filename)
+    for ef in out.eval_files:
+        _check(f"output.eval_files[{ef.source_id}]", ef.filename)
+    for tf in out.toxx_files:
+        _check(f"output.toxx_files[{tf.averaging_period}]", tf.filename)
     for period, group, fname in (out.plot_file_groups or []):
         _check(f"output.plot_file_groups[{group}/{period}]", fname)
     for label, entries in (("max_daily_files", out.max_daily_files),

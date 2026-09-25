@@ -34,6 +34,7 @@ from .pathways import (  # noqa: F401  -- re-exports
     ChemistryMethod,
     ChemistryOptions,
     ControlPathway,
+    EvalFile,
     EventLocation,
     EventPathway,
     EventPeriod,
@@ -48,10 +49,14 @@ from .pathways import (  # noqa: F401  -- re-exports
     OutputPathway,
     OzoneData,
     PollutantType,
+    RankFile,
     SaveFile,
+    ScimOptions,
+    SeasonHourFile,
     SourceType,
     TemporalValues,
     TerrainType,
+    ToxxFile,
     UrbanArea,
 )
 from .receptors import (  # noqa: F401  -- re-exports

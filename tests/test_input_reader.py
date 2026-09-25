@@ -26,13 +26,18 @@ from pyaermod import (
     VolumeSource,
 )
 from pyaermod.input_generator import (
+    EvalFile,
     GasDepositionDefaults,
     InitFile,
     MaxDailyContribution,
     MaxDailyFile,
     MultiYear,
+    RankFile,
     SaveFile,
+    ScimOptions,
+    SeasonHourFile,
     TemporalValues,
+    ToxxFile,
 )
 from pyaermod.input_reader import parse_aermod_input, read_aermod_input
 
@@ -1337,20 +1342,33 @@ OU FINISHED
         out = self._deck(ou_body="   MAXTABLE ALLAVE 50").output
         assert out.max_table and out.max_table_rank == 50
 
-    @pytest.mark.parametrize("line", [
-        "DAYRANGE 1/1 12/31", "SCIMBYHR 1 4", "WINDCATS 1.54 3.09 5.14 8.23 10.8",
-        "NUMYEARS 5", "NOTURBST", "NOTURBCO",
+    @pytest.mark.parametrize("line, attr, expected", [
+        ("DAYRANGE 1/1 12/31", "day_ranges", ["1/1", "12/31"]),
+        ("SCIMBYHR 1 4", "scim", ScimOptions(1, 4)),
+        ("WINDCATS 1.54 3.09 5.14 8.23 10.8", "wind_speed_categories", [1.54, 3.09, 5.14, 8.23, 10.8]),
+        ("NUMYEARS 5", "num_years", 5),
+        ("NOTURBST", "turbulence_option", "NOTURBST"),
+        ("NOTURBCO", "turbulence_option", "NOTURBCO"),
     ])
-    def test_unhandled_me_keywords_pass_through(self, line):
-        assert self._deck(me_extra=f"   {line}").meteorology.surface_file == "a.sfc"
+    def test_remaining_me_keywords_are_structural(self, line, attr, expected):
+        """The ME keywords WP-5 gave a field (meset.f DAYRNG, SCIMIT, WSCATS,
+        NUMYR, TURBOPT); their pass-through entries lived here before."""
+        project = self._deck(me_extra=f"   {line}")
+        assert getattr(project.meteorology, attr) == expected
+        assert project.unparsed_lines == []
 
-    @pytest.mark.parametrize("line", [
-        "TOXXFILE 1 ALL 1.0 toxx.dat", "SEASONHR ALL seasonhr.dat", "RANKFILE 1 10 rank.dat",
-        "EVALFILE S1 eval.dat", "NOHEADER ALL",
+    @pytest.mark.parametrize("line, attr, expected", [
+        ("TOXXFILE 1 1.0 toxx.dat", "toxx_files", [ToxxFile("1", 1.0, "toxx.dat")]),
+        ("SEASONHR ALL seasonhr.dat", "season_hour_files", [SeasonHourFile("ALL", "seasonhr.dat")]),
+        ("RANKFILE 1 10 rank.dat", "rank_files", [RankFile("1", 10, "rank.dat")]),
+        ("EVALFILE S1 eval.dat", "eval_files", [EvalFile("S1", "eval.dat")]),
+        ("NOHEADER ALL", "no_header", ["ALL"]),
     ])
-    def test_unhandled_ou_keywords_pass_through(self, line):
-        out = self._deck(ou_body=f"   {line}").output
-        assert out.plot_file is None
+    def test_remaining_ou_keywords_are_structural(self, line, attr, expected):
+        """ouset.f OUTOXX, OUSEAS, OURANK, OUEVAL, NOHEADER."""
+        project = self._deck(ou_body=f"   {line}")
+        assert getattr(project.output, attr) == expected
+        assert project.unparsed_lines == []
 
     def _ou_roundtrip(self, ou_body):
         first = self._deck(ou_body=ou_body)

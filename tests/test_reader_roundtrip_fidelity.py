@@ -22,15 +22,20 @@ from pyaermod.input_generator import (
     ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    EvalFile,
     EventLocation,
     MaxiFile,
     MeteorologyPathway,
     OutputPathway,
     PointSource,
     PolarGrid,
+    RankFile,
     ReceptorPathway,
+    ScimOptions,
+    SeasonHourFile,
     SourcePathway,
     TerrainType,
+    ToxxFile,
     UnparsedLine,
     UrbanArea,
 )
@@ -412,13 +417,13 @@ class TestUnparsedLines:
     def test_lines_are_collected_with_pathway_keyword_and_position(self):
         project = parse(co_extra="   ERRORFIL  errors.out\n   DEBUGOPT  MODEL",
                         me_extra="   SITEDATA  99999  2020  HERE",
-                        ou_body="   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100  rank.dat")
+                        ou_body="   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100")
         got = [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines]
         assert got == [
             ("CO", "ERRORFIL", ["errors.out"]),
             ("CO", "DEBUGOPT", ["MODEL"]),
             ("ME", "SITEDATA", ["99999", "2020", "HERE"]),
-            ("OU", "RANKFILE", ["1", "100", "rank.dat"]),
+            ("OU", "RANKFILE", ["1", "100"]),   # a RANKFILE short of its filename
         ]
         assert [u.lineno for u in project.unparsed_lines] == sorted(u.lineno for u in project.unparsed_lines)
         assert project.unparsed_lines[0].raw == "   ERRORFIL  errors.out"
@@ -444,10 +449,10 @@ class TestUnparsedLines:
     def test_parse_logs_one_warning_per_pathway_and_keyword(self, caplog):
         with caplog.at_level(logging.WARNING, logger="pyaermod.input_reader"):
             parse(so_body=SO_DEFAULT + "   EMISFACT S1 SEASON 1 1 1 1\n   EMISFACT S1 SEASON 2 2 2 2\n",
-                  ou_body="   NOHEADER  ALL")
+                  ou_body="   POSTFILE  1  ALL  PLOT  a.pst\n   POSTFILE  24  ALL  PLOT  b.pst")
         messages = [r.getMessage() for r in caplog.records]
         assert any(m.startswith("SO EMISFACT: 2 lines") for m in messages)
-        assert any(m.startswith("OU NOHEADER: 1 line ") for m in messages)
+        assert any(m.startswith("OU POSTFILE: 1 line ") for m in messages)
         assert len(messages) == 2
 
     def test_clean_deck_has_no_unparsed_lines_and_no_warning(self, caplog):
@@ -461,10 +466,10 @@ class TestUnparsedLines:
                         so_body=SO_DEFAULT + "   HOUREMIS  hr.dat  S1\n",
                         re_body=RE_DEFAULT + "\n   DISCPOLR  S1  100.  45.",
                         me_extra="   SITEDATA  99999  2020",
-                        ou_body="   RECTABLE  ALLAVE  FIRST\n   SEASONHR  ALL  seas.dat")
+                        ou_body="   POSTFILE  1  ALL  PLOT  a.pst\n   POSTFILE  24  ALL  PLOT  b.pst")
         text = project.to_aermod_input(validate=False)
         for code, keyword in (("CO", "ERRORFIL"), ("SO", "HOUREMIS"), ("RE", "DISCPOLR"),
-                              ("ME", "SITEDATA"), ("OU", "SEASONHR")):
+                              ("ME", "SITEDATA"), ("OU", "b.pst")):
             start = text.index(f"{code} STARTING")
             end = text.index(f"{code} FINISHED")
             assert keyword in text[start:end], (code, keyword)
@@ -474,9 +479,9 @@ class TestUnparsedLines:
             [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines]
 
     def test_preserve_unparsed_false_drops_them(self):
-        project = parse(ou_body="   RECTABLE  ALLAVE  FIRST\n   SEASONHR  ALL  seas.dat")
+        project = parse(ou_body="   POSTFILE  1  ALL  PLOT  a.pst\n   POSTFILE  24  ALL  PLOT  b.pst")
         text = project.to_aermod_input(validate=False, preserve_unparsed=False)
-        assert "SEASONHR" not in text and PRESERVED_BANNER not in text
+        assert "b.pst" not in text and PRESERVED_BANNER not in text
 
     def test_so_lines_go_before_the_group_keywords(self):
         # soset.f resolves SRCGROUP members among the sources defined so
@@ -756,6 +761,62 @@ class TestControlPathwayFidelity:
 
 
 class TestMeteorologyFidelity:
+    # meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT; probe decks 26-27.
+    def test_dayrange_fields_accumulate_and_write_back_as_written(self):
+        project = parse(me_extra="   DAYRANGE  1/1-3/31  100\n   DAYRANGE  150-160")
+        assert project.meteorology.day_ranges == ["1/1-3/31", "100", "150-160"]
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "DAYRANGE") == [["1/1-3/31", "100", "150-160"]]
+        assert rewrite(project).meteorology == project.meteorology
+
+    def test_numyears_and_windcats(self):
+        project = parse(me_extra="   NUMYEARS  5\n   WINDCATS  1.54  3.09  5.14  8.23  10.8")
+        met = project.meteorology
+        assert met.num_years == 5
+        assert met.wind_speed_categories == [1.54, 3.09, 5.14, 8.23, 10.8]
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "NUMYEARS") == [["5"]]
+        assert keyword_lines(text, "WINDCATS") == [["1.54", "3.09", "5.14", "8.23", "10.8"]]
+        assert rewrite(project).meteorology == met
+
+    def test_windcats_with_another_count_is_kept_verbatim(self):
+        # WSCATS wants exactly five values (probe 26b: four is E200).
+        project = parse(me_extra="   WINDCATS  1.54  3.09  5.14  8.23")
+        assert project.meteorology.wind_speed_categories is None
+        assert [u.keyword for u in project.unparsed_lines] == ["WINDCATS"]
+
+    @pytest.mark.parametrize("line, expected", [
+        ("SCIMBYHR 1 25", ScimOptions(1, 25)),
+        ("SCIMBYHR 1 25 0 0", ScimOptions(1, 25, 0, 0)),
+        ("SCIMBYHR 1 25 scim.sfc scim.pfl", ScimOptions(1, 25, None, None, "scim.sfc", "scim.pfl")),
+        ("SCIMBYHR 1 25 0 0 ../met/s.sfc ../met/s.pfl",
+         ScimOptions(1, 25, 0, 0, "../met/s.sfc", "../met/s.pfl")),
+    ])
+    def test_scimbyhr_forms(self, line, expected):
+        # SCIMIT: 4, 6 or 8 fields; a six-field card holds the wet-SCIM
+        # pair when numeric, the summary files otherwise (probes 27-27c).
+        project = parse(modelopt="FLAT SCIM", me_extra=f"   {line}")
+        assert project.meteorology.scim == expected
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "SCIMBYHR") == [line.split()[1:]]
+        assert rewrite(project).meteorology.scim == expected
+
+    def test_scimbyhr_with_an_odd_field_count_is_kept_verbatim(self):
+        project = parse(modelopt="FLAT SCIM", me_extra="   SCIMBYHR  1  25  scim.sfc")
+        assert project.meteorology.scim is None
+        assert [u.keyword for u in project.unparsed_lines] == ["SCIMBYHR"]
+
+    def test_turbulence_keyword_is_stored_and_a_second_one_kept_verbatim(self):
+        # TURBOPT: nine bare keywords on one status switch (E135 for a second).
+        project = parse(me_extra="   NOTURBST\n   NOSA")
+        assert project.meteorology.turbulence_option == "NOTURBST"
+        assert [u.keyword for u in project.unparsed_lines] == ["NOSA"]
+        text = project.to_aermod_input(validate=False)
+        me = text[text.index("ME STARTING"):text.index("ME FINISHED")]
+        assert "   NOTURBST\n" in me and "   NOSA" in me
+        assert rewrite(parse(me_extra="   NOSWCO")).meteorology.turbulence_option == "NOSWCO"
+
     def test_startend_with_hours(self):
         # EPA's testpm10_1986.inp: meset.f STAEND takes eight fields with
         # an hour after each date; six fields were read and two dropped.
@@ -778,6 +839,54 @@ class TestMeteorologyFidelity:
 
 
 class TestOutputFidelity:
+    # ouset.f NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX; probe decks 28-28c.
+    def test_rankfile_seasonhr_evalfile_toxxfile_fields(self):
+        ou = ("   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100  rank01.rnk\n"
+              "   RANKFILE  24  50  rank24.rnk  60\n   SEASONHR  ALL  seas.dat\n"
+              "   EVALFILE  S1  eval.dat  62\n   TOXXFILE  1  1.0  toxx.dat\n"
+              "   TOXXFILE  24  2.5  toxx24.dat  63\n   NOHEADER  RANKFILE  SEASONHR\n")
+        project = parse(ou_body=ou)
+        out = project.output
+        assert out.rank_files == [RankFile("1", 100, "rank01.rnk"), RankFile("24", 50, "rank24.rnk", 60)]
+        assert out.season_hour_files == [SeasonHourFile("ALL", "seas.dat")]
+        assert out.eval_files == [EvalFile("S1", "eval.dat", 62)]
+        assert out.toxx_files == [ToxxFile("1", 1.0, "toxx.dat"), ToxxFile("24", 2.5, "toxx24.dat", 63)]
+        assert out.no_header == ["RANKFILE", "SEASONHR"]
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "RANKFILE") == [["1", "100", "rank01.rnk"], ["24", "50", "rank24.rnk", "60"]]
+        assert keyword_lines(text, "SEASONHR") == [["ALL", "seas.dat"]]
+        assert keyword_lines(text, "EVALFILE") == [["S1", "eval.dat", "62"]]
+        assert keyword_lines(text, "TOXXFILE") == [["1", "1", "toxx.dat"], ["24", "2.5", "toxx24.dat", "63"]]
+        assert keyword_lines(text, "NOHEADER") == [["RANKFILE", "SEASONHR"]]
+        assert rewrite(project).output == out
+
+    def test_noheader_all_and_several_cards(self):
+        project = parse(ou_body="   RECTABLE ALLAVE FIRST\n   NOHEADER  ALL\n")
+        assert project.output.no_header == ["ALL"]
+        project = parse(ou_body="   RECTABLE ALLAVE FIRST\n   NOHEADER  MAXIFILE\n   NOHEADER  POSTFILE\n")
+        assert project.output.no_header == ["MAXIFILE", "POSTFILE"]
+
+    @pytest.mark.parametrize("line", [
+        "NOHEADER  SUMMFILE", "RANKFILE  1  100", "RANKFILE  1  ten  r.rnk",
+        "SEASONHR  ALL", "EVALFILE  S1", "TOXXFILE  1  toxx.dat", "TOXXFILE  1  x  toxx.dat",
+    ])
+    def test_malformed_ou_file_lines_are_kept_verbatim(self, line):
+        project = parse(ou_body=f"   RECTABLE ALLAVE FIRST\n   {line}\n")
+        assert [u.raw.split() for u in project.unparsed_lines] == [line.split()]
+        out = project.output
+        assert not (out.rank_files or out.season_hour_files or out.eval_files or out.toxx_files or out.no_header)
+
+    def test_file_entries_read_through_the_output_readers(self, tmp_path):
+        rank = tmp_path / "rank.rnk"
+        rank.write_text("* AERMOD ( 26135): test\n* RANKFILE\n"
+                        "* FORMAT: (1X,I6,1X,F13.5,1X,I8.8,2(1X,F13.5),3(1X,F7.2),2X,A8)\n"
+                        "*   RANK      CONC       DATE(YYMMDDHH)     X          Y       ZELEV   ZHILL   ZFLAG  GRP\n"
+                        "      1      10.50000  88030214     500.00000     500.00000    0.00    0.00    0.00  ALL\n")
+        result = RankFile("1", 100, "rank.rnk").read(tmp_path)
+        assert result.n_records == 1
+        assert result.header.file_type == "RANKFILE"
+
     def test_plotfile_with_a_lower_rank_is_kept_verbatim(self):
         # surfcoal.inp asks for 1ST..8TH; the model has no rank field and
         # wrote FIRST eight times (OU E203).

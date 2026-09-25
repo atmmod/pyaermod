@@ -111,8 +111,9 @@ class Validator:
             # An EVENT deck has no RE pathway; its receptors are the
             # EVENTLOC cards.
             cls._validate_receptors(project.receptors, result)
-        cls._validate_meteorology(project.meteorology, result, check_files)
-        cls._validate_output(project.output, result, project.control)
+        cls._validate_meteorology(project.meteorology, result, check_files,
+                                  project.control)
+        cls._validate_output(project.output, result, project.control, project.sources)
         events = getattr(project, "events", None)
         if event_run and events is None:
             result.errors.append(ValidationError(
@@ -1424,7 +1425,8 @@ class Validator:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _validate_meteorology(cls, met, result: ValidationResult, check_files: bool):
+    def _validate_meteorology(cls, met, result: ValidationResult, check_files: bool,
+                              control=None):
         pathway = "MeteorologyPathway"
 
         if not met.surface_file or not met.surface_file.strip():
@@ -1458,6 +1460,76 @@ class Validator:
                 pathway, "start/end dates",
                 f"partial date range: {set_count} of 6 date fields set; "
                 "set all or none"
+            ))
+
+        cls._validate_met_options(met, result, control)
+
+    @classmethod
+    def _validate_met_options(cls, met, result: ValidationResult, control=None):
+        """DAYRANGE, NUMYEARS, WINDCATS, SCIMBYHR and the turbulence keyword
+        as meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT check them."""
+        from .pathways import TURBULENCE_OPTIONS, WIND_CATEGORY_COUNT, dayrange_field_is_valid
+
+        pathway = "MeteorologyPathway"
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", [])} if control else set()
+        scim_option = "SCIM" in extra
+
+        for token in getattr(met, "day_ranges", []) or []:
+            if not dayrange_field_is_valid(str(token)):
+                result.errors.append(ValidationError(
+                    pathway, "day_ranges",
+                    f"'{token}' is not a Julian day, a Julian range, a month/day or "
+                    "a month/day range (E203/E208)"
+                ))
+        if getattr(met, "day_ranges", None) and scim_option:
+            result.errors.append(ValidationError(
+                pathway, "day_ranges", "DAYRANGE cannot be used with the SCIM option (E154)"
+            ))
+
+        num_years = getattr(met, "num_years", None)
+        if num_years is not None and (int(num_years) != num_years or int(num_years) < 1):
+            result.errors.append(ValidationError(
+                pathway, "num_years", f"must be a positive integer, got {num_years!r} (E208)"
+            ))
+
+        cats = getattr(met, "wind_speed_categories", None)
+        if cats is not None:
+            if len(cats) != WIND_CATEGORY_COUNT:
+                result.errors.append(ValidationError(
+                    pathway, "wind_speed_categories",
+                    f"WINDCATS takes exactly {WIND_CATEGORY_COUNT} upper bounds, got {len(cats)} (E200)"
+                ))
+            if any(not 1.0 <= float(c) <= 20.0 for c in cats):
+                result.errors.append(ValidationError(
+                    pathway, "wind_speed_categories", "each bound must be in 1-20 m/s (E380)"
+                ))
+            if any(float(b) <= float(a) for a, b in itertools.pairwise(cats)):
+                result.errors.append(ValidationError(
+                    pathway, "wind_speed_categories", "bounds must increase (E203)"
+                ))
+
+        scim = getattr(met, "scim", None)
+        if scim is not None:
+            if not scim_option:
+                result.errors.append(ValidationError(
+                    pathway, "scim",
+                    "SCIMBYHR is read only with MODELOPT SCIM "
+                    "(ControlPathway.extra_model_options)"
+                ))
+            if not 1 <= int(scim.start_hour) <= 24:
+                result.errors.append(ValidationError(
+                    pathway, "scim.start_hour", f"must be 1-24, got {scim.start_hour} (E380)"
+                ))
+            if int(scim.interval) < 1:
+                result.errors.append(ValidationError(
+                    pathway, "scim.interval", f"must be at least 1, got {scim.interval} (E380)"
+                ))
+
+        turb = getattr(met, "turbulence_option", None)
+        if turb is not None and str(turb).upper() not in TURBULENCE_OPTIONS:
+            result.errors.append(ValidationError(
+                pathway, "turbulence_option",
+                f"'{turb}' is not one of {TURBULENCE_OPTIONS}"
             ))
 
     # ------------------------------------------------------------------
@@ -1549,7 +1621,7 @@ class Validator:
                 ))
 
     @classmethod
-    def _validate_output(cls, output, result: ValidationResult, control=None):
+    def _validate_output(cls, output, result: ValidationResult, control=None, sources=None):
         pathway = "OutputPathway"
         cls._validate_design_value_outputs(output, control, result)
 
@@ -1571,6 +1643,115 @@ class Validator:
                 pathway, "output_type",
                 f"must be one of {valid_output_types}, got '{output.output_type}'"
             ))
+
+        cls._validate_output_files(output, result, control, sources)
+
+    @classmethod
+    def _validate_output_files(cls, output, result: ValidationResult, control=None,
+                               sources=None):
+        """NOHEADER, RANKFILE, SEASONHR, EVALFILE and TOXXFILE as ouset.f
+        NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX and OUTQA check them."""
+        from .pathways import NOHEADER_FILE_TYPES
+
+        pathway = "OutputPathway"
+        periods = {str(p).upper() for p in control.averaging_periods} if control else None
+        in_use = {
+            "MAXIFILE": bool(output.maxi_files),
+            "POSTFILE": bool(output.postfile),
+            "PLOTFILE": bool(output.plot_file or output.plot_file_groups),
+            "SEASONHR": bool(output.season_hour_files),
+            "RANKFILE": bool(output.rank_files),
+            "MAXDAILY": bool(output.max_daily_files),
+            "MXDYBYYR": bool(output.max_daily_by_year_files),
+            "MAXDCONT": bool(output.max_daily_contributions),
+        }
+        for token in output.no_header:
+            name = str(token).upper()
+            if name == "ALL":
+                continue
+            if name not in NOHEADER_FILE_TYPES:
+                result.errors.append(ValidationError(
+                    pathway, "no_header", f"'{token}' is not an output file type (E203)"
+                ))
+            elif not in_use[name]:
+                result.errors.append(ValidationError(
+                    pathway, "no_header",
+                    f"NOHEADER names {name} but the pathway writes no {name} (E164)"
+                ))
+
+        seen_rank = set()
+        for rf in output.rank_files:
+            period = str(rf.averaging_period).upper()
+            if periods is not None and period not in periods:
+                result.errors.append(ValidationError(
+                    pathway, "rank_files",
+                    f"RANKFILE period {rf.averaging_period!r} is not on AVERTIME (E203)"
+                ))
+            if period in seen_rank:
+                result.errors.append(ValidationError(
+                    pathway, "rank_files", f"two RANKFILE cards for period {period} (E211)"
+                ))
+            seen_rank.add(period)
+            if int(rf.rank) < 1:
+                result.errors.append(ValidationError(
+                    pathway, "rank_files", f"RANKFILE rank must be positive, got {rf.rank}"
+                ))
+
+        groups = None
+        if sources is not None:
+            groups = {"ALL"} | {g.group_name.upper() for g in sources.group_definitions}
+            groups |= {g.group_name.upper() for g in getattr(sources, "psd_groups", [])}
+        seen_groups = set()
+        for sh in output.season_hour_files:
+            gid = sh.source_group.upper()
+            if groups is not None and gid not in groups:
+                result.errors.append(ValidationError(
+                    pathway, "season_hour_files",
+                    f"SEASONHR group '{sh.source_group}' is not defined (E203)"
+                ))
+            if gid in seen_groups:
+                result.errors.append(ValidationError(
+                    pathway, "season_hour_files", f"two SEASONHR cards for group {gid} (E211)"
+                ))
+            seen_groups.add(gid)
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", [])} if control else set()
+        if output.season_hour_files and "SCIM" in extra:
+            result.errors.append(ValidationError(
+                pathway, "season_hour_files", "SEASONHR cannot be used with the SCIM option (E154)"
+            ))
+
+        if sources is not None:
+            ids = set()
+            for src in sources.sources:
+                ids.add(src.source_id.upper())
+                for seg in getattr(src, "line_segments", []) or []:
+                    ids.add(seg.source_id.upper())
+            for ef in output.eval_files:
+                if ef.source_id.upper() not in ids:
+                    result.errors.append(ValidationError(
+                        pathway, "eval_files",
+                        f"EVALFILE source '{ef.source_id}' is not defined (E203)"
+                    ))
+
+        seen_toxx = set()
+        for tf in output.toxx_files:
+            period = str(tf.averaging_period).upper()
+            if periods is not None and period not in periods:
+                result.errors.append(ValidationError(
+                    pathway, "toxx_files",
+                    f"TOXXFILE period {tf.averaging_period!r} is not on AVERTIME (E203)"
+                ))
+            if period in seen_toxx:
+                result.errors.append(ValidationError(
+                    pathway, "toxx_files", f"two TOXXFILE cards for period {period} (E211)"
+                ))
+            seen_toxx.add(period)
+            if period != "1":
+                result.errors.append(ValidationError(
+                    pathway, "toxx_files",
+                    f"TOXXFILE is meant for 1-hour averages; AERMOD warns for {period} (W296)",
+                    severity="warning",
+                ))
 
     # ------------------------------------------------------------------
     # Event pathway

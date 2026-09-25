@@ -56,6 +56,9 @@ STRUCTURAL_KEYWORDS = (
     "GASDEPDF", "GASDEPVD", "GDSEASON", "GDLANUSE",
     "URBANOPT", "STARTEND",
     "EVENTPER", "EVENTLOC", "EVENTOUT", "EVENTFIL",
+    "DAYRANGE", "NUMYEARS", "WINDCATS", "SCIMBYHR", "NOTURB", "NOTURBST", "NOTURBCO",
+    "NOSA", "NOSW", "NOSAST", "NOSWST", "NOSACO", "NOSWCO",
+    "NOHEADER", "RANKFILE", "SEASONHR", "EVALFILE", "TOXXFILE",
 )
 
 #: What the reader stores structurally, per pathway (its module docstring).
@@ -76,9 +79,11 @@ MODELLED_KEYWORDS = {
            "RLEMCONV", "RBARRIER", "RDEPRESS", "SBARRIER", "VBARRIER"},
     "RE": {"GRIDCART", "GRIDPOLR", "DISCCART", "ELEVUNIT"},
     "ME": {"SURFFILE", "PROFFILE", "SURFDATA", "UAIRDATA", "PROFBASE", "STARTEND",
-           "WDROTATE"},
+           "WDROTATE", "DAYRANGE", "NUMYEARS", "WINDCATS", "SCIMBYHR", "NOTURB",
+           "NOTURBST", "NOTURBCO", "NOSA", "NOSW", "NOSAST", "NOSWST", "NOSACO", "NOSWCO"},
     "OU": {"RECTABLE", "MAXTABLE", "DAYTABLE", "SUMMFILE", "MAXIFILE", "PLOTFILE",
-           "POSTFILE", "FILEFORM", "MAXDAILY", "MXDYBYYR", "MAXDCONT", "EVENTOUT"},
+           "POSTFILE", "FILEFORM", "MAXDAILY", "MXDYBYYR", "MAXDCONT", "EVENTOUT",
+           "NOHEADER", "RANKFILE", "SEASONHR", "EVALFILE", "TOXXFILE"},
     "EV": {"EVENTPER", "EVENTLOC"},
 }
 
@@ -113,7 +118,8 @@ def keyword_lines(text: str) -> Counter:
         # Units and flags are case-insensitive in AERMOD (FIELD is
         # upper-cased); filenames and formats are not, and stay as is.
         if keyword in ("OZONEVAL", "NOXVALUE", "OZONUNIT", "NOX_UNIT", "FILEFORM",
-                       "O3VALUES", "NOX_VALS", "MAXIFILE", "EVENTOUT", "EVENTLOC"):
+                       "O3VALUES", "NOX_VALS", "MAXIFILE", "EVENTOUT", "EVENTLOC",
+                       "NOHEADER", "WINDCATS", "DAYRANGE"):
             toks = [t.upper() if i != 3 else t for i, t in enumerate(toks)] \
                 if keyword == "MAXIFILE" else [t.upper() for t in toks]
         elif keyword in ("OZONEFIL", "NOX_FILE"):
@@ -252,7 +258,7 @@ def test_vendored_decks_cover_every_keyword_epa_uses():
                     forms.add("URBANOPT")
     assert {"MULTYEAR", "NOXVALUE", "OZONEVAL", "OZONEFIL", "MAXDCONT",
             "FILEFORM", "GDSEASON", "GDLANUSE", "MAXIFILE", "URBANOPT",
-            "EVENTPER", "EVENTLOC", "EVENTOUT"} <= seen, sorted(seen)
+            "EVENTPER", "EVENTLOC", "EVENTOUT", "SEASONHR", "RANKFILE", "SCIMBYHR"} <= seen, sorted(seen)
     assert {"continuation", "GDIR", "DIST", "XPNTS", "URBANOPT"} <= forms, sorted(forms)
 
 
@@ -265,7 +271,7 @@ def test_vendored_decks_exercise_the_unparsed_path():
         kept |= {(u.pathway, u.keyword) for u in project.unparsed_lines}
     expected = {("CO", "ERRORFIL"), ("SO", "EMISFACT"), ("SO", "INCLUDED"),
                 ("SO", "LOCATION"), ("RE", "INCLUDED"), ("RE", "DISCPOLR"), ("RE", "EVALCART"),
-                ("ME", "SITEDATA"), ("OU", "SEASONHR"), ("OU", "POSTFILE")}
+                ("ME", "SITEDATA"), ("OU", "POSTFILE")}
     assert expected <= kept, sorted(expected - kept)
 
 

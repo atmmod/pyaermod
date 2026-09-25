@@ -12,8 +12,10 @@ or :mod:`pyaermod.api`.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:
@@ -756,6 +758,69 @@ class ControlPathway:
 # METEOROLOGY PATHWAY
 # ============================================================================
 
+#: The nine turbulence-suppression keywords meset.f TURBOPT recognises
+#: (one status switch for all of them: a second one is E135). Only the
+#: first two may be combined with DFAULT (the others are reset with W444).
+TURBULENCE_OPTIONS = (
+    "NOTURB", "NOTURBST", "NOTURBCO", "NOSA", "NOSW",
+    "NOSAST", "NOSWST", "NOSACO", "NOSWCO",
+)
+
+#: WINDCATS takes exactly this many upper bounds (meset.f WSCATS; any
+#: other count reads as "no parameters", E200), each in 1-20 m/s and
+#: increasing. AERMOD's defaults are 1.54, 3.09, 5.14, 8.23, 10.8.
+WIND_CATEGORY_COUNT = 5
+
+_DAYRANGE_FIELD_RE = re.compile(r"^(\d{1,3}(-\d{1,3})?|\d{1,2}/\d{1,2}(-\d{1,2}/\d{1,2})?)$")
+
+
+def dayrange_field_is_valid(token: str) -> bool:
+    """True for the four field forms meset.f DAYRNG reads: a Julian day
+    (``50``), a Julian range (``50-60``), a month/day (``3/15``) or a
+    month/day range (``3/15-4/30``)."""
+    return bool(_DAYRANGE_FIELD_RE.match(token))
+
+
+@dataclass
+class ScimOptions:
+    """``ME SCIMBYHR start interval [wetstart wetint] [sfcfile pflfile]``.
+
+    Sampled Chronological Input Model: process hour ``start_hour`` of the
+    first day and every ``interval``-th hour after it. meset.f SCIMIT
+    dispatches the keyword only under ``MODELOPT SCIM`` and reads 4, 6 or
+    8 fields; the wet-SCIM pair is no longer supported (W157, ignored)
+    but is kept so EPA's ``scimtest`` deck round-trips, and a six-field
+    card holds either that pair or the two summary files, told apart by
+    non-numeric characters, which is how they are written back.
+
+    Parameters
+    ----------
+    start_hour : int
+        First hour sampled, 1-24 (E380).
+    interval : int
+        Hours between samples, at least 1 (E380); EPA uses 25.
+    wet_start_hour, wet_interval : int, optional
+        The obsolete wet-SCIM fields, written back if given.
+    surface_summary_file, profile_summary_file : str, optional
+        Files AERMOD writes the sampled surface and profile records to.
+    """
+    start_hour: int
+    interval: int
+    wet_start_hour: Optional[int] = None
+    wet_interval: Optional[int] = None
+    surface_summary_file: Optional[str] = None
+    profile_summary_file: Optional[str] = None
+
+    def to_aermod_fields(self) -> List[str]:
+        fields = [str(int(self.start_hour)), str(int(self.interval))]
+        if self.wet_start_hour is not None or self.wet_interval is not None:
+            fields += [str(int(self.wet_start_hour or 0)), str(int(self.wet_interval or 0))]
+        if self.surface_summary_file or self.profile_summary_file:
+            fields += [self.surface_summary_file or "SCIM_SFC.DAT",
+                       self.profile_summary_file or "SCIM_PFL.DAT"]
+        return fields
+
+
 @dataclass
 class MeteorologyPathway:
     """
@@ -796,6 +861,23 @@ class MeteorologyPathway:
     # Wind direction rotation
     wind_rotation: Optional[float] = None  # degrees
 
+    # DAYRANGE fields as AERMOD reads them (meset.f DAYRNG): each a Julian
+    # day, a Julian range, a month/day or a month/day range, accumulating
+    # over any number of cards and written back on one. Not dispatched
+    # under SCIM (E154) or in an EVENT run.
+    day_ranges: List[str] = field(default_factory=list)
+    # NUMYEARS n: years of meteorology, which sizes the MAXDCONT arrays
+    # (meset.f NUMYR; exactly one integer field).
+    num_years: Optional[int] = None
+    # WINDCATS u1 u2 u3 u4 u5: the wind-speed category upper bounds
+    # (meset.f WSCATS: exactly five, increasing, 1-20 m/s).
+    wind_speed_categories: Optional[List[float]] = None
+    # SCIMBYHR (see ScimOptions); needs MODELOPT SCIM.
+    scim: Optional[ScimOptions] = None
+    # One of TURBULENCE_OPTIONS, written as a bare keyword; the nine share
+    # a status switch in meset.f so a deck carries at most one.
+    turbulence_option: Optional[str] = None
+
     def to_aermod_input(self, event_processing: bool = False) -> str:
         """Generate AERMOD ME pathway text.
 
@@ -834,9 +916,24 @@ class MeteorologyPathway:
                     f"{self.end_year:4d} {self.end_month:2d} {self.end_day:2d}"
                 )
 
+        if self.day_ranges and not event_processing:
+            lines.append("   DAYRANGE  " + "  ".join(self.day_ranges))
+
+        if self.scim is not None:
+            lines.append("   SCIMBYHR  " + "  ".join(self.scim.to_aermod_fields()))
+
         # Wind rotation
         if self.wind_rotation is not None:
             lines.append(f"   WDROTATE  {self.wind_rotation:.2f}")
+
+        if self.wind_speed_categories:
+            lines.append("   WINDCATS  " + "  ".join(_num(v) for v in self.wind_speed_categories))
+
+        if self.num_years is not None:
+            lines.append(f"   NUMYEARS  {int(self.num_years)}")
+
+        if self.turbulence_option:
+            lines.append(f"   {self.turbulence_option.upper()}")
 
         lines.append("ME FINISHED")
         return "\n".join(lines)
@@ -955,6 +1052,123 @@ class MaxDailyContribution:
             )
 
 
+#: File types ``NOHEADER`` may name (ouset.f NOHEADER), besides ``ALL``.
+#: Naming one the deck does not use is E164 at OUTQA.
+NOHEADER_FILE_TYPES = (
+    "MAXIFILE", "POSTFILE", "PLOTFILE", "SEASONHR", "RANKFILE",
+    "MAXDAILY", "MXDYBYYR", "MAXDCONT",
+)
+
+
+def _resolve(filename: str, base_dir: Optional[Union[str, Path]]) -> Path:
+    path = Path(filename)
+    return path if path.is_absolute() or base_dir is None else Path(base_dir) / path
+
+
+@dataclass
+class RankFile:
+    """``OU RANKFILE aveper rank filnam [funit]`` (ouset.f OURANK).
+
+    The ``rank`` highest values for one averaging period across all
+    receptors and groups, ranked; one card per averaging period (a second
+    is E211) and the period must be on AVERTIME (E203). EPA's flatelev,
+    lovett and mcr decks write one per short-term period.
+
+    :meth:`read` returns the file through
+    :func:`pyaermod.aermod_outputs.read_rankfile`.
+    """
+    averaging_period: str
+    rank: int
+    filename: str
+    file_unit: Optional[int] = None
+
+    def to_aermod_line(self) -> str:
+        line = f"   RANKFILE  {self.averaging_period}  {int(self.rank)}  {self.filename}"
+        if self.file_unit is not None:
+            line += f"  {self.file_unit}"
+        return line
+
+    def read(self, base_dir: Optional[Union[str, Path]] = None):
+        """The ranked values AERMOD wrote (``base_dir`` resolves a relative name)."""
+        from .aermod_outputs import read_rankfile
+        return read_rankfile(_resolve(self.filename, base_dir))
+
+
+@dataclass
+class SeasonHourFile:
+    """``OU SEASONHR grpid filnam [funit]`` (ouset.f OUSEAS).
+
+    Season-by-hour-of-day averages for one source group (one card per
+    group, E211; the group must exist, E203). Refused under SCIM (E154).
+    :meth:`read` returns it through
+    :func:`pyaermod.aermod_outputs.read_seasonhr`.
+    """
+    source_group: str
+    filename: str
+    file_unit: Optional[int] = None
+
+    def to_aermod_line(self) -> str:
+        line = f"   SEASONHR  {self.source_group}  {self.filename}"
+        if self.file_unit is not None:
+            line += f"  {self.file_unit}"
+        return line
+
+    def read(self, base_dir: Optional[Union[str, Path]] = None):
+        """The season-by-hour table AERMOD wrote."""
+        from .aermod_outputs import read_seasonhr
+        return read_seasonhr(_resolve(self.filename, base_dir))
+
+
+@dataclass
+class EvalFile:
+    """``OU EVALFILE srcid filnam [funit]`` (ouset.f OUEVAL).
+
+    The model-evaluation file for one source: arc maxima at the EVALCART
+    receptor arcs. The source must exist (E203) and the deck needs
+    EVALCART receptors (E256 at OUTQA; probe deck 28); EVALCART lines are
+    kept in ``unparsed_lines`` and written back before the RE pathway
+    ends. There is no reader for the file.
+    """
+    source_id: str
+    filename: str
+    file_unit: Optional[int] = None
+
+    def to_aermod_line(self) -> str:
+        line = f"   EVALFILE  {self.source_id}  {self.filename}"
+        if self.file_unit is not None:
+            line += f"  {self.file_unit}"
+        return line
+
+
+@dataclass
+class ToxxFile:
+    """``OU TOXXFILE aveper thresh filnam [funit]`` (ouset.f OUTOXX).
+
+    Every value above ``threshold`` for one averaging period, for the
+    TOXX post-processor; one card per period (E211), the period on
+    AVERTIME (E203), and a warning (W296) for any period but 1 hour.
+    AERMOD opens the file ``FORM='UNFORMATTED'``, so it is binary;
+    :meth:`read` hands it to :func:`pyaermod.aermod_outputs.read_toxxfile`,
+    which reads the text layout of the same records.
+    """
+    averaging_period: str
+    threshold: float
+    filename: str
+    file_unit: Optional[int] = None
+
+    def to_aermod_line(self) -> str:
+        line = (f"   TOXXFILE  {self.averaging_period}  {_num(self.threshold)}  "
+                f"{self.filename}")
+        if self.file_unit is not None:
+            line += f"  {self.file_unit}"
+        return line
+
+    def read(self, base_dir: Optional[Union[str, Path]] = None):
+        """The threshold records, through :func:`read_toxxfile`."""
+        from .aermod_outputs import read_toxxfile
+        return read_toxxfile(_resolve(self.filename, base_dir))
+
+
 @dataclass
 class OutputPathway:
     """
@@ -1001,6 +1215,17 @@ class OutputPathway:
     # in the plot/post/max files. None writes no FILEFORM line.
     file_format: Optional[str] = None
 
+    # NOHEADER ALL, or one to eight of NOHEADER_FILE_TYPES: suppress the
+    # header records of those output files (ouset.f NOHEADER). A type not
+    # in use in the deck is E164.
+    no_header: List[str] = field(default_factory=list)
+
+    # The remaining OU file keywords, one entry per card.
+    rank_files: List[RankFile] = field(default_factory=list)
+    season_hour_files: List[SeasonHourFile] = field(default_factory=list)
+    eval_files: List[EvalFile] = field(default_factory=list)
+    toxx_files: List[ToxxFile] = field(default_factory=list)
+
     # EVENTOUT SOCONT|DETAIL: the one OU option of an EVENT deck besides
     # FILEFORM (evset.f EV_OUCARD). None lets the event deck writer use
     # ControlPathway.eventfil_option, then AERMOD's default DETAIL.
@@ -1034,6 +1259,9 @@ class OutputPathway:
             lines.append(f"   EVENTOUT  {option.upper()}")
             lines.append("OU FINISHED")
             return "\n".join(lines)
+
+        if self.no_header:
+            lines.append("   NOHEADER  " + "  ".join(t.upper() for t in self.no_header))
         if self.event_output:
             # Kept for a project read from an event deck and written as a
             # normal run; ouset.f has no EVENTOUT branch, so AERMOD would
@@ -1097,6 +1325,11 @@ class OutputPathway:
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
                 f"{self.postfile_format}  {self.postfile}"
             )
+
+        lines.extend(rf.to_aermod_line() for rf in self.rank_files)
+        lines.extend(sh.to_aermod_line() for sh in self.season_hour_files)
+        lines.extend(ef.to_aermod_line() for ef in self.eval_files)
+        lines.extend(tf.to_aermod_line() for tf in self.toxx_files)
 
         # NAAQS design-value files: MAXDAILY / MXDYBYYR take no averaging
         # period field (the period is implied by the pollutant); the

@@ -19,11 +19,13 @@ from pyaermod.input_generator import (
     ControlPathway,
     DepositionMethod,
     DiscreteReceptor,
+    EvalFile,
     EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
     LineSource,
+    MaxiFile,
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
@@ -31,13 +33,17 @@ from pyaermod.input_generator import (
     PointSource,
     PolarGrid,
     PollutantType,
+    RankFile,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    ScimOptions,
+    SeasonHourFile,
     SourceGroupDefinition,
     SourcePathway,
     StreetCanyon,
     TerrainType,
+    ToxxFile,
     VolumeSource,
 )
 from pyaermod.validator import ValidationError, ValidationResult, Validator
@@ -1261,6 +1267,93 @@ class TestEventValidation:
         project.event_processing = True
         result = Validator.validate(project)
         assert any("no events" in e.message for e in result.errors)
+
+
+class TestMeteorologyOptionsValidation:
+    """meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT (probes 26-27)."""
+
+    def _errors(self, control=None, **met_kw):
+        met = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl", **met_kw)
+        kw = {"meteorology": met}
+        if control is not None:
+            kw["control"] = control
+        result = Validator.validate(_make_valid_project(**kw))
+        return [e.message for e in result.errors if e.pathway == "MeteorologyPathway"]
+
+    def test_dayrange_field_forms(self):
+        assert self._errors(day_ranges=["50", "50-60", "3/15", "3/15-4/30"]) == []
+        assert any("Julian" in m for m in self._errors(day_ranges=["March"]))
+        assert any("Julian" in m for m in self._errors(day_ranges=["3/15/1988"]))
+
+    def test_dayrange_and_scim_exclude_each_other(self):
+        control = ControlPathway(title_one="t", averaging_periods=["ANNUAL"], extra_model_options=["SCIM"])
+        assert any("E154" in m for m in self._errors(control, day_ranges=["50"]))
+
+    def test_numyears_positive_integer(self):
+        assert self._errors(num_years=5) == []
+        assert any("positive integer" in m for m in self._errors(num_years=0))
+
+    def test_windcats_count_range_and_order(self):
+        assert self._errors(wind_speed_categories=[1.54, 3.09, 5.14, 8.23, 10.8]) == []
+        assert any("exactly 5" in m for m in self._errors(wind_speed_categories=[1.54, 3.09]))
+        assert any("1-20" in m for m in self._errors(wind_speed_categories=[0.5, 3.09, 5.14, 8.23, 10.8]))
+        assert any("increase" in m for m in self._errors(wind_speed_categories=[3.09, 1.54, 5.14, 8.23, 10.8]))
+
+    def test_scimbyhr_needs_scim_and_valid_hours(self):
+        assert any("MODELOPT SCIM" in m for m in self._errors(scim=ScimOptions(1, 25)))
+        control = ControlPathway(title_one="t", averaging_periods=["ANNUAL"], extra_model_options=["SCIM"])
+        assert self._errors(control, scim=ScimOptions(1, 25)) == []
+        assert any("1-24" in m for m in self._errors(control, scim=ScimOptions(25, 25)))
+        assert any("at least 1" in m for m in self._errors(control, scim=ScimOptions(1, 0)))
+
+    def test_turbulence_option_must_be_one_of_the_nine(self):
+        assert self._errors(turbulence_option="NOSWCO") == []
+        assert any("NOTURB" in m for m in self._errors(turbulence_option="NOTURBULENCE"))
+
+
+class TestOutputFileValidation:
+    """ouset.f NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX and OUTQA (probes 28-28c)."""
+
+    def _errors(self, control=None, sources=None, **out_kw):
+        kw = {"output": OutputPathway(**out_kw)}
+        if control is not None:
+            kw["control"] = control
+        if sources is not None:
+            kw["sources"] = sources
+        result = Validator.validate(_make_valid_project(**kw))
+        return [e.message for e in result.errors if e.pathway == "OutputPathway" and e.severity == "error"]
+
+    def test_noheader_names_types_in_use(self):
+        assert self._errors(no_header=["ALL"]) == []
+        assert any("E164" in m for m in self._errors(no_header=["MAXIFILE"]))
+        assert self._errors(no_header=["MAXIFILE"],
+                            maxi_files=[MaxiFile("ANNUAL", "ALL", 1.0, "m.dat")]) == []
+        assert any("not an output file type" in m for m in self._errors(no_header=["SUMMFILE"]))
+
+    def test_rankfile_period_and_repeats(self):
+        control = ControlPathway(title_one="t", averaging_periods=["1", "24"])
+        assert self._errors(control, rank_files=[RankFile("1", 10, "r.rnk"), RankFile("24", 10, "s.rnk")]) == []
+        assert any("AVERTIME" in m for m in self._errors(control, rank_files=[RankFile("3", 10, "r.rnk")]))
+        assert any("E211" in m for m in self._errors(
+            control, rank_files=[RankFile("1", 10, "r.rnk"), RankFile("1", 5, "s.rnk")]))
+
+    def test_seasonhr_group_and_scim(self):
+        assert self._errors(season_hour_files=[SeasonHourFile("ALL", "s.dat")]) == []
+        assert any("not defined" in m for m in self._errors(season_hour_files=[SeasonHourFile("G9", "s.dat")]))
+        control = ControlPathway(title_one="t", averaging_periods=["ANNUAL"], extra_model_options=["SCIM"])
+        assert any("E154" in m for m in self._errors(control, season_hour_files=[SeasonHourFile("ALL", "s.dat")]))
+
+    def test_evalfile_source_must_exist(self):
+        assert self._errors(eval_files=[EvalFile("STK1", "e.dat")]) == []
+        assert any("not defined" in m for m in self._errors(eval_files=[EvalFile("STK9", "e.dat")]))
+
+    def test_toxxfile_period(self):
+        control = ControlPathway(title_one="t", averaging_periods=["1", "24"])
+        assert self._errors(control, toxx_files=[ToxxFile("1", 1.0, "t.dat")]) == []
+        assert any("AVERTIME" in m for m in self._errors(control, toxx_files=[ToxxFile("3", 1.0, "t.dat")]))
+        result = Validator.validate(_make_valid_project(
+            control=control, output=OutputPathway(toxx_files=[ToxxFile("24", 1.0, "t.dat")])))
+        assert any("W296" in e.message and e.severity == "warning" for e in result.errors)
 
 
 # ---------------------------------------------------------------------------
