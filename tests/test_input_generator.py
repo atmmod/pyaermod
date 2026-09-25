@@ -1339,6 +1339,179 @@ class TestParametrizedDepositionKeywords:
         assert "METHOD" not in output
 
 
+# ============================================================================
+# CO restart / NOx background / gas-deposition defaults and OU design-value
+# keywords: field layouts per AERMOD v26135 coset.f and ouset.f
+# ============================================================================
+
+def _control(**kwargs):
+    from pyaermod.input_generator import ControlPathway
+    return ControlPathway(title_one="t", **kwargs).to_aermod_input()
+
+
+class TestRestartKeywordWriting:
+    def test_multyear_forms(self):
+        from pyaermod.input_generator import MultiYear
+        assert "   MULTYEAR  y2.sav  y1.sav\n" in _control(multiyear=MultiYear("y2.sav", "y1.sav"))
+        assert "   MULTYEAR  y1.sav\n" in _control(multiyear=MultiYear("y1.sav"))
+        assert "   MULTYEAR  H6H  y1.sav\n" in _control(multiyear=MultiYear("y1.sav", h6h=True))
+
+    def test_savefile_forms(self):
+        from pyaermod.input_generator import SaveFile
+        assert "   SAVEFILE\n" in _control(save_file=SaveFile())
+        assert "   SAVEFILE  s.sav\n" in _control(save_file=SaveFile("s.sav"))
+        assert "   SAVEFILE  s.sav  30\n" in _control(save_file=SaveFile("s.sav", 30))
+        # An alternate file lives in field 5, so the increment (AERMOD's
+        # default of 1) has to be written even when the caller left it out.
+        assert "   SAVEFILE  s.sav  1  s2.sav\n" in _control(
+            save_file=SaveFile("s.sav", alternate_filename="s2.sav"))
+
+    def test_initfile_forms(self):
+        from pyaermod.input_generator import InitFile
+        assert "   INITFILE\n" in _control(init_file=InitFile())
+        assert "   INITFILE  i.sav\n" in _control(init_file=InitFile("i.sav"))
+
+    def test_restart_keywords_precede_runornot(self):
+        from pyaermod.input_generator import SaveFile
+        text = _control(save_file=SaveFile("s.sav"))
+        assert text.index("SAVEFILE") < text.index("RUNORNOT")
+
+
+class TestNOxBackgroundWriting:
+    def _chem(self, nox=None, oz=None, method=None):
+        from pyaermod.input_generator import ChemistryMethod, ChemistryOptions
+        return _control(pollutant_id="NO2", chemistry=ChemistryOptions(
+            method=method or ChemistryMethod.GRSM, ozone_data=oz, nox_background=nox))
+
+    def test_value_file_and_profile_lines(self):
+        from pyaermod.input_generator import NOxBackground, TemporalValues
+        text = self._chem(NOxBackground(
+            value=10.0, value_units="PPB", hourly_file="nox.dat",
+            file_units="PPB", file_format="(i2,3i3,f9.3)",
+        ))
+        assert "   NOXVALUE  10  PPB\n" in text
+        assert "   NOX_FILE  nox.dat  PPB  (i2,3i3,f9.3)\n" in text
+        text = self._chem(NOxBackground(varying=TemporalValues("SEASON", [1, 2, 3, 4]), units="UG/M3"))
+        assert "   NOX_UNIT  UG/M3\n" in text
+        assert "   NOX_VALS  SEASON  1 2 3 4\n" in text
+
+    def test_long_profiles_wrap_at_twelve_values(self):
+        from pyaermod.input_generator import NOxBackground, TemporalValues
+        text = self._chem(NOxBackground(varying=TemporalValues("HROFDY", list(range(24)))))
+        lines = [ln for ln in text.splitlines() if "NOX_VALS" in ln]
+        assert len(lines) == 2
+        assert lines[0].endswith("HROFDY  0 1 2 3 4 5 6 7 8 9 10 11")
+        assert lines[1].endswith("HROFDY  12 13 14 15 16 17 18 19 20 21 22 23")
+
+    def test_file_format_without_units_gets_the_default_units_slot(self):
+        # coset.f reads field 4 as units, field 5 as format: a format alone
+        # would be taken for units and rejected (E203).
+        from pyaermod.input_generator import NOxBackground
+        text = self._chem(NOxBackground(hourly_file="nox.dat", file_format="FREE"))
+        assert "   NOX_FILE  nox.dat  UG/M3  FREE\n" in text
+
+    def test_sector_forms(self):
+        from pyaermod.input_generator import BackgroundSpec, NOxBackground
+        text = self._chem(NOxBackground(
+            sectors=[0.0, 180.0],
+            by_sector={1: BackgroundSpec(value=20.0), 2: BackgroundSpec(hourly_file="s2.dat")},
+        ))
+        assert "   NOXSECTR  0  180\n" in text
+        assert "   NOXVALUE  SECT1  20\n" in text
+        assert "   NOX_FILE  SECT2  s2.dat\n" in text
+
+    def test_nox_file_shorthand_writes_nox_file_keyword(self):
+        from pyaermod.input_generator import ChemistryMethod, ChemistryOptions
+        text = _control(pollutant_id="NO2", chemistry=ChemistryOptions(
+            method=ChemistryMethod.GRSM, nox_file="bg.dat"))
+        assert "   NOX_FILE  bg.dat\n" in text
+        assert "NOXVALUE" not in text
+
+    def test_nox_background_wins_over_shorthand(self):
+        from pyaermod.input_generator import ChemistryMethod, ChemistryOptions, NOxBackground
+        text = _control(pollutant_id="NO2", chemistry=ChemistryOptions(
+            method=ChemistryMethod.GRSM, nox_file="old.dat",
+            nox_background=NOxBackground(value=5.0)))
+        assert "old.dat" not in text
+        assert "   NOXVALUE  5\n" in text
+
+    def test_ozone_sector_units_and_profile_lines(self):
+        from pyaermod.input_generator import BackgroundSpec, OzoneData, TemporalValues
+        text = self._chem(oz=OzoneData(
+            uniform_value=40.0, uniform_units="PPB",
+            ozone_file="o3.dat", ozone_file_units="PPB", ozone_file_format="(i2,3i3,f9.3)",
+            sectors=[0.0, 120.0, 240.0], units="PPB",
+            by_sector={2: BackgroundSpec(varying=TemporalValues("ANNUAL", [45.0]))},
+            sector_values={1: 40.0, 2: 99.0},
+        ))
+        assert "   O3SECTOR  0  120  240\n" in text
+        assert "   OZONUNIT  PPB\n" in text
+        assert "   OZONEVAL  40  PPB\n" in text
+        assert "   OZONEFIL  o3.dat  PPB  (i2,3i3,f9.3)\n" in text
+        assert "   O3VALUES  SECT2  ANNUAL  45\n" in text
+        assert "   OZONEVAL  SECT1  40\n" in text
+        # by_sector is authoritative: the sector_values entry for the same
+        # sector is not written a second time.
+        assert "OZONEVAL  SECT2" not in text
+
+
+class TestGasDepositionDefaultWriting:
+    def test_all_four_keywords(self):
+        from pyaermod.input_generator import GasDepositionDefaults
+        text = _control(
+            alpha=True,
+            gas_deposition_defaults=GasDepositionDefaults(0.5, 0.25, 0.75, "SO2"),
+            gas_deposition_seasons=[4, 4, 4, 5, 1, 1, 1, 1, 1, 2, 3, 3],
+            gas_deposition_land_use=[4] * 36,
+        )
+        assert "   GASDEPDF  0.5  0.25  0.75  SO2\n" in text
+        assert "   GDSEASON  4  4  4  5  1  1  1  1  1  2  3  3\n" in text
+        assert "   GDLANUSE  " + "  ".join(["4"] * 36) + "\n" in text
+        assert "   GASDEPVD  0.01\n" in _control(alpha=True, gas_deposition_velocity=0.01)
+
+    def test_species_is_optional(self):
+        from pyaermod.input_generator import GasDepositionDefaults
+        text = _control(alpha=True, gas_deposition_defaults=GasDepositionDefaults(0.5, 0.25, 0.75))
+        assert "   GASDEPDF  0.5  0.25  0.75\n" in text
+
+
+class TestDesignValueOutputWriting:
+    def test_fileform_is_written_first(self):
+        from pyaermod.input_generator import OutputPathway
+        lines = OutputPathway(file_format="EXP", postfile="p.pst",
+                              postfile_averaging="1").to_aermod_input().splitlines()
+        assert lines[1] == "   FILEFORM  EXP"
+        assert "FILEFORM" not in OutputPathway().to_aermod_input()
+
+    def test_maxdaily_mxdybyyr_field_layout(self):
+        from pyaermod.input_generator import MaxDailyFile, OutputPathway
+        text = OutputPathway(
+            max_daily_files=[MaxDailyFile("ALL", "md.dat")],
+            max_daily_by_year_files=[MaxDailyFile("STK", "my.dat", file_unit=52)],
+        ).to_aermod_input()
+        assert "   MAXDAILY  ALL  md.dat\n" in text
+        assert "   MXDYBYYR  STK  my.dat  52\n" in text
+
+    def test_maxdcont_both_forms(self):
+        from pyaermod.input_generator import MaxDailyContribution, OutputPathway
+        text = OutputPathway(
+            receptor_table_rank=13,
+            max_daily_contributions=[
+                MaxDailyContribution("ALL", 8, "h8h.out", lower_rank=8),
+                MaxDailyContribution("ALL", 8, "thr.out", threshold=188.0, file_unit=53),
+            ],
+        ).to_aermod_input()
+        assert "   MAXDCONT  ALL  8  8  h8h.out\n" in text
+        assert "   MAXDCONT  ALL  8  THRESH  188  thr.out  53\n" in text
+
+    def test_maxdcont_needs_exactly_one_bound(self):
+        from pyaermod.input_generator import MaxDailyContribution
+        with pytest.raises(ValueError, match="exactly one"):
+            MaxDailyContribution("ALL", 8, "f.out")
+        with pytest.raises(ValueError, match="exactly one"):
+            MaxDailyContribution("ALL", 8, "f.out", lower_rank=8, threshold=1.0)
+
+
 # Run tests
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

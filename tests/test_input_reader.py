@@ -25,6 +25,15 @@ from pyaermod import (
     TerrainType,
     VolumeSource,
 )
+from pyaermod.input_generator import (
+    GasDepositionDefaults,
+    InitFile,
+    MaxDailyContribution,
+    MaxDailyFile,
+    MultiYear,
+    SaveFile,
+    TemporalValues,
+)
 from pyaermod.input_reader import parse_aermod_input, read_aermod_input
 
 FIXT = Path(__file__).parent / "fixtures" / "epa_style"
@@ -928,17 +937,188 @@ class TestCOKeywordsV26135:
         assert _wrap(co_kw="   POLLUTID xylene99").control.pollutant_id == "XYLENE99"
 
     @pytest.mark.parametrize("line", [
-        "RUNORNOT RUN", "MULTYEAR H6H ../save.sav", "SAVEFILE save.sav",
-        "INITFILE init.sav", "EVENTFIL events.inp", "GASDEPDF 0.2 0.5 1.0 0.0",
-        "GDSEASON 1 1 2 3 3 4 4 4 4 5 5 1", "GDLANUSE 36*1", "GASDEPVD 0.01",
-        "OZONUNIT PPB", "O3SECTOR 0 90 180 270", "ARMRATIO 0.2 0.9",
-        "NOXVALUE 30", "NOX_FILE nox.dat", "NOX_VALS SEASON 1 2 3 4",
-        "NOX_UNIT PPB", "NOXSECTR 0 180", "AWMADWNW", "ORD_DWNW", "ARCFTOPT",
+        "RUNORNOT RUN", "EVENTFIL events.inp", "ARMRATIO 0.2 0.9",
+        "AWMADWNW", "ORD_DWNW", "ARCFTOPT",
     ])
     def test_unhandled_co_keywords_pass_through(self, line):
         """v26135 CO keywords the reader does not model must not break parsing."""
         p = _wrap(co_kw=f"   {line}")
         assert p.control.title_one == "t"
+
+
+def _co_roundtrip(co_kw: str):
+    """Parse a CO keyword, write the project back, parse again."""
+    first = _wrap(co_kw=co_kw)
+    second = parse_aermod_input(first.to_aermod_input(validate=False))
+    return first.control, second.control
+
+
+class TestCORestartKeywords:
+    """CO SAVEFILE / INITFILE / MULTYEAR, per coset.f SAVEFL, INITFL, MYEAR."""
+
+    def test_multyear_without_h6h(self):
+        # EPA's testpm10_1987 form: savfil then the previous year's file.
+        c, again = _co_roundtrip("   MULTYEAR  ../Outputs/pm10_1987.sav  ../Outputs/pm10_1986.sav")
+        assert c.multiyear.save_file == "../Outputs/pm10_1987.sav"
+        assert c.multiyear.init_file == "../Outputs/pm10_1986.sav"
+        assert c.multiyear.h6h is False
+        assert again.multiyear == c.multiyear
+
+    def test_multyear_first_year_has_no_init_file(self):
+        c, again = _co_roundtrip("   MULTYEAR  pm10_1986.sav")
+        assert c.multiyear.save_file == "pm10_1986.sav"
+        assert c.multiyear.init_file is None
+        assert again.multiyear == c.multiyear
+
+    def test_multyear_legacy_h6h_field_is_preserved(self):
+        # AERMOD warns (W352) that H6H is no longer required but still
+        # reads the filenames after it; a deck that carries it keeps it.
+        c, again = _co_roundtrip("   MULTYEAR  H6H  save.sav  init.sav")
+        assert c.multiyear == MultiYear("save.sav", "init.sav", h6h=True)
+        assert again.multiyear == c.multiyear
+        assert "MULTYEAR  H6H  save.sav  init.sav" in _wrap(
+            co_kw="   MULTYEAR  H6H  save.sav  init.sav").to_aermod_input(validate=False)
+
+    def test_savefile_all_three_fields(self):
+        c, again = _co_roundtrip("   SAVEFILE  save.sav  30  save2.sav")
+        assert c.save_file == SaveFile("save.sav", 30, "save2.sav")
+        assert again.save_file == c.save_file
+
+    def test_savefile_filename_only(self):
+        c, again = _co_roundtrip("   SAVEFILE  save.sav")
+        assert c.save_file == SaveFile("save.sav", None, None)
+        assert again.save_file == c.save_file
+
+    def test_bare_savefile_and_initfile_keep_aermod_default(self):
+        # No filename means AERMOD's SAVE.FIL (W207); the deck's bare
+        # keyword is what is written back, not an invented name.
+        c, again = _co_roundtrip("   SAVEFILE\n   INITFILE")
+        assert c.save_file == SaveFile()
+        assert c.init_file == InitFile()
+        assert again.save_file == c.save_file and again.init_file == c.init_file
+        text = _wrap(co_kw="   SAVEFILE\n   INITFILE").to_aermod_input(validate=False)
+        assert "   SAVEFILE\n" in text and "   INITFILE\n" in text
+
+    def test_initfile_with_name(self):
+        c, again = _co_roundtrip("   INITFILE  init.sav")
+        assert c.init_file == InitFile("init.sav")
+        assert again.init_file == c.init_file
+
+    def test_absent_keywords_stay_none(self):
+        c = _wrap().control
+        assert c.save_file is None and c.init_file is None and c.multiyear is None
+
+
+class TestCONOxAndOzoneBackground:
+    """NOXVALUE / NOX_FILE / NOX_VALS / NOX_UNIT / NOXSECTR and
+    O3SECTOR / OZONUNIT, plus the sector forms of the ozone keywords."""
+
+    def test_noxvalue_with_units(self):
+        # EPA's no2_1yrAK_grsm deck.
+        c, again = _co_roundtrip("   NOXVALUE 10.0 PPB")
+        nox = c.chemistry.nox_background
+        assert nox.value == pytest.approx(10.0)
+        assert nox.value_units == "PPB"
+        assert nox.hourly_file is None and nox.varying is None
+        assert again.chemistry.nox_background == nox
+
+    def test_nox_file_with_units_and_format(self):
+        c, again = _co_roundtrip("   NOX_FILE  nox.dat  PPB  (i2,3i3,f9.3)")
+        nox = c.chemistry.nox_background
+        assert (nox.hourly_file, nox.file_units, nox.file_format) == ("nox.dat", "PPB", "(i2,3i3,f9.3)")
+        # The shorthand mirrors the file for callers that only know it.
+        assert c.chemistry.nox_file == "nox.dat"
+        assert again.chemistry.nox_background == nox
+
+    def test_nox_vals_accumulate_over_lines(self):
+        # NOXFILL appends each line's values to the flag's array.
+        c, again = _co_roundtrip("   NOX_VALS  HROFDY  12*20\n   NOX_VALS  HROFDY  12*25")
+        varying = c.chemistry.nox_background.varying
+        assert varying.flag == "HROFDY"
+        assert varying.values == [20.0] * 12 + [25.0] * 12
+        assert again.chemistry.nox_background.varying == varying
+
+    def test_nox_unit_and_sectors(self):
+        c, again = _co_roundtrip(
+            "   NOXSECTR  0  180\n   NOX_UNIT  UG/M3\n"
+            "   NOXVALUE  SECT1  20\n   NOX_VALS  SECT2  MONTH  12*30"
+        )
+        nox = c.chemistry.nox_background
+        assert nox.sectors == [0.0, 180.0]
+        assert nox.units == "UG/M3"
+        assert nox.by_sector[1].value == pytest.approx(20.0)
+        assert nox.by_sector[2].varying == TemporalValues("MONTH", [30.0] * 12)
+        assert nox.value is None, "sector lines must not leak into the whole-domain form"
+        assert again.chemistry.nox_background == nox
+
+    def test_ozone_sectors_units_and_sector_forms(self):
+        c, again = _co_roundtrip(
+            "   O3SECTOR  0  90  180  270\n   OZONUNIT  PPB\n"
+            "   OZONEVAL  SECT1  40\n   OZONEVAL  SECT2  45  PPB\n"
+            "   O3VALUES  SECT3  SEASON  40  50  60  45\n"
+            "   OZONEFIL  SECT4  o3.dat  PPB"
+        )
+        oz = c.chemistry.ozone_data
+        assert oz.sectors == [0.0, 90.0, 180.0, 270.0]
+        assert oz.units == "PPB"
+        assert oz.by_sector[1].value == 40.0 and oz.by_sector[1].value_units is None
+        assert oz.by_sector[2].value_units == "PPB"
+        assert oz.by_sector[3].varying == TemporalValues("SEASON", [40.0, 50.0, 60.0, 45.0])
+        assert oz.by_sector[4].hourly_file == "o3.dat"
+        assert oz.uniform_value is None and oz.ozone_file is None
+        assert again.chemistry.ozone_data == oz
+
+    def test_ozoneval_units_and_ozonefil_format_survive(self):
+        # EPA's olm.inp: "OZONEVAL 40. PPB" and
+        # "OZONEFIL ozone.dat ppb (i2,3i3,f9.3)".
+        c, again = _co_roundtrip(
+            "   OZONEVAL 40.  PPB\n   OZONEFIL ozone.dat  ppb  (i2,3i3,f9.3)")
+        oz = c.chemistry.ozone_data
+        assert (oz.uniform_value, oz.uniform_units) == (40.0, "PPB")
+        assert (oz.ozone_file, oz.ozone_file_units, oz.ozone_file_format) == (
+            "ozone.dat", "PPB", "(i2,3i3,f9.3)")
+        assert again.chemistry.ozone_data == oz
+
+    @pytest.mark.parametrize("line", [
+        "NOXVALUE SECT1", "NOX_VALS SEASON one two", "OZONEVAL", "OZONEFIL SECT2",
+    ])
+    def test_short_or_non_numeric_background_lines_are_skipped(self, line):
+        # Nothing to store, and nothing to trip over: the chemistry block
+        # is not even created for a keyword with no usable fields.
+        c = _wrap(co_kw=f"   {line}").control
+        assert c.chemistry is None or c.chemistry.nox_background is None \
+            or c.chemistry.nox_background.is_empty()
+
+    def test_o3values_temporal_profile(self):
+        c, again = _co_roundtrip("   O3VALUES  SEASON  40  50  60  45")
+        assert c.chemistry.ozone_data.varying == TemporalValues("SEASON", [40.0, 50.0, 60.0, 45.0])
+        assert again.chemistry.ozone_data.varying == c.chemistry.ozone_data.varying
+
+
+class TestCOGasDepositionDefaults:
+    """GASDEPDF / GASDEPVD / GDSEASON / GDLANUSE (coset.f GDDEF, GVSUBD,
+    GDSEAS, GDLAND)."""
+
+    def test_gasdepdf_three_values_and_optional_species(self):
+        c, again = _co_roundtrip("   GASDEPDF  0.5  0.25  0.75  SO2")
+        assert c.gas_deposition_defaults == GasDepositionDefaults(0.5, 0.25, 0.75, "SO2")
+        assert again.gas_deposition_defaults == c.gas_deposition_defaults
+        c, _ = _co_roundtrip("   GASDEPDF  0.5  0.25  0.75")
+        assert c.gas_deposition_defaults.reference_species is None
+
+    def test_gasdepvd(self):
+        c, again = _co_roundtrip("   GASDEPVD  0.01")
+        assert c.gas_deposition_velocity == pytest.approx(0.01)
+        assert again.gas_deposition_velocity == c.gas_deposition_velocity
+
+    def test_gdseason_and_gdlanuse_with_shorthand(self):
+        # EPA's testgas deck: explicit months and 36*4 land use.
+        c, again = _co_roundtrip(
+            "   GDSEASON  4  4  4  5  1  1  1  1  1  2  3  3\n   GDLANUSE  36*4")
+        assert c.gas_deposition_seasons == [4, 4, 4, 5, 1, 1, 1, 1, 1, 2, 3, 3]
+        assert c.gas_deposition_land_use == [4] * 36
+        assert again.gas_deposition_seasons == c.gas_deposition_seasons
+        assert again.gas_deposition_land_use == c.gas_deposition_land_use
 
 
 class TestSOKeywordsV26135:
@@ -1147,12 +1327,54 @@ OU FINISHED
 
     @pytest.mark.parametrize("line", [
         "TOXXFILE 1 ALL 1.0 toxx.dat", "SEASONHR ALL seasonhr.dat", "RANKFILE 1 10 rank.dat",
-        "EVALFILE S1 eval.dat", "FILEFORM EXP", "MAXDAILY 24 ALL maxdaily.dat",
-        "MXDYBYYR 24 ALL mxdy.dat", "MAXDCONT ALL 8 UPPER 1.0 100.0 maxdcont.dat", "NOHEADER ALL",
+        "EVALFILE S1 eval.dat", "NOHEADER ALL",
     ])
     def test_unhandled_ou_keywords_pass_through(self, line):
         out = self._deck(ou_body=f"   {line}").output
         assert out.plot_file is None
+
+    def _ou_roundtrip(self, ou_body):
+        first = self._deck(ou_body=ou_body)
+        second = parse_aermod_input(first.to_aermod_input(validate=False))
+        return first.output, second.output
+
+    def test_fileform(self):
+        out, again = self._ou_roundtrip("   FILEFORM  EXP")
+        assert out.file_format == "EXP"
+        assert again.file_format == "EXP"
+        assert self._deck().output.file_format is None
+
+    def test_maxdaily_and_mxdybyyr_take_group_then_file(self):
+        # ouset.f OUMAXDLY reads the group from field 3 and the file from
+        # field 4; there is no averaging-period field.
+        out, again = self._ou_roundtrip(
+            "   MAXDAILY  ALL  maxdaily.dat\n   MXDYBYYR  ALL  mxdy.dat  52")
+        assert out.max_daily_files == [MaxDailyFile("ALL", "maxdaily.dat")]
+        assert out.max_daily_by_year_files == [MaxDailyFile("ALL", "mxdy.dat", 52)]
+        assert again.max_daily_files == out.max_daily_files
+        assert again.max_daily_by_year_files == out.max_daily_by_year_files
+
+    def test_maxdcont_rank_form(self):
+        # EPA's no2_1yrAK decks: MAXDCONT ALL 8 8 file.
+        out, again = self._ou_roundtrip("   MAXDCONT ALL 8  8  ../Outputs/h8h.out")
+        assert out.max_daily_contributions == [
+            MaxDailyContribution("ALL", 8, "../Outputs/h8h.out", lower_rank=8)]
+        assert again.max_daily_contributions == out.max_daily_contributions
+
+    def test_maxdcont_thresh_form_with_unit(self):
+        out, again = self._ou_roundtrip("   MAXDCONT ALL 8 THRESH 188.0 thresh.out 53")
+        mdc = out.max_daily_contributions[0]
+        assert (mdc.upper_rank, mdc.lower_rank, mdc.threshold, mdc.filename, mdc.file_unit) == (
+            8, None, 188.0, "thresh.out", 53)
+        assert again.max_daily_contributions == out.max_daily_contributions
+
+    @pytest.mark.parametrize("line", [
+        "MAXDCONT ALL", "MAXDCONT ALL 8 THRESH 188.0", "MAXDCONT ALL eight 8 f.out",
+        "MAXDAILY ALL",
+    ])
+    def test_malformed_design_value_lines_are_skipped(self, line):
+        out = self._deck(ou_body=f"   {line}").output
+        assert not out.max_daily_contributions and not out.max_daily_files
 
 
 class TestPathwayOrderErrorsV26135:

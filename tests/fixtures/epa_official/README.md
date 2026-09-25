@@ -17,6 +17,16 @@ Source archive:
 | `AERMET2.SFC` / `AERMET2.PFL` | `aermet26135_aermod26135/meteorology/aermet2.{sfc,pfl}` (renamed to upper case) | Meteorology for AERTEST, produced by AERMET v26135. Values identical to the 24142 files; v26135 writes four-digit years (`1988` vs `88`). |
 | `AERTEST_01H.PLT` | `aermet26135_aermod26135/plotfiles/AERTEST_01H.PLT` | 1-hour HIGH-1ST PLOTFILE produced by AERMOD v26135. Data rows are byte-identical to the 24142 plotfile; only the two banner lines (version, date) differ. |
 | `AERTEST.SUM` | `aermet_24142_aermod_24142/Outputs/AERTEST.SUM` | AERMOD **24142** summary output for AERTEST. Kept at 24142 deliberately: the 26135 summary echoes the four-digit-year met through a two-character field (`**` in the year column), and `tests/test_cli.py` asserts the 24142 banner. |
+| `bg_no2_olm_ppb.inp` | `aermet26135_aermod26135/inputs/` | OLM with an hourly background file and `BACKUNIT PPB`. |
+| `testpm10_1986.inp`, `testpm10_1987.inp` | `aermet26135_aermod26135/inputs/` | First two years of the five-year `MULTYEAR` PM10 chain (the first year has no init file, the second names the first's save file). |
+| `no2_1yrAK_grsm.inp` | `aermet26135_aermod26135/inputs/` | GRSM: `NOXVALUE 10.0 PPB`, `OZONEVAL`/`OZONEFIL` with units and a Fortran read format, `MAXDCONT ALL 8 8`. |
+| `testgas2.inp` | `aermet26135_aermod26135/inputs/` | Gas deposition: `GDSEASON` and `GDLANUSE 36*4`. |
+| `testprt2.inp` | `aermet26135_aermod26135/inputs/` | `FILEFORM EXP` among the plot/post files. |
+
+The five decks in the last four rows are the round-trip fixtures for
+`tests/test_epa_deck_roundtrip.py`; together they use every form of the
+restart, NOx/ozone background, gas-deposition and design-value keywords
+that appears anywhere in the 53-deck archive.
 
 All files are products of U.S. EPA and are in the public domain.
 

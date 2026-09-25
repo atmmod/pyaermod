@@ -102,3 +102,35 @@ class TestParseAermodInputUnchanged:
         project = parse_aermod_input(_MINIMAL_INP_TMPL.format(
             surf="/etc/passwd", prof="../../boom.pfl"))
         assert project.meteorology.surface_file == "/etc/passwd"
+
+
+class TestSandboxCoversNewFilePaths:
+    """Every path the reader now stores structurally is checked too."""
+
+    _CO = ("   SAVEFILE  {p}\n", "   INITFILE  {p}\n", "   MULTYEAR  {p}\n",
+           "   MULTYEAR  ok.sav  {p}\n", "   NOX_FILE  {p}\n",
+           "   NOXSECTR  0  180\n   NOX_FILE  SECT2  {p}\n",
+           "   O3SECTOR  0  180\n   OZONEFIL  SECT1  {p}\n")
+    _OU = ("   MAXDAILY  ALL  {p}\n", "   MXDYBYYR  ALL  {p}\n",
+           "   MAXDCONT  ALL  8  8  {p}\n", "   MAXDCONT  ALL  8  THRESH  1.0  {p}\n")
+
+    @pytest.mark.parametrize("co_line", _CO)
+    def test_control_paths_escaping_are_rejected(self, tmp_path, co_line):
+        text = _MINIMAL_INP_TMPL.format(surf="a.sfc", prof="a.pfl").replace(
+            "   POLLUTID  SO2\n", "   POLLUTID  NO2\n   MODELOPT  CONC GRSM\n"
+            + co_line.format(p="../../escape.dat"))
+        inp = tmp_path / "t.inp"
+        inp.write_text(text)
+        with pytest.raises(PathTraversalError):
+            read_aermod_input(inp, sandbox=True)
+        inp.write_text(text.replace("../../escape.dat", "inside.dat"))
+        read_aermod_input(inp, sandbox=True)
+
+    @pytest.mark.parametrize("ou_line", _OU)
+    def test_output_paths_escaping_are_rejected(self, tmp_path, ou_line):
+        text = _MINIMAL_INP_TMPL.format(surf="a.sfc", prof="a.pfl").replace(
+            "OU STARTING\n", "OU STARTING\n" + ou_line.format(p="/etc/escape.dat"))
+        inp = tmp_path / "t.inp"
+        inp.write_text(text)
+        with pytest.raises(PathTraversalError):
+            read_aermod_input(inp, sandbox=True)

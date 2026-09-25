@@ -315,7 +315,10 @@ class TestChemistryControlPathway:
         )
         output = ctrl.to_aermod_input()
         assert "GRSM" in output
-        assert "NOXVALUE  nox_bg.dat" in output
+        # A file goes on NOX_FILE; NOXVALUE takes a concentration (coset.f
+        # NOXVAL rejects a filename as E208 "Invalid numerical field").
+        assert "NOX_FILE  nox_bg.dat" in output
+        assert "NOXVALUE" not in output
 
     def test_o3values_file(self):
         ctrl = ControlPathway(
@@ -327,7 +330,10 @@ class TestChemistryControlPathway:
             ),
         )
         output = ctrl.to_aermod_input()
-        assert "O3VALUES  ozone.dat" in output
+        # An hourly file is OZONEFIL; O3VALUES wants a temporal flag and
+        # its values, and rejects a lone filename (coset.f O3VALS, E201).
+        assert "OZONEFIL  ozone.dat" in output
+        assert "O3VALUES" not in output
 
     def test_o3values_uniform(self):
         ctrl = ControlPathway(
@@ -339,7 +345,9 @@ class TestChemistryControlPathway:
             ),
         )
         output = ctrl.to_aermod_input()
-        assert "O3VALUES  UNIFORM  40" in output
+        # A constant is OZONEVAL; "UNIFORM" is not an O3VALUES flag (E203).
+        assert "OZONEVAL  40" in output
+        assert "UNIFORM" not in output
 
     def test_o3values_sector(self):
         ctrl = ControlPathway(
@@ -347,12 +355,17 @@ class TestChemistryControlPathway:
             pollutant_id=PollutantType.NO2,
             chemistry=ChemistryOptions(
                 method=ChemistryMethod.OLM,
-                ozone_data=OzoneData(sector_values={1: 40.0, 2: 45.0}),
+                ozone_data=OzoneData(
+                    sector_values={1: 40.0, 2: 45.0}, sectors=[0.0, 180.0],
+                ),
             ),
         )
         output = ctrl.to_aermod_input()
-        assert "O3VALUES  SECTOR  1" in output
-        assert "O3VALUES  SECTOR  2" in output
+        # Sector constants are OZONEVAL SECTn, and the sectors themselves
+        # are declared on O3SECTOR (coset.f O3VAL / O3SECTOR).
+        assert "O3SECTOR  0  180" in output
+        assert "OZONEVAL  SECT1  40" in output
+        assert "OZONEVAL  SECT2  45" in output
 
     def test_no2stack_emitted(self):
         ctrl = ControlPathway(
@@ -366,9 +379,9 @@ class TestChemistryControlPathway:
     def test_no_chemistry_no_extra_keywords(self):
         ctrl = ControlPathway(title_one="Test", pollutant_id=PollutantType.NO2)
         output = ctrl.to_aermod_input()
-        assert "O3VALUES" not in output
-        assert "NO2STACK" not in output
-        assert "NOXVALUE" not in output
+        for keyword in ("O3VALUES", "OZONEVAL", "OZONEFIL", "NO2STACK",
+                        "NOXVALUE", "NOX_FILE"):
+            assert keyword not in output
 
 
 class TestPointSourceNO2Ratio:
@@ -505,8 +518,8 @@ class TestChemistryValidation:
             ozone_data=OzoneData(ozone_file="ozone.dat"),
         ))
         result = Validator.validate(proj)
-        # Should produce a warning about missing nox_file
-        assert any("NOx background file" in str(e) for e in result.errors)
+        # Should produce a warning about the missing NOx background
+        assert any("NOx background" in str(e) for e in result.errors)
 
     def test_olm_group_name_too_long(self):
         proj = self._make_project(ChemistryOptions(
@@ -565,7 +578,7 @@ class TestChemistryFullProject:
         )
         output = proj.to_aermod_input()
         assert "MODELOPT  CONC FLAT DFAULT OLM" in output
-        assert "O3VALUES  ozone.dat" in output
+        assert "OZONEFIL  ozone.dat" in output
         assert "NO2STACK  0.5000" in output
         assert "NO2RATIO  STK1     0.8000" in output
         assert "OLMGROUP  OLMGRP   STK1" in output
