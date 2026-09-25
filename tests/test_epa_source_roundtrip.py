@@ -33,7 +33,6 @@ from pathlib import Path
 
 import pytest
 
-from pyaermod.epa_testcases import find_epa_testcase_set
 from pyaermod.input_generator import (
     AreaPolySource,
     BuoyLineSource,
@@ -41,6 +40,8 @@ from pyaermod.input_generator import (
     RLineExtSource,
 )
 from pyaermod.input_reader import parse_aermod_input
+
+from .test_epa_deck_roundtrip import archive_inputs_dir
 
 FIXTURES = Path(__file__).parent / "fixtures" / "epa_official"
 ROOT = Path(__file__).resolve().parent.parent
@@ -169,8 +170,9 @@ def test_the_comparison_can_fail():
     assert _merge_areavert(keyword_lines(broken)) != _merge_areavert(keyword_lines(text))
 
 
-_SET = find_epa_testcase_set(ROOT / "test_cases")
-_ARCHIVE_DECKS = sorted(_SET.inputs.glob("*.inp")) if _SET and _SET.inputs.is_dir() else []
+# An inputs-only unpack is enough, as for the tranche-1 round-trip test.
+_ARCHIVE_INPUTS = archive_inputs_dir(ROOT / "test_cases")
+_ARCHIVE_DECKS = sorted(_ARCHIVE_INPUTS.glob("*.inp")) if _ARCHIVE_INPUTS else []
 
 
 @pytest.mark.skipif(not _ARCHIVE_DECKS, reason="EPA test-case archive not unpacked under test_cases/")
