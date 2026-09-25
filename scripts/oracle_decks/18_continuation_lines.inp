@@ -1,0 +1,46 @@
+** Probe: GRIDPOLR sub-lines with the keyword field left blank so the
+** keyword is inherited (setup.f EXKEY), with and without the network ID,
+** as EPA's hrdow.inp writes them. Setup pass only.
+** AERMOD said: accepted, 60 receptors (2 x 18 + 2 x 12). A line blank
+** through the keyword columns inherits the previous keyword whether or
+** not it repeats the network ID (REPOLR takes a bare sub-keyword as the
+** current network).
+CO STARTING
+   TITLEONE  oracle 18: blank-keyword continuation lines
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  18_continuation_lines.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  POL1  STA
+   GRIDPOLR  POL1  ORIG  0.0  0.0
+   GRIDPOLR  POL1  DIST  100.  1000.
+             POL1  GDIR  18    10.   20.
+   GRIDPOLR  POL1  END
+   GRIDPOLR  POL2  STA
+                   ORIG  STACK1
+                   DIST  175.  500.
+                   GDIR  12  0  30
+   GRIDPOLR  POL2  END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

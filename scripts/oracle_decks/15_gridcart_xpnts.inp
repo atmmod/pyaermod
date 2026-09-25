@@ -1,0 +1,38 @@
+** Probe: GRIDCART with explicit XPNTS/YPNTS on blank-keyword continuation
+** lines, as EPA's allsrcs.inp writes them. Setup pass only.
+** AERMOD said: accepted, 16 receptors (4 x 4); YPNTS accumulates over
+** the two lines (XYPNTS keeps JCOUNT between records).
+CO STARTING
+   TITLEONE  oracle 15: GRIDCART XPNTS YPNTS continuation lines
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  15_gridcart_xpnts.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDCART  CAR1  STA
+                   XPNTS  -1000.  -500.  500.  1000.
+                   YPNTS  -1000.  -500.
+                   YPNTS  500.  1000.
+   GRIDCART  CAR1  END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

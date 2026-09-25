@@ -1,0 +1,36 @@
+** Probe: a keyword written one column early (TITLETWO in columns 2-9).
+** pyaermod's reader is whitespace-tolerant; this records what AERMOD does.
+** AERMOD said: OU E100 Invalid Pathway 'S'. Columns 1-2 are the pathway
+** field, so ' SUMMFILE' is read as pathway 'S'. Keywords must start in
+** column 4 (three leading blanks), which is what pyaermod's writer emits.
+CO STARTING
+   TITLEONE  oracle 19: keyword starting in column 2
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  19_keyword_in_column_2.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.  0.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+ SUMMFILE  probe19.sum
+OU FINISHED
