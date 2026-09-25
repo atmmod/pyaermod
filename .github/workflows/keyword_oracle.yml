@@ -1,0 +1,119 @@
+name: AERMOD keyword oracle
+
+# Answers "what does AERMOD actually do with keyword X?" from the program
+# itself, in a log. For each keyword it prints the Fortran dispatch branch
+# and parsing subroutine from EPA's current source, every EPA test deck
+# that uses it (in full), and the setup-pass messages and produced files
+# from running the probe decks under scripts/oracle_decks/ through a
+# freshly compiled binary. Optionally runs a pytest selection with the
+# binary on PATH and EPA's meteorology unpacked, so the binary-backed
+# acceptance tests can be exercised from a sandbox that cannot reach EPA.
+#
+# Manual dispatch only; nothing here gates a merge.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keywords:
+        description: "Keywords to report on (space separated)"
+        required: false
+        default: >-
+          MULTYEAR SAVEFILE INITFILE NOXVALUE NOX_FILE NOX_VALS NOX_UNIT
+          NOXSECTR O3SECTOR OZONUNIT OZONEVAL OZONEFIL O3VALUES
+          MAXDAILY MXDYBYYR MAXDCONT FILEFORM GASDEPDF GASDEPVD GDSEASON GDLANUSE
+      pytest_args:
+        description: "pytest selection to run with the binary on PATH (blank = skip)"
+        required: false
+        default: ""
+      run_probe_decks:
+        description: "Run scripts/oracle_decks/*.inp through the binary"
+        required: false
+        default: "true"
+
+env:
+  AERMOD_SOURCE_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+  AERMOD_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip"
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Compute cache keys
+        id: keys
+        run: |
+          echo "src=epa-aermod-source-$(printf '%s' "$AERMOD_SOURCE_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+          echo "tc=epa-aermod-testcases-zip-$(printf '%s' "$AERMOD_TESTCASES_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache EPA source archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/aermod_build/aermod_source.zip
+          key: ${{ steps.keys.outputs.src }}
+
+      - name: Fetch and unpack EPA source
+        id: src
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" "$AERMOD_SOURCE_URL" aermod_source.zip
+          rm -rf src && mkdir src && unzip -q aermod_source.zip -d src
+          dir=$(dirname "$(find src -iname 'coset.f' | head -1)")
+          chmod -R u+w src
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "source dir: $dir"
+
+      - name: Fortran for each keyword
+        run: |
+          python scripts/keyword_oracle.py source "/tmp/aermod_build/${{ steps.src.outputs.dir }}" ${{ inputs.keywords }}
+
+      - name: Compile AERMOD
+        run: |
+          set -euo pipefail
+          AERMOD_SRC_DIR="/tmp/aermod_build/${{ steps.src.outputs.dir }}" bash scripts/build_aermod.sh aermod
+          ./bin/aermod --help || true
+
+      - name: Cache EPA test-case archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/epa_tc/aermod_test_cases.zip
+          key: ${{ steps.keys.outputs.tc }}
+
+      - name: Fetch EPA test decks
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/epa_tc && cd /tmp/epa_tc
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" "$AERMOD_TESTCASES_URL" aermod_test_cases.zip
+          rm -rf test_cases && mkdir test_cases
+          unzip -q aermod_test_cases.zip 'aermet26135_aermod26135/inputs/*' \
+            'aermet26135_aermod26135/meteorology/aermet2.*' -d test_cases || true
+          ln -sfn /tmp/epa_tc/test_cases "$GITHUB_WORKSPACE/test_cases"
+          ls "$GITHUB_WORKSPACE/test_cases/aermet26135_aermod26135/inputs" | wc -l
+
+      - name: EPA decks using each keyword
+        run: |
+          python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs ${{ inputs.keywords }}
+
+      - name: Run probe decks
+        if: inputs.run_probe_decks == 'true'
+        run: |
+          python scripts/keyword_oracle.py run ./bin/aermod scripts/oracle_decks tests/fixtures/epa_official
+
+      - name: Run pytest selection with the binary on PATH
+        if: inputs.pytest_args != ''
+        run: |
+          PATH="$PWD/bin:$PATH" python -m pytest -o addopts="" -p no:cacheprovider \
+            --strict-markers --tb=short -rA ${{ inputs.pytest_args }}
