@@ -810,25 +810,43 @@ class TestDepositionParameters:
         assert "MASSFRAX" in output
         assert "PARTDENS" in output
 
-    def test_output_type_in_plotfile(self):
+    def test_output_type_is_not_written_into_plotfile(self):
+        """AERMOD's PLOTFILE takes no output-type field.
+
+        Writing one is a fatal "Too Many Parameters"; the quantity to
+        output is a MODELOPT setting on the CO pathway.
+        """
         output = OutputPathway(plot_file="test.plt", output_type="DDEP")
         text = output.to_aermod_input()
         assert "PLOTFILE" in text
-        assert "DDEP" in text
+        assert "test.plt" in text
+        assert "DDEP" not in text
 
-    def test_output_type_in_postfile(self):
+    def test_output_type_is_not_written_into_postfile(self):
+        """POSTFILE's fifth field is the format keyword, not a type.
+
+        AERMOD rejects anything there that is not PLOT or UNFORM.
+        """
         output = OutputPathway(
             postfile="test.pst", postfile_averaging="ANNUAL",
             output_type="WDEP",
         )
         text = output.to_aermod_input()
-        assert "POSTFILE" in text
-        assert "WDEP" in text
+        assert "   POSTFILE  ANNUAL  ALL  PLOT  test.pst" in text
+        assert "WDEP" not in text
 
-    def test_output_type_default_conc(self):
-        output = OutputPathway(plot_file="test.plt")
-        text = output.to_aermod_input()
-        assert "CONC" in text
+    def test_output_quantity_comes_from_modelopt(self):
+        """Where the output type actually lives: the CO pathway."""
+        control = ControlPathway(
+            title_one="t", calculate_concentration=False,
+            calculate_dry_deposition=True,
+        )
+        text = control.to_aermod_input()
+        modelopt = next(
+            ln for ln in text.splitlines() if "MODELOPT" in ln
+        )
+        assert "DDEP" in modelopt
+        assert "CONC" not in modelopt
 
 
 class TestEventProcessing:

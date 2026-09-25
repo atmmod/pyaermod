@@ -29,19 +29,31 @@ class TestBuilding:
         assert bldg.height == 25.0
         assert len(bldg.corners) == 4
 
-    def test_wrong_corner_count(self):
-        """Test that non-4 corners raises ValueError"""
-        with pytest.raises(ValueError, match="exactly 4 corners"):
-            Building("B1", corners=[(0, 0), (10, 0), (10, 10)], height=10.0)
+    def test_too_few_corners(self):
+        """Fewer than 3 corners is not a footprint"""
+        with pytest.raises(ValueError, match="at least 3 corners"):
+            Building("B1", corners=[(0, 0), (10, 0)], height=10.0)
 
-    def test_five_corners(self):
-        """Test that 5 corners raises ValueError"""
-        with pytest.raises(ValueError, match="exactly 4 corners"):
-            Building(
-                "B1",
-                corners=[(0, 0), (10, 0), (10, 10), (5, 15), (0, 10)],
-                height=10.0,
-            )
+    def test_five_corners_accepted(self):
+        """Footprints are polygons, not only quadrilaterals.
+
+        EPA's own BPIP test case #1 is a six-corner L-shape, so a
+        four-corner restriction rejected the reference geometry.
+        """
+        bldg = Building(
+            "B1",
+            corners=[(0, 0), (10, 0), (10, 10), (5, 15), (0, 10)],
+            height=10.0,
+        )
+        assert len(bldg.corners) == 5
+
+    def test_l_shape_area_is_the_polygon_area(self):
+        bldg = Building(
+            "L",
+            corners=[(0, 0), (0, 100), (50, 100), (50, 50), (100, 50), (100, 0)],
+            height=10.0,
+        )
+        assert bldg.get_footprint_area() == pytest.approx(50 * 100 + 50 * 50)
 
     def test_negative_height(self):
         """Test that negative height raises ValueError"""
@@ -222,7 +234,14 @@ class TestBPIPCalculatorResults:
             assert h == pytest.approx(25.0)
 
     def test_symmetric_building_centered_on_stack(self):
-        """Square building centered on stack: XBADJ/YBADJ ≈ 0 for all directions"""
+        """Square centred on the stack: YBADJ is 0, XBADJ is -BUILDLEN/2.
+
+        BPIP's XBADJ is the along-flow coordinate of the projected
+        building's *upwind face*, not its centroid, so a stack at the
+        centre sits half a building-length downwind of that face. Only
+        YBADJ -- the crosswind offset -- vanishes by symmetry. Verified
+        against EPA BPIP-PRIME in tests/test_bpip_known_answers.py.
+        """
         bldg = Building(
             "B1",
             [(-10, -10), (10, -10), (10, 10), (-10, 10)],
@@ -231,8 +250,8 @@ class TestBPIPCalculatorResults:
         calc = BPIPCalculator(bldg, stack_x=0.0, stack_y=0.0)
         result = calc.calculate_all()
 
-        for xb in result.xbadj:
-            assert xb == pytest.approx(0.0, abs=1e-6)
+        for xb, bl in zip(result.xbadj, result.buildlen):
+            assert xb == pytest.approx(-bl / 2.0, abs=1e-9)
         for yb in result.ybadj:
             assert yb == pytest.approx(0.0, abs=1e-6)
 

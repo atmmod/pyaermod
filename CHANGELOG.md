@@ -8,6 +8,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AERSURFACE deck-acceptance tests across the configuration space** —
+  `tests/test_aersurface_deck_acceptance.py` runs AERSURFACE's own setup
+  pass (`RUNORNOT NOT`) over ~30 configurations. Setup needs the raster
+  files to exist but never reads them, so ten-byte placeholders suffice:
+  no test-case archive, and the sweep runs in under a second. The
+  existing end-to-end test proves one configuration byte-for-byte; this
+  covers the rest of the space, where four more defects were hiding.
+- **`AERSURFACEConfig.anemometer_height_m`** — emitted as `ANEM_HGT`,
+  and required when `zo_method="ZOEFF"`.
+
+- **Property-based round-trip over the ME and OU pathways, and polar
+  receptor grids** — `tests/test_property_pathways.py`. Those pathways
+  were pinned to fixed values in the existing property tests, so every
+  field on them went unexercised.
+- **Deck-acceptance cases for the output pathway** — the PLOTFILE,
+  POSTFILE and RECTABLE keywords have field-count-sensitive syntax that
+  varies with the averaging period, so each configuration is now run
+  through AERMOD's setup check.
+
+- **Deck-acceptance tests for every source type** —
+  `tests/test_source_deck_acceptance.py` generates a minimal deck for
+  each of pyaermod's ten source types and runs AERMOD's own setup pass
+  (`RUNORNOT NOT`) over it, asserting no fatal errors. It carries a
+  coverage guard that fails when a new source type is added without a
+  case, and a self-check that a deliberately broken deck *is* reported,
+  so the suite cannot pass vacuously.
+- **Property-based round-trip over all ten source types** —
+  `tests/test_property_all_sources.py`. The existing property tests
+  covered the three types the reader supported when they were written.
+- **`ControlPathway.alpha` / `.beta`** — the non-regulatory MODELOPT
+  options. AERMOD refuses RLINEXT outright without ALPHA.
+
+- **Real-binary parity for BPIP-PRIME and AERSURFACE.** Both had EPA
+  Fortran available and neither had ever been run against it.
+  `scripts/build_bpip.sh` and `scripts/build_aersurface.sh` fetch and
+  compile them (into `./bin`), and `make test-binaries` puts that
+  directory on PATH so the binary-backed suite is one command.
+  - `tests/test_bpip_known_answers.py` compares `pyaermod.bpip` against
+    EPA's BPIP-PRIME direction by direction, at the F8.2 print
+    resolution BPIP writes with.
+  - `tests/test_real_aersurface.py` builds the deck for EPA's published
+    RDU test case with `AERSURFACEConfig`, runs it, and compares the
+    surface characteristics to EPA's shipped reference file. They are
+    identical apart from the run timestamp.
+- **`pyaermod.epa_sources`** — registry of EPA SCRAM download locations
+  for AERMOD, AERMET, AERMAP, AERSURFACE, AERSCREEN, MAKEMET, BPIP and
+  BPIP-PRIME source and test-case archives. Every URL was discovered by
+  listing its SCRAM directory and verified to return a zip; an opt-in
+  network test (`PYAERMOD_NETWORK_TESTS=1`) re-lists each directory so
+  an EPA rename fails a test instead of 404-ing in CI later.
+- **`pyaermod.bpip` GEP influence-zone test** — `BPIPCalculator` now
+  reports zeros for wind directions where the stack lies outside the
+  structure influence zone, as BPIP does, with `influence_test=False`
+  to inspect the raw projected geometry.
+
+- **NAAQS design-value known-answer tests** — the design-value math is now
+  pinned against evidence rather than smoke-tested. `tests/test_naaqs_rank_tables.py`
+  transcribes 40 CFR part 50 appendix N Table 1, appendix S Table 1 and
+  appendix T Table 1 and checks the new `naaqs_percentile_rank()` against
+  every row for every day count 1–366, then pins design values on series
+  whose answer is arithmetic (365 strictly decreasing daily values → the
+  98th percentile is exactly the 358th). `tests/regulatory/test_epa_known_answers.py`
+  compares pyaermod's ranking against EPA's *own* ranked output — no
+  AERMOD binary needed, since both sides derive from the concentrations
+  in EPA's shipped `.PST` files:
+  - the 1st-highest value at every receptor of all 47 `.PST`/`.PLT` pairs
+    in the reference set, exactly (no tolerance);
+  - ranks 1 through 8 of the 24-hour series in EPA's `surfcoal` deck
+    against its eight `PSET2PA.DA1`–`DA8` plotfiles — the depth the
+    98th-percentile forms need;
+  - AERMOD's own NAAQS design-value plotfiles (`PSDCRED_*`, written under
+    its 1-hour NO2 processing) against
+    `nth_highest_daily_max_design_value()`, receptor by receptor;
+  - the `.SUM` overall-maximum table, which ranks the largest *n*-th
+    highest value per receptor rather than the *n*-th largest value in
+    the record.
+- **`pyaermod.design_values.naaqs_percentile_rank()`** — the EPA rank-table
+  lookup, with both regulatory tables exported as
+  `PERCENTILE_98_RANK_TABLE` / `PERCENTILE_99_RANK_TABLE`.
+- **`pyaermod.design_values.nth_highest_daily_max_design_value()`** — the
+  general form behind the 1-hour NO2, 1-hour SO2 and 24-hour PM2.5
+  standards, and the one AERMOD itself computes under `NO2AVE` / `SO2AVE`
+  / `PM25AVE`: rank each year's daily series independently, then average
+  those annual values across years (`SUMHNH / NUMYRS` in `aermod.f`).
+- **`AERMODAuxResult.concentration_column` / `.values()`** — callers no
+  longer have to guess whether AERMOD spelled the column `CONC` or
+  `AVERAGE CONC`.
+- **`pyaermod.aermod_outputs.parse_fortran_format()`** — expands the
+  Fortran FORMAT statement AERMOD prints in every auxiliary-file header
+  into field widths, so records are sliced at the offsets AERMOD wrote
+  them at.
+
 - **Headless smoke tests for the NiceGUI GUI** — `tests/test_gui_v2_smoke.py`
   drives the real `gui_v2` shell through `nicegui.testing.User` (in-process
   ASGI, no browser): every tab renders its key controls; a minimal project
@@ -107,6 +199,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one-line decks for every previously untested branch and a pass-through
   test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
   99.8 % (the one remaining line is an unreachable guard).
+
+### Known limitations
+
+- **`pyaermod.aerscreen` writes a deck AERSCREEN does not read.** The
+  `KEY: value` layout `AERSCREENConfig.to_aerscreen_input()` produces is
+  not an AERSCREEN format; AERSCREEN is interactive, taking an ordered
+  sequence of answers on stdin, and reloads a previous run from the
+  `**`-prefixed header of its output file (which is otherwise an AERMOD
+  runstream it generates). This is the same defect `pyaermod.aersurface`
+  had, found the same way -- by comparing against EPA's own reference
+  files in `aerscreen_test_cases.zip`. It is *not* fixed: EPA's
+  `AERSCREEN.FOR` does not build under gfortran without patching (a
+  missing continuation comma at line 7995 swallows a FORMAT label, and
+  the source uses an Intel format extension), so there is no reference
+  implementation to validate a rewrite against. The module docstring now
+  says so instead of claiming conformance to the User's Guide.
+
+### Upgrade notes — `AERSURFACEConfig`
+
+`AERSURFACEConfig`'s fields changed, because the deck it built was not
+in any AERSURFACE format: it emitted `TITLE`, `LOCATION`, `NLCDFILE`,
+`SNOW_TEMPER`, `OUTPATH` and friends, none of which AERSURFACE has ever
+accepted, and the real binary aborted in its control-file parser. No
+code that ran AERSURFACE can have depended on the old fields; code
+written against them can.
+
+Passing an old field name now raises a `TypeError` naming the
+replacement, rather than a bare "unexpected keyword argument".
+
+| Old | New |
+|-----|-----|
+| `nlcd_file` | `land_cover_file` |
+| `radius_roughness_km` | `zo_radius_km` |
+| `snow_cover_per_month=[...]` | months in the `WINTERWS` season: `seasons={"WINTERWS": (1,), ...}` |
+| `moisture_per_month=[...]` | one `moisture="AVERAGE" \| "WET" \| "DRY"` |
+| `output_dir` | `sfcchar_file` (plus `*_grid_file` for the optional grid outputs) |
+| `extra_lines` | `extra_co_lines` / `extra_ou_lines` |
+| `sectors=[30, 60, 225]` | `sectors=[(30, 60, "NONAP"), (60, 225, "AP"), (225, 30, "NONAP")]` |
+| `utc_offset` | *removed* — AERSURFACE has no UTC-offset keyword |
+| `snow_regime` | *removed* — use `snow=True/False`; `CLIMATE` has no temperature regime |
+| `radius_albedo_bowen_km` | *removed* — AERSURFACE averages over the single `ZORADIUS` |
+
+```python
+# Old — produced a deck AERSURFACE rejected
+cfg = AERSURFACEConfig(
+    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
+    utc_offset=-8, nlcd_file="NLCD_2019.img", nlcd_year=2019,
+    snow_regime="CONTINENTAL_WARM", radius_roughness_km=1.0,
+)
+
+# New
+cfg = AERSURFACEConfig(
+    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
+    land_cover_file="NLCD_2019_LC.tiff", nlcd_year=2019,
+    zo_radius_km=1.0, moisture="AVERAGE", snow=True,
+    sfcchar_file="salem_sfc.txt",
+)
+```
+
+These fields are new and have no old equivalent: `title_two`, `datum`,
+`canopy_file`, `impervious_file`, `site_type`, `zo_method`, `frequency`,
+`debug_options`, `run`, and the `*_grid_file` outputs.
 
 ### Changed
 - **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
@@ -249,6 +403,174 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **Four AERSURFACE configurations produced decks the binary rejects**,
+  all outside the single case the end-to-end test covers:
+  - `frequency="SEASONAL"` still wrote `SEASON` keywords, which
+    AERSURFACE accepts only with `ANNUAL` and `MONTHLY`. Now omitted,
+    and an explicit `seasons=` under `SEASONAL` raises rather than being
+    silently dropped.
+  - `zo_method="ZOEFF"` never emitted `ANEM_HGT`, which AERSURFACE
+    requires for it.
+  - `arid=True` with the default `snow=True` is refused by AERSURFACE
+    ("Arid Climate is Invalid With Continuous Snow"); the combination
+    now raises.
+  - Sectors with a gap or overlap were accepted here and refused there
+    (`E267`); they must tile the compass, and now must here too.
+- **`datum="NAD27"` could never work.** AERSURFACE reads NADCON grid
+  files (`conus`/`alaska`/`hawaii`/`prvi` `.las` and `.los`) from its
+  working directory and fails without them. `scripts/build_aersurface.sh`
+  now installs them beside the binary, `AERSURFACERunner` stages them
+  into the run directory for NAD27 runs (overridable with
+  `$PYAERMOD_NADCON_DIR`), and a run with no grids available fails with
+  a message saying where to get them instead of a Fortran error code.
+
+- **PLOTFILE and POSTFILE wrote a field AERMOD does not have.** Both
+  carried an output-type token (`CONC`, `DDEP`, ...), and PLOTFILE also
+  wrote a rank on the PERIOD/ANNUAL form, which takes none. AERMOD
+  counts fields: the result was a fatal "Too Many Parameters Specified
+  For the Keyword of PLOTFILE" and "Invalid Parameter Specified.
+  Troubled Parameter: FORMAT". There is no per-file output type in
+  AERMOD -- the quantity written is a MODELOPT setting -- so
+  `OutputPathway.output_type` is now documented as inert and no longer
+  emitted.
+- **The reader read the PLOTFILE rank as the filename.** It took a fixed
+  field position, so a PERIOD-form plotfile round-tripped
+  `plot_file="p.dat"` into `plot_file="FIRST"`.
+- **`RECTABLE ALLAVE 10` asks AERMOD for the tenth-highest value alone,
+  not the top ten.** `receptor_table_rank=10` therefore produced a table
+  of one rank, and any PLOTFILE requesting FIRST against it was rejected
+  as an invalid HIVALU. The writer now emits the range form
+  (`ALLAVE 1-10`), and the reader understands bare ranks, ranges and the
+  ordinal-word forms (`FIRST-THIRD`, `EIGHTH`) alike -- it previously
+  fell back to the default rank for all but a bare number.
+
+- **Three of the ten source types produced decks AERMOD rejects.**
+  Verified against the real binary's setup pass:
+  - `AREAPOLY` wrote its `LOCATION` at the polygon *centroid* while
+    AERMOD requires the first vertex ("ARVERT: First Vertex Does Not
+    Match LOCATION"), and omitted the vertex count from `SRCPARAM`,
+    which is a fatal "Not Enough Parameters" and then makes every
+    `AREAVERT` line overflow an unset limit. Four distinct fatal errors
+    from one source.
+  - `BUOYLINE` wrote `BLPINPUT` with no group ID, so AERMOD filed the
+    parameters under the implicit group `ALL` and then failed with "No
+    BLPINPUT record for BLPGROUP ID".
+  - `RLINEXT` needs `MODELOPT ... ALPHA`, which `ControlPathway` had no
+    way to emit.
+- **The reader silently dropped AREAPOLY, RLINEXT and BUOYLINE
+  sources.** `parse_aermod_input` returned successfully with an empty
+  source list -- no error, no warning -- so a project could lose its
+  emissions with nothing to show for it. All three are now
+  reconstructed, including `AREAVERT` vertex rings and the
+  `BLPINPUT`/`BLPGROUP` pairing that turns buoyant line *segments* back
+  into a source. All ten source types now round-trip.
+
+- **AERSURFACE decks used keywords AERSURFACE does not have.**
+  `AERSURFACEConfig.to_aersurface_input()` emitted `TITLE`, `LOCATION`,
+  `NLCDFILE`, `NLCDYEAR`, `SNOW_TEMPER`, `SECTORS_LIST`, `OUTPATH` and
+  friends -- none of which exist. The real format is pathway-based
+  (`CO STARTING` / `OU STARTING`) with `TITLEONE`, `CENTERLL`,
+  `DATAFILE`, `ZORADIUS`, `CLIMATE`, `FREQ_SECT`, `SECTOR`, `SEASON`,
+  `RUNORNOT`, `SFCCHAR`. Fed the old deck, AERSURFACE v26135 aborted
+  immediately with a Fortran bounds error in its control-file parser.
+  Rewritten to the real format, with sectors as
+  `(start, end, "AP"|"NONAP")` triples, season-to-month assignment
+  (including `WINTERWS` for continuous snow cover), and the canopy and
+  impervious rasters that 2001-and-later NLCD releases carry. This is a
+  breaking change to `AERSURFACEConfig`'s fields; the class never
+  produced a usable deck, so no working code depended on them.
+- **BPIP reported downwash where EPA reports none.** `BPIPCalculator`
+  had no structure-influence-zone test, so a stack 400 m from a 13 m
+  building came back with a full-size building for all 36 directions
+  instead of zeros -- enough to make AERMOD apply downwash the GEP
+  criteria exclude.
+- **BPIP now agrees with EPA's BPIP-PRIME exactly** (6,480 direction
+  comparisons over rectangles, an L-shape and randomised polygons; worst
+  difference 0.005, which is what BPIP's `F8.2` output can express).
+  Closing the last gap needed two things that projection geometry alone
+  does not give, both transcribed from `Bpipprm.for`:
+  - **BPIP applies two different influence tests.** The downwash pass
+    admits a stack within half an `L` of either edge of the projected
+    width and no more than `2 L` upwind of the near face -- with *no*
+    downwind limit (it computes `CYMX = YMAX + 5 L` and never tests
+    against it). The GEP pass is stricter and separate. An empirically
+    fitted single zone matched 501 of 504 cases and was wrong in kind.
+  - **The GEP clamp.** When a direction's wake-effect height
+    `H + 1.5 L` would exceed the stack's GEP stack height, BPIP reports
+    the GEP-controlling structure's height and width instead of that
+    direction's projection. This shows up as a flat cap across a run of
+    directions that tracks the *stack position*, not the footprint --
+    on one test case pyaermod reported 58.68 m where BPIP reports 42.18.
+    The GEP height itself comes from a quarter-degree sweep, far finer
+    than the 36 reported directions, so the capped width is generally
+    not any direction's projected width.
+- **BPIP's XBADJ and YBADJ were the projected centroid.** XBADJ is the
+  along-flow coordinate of the projected building's *upwind face*
+  (`-BUILDLEN/2` for a stack at the building centre, where the old code
+  returned 0) and YBADJ the negated crosswind midpoint. The rotation
+  also ran the wrong way, which an axis-aligned rectangle cannot reveal
+  because its projected width and length are symmetric in wind
+  direction.
+- **`Building` rejected any footprint that was not a quadrilateral**,
+  including the six-corner L-shape in EPA's own first BPIP test case.
+  Any polygon of three or more corners is accepted.
+
+- **NAAQS percentiles were interpolated quantiles, not the regulatory
+  order statistics.** `pm25_24hr_design_value`, `no2_1hr_design_value`
+  and `so2_1hr_design_value` computed the annual percentile with
+  `Series.quantile(..., interpolation="linear")`. The standards do not
+  interpolate: 40 CFR part 50 appendices N, S and T sort each year's
+  daily values from highest to lowest and read the rank off a table keyed
+  on the year's count of valid days — the **8th highest** for a full-year
+  98th percentile, the **4th highest** for a full-year 99th percentile.
+  Linear interpolation lands *between* ranks (0.98 × 364 = 356.72) and
+  reports a number the regulation never defines, biased low against the
+  standard. Now rank-based, with the rank chosen per receptor-year from
+  that year's own day count.
+- **PM2.5 and PM10 24-hour design values used each day's peak hour as the
+  24-hour value.** Both functions called the daily-*maximum* helper on
+  hourly input, despite the docstring promising an average. A day with
+  one hour at 240 µg/m³ and 23 hours at zero was scored as 240 rather
+  than 10. Hourly input is now averaged over the day for the 24-hour
+  standards; input already carrying AERMOD `AVE='24-HR'` block averages
+  is unchanged.
+- **The PM10 24-hour form ignored the multi-year window.** It always
+  returned the high-second-high and left averaging to the caller. It now
+  follows Appendix W Table 8-2: the highest *sixth*-high (H6H) of the
+  pooled record when five years are modelled, H2H otherwise, overridable
+  via `rank=`. Unlike the percentile standards this form is not averaged
+  across years.
+- **Design values silently pooled source groups and duplicated
+  receptors.** A POSTFILE holding several `SRCGROUP`s was ranked as one
+  mixed series; the functions now require a single group and say how to
+  filter. A deck that declares the same receptor twice (EPA's own
+  `surfcoal` does) made the 2nd-highest value a copy of the 1st —
+  repeated rows are now collapsed, and receptors that genuinely share
+  (x, y) but differ in concentration raise instead of being merged.
+- **`naaqs_percentile_rank` boundary rounding.** The rank is computed in
+  exact rational arithmetic: `math.ceil(0.02 * 50)` is 2 in binary
+  floating point, which would put a 50-day year on the second-highest
+  value where appendix S Table 1 says the highest. Caught by the new
+  table test.
+- **`get_naaqs("Pb", ...)` always raised `KeyError`.** The lookup
+  upper-cased the caller's string, and `"Pb".upper()` is not the table
+  key `"Pb"`. Lookup is now case-insensitive and the error lists the
+  available pollutants.
+- **Every AERMOD PLOTFILE from a deposition run was unreadable.**
+  `read_plotfile` detected the file type from the first header line
+  mentioning one, which is `MODELING OPTIONS USED: ... DDEP WDEP ...` —
+  so a deposition run's plotfile was classified `DDEP` and rejected. The
+  options line is now excluded and the `"<kind> FILE OF ..."` declaration
+  wins. Seven of EPA's reference plotfiles were affected.
+- **Auxiliary-file column labels were shifted by one for every real
+  AERMOD output.** The header line was split on any whitespace, so
+  AERMOD's two-word labels `AVERAGE CONC` and `NET ID` each became two
+  columns and every label after them named the wrong data. Labels are
+  now split on two-or-more spaces, and rows are sliced using the Fortran
+  FORMAT AERMOD prints in the header — which is also the only way a
+  blank trailing `NET ID` (discrete receptors) parses as blank instead of
+  pulling every later column one place left.
+
 - **EPA fixture tests skipped silently after EPA renamed the archive sets.**
   `tests/test_epa_cases.py` looked only at a hard-coded Dropbox path, and
   `tests/regulatory/` plus `tests/test_real_cases.py` at the pre-2026

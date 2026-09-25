@@ -23,6 +23,7 @@ Typical usage::
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -89,6 +90,34 @@ class AERSURFACERunner:
             "explicitly."
         )
 
+    #: Environment variable pointing at a directory of NADCON grid files.
+    NADCON_ENV = "PYAERMOD_NADCON_DIR"
+
+    def _stage_nadcon_grids(self, work: Path) -> int:
+        """Copy NADCON ``.las`` / ``.los`` grids into the working directory.
+
+        AERSURFACE opens them by bare name (``conus.las``), so they have
+        to sit in the directory it runs in. Returns how many were staged.
+        """
+        candidates = []
+        env_dir = os.environ.get(self.NADCON_ENV)
+        if env_dir:
+            candidates.append(Path(env_dir))
+        candidates.append(self.executable.resolve().parent)
+
+        staged = 0
+        for directory in candidates:
+            if not directory.is_dir():
+                continue
+            for grid in sorted(directory.glob("*.la[s]")) + sorted(
+                directory.glob("*.lo[s]")
+            ):
+                shutil.copy(grid, work / grid.name)
+                staged += 1
+            if staged:
+                break
+        return staged
+
     def run(
         self,
         config: AERSURFACEConfig,
@@ -107,6 +136,23 @@ class AERSURFACERunner:
 
         deck_path = work / "aersurface.inp"
         deck_path.write_text(config.to_aersurface_input(), encoding="utf-8")
+
+        if config.datum.upper() == "NAD27":
+            staged = self._stage_nadcon_grids(work)
+            if not staged:
+                return AERSURFACERunResult(
+                    success=False, input_file=str(deck_path),
+                    return_code=None, runtime_seconds=0.0,
+                    error_message=(
+                        "datum='NAD27' needs EPA's NADCON grid files "
+                        "(conus/alaska/hawaii/prvi .las and .los), which "
+                        "AERSURFACE reads from its working directory. None "
+                        f"were found beside {self.executable} or in "
+                        f"${self.NADCON_ENV}. They ship in EPA's AERSURFACE "
+                        "source archive; scripts/build_aersurface.sh "
+                        "installs them next to the binary."
+                    ),
+                )
 
         self.logger.info(
             f"Running AERSURFACE: {deck_path} (workdir={work})"

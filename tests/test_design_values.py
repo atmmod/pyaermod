@@ -127,17 +127,46 @@ class TestSo2_1hr:
 
 
 class TestPm10_24hr:
-    def test_h2h_form(self):
+    def test_h2h_form_averages_the_day(self):
         df = _hourly_postfile(years=(2020,), receptors=((1.0, 0.0),),
                               concentration_value=20.0)
-        # Inject two distinct daily peaks: one at 100, one at 80
+        # Inject two distinct hourly peaks on two different days.
         df.loc[(df["date"].str.startswith("200101")) &
                (df["date"].str.endswith("12")), "concentration"] = 100.0
         df.loc[(df["date"].str.startswith("200201")) &
                (df["date"].str.endswith("12")), "concentration"] = 80.0
         out = pm10_24hr_design_value(df)
-        # H2H (2nd highest daily-max) should be 80
+        # The daily value of a 24-hour standard is the 24-hour *average*,
+        # not the day's peak hour: (80 + 23*20) / 24 for the second-ranked
+        # day. One year of data -> H2H.
+        assert out["form"].iloc[0].startswith("H2H")
+        assert out["concentration"].iloc[0] == pytest.approx(
+            (80.0 + 23 * 20.0) / 24.0
+        )
+
+    def test_h2h_on_daily_input_is_the_second_highest_day(self):
+        # Input already carries AERMOD 24-HR block averages, one per day.
+        df = _hourly_postfile(years=(2020,), receptors=((1.0, 0.0),),
+                              concentration_value=20.0, averaging="24-HR")
+        df = df[df["date"].str.endswith("24")].copy()
+        df.loc[df["date"] == "20010124", "concentration"] = 100.0
+        df.loc[df["date"] == "20020124", "concentration"] = 80.0
+        out = pm10_24hr_design_value(df)
         assert out["concentration"].iloc[0] == pytest.approx(80.0)
+
+    def test_five_year_record_uses_h6h(self):
+        df = _hourly_postfile(years=(2016, 2017, 2018, 2019, 2020),
+                              receptors=((1.0, 0.0),),
+                              concentration_value=1.0, averaging="24-HR")
+        df = df[df["date"].str.endswith("24")].copy()
+        # Six descending peaks across the pooled 5-year record.
+        peaks = ["16010124", "17010124", "18010124", "19010124",
+                 "20010124", "20010224"]
+        for i, d in enumerate(peaks):
+            df.loc[df["date"] == d, "concentration"] = 100.0 - i
+        out = pm10_24hr_design_value(df)
+        assert out["form"].iloc[0].startswith("H6H")
+        assert out["concentration"].iloc[0] == pytest.approx(95.0)
 
 
 class TestNaaqsComplianceReport:

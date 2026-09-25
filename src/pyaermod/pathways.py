@@ -173,6 +173,12 @@ class ControlPathway:
     # Low wind options
     low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
 
+    # Non-regulatory model options. AERMOD gates some source types and
+    # features behind these: RLINEXT is rejected outright with
+    # "Non-DFAULT ALPHA Option Required" unless ALPHA is present.
+    alpha: bool = False
+    beta: bool = False
+
     # Event file reference
     eventfil: Optional[str] = None
 
@@ -209,6 +215,13 @@ class ControlPathway:
         # Regulatory default mode
         if self.regulatory_default:
             model_opts.append("DFAULT")
+
+        # Non-regulatory options, which AERMOD requires before it will
+        # accept certain source types and keywords.
+        if self.alpha:
+            model_opts.append("ALPHA")
+        if self.beta:
+            model_opts.append("BETA")
 
         # Append chemistry method to MODELOPT
         if self.chemistry is not None:
@@ -327,6 +340,9 @@ class MeteorologyPathway:
         # Station data (mandatory)
         lines.append(f"   SURFDATA  {self.surface_station_id}  {self.data_start_year}")
         lines.append(f"   UAIRDATA  {self.upper_air_station_id}  {self.data_start_year}")
+        # One decimal, matching EPA's own decks. A profile base elevation
+        # is metres MSL; sub-decimetre precision is not meaningful and
+        # writing it would churn the golden reference deck.
         lines.append(f"   PROFBASE  {self.profile_base_elevation:.1f}  METERS")
 
         # Date range (if specified)
@@ -348,6 +364,18 @@ class MeteorologyPathway:
 # ============================================================================
 # OUTPUT PATHWAY
 # ============================================================================
+
+def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
+    """PLOTFILE parameters for one averaging period.
+
+    The period forms (PERIOD / ANNUAL) take no rank; the short-term
+    forms take one. AERMOD counts fields, so an extra token is fatal
+    rather than ignored.
+    """
+    if str(averaging).strip().upper() in ("PERIOD", "ANNUAL"):
+        return f"{averaging}  {source_group}  {filename}"
+    return f"{averaging}  {source_group}  FIRST  {filename}"
+
 
 @dataclass
 class OutputPathway:
@@ -380,16 +408,27 @@ class OutputPathway:
     # Per-group plot files: list of (averaging_period, source_group, filename)
     plot_file_groups: List[Tuple[str, str, str]] = field(default_factory=list)
 
-    # Output type (CONC, DEPOS, DDEP, WDEP, DETH)
+    # Output type (CONC, DEPOS, DDEP, WDEP). Retained for callers that
+    # set it, but AERMOD has no per-file output type: PLOTFILE and
+    # POSTFILE take no such field, and writing one is a fatal "Too Many
+    # Parameters" / "Invalid FORMAT". Which quantities are written is
+    # decided by MODELOPT -- see ControlPathway.calculate_concentration,
+    # .calculate_deposition, .calculate_dry_deposition and
+    # .calculate_wet_deposition.
     output_type: str = "CONC"
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD OU pathway text"""
         lines = ["OU STARTING"]
 
-        # Receptor table
+        # Receptor table. A bare number on RECTABLE selects *only* that
+        # rank -- "ALLAVE 10" is the tenth-highest alone, not the top ten
+        # -- and a PLOTFILE asking for FIRST against it is then rejected
+        # as an invalid HIVALU. The range form is what "top N" means.
         if self.receptor_table:
-            lines.append(f"   RECTABLE  ALLAVE  {self.receptor_table_rank}")
+            rank = self.receptor_table_rank
+            spec = "FIRST" if rank <= 1 else f"1-{rank}"
+            lines.append(f"   RECTABLE  ALLAVE  {spec}")
 
         # Max table
         if self.max_table:
@@ -407,25 +446,33 @@ class OutputPathway:
         if self.max_file:
             lines.append(f"   MAXIFILE  {self.max_file}")
 
-        # Plot file
+        # Plot file. AERMOD's PLOTFILE syntax depends on the averaging
+        # period and carries no output-type field:
+        #   PLOTFILE PERIOD|ANNUAL grpid filename [unit]
+        #   PLOTFILE <hours>       grpid rank filename [unit]
+        # A rank on the period form, or an output type on either, is a
+        # fatal "Too Many Parameters" (PERPLT/OUPLOT in AERMOD's ouset.f).
         if self.plot_file:
             lines.append(
-                f"   PLOTFILE  {self.plot_file_averaging}  ALL  {self.output_type}  FIRST  {self.plot_file}"
+                f"   PLOTFILE  {_plotfile_fields(self.plot_file_averaging, 'ALL', self.plot_file)}"
             )
 
         # Per-group plot files
         for avg_period, src_group, filename in self.plot_file_groups:
             lines.append(
-                f"   PLOTFILE  {avg_period}  {src_group}  "
-                f"{self.output_type}  FIRST  {filename}"
+                f"   PLOTFILE  {_plotfile_fields(avg_period, src_group, filename)}"
             )
 
-        # Postfile
+        # Postfile:
+        #   POSTFILE PERIOD|ANNUAL grpid format filename [unit]
+        #   POSTFILE <hours>       grpid format filename [unit]
+        # The format field is UNFORM or PLOT; anything else is rejected
+        # as an invalid FORMAT parameter.
         if self.postfile:
             ave = self.postfile_averaging or "ANNUAL"
             lines.append(
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
-                f"{self.output_type}  {self.postfile_format}  {self.postfile}"
+                f"{self.postfile_format}  {self.postfile}"
             )
 
         lines.append("OU FINISHED")

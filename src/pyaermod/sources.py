@@ -481,20 +481,23 @@ class AreaPolySource:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
 
-        # Calculate center point (approximate)
-        x_center = sum(v[0] for v in self.vertices) / len(self.vertices)
-        y_center = sum(v[1] for v in self.vertices) / len(self.vertices)
-
-        # LOCATION keyword
+        # LOCATION must be the polygon's FIRST vertex, not its centroid:
+        # AERMOD cross-checks the two and rejects the deck with
+        # "ARVERT: First Vertex Does Not Match LOCATION for AREAPOLY".
+        x_first, y_first = self.vertices[0]
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREAPOLY "
-            f"{x_center:12.4f} {y_center:12.4f} {self.base_elevation:8.2f}"
+            f"{x_first:12.4f} {y_first:12.4f} {self.base_elevation:8.2f}"
         )
 
-        # SRCPARAM keyword
+        # SRCPARAM for AREAPOLY is (emission rate, release height,
+        # number of vertices) -- see APPARM in AERMOD's soset.f. Omitting
+        # the vertex count is a fatal "Not Enough Parameters" error, and
+        # then every AREAVERT line is counted against an unset limit.
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f}"
+            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{len(self.vertices):8d}"
         )
 
         # AREAVERT keyword - vertices
@@ -1010,9 +1013,12 @@ class BuoyLineSource:
                 f"{seg.emission_rate:10.6f} {seg.release_height:8.2f}"
             )
 
-        # BLPINPUT - average plume rise parameters
+        # BLPINPUT - average plume rise parameters. The group ID is
+        # required whenever a BLPGROUP names one: without it AERMOD
+        # registers the parameters under the implicit group "ALL" and
+        # then fails with "No BLPINPUT record for BLPGROUP ID".
         lines.append(
-            f"   BLPINPUT  "
+            f"   BLPINPUT  {self.source_id:<8} "
             f"{self.avg_line_length:8.2f} {self.avg_building_height:8.2f} "
             f"{self.avg_building_width:8.2f} {self.avg_line_width:8.2f} "
             f"{self.avg_building_separation:8.2f} {self.avg_buoyancy_parameter:10.6f}"
