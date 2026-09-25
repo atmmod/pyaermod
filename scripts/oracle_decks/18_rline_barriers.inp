@@ -1,0 +1,44 @@
+** Probe: the v26135 RLINE barrier keywords. SBARRIER is a free-standing
+** barrier: "barid STA nseg", one "barid xbb ybb xbe ybe ht z" card per
+** segment (2 < ht <= 12, z must be 0), "barid END". VBARRIER takes
+** eight or thirteen fields (one or two vegetative barriers; height
+** 2-10, width 2.5-13, LAI 4-10.92, mixing length 0.55-3.75). RBARRIER
+** takes two or four values, RDEPRESS exactly three. All need ALPHA and
+** FLAT (E198 / E713). RLEMCONV is a bare keyword.
+CO STARTING
+   TITLEONE  oracle 18: SBARRIER VBARRIER RBARRIER RDEPRESS RLEMCONV
+   MODELOPT  CONC  FLAT  ALPHA
+   AVERTIME  1
+   POLLUTID  OTHER
+   RUNORNOT  NOT
+CO FINISHED
+
+SO STARTING
+   RLEMCONV
+   LOCATION  BASE  RLINEXT   0.0   -100.0    1.0     0.0   100.0     1.0     0.0
+   SRCPARAM  BASE           1.0      0.0       3.6       2.0
+   RBARRIER  BASE  10.0  10.0  6.0  -8.0
+   RDEPRESS  BASE  -12.5  50.0  25.0
+   VBARRIER  BASE  5.0  5.0  8.0  6.0  1.0  4.0  4.0  -8.0  5.0  1.2
+   SBARRIER  WALL1  STA  2
+   SBARRIER  WALL1  -50.0  10.0  50.0  10.0  4.0  0.0
+   SBARRIER  WALL1   50.0  10.0  60.0  30.0  4.0  0.0
+   SBARRIER  WALL1  END
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.0  500.0  0.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

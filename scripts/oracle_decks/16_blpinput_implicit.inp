@@ -1,0 +1,38 @@
+** Probe: the two BLPINPUT forms (soset.f BL_AVGINP). Eight fields = no
+** group ID: the parameters go to the implicit group ALL and, with no
+** BLPGROUP card, every BUOYLINE source belongs to it (EPA's baldwin and
+** allsrcs decks). Nine fields name the group, and BLPGROUP must then
+** name a BLPINPUT group (E502 otherwise). A second eight-field card is
+** E201. This deck is the implicit form; 16b is the explicit one.
+CO STARTING
+   TITLEONE  oracle 16: eight-field BLPINPUT, no BLPGROUP
+   MODELOPT  CONC  FLAT  DFAULT
+   AVERTIME  1
+   POLLUTID  SO2
+   RUNORNOT  NOT
+CO FINISHED
+
+SO STARTING
+   LOCATION  BLINE1  BUOYLINE  300.0  800.0   900.0  200.0  0.0
+   LOCATION  BLINE2  BUOYLINE  300.0  1100.0  900.0  400.0  0.0
+   SRCPARAM  BLINE1      100.0   20.0
+   SRCPARAM  BLINE2      100.0   20.0
+   BLPINPUT   848.0  20.0  100.0     2.0   37.5    300.0
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.0  500.0  0.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

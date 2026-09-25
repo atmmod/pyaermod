@@ -14,10 +14,12 @@ Supported pathway keywords:
         OZONEFIL, O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE,
         NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF, GASDEPVD, GDSEASON,
         GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, ERRORFIL, DEBUGOPT
-    SO: LOCATION (POINT/AREA/VOLUME/LINE/RLINE/OPENPIT/AREACIRC),
-        SRCPARAM, SRCGROUP, BACKGRND, BGSECTOR, BACKUNIT,
-        GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, URBANSRC,
-        BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ,
+    SO: LOCATION (POINT/AREA/VOLUME/LINE/RLINE/RLINEXT/OPENPIT/AREACIRC/
+        AREAPOLY/BUOYLINE), SRCPARAM, AREAVERT, BLPINPUT, BLPGROUP,
+        SRCGROUP, OLMGROUP, PSDGROUP, NO2RATIO, BACKGRND, BGSECTOR,
+        BACKUNIT, EMISUNIT, CONCUNIT, DEPOUNIT, GASDEPOS, PARTDIAM,
+        MASSFRAX, PARTDENS, URBANSRC, BUILDHGT, BUILDWID, BUILDLEN,
+        XBADJ, YBADJ, RBARRIER, RDEPRESS, SBARRIER, VBARRIER, RLEMCONV,
         EMISFACT, HOUREMIS, INCLUDED, ELEVUNIT
     RE: GRIDCART (XYINC), GRIDPOLR, DISCCART, EVALCART, DISCPOLR,
         ELEVUNIT, INCLUDED
@@ -60,6 +62,7 @@ from .input_generator import (
     ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    EmissionUnits,
     GasDepositionDefaults,
     GasDepositionParams,
     InitFile,
@@ -80,10 +83,13 @@ from .input_generator import (
     RLineExtSource,
     RLineSource,
     SaveFile,
+    SolidBarrier,
+    SolidBarrierSegment,
     SourceGroupDefinition,
     SourcePathway,
     TemporalValues,
     TerrainType,
+    VegetativeBarrier,
     VolumeSource,
 )
 from .pathways import TEMPORAL_FLAG_COUNTS
@@ -267,6 +273,7 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     pollutant = "OTHER"
     terrain = TerrainType.FLAT
     reg_default = False
+    alpha = beta = psd_credit = False
     calc_conc = calc_dep = calc_ddep = calc_wdep = False
     half_life: Optional[float] = None
     decay: Optional[float] = None
@@ -274,6 +281,7 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     flagpole: Optional[float] = None
     urban: Optional[str] = None
     urban_pop: Optional[float] = None
+    urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
@@ -327,6 +335,12 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                     reg_default = True
                 elif up in _CHEM_METHODS:
                     chem_method = _CHEM_METHODS[up]
+                elif up == "ALPHA":
+                    alpha = True
+                elif up == "BETA":
+                    beta = True
+                elif up == "PSDCREDIT":
+                    psd_credit = True
                 elif up == "NOCHKD":
                     pass  # Recognized; no structural field
         elif kw == "AVERTIME":
@@ -344,10 +358,32 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         elif kw == "FLAGPOLE":
             flagpole = float(toks[0]) if toks else None
         elif kw == "URBANOPT":
-            urban = toks[0] if toks else None
-            if len(toks) > 1:
+            # coset.f URBOPT: "population [name] [roughness]" for a single
+            # urban area; "urbanid population [name] [roughness]" when the
+            # deck has several URBANOPT cards. A numeric first field is
+            # the population, otherwise it is the area ID, which is kept
+            # as urban_option in place of the descriptive name. Only one
+            # area is modelled; a later card overrides an earlier one.
+            fields = list(toks)
+            urban = None
+            urban_pop = None
+            urban_z0 = None
+            try:
+                urban_pop = float(fields[0])
+                fields = fields[1:]
+                if fields:
+                    urban = fields.pop(0)
+            except (ValueError, IndexError):
+                if fields:
+                    urban = fields.pop(0)
+                if fields:
+                    with contextlib.suppress(ValueError):
+                        urban_pop = float(fields.pop(0))
+                if fields:
+                    fields.pop(0)  # descriptive name; the ID is kept
+            if fields:
                 with contextlib.suppress(ValueError):
-                    urban_pop = float(toks[1])
+                    urban_z0 = float(fields[0])
         elif kw == "LOW_WIND":
             low_wind = toks[0] if toks else None
         elif kw == "NO2STACK" and toks:
@@ -479,7 +515,11 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         flag_pole_height=flagpole,
         urban_option=urban,
         urban_population=urban_pop,
+        urban_roughness=urban_z0,
         low_wind_option=low_wind,
+        alpha=alpha,
+        beta=beta,
+        psd_credit=psd_credit,
         chemistry=chemistry,
         gas_deposition_defaults=gas_defaults,
         gas_deposition_velocity=gas_vd,
@@ -506,6 +546,66 @@ _BUILDING_KW_TO_FIELD = {
     "YBADJ": "building_y_offset",
 }
 
+#: Keywords whose fields are ``factor emission-label output-label``.
+_UNIT_KEYWORDS = {
+    "EMISUNIT": "emission_units",
+    "CONCUNIT": "concentration_units",
+    "DEPOUNIT": "deposition_units",
+}
+
+# A source ID as AERMOD's SETIDG splits it: leading non-digits, an
+# integer, and whatever follows. Range membership (ASNGRP) compares the
+# three parts separately, so STK1-STK12 holds STK2 and STK10 but not
+# STACK5 or STK1A.
+_ID_PARTS_RE = re.compile(r"^([^0-9]*)(\d*)(.*)$")
+
+
+def _id_parts(source_id: str) -> Tuple[str, int, str]:
+    m = _ID_PARTS_RE.match(source_id.upper()[:12])
+    assert m is not None  # the pattern matches any string
+    chars1, digits, chars2 = m.groups()
+    return chars1, int(digits) if digits else 0, chars2
+
+
+def _in_id_range(source_id: str, low: str, high: str) -> bool:
+    """AERMOD's ASNGRP: every part of the ID within the range's parts."""
+    sid, lo, hi = _id_parts(source_id), _id_parts(low), _id_parts(high)
+    return (lo[0] <= sid[0] <= hi[0] and lo[1] <= sid[1] <= hi[1]
+            and lo[2] <= sid[2] <= hi[2])
+
+
+def _expand_source_ids(tokens: List[str], known_ids: List[str]) -> List[str]:
+    """Resolve SRCGROUP-style member tokens against the defined source IDs.
+
+    A token containing ``-`` is an AERMOD range (``LOW-HIGH``); the
+    others are literal IDs. Unknown literals are dropped, as AERMOD
+    reports them (E225/E254/E300) rather than inventing a source.
+    """
+    out: List[str] = []
+    for tok in tokens:
+        if "-" in tok:
+            low, high = tok.split("-", 1)
+            out.extend(s for s in known_ids if _in_id_range(s, low, high) and s not in out)
+        elif tok in known_ids and tok not in out:
+            out.append(tok)
+    return out
+
+
+def _fortran_float(token: str) -> float:
+    """``float()`` that also reads Fortran's ``D`` exponent (``3.6D6``),
+    which AERMOD's STODBL accepts and EPA's testpart deck uses."""
+    try:
+        return float(token)
+    except ValueError:
+        return float(token.replace("D", "e").replace("d", "e"))
+
+
+def _floats(toks: List[str]) -> Optional[List[float]]:
+    try:
+        return [_fortran_float(t) for t in toks]
+    except ValueError:
+        return None
+
 
 def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     # LOCATION gives us each source's type and coordinates; SRCPARAM fills
@@ -514,17 +614,34 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     # to cover 36 wind sectors; values accumulate in lists.
     locs: Dict[str, Dict[str, Any]] = {}
     src_types: Dict[str, str] = {}
-    group_defs: List[SourceGroupDefinition] = []
+    # SRCGROUP lines keyed by group ID: a repeated ID is a continuation
+    # of the same group (soset.f SOGRP), as for the other group keywords.
+    src_groups: Dict[str, List[str]] = {}
+    # Group keywords with SRCGROUP semantics (soset.f OLMGRP / PSDGRP /
+    # BLPGRP): a repeated group ID is a continuation line, members may
+    # be ranges, and a bare ALL names every (BUOYLINE) source.
+    olm_groups: Dict[str, List[str]] = {}
+    psd_groups: Dict[str, List[str]] = {}
+    blp_group_tokens: Dict[str, List[str]] = {}
 
-    # Deposition data accumulated by source ID before source objects exist
-    gas_dep_data: Dict[str, GasDepositionParams] = {}
+    # Per-source keywords whose source field may be an ID or a range;
+    # resolved once every LOCATION has been seen.
+    gas_dep_tokens: List[Tuple[str, GasDepositionParams]] = []
+    no2_ratio_tokens: List[Tuple[str, float]] = []
     part_dep_data: Dict[str, Dict[str, List[float]]] = {}  # srcid -> {diameters/fractions/densities}
-    urbansrc_data: Dict[str, str] = {}  # srcid -> urban_area_name
+    # URBANSRC: (urban area ID or None, member tokens); ALL is the empty list
+    urban_tokens: List[Tuple[Optional[str], List[str]]] = []
+    urban_all = False
 
     # Buoyant-line accumulation: BLPINPUT carries the group's averaged
     # geometry, BLPGROUP names the member line segments.
     blp_params: Dict[str, List[float]] = {}
-    blp_groups: Dict[str, List[str]] = {}
+
+    # Unit conversions, RLEMCONV and SBARRIER barriers
+    units: Dict[str, EmissionUnits] = {}
+    rline_moves_units = False
+    solid_barriers: List[SolidBarrier] = []
+    open_barrier: Optional[SolidBarrier] = None
 
     # Background concentration accumulation
     bg_uniform: Optional[float] = None
@@ -542,59 +659,60 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             locs.setdefault(sid, {})
             locs[sid]["x_coord"] = x
             locs[sid]["y_coord"] = y
-            # LINE / RLINE / RLINEXT LOCATION format is:
-            #   srcid TYPE x_start y_start x_end y_end [elev]  (LINE/RLINE)
-            #   srcid TYPE x_start y_start z_start x_end y_end z_end (RLINEXT)
-            # Non-LINE sources use the 5th token as base_elevation.
+            locs[sid]["z_elev"] = 0.0
+            # soset.f SOLOCA field layouts (after srcid TYPE):
+            #   LINE / RLINE / BUOYLINE: x1 y1 x2 y2 [zelev|FLAT]
+            #   RLINEXT:                 x1 y1 z1 x2 y2 z2 [zelev|FLAT]
+            #   everything else:         x y [zelev|FLAT]
+            # The optional last field is the base elevation, or the
+            # literal FLAT when the FLATSRCS option marks the source as
+            # flat-terrain.
             if stype in ("LINE", "RLINE", "BUOYLINE") and len(toks) >= 6:
                 locs[sid]["extra_loc"] = [float(toks[4]), float(toks[5])]
-                if len(toks) > 6:
-                    locs[sid]["z_elev"] = float(toks[6])
+                elev_tok = toks[6] if len(toks) > 6 else None
             elif stype == "RLINEXT" and len(toks) >= 8:
                 locs[sid]["extra_loc"] = [
                     float(toks[4]), float(toks[5]),
                     float(toks[6]), float(toks[7]),
                 ]
+                elev_tok = toks[8] if len(toks) > 8 else None
             else:
-                # 5th token is base_elevation (float) or a keyword like
-                # FLAT (marks source as flat-terrain per FLATSRCS option).
-                if len(toks) > 4:
-                    try:
-                        locs[sid]["z_elev"] = float(toks[4])
-                    except ValueError:
-                        # Non-numeric (e.g. "FLAT") — store as flag,
-                        # default elevation to 0.
-                        locs[sid]["z_elev"] = 0.0
-                        locs[sid]["_flat_source"] = True
-                else:
-                    locs[sid]["z_elev"] = 0.0
+                elev_tok = toks[4] if len(toks) > 4 else None
+            if elev_tok is not None:
+                try:
+                    locs[sid]["z_elev"] = float(elev_tok)
+                except ValueError:
+                    # Non-numeric (e.g. "FLAT") -- store as flag,
+                    # default elevation to 0.
+                    locs[sid]["_flat_source"] = True
         elif kw == "SRCPARAM":
             if not toks:
                 continue
             sid = toks[0]
-            params = [float(t) for t in toks[1:]]
+            params = _floats(toks[1:])
+            if params is None:
+                continue
             locs.setdefault(sid, {})["params"] = params
         elif kw in _BUILDING_KW_TO_FIELD:
             # Accumulate values across multiple BUILDHGT/WID/LEN/XBADJ/YBADJ lines
             if not toks:
                 continue
             sid = toks[0]
-            try:
-                values = [float(t) for t in toks[1:]]
-            except ValueError:
+            values = _floats(toks[1:])
+            if values is None:
                 continue
             field_name = _BUILDING_KW_TO_FIELD[kw]
             bucket = locs.setdefault(sid, {}).setdefault("_building", {})
             bucket.setdefault(field_name, []).extend(values)
         elif kw == "AREAVERT":
             # AREAVERT srcid x1 y1 x2 y2 ...  -- may repeat for one source,
-            # six coordinate pairs to a line.
+            # any number of coordinate pairs to a line (ARVERT reads
+            # fields in pairs and accumulates across records).
             if len(toks) < 3:
                 continue
             sid = toks[0]
-            try:
-                values = [float(t) for t in toks[1:]]
-            except ValueError:
+            values = _floats(toks[1:])
+            if values is None:
                 continue
             bucket = locs.setdefault(sid, {}).setdefault("_vertices", [])
             bucket.extend(
@@ -606,8 +724,8 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             # The group ID is optional; without it AERMOD files the
             # parameters under the implicit group "ALL".
             # Disambiguate on field count, as AERMOD does (IFC 8 vs 9 in
-            # soset.f), not on whether the first token parses as a
-            # number: a source group named "0" is legal and would
+            # soset.f BL_AVGINP), not on whether the first token parses
+            # as a number: a source group named "0" is legal and would
             # otherwise be eaten as the first parameter.
             if len(toks) >= 7:
                 grp, rest = toks[0], toks[1:7]
@@ -615,15 +733,14 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 grp, rest = "ALL", toks
             else:
                 continue
-            try:
-                values = [float(t) for t in rest]
-            except ValueError:
+            values = _floats(rest)
+            if values is None:
                 continue
             blp_params[grp] = values[:6]
         elif kw == "BLPGROUP":
-            if len(toks) < 2:
+            if not toks:
                 continue
-            blp_groups[toks[0]] = list(toks[1:])
+            blp_group_tokens.setdefault(toks[0], []).extend(toks[1:])
         elif kw == "SRCGROUP":
             if not toks:
                 continue
@@ -631,11 +748,83 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             members = toks[1:]
             # Skip bare "SRCGROUP ALL" — it's auto-regenerated by the
             # writer from the sources list, and has no explicit members.
+            # "SRCGROUP ALL BACKGROUND" is kept: the BACKGROUND flag is a
+            # field of the ALL card itself.
             if grp_name.upper() == "ALL" and not members:
                 continue
-            group_defs.append(SourceGroupDefinition(
-                group_name=grp_name, member_source_ids=members,
-            ))
+            src_groups.setdefault(grp_name, []).extend(members)
+        elif kw == "OLMGROUP":
+            if toks:
+                olm_groups.setdefault(toks[0], []).extend(toks[1:])
+        elif kw == "PSDGROUP":
+            if toks:
+                psd_groups.setdefault(toks[0].upper(), []).extend(toks[1:])
+        elif kw == "NO2RATIO":
+            # NO2RATIO srcid|range ratio (exactly two fields, NO2RAT)
+            if len(toks) >= 2:
+                with contextlib.suppress(ValueError):
+                    no2_ratio_tokens.append((toks[0], float(toks[1])))
+
+        # ------------------------------------------------------------------
+        # Emission-rate unit conversions and the RLINE MOVES-units switch
+        # ------------------------------------------------------------------
+        elif kw in _UNIT_KEYWORDS:
+            # <keyword> factor emission_label output_label (EMUNIT/COUNIT/DPUNIT)
+            if len(toks) >= 3:
+                with contextlib.suppress(ValueError):
+                    units[_UNIT_KEYWORDS[kw]] = EmissionUnits(
+                        factor=_fortran_float(toks[0]), emission_label=toks[1],
+                        output_label=toks[2],
+                    )
+        elif kw == "RLEMCONV":
+            rline_moves_units = True
+
+        # ------------------------------------------------------------------
+        # RLINEXT barriers and depressions (RLINEBAR_INPUTS,
+        # RLINEDPR_INPUTS, VBARRIER_INPUTS) and free-standing SBARRIER
+        # ------------------------------------------------------------------
+        elif kw == "RBARRIER":
+            # RBARRIER srcid ht1 dcl1 [ht2 dcl2]
+            if len(toks) >= 3:
+                values = _floats(toks[1:5])
+                if values is not None and len(values) in (2, 4):
+                    locs.setdefault(toks[0], {})["_rbarrier"] = values
+        elif kw == "RDEPRESS":
+            # RDEPRESS srcid depth wtop wbottom
+            if len(toks) >= 4:
+                values = _floats(toks[1:4])
+                if values is not None:
+                    locs.setdefault(toks[0], {})["_rdepress"] = values
+        elif kw == "VBARRIER":
+            # VBARRIER srcid ht wt dcl lai lm [ht2 wt2 dcl2 lai2 lm2]
+            if len(toks) >= 6:
+                values = _floats(toks[1:11])
+                if values is not None and len(values) in (5, 10):
+                    locs.setdefault(toks[0], {})["_vbarrier"] = [
+                        VegetativeBarrier(*values[i:i + 5])
+                        for i in range(0, len(values), 5)
+                    ]
+        elif kw == "SBARRIER":
+            # SBARRIER barid STA nseg / barid xbb ybb xbe ybe ht [z] / barid END
+            if len(toks) < 2:
+                continue
+            marker = toks[1].upper()
+            if marker == "STA":
+                open_barrier = SolidBarrier(barrier_id=toks[0])
+                solid_barriers.append(open_barrier)
+            elif marker == "END":
+                open_barrier = None
+            else:
+                values = _floats(toks[1:7])
+                if values is None or len(values) < 5:
+                    continue
+                if open_barrier is None or open_barrier.barrier_id != toks[0]:
+                    open_barrier = SolidBarrier(barrier_id=toks[0])
+                    solid_barriers.append(open_barrier)
+                open_barrier.segments.append(SolidBarrierSegment(
+                    values[0], values[1], values[2], values[3], values[4],
+                    values[5] if len(values) > 5 else 0.0,
+                ))
 
         # ------------------------------------------------------------------
         # Background concentration keywords
@@ -678,31 +867,23 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
         # Deposition keywords
         # ------------------------------------------------------------------
         elif kw == "GASDEPOS":
-            # GASDEPOS srcid diffusivity alpha_r reactivity [henry_or_vd]
-            if len(toks) < 4:
+            # GASDEPOS srcid|range Da Dw rcl Henry (soset.f GASDEP: exactly
+            # four values; a 0 selects AERMOD's built-in value for the
+            # pollutants it knows). The old three-value reading treated
+            # the fourth as optional and the third as a reactivity.
+            if len(toks) < 5:
                 continue
-            sid = toks[0]
-            try:
-                diff = float(toks[1])
-                alpha = float(toks[2])
-                react = float(toks[3])
-                last = float(toks[4]) if len(toks) > 4 else None
-            except ValueError:
+            values = _floats(toks[1:5])
+            if values is None:
                 continue
-            gas_dep_data[sid] = GasDepositionParams(
-                diffusivity=diff,
-                alpha_r=alpha,
-                reactivity=react,
-                henry_constant=last,
-            )
+            gas_dep_tokens.append((toks[0], GasDepositionParams(*values)))
         elif kw == "PARTDIAM":
             # PARTDIAM srcid d1 d2 d3 ...
             if not toks:
                 continue
             sid = toks[0]
-            try:
-                diameters = [float(t) for t in toks[1:]]
-            except ValueError:
+            diameters = _floats(toks[1:])
+            if diameters is None:
                 continue
             part_dep_data.setdefault(sid, {})["diameters"] = diameters
         elif kw == "MASSFRAX":
@@ -710,9 +891,8 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             if not toks:
                 continue
             sid = toks[0]
-            try:
-                fractions = [float(t) for t in toks[1:]]
-            except ValueError:
+            fractions = _floats(toks[1:])
+            if fractions is None:
                 continue
             part_dep_data.setdefault(sid, {})["mass_fractions"] = fractions
         elif kw == "PARTDENS":
@@ -720,9 +900,8 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             if not toks:
                 continue
             sid = toks[0]
-            try:
-                densities = [float(t) for t in toks[1:]]
-            except ValueError:
+            densities = _floats(toks[1:])
+            if densities is None:
                 continue
             part_dep_data.setdefault(sid, {})["densities"] = densities
 
@@ -730,15 +909,66 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
         # Urban source designation
         # ------------------------------------------------------------------
         elif kw == "URBANSRC":
-            # URBANSRC srcid urban_area_name
-            if len(toks) >= 2:
-                urbansrc_data[toks[0]] = toks[1]
+            # soset.f URBANS: "URBANSRC ALL"; with one urban area every
+            # field is a source ID or range; with several URBANOPT cards
+            # the first field is the urban area ID. The block is parsed
+            # without the CO pathway, so a first field that names no
+            # source (and is followed by more fields) is taken as the
+            # urban ID.
+            if not toks:
+                continue
+            if len(toks) == 1 and toks[0].upper() == "ALL":
+                urban_all = True
+            elif len(toks) > 1 and toks[0] not in locs and "-" not in toks[0]:
+                urban_tokens.append((toks[0], toks[1:]))
+            else:
+                urban_tokens.append((None, toks))
 
         # ------------------------------------------------------------------
         # Recognized but not structurally stored
         # ------------------------------------------------------------------
         elif kw in ("EMISFACT", "HOUREMIS", "INCLUDED", "ELEVUNIT"):
             pass  # Recognized keyword; no structural field in SourcePathway
+
+    # Resolve the keywords whose source field may be a range, now that
+    # every source ID is known. BUOYLINE segment IDs count as sources.
+    all_ids = list(locs)
+    gas_dep_data: Dict[str, GasDepositionParams] = {}
+    for token, gas in gas_dep_tokens:
+        for sid in _expand_source_ids([token], all_ids):
+            gas_dep_data[sid] = gas
+    no2_ratios: Dict[str, float] = {}
+    for token, ratio in no2_ratio_tokens:
+        for sid in _expand_source_ids([token], all_ids):
+            no2_ratios[sid] = ratio
+    urbansrc_data: Dict[str, Optional[str]] = {}
+    if urban_all:
+        urbansrc_data = dict.fromkeys(all_ids)
+    for urban_id, members in urban_tokens:
+        for sid in _expand_source_ids(members, all_ids):
+            urbansrc_data[sid] = urban_id
+
+    def _apply_per_source(src: Any, sid: str) -> None:
+        # Apply gas deposition parameters
+        if sid in gas_dep_data and hasattr(src, "gas_deposition"):
+            src.gas_deposition = gas_dep_data[sid]
+
+        # Apply particle deposition parameters
+        if sid in part_dep_data and hasattr(src, "particle_deposition"):
+            pd = part_dep_data[sid]
+            src.particle_deposition = ParticleDepositionParams(
+                diameters=pd.get("diameters", []),
+                mass_fractions=pd.get("mass_fractions", []),
+                densities=pd.get("densities", []),
+            )
+
+        # Apply URBANSRC designation
+        if sid in urbansrc_data and hasattr(src, "is_urban"):
+            src.is_urban = True
+            src.urban_area_name = urbansrc_data[sid]
+
+        if sid in no2_ratios and hasattr(src, "no2_ratio"):
+            src.no2_ratio = no2_ratios[sid]
 
     # Build source objects. The concrete type is chosen per LOCATION
     # keyword, so this list is deliberately heterogeneous.
@@ -751,6 +981,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             source_id=sid,
             x_coord=data.get("x_coord", 0.0),
             y_coord=data.get("y_coord", 0.0),
+            base_elevation=data.get("z_elev", 0.0),
         )
         src = None
         if stype == "POINT":
@@ -799,9 +1030,11 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 source_id=sid,
                 x_start=common["x_coord"], y_start=common["y_coord"],
                 x_end=extra[0], y_end=extra[1],
+                base_elevation=common["base_elevation"],
                 emission_rate=params[0],
                 release_height=params[1] if len(params) > 1 else 0.0,
                 initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
+                initial_vertical_dimension=params[3] if len(params) > 3 else None,
             )
         elif stype == "RLINE":
             extra = data.get("extra_loc", [])
@@ -811,6 +1044,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 source_id=sid,
                 x_start=common["x_coord"], y_start=common["y_coord"],
                 x_end=extra[0], y_end=extra[1],
+                base_elevation=common["base_elevation"],
                 emission_rate=params[0],
                 release_height=params[1] if len(params) > 1 else 0.0,
                 initial_lateral_dimension=params[2] if len(params) > 2 else 3.0,
@@ -842,20 +1076,28 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             )
         elif stype == "AREAPOLY":
             # LOCATION is the polygon's first vertex; AREAVERT carries
-            # the full ring. SRCPARAM: emission relhgt nverts [szinit]
-            vertices = data.get("_vertices", [])
+            # the ring. SRCPARAM (APPARM): emission relhgt nverts [szinit].
+            # ARVERT reads up to nverts+1 pairs so a deck may repeat the
+            # first vertex to close the ring; AERMOD closes it itself
+            # (AXVERT(NVERTS+1) = AXVERT(1)), so the repeat is dropped.
+            vertices = list(data.get("_vertices", []))
             if not params or len(vertices) < 3:
                 continue
+            nverts = round(params[2]) if len(params) > 2 else len(vertices)
+            if len(vertices) == nverts + 1 and vertices[-1] == vertices[0]:
+                vertices.pop()
             src = AreaPolySource(
                 source_id=sid,
                 vertices=vertices,
+                base_elevation=common["base_elevation"],
                 emission_rate=params[0],
                 release_height=params[1] if len(params) > 1 else 0.0,
+                initial_vertical_dimension=params[3] if len(params) > 3 else None,
             )
         elif stype == "RLINEXT":
-            # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end,
-            # so extra_loc holds (z_start, x_end, y_end, z_end).
-            # SRCPARAM: emission dcl width init_sigma_z
+            # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end
+            # [zelev], so extra_loc holds (z_start, x_end, y_end, z_end).
+            # SRCPARAM (RLPARM): emission dcl width init_sigma_z
             extra = data.get("extra_loc", [])
             if len(extra) < 4 or not params:
                 continue
@@ -864,11 +1106,22 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 x_start=common["x_coord"], y_start=common["y_coord"],
                 z_start=extra[0],
                 x_end=extra[1], y_end=extra[2], z_end=extra[3],
+                base_elevation=common["base_elevation"],
                 emission_rate=params[0],
                 dcl=params[1] if len(params) > 1 else 0.0,
                 road_width=params[2] if len(params) > 2 else 0.0,
                 init_sigma_z=params[3] if len(params) > 3 else 0.0,
             )
+            barrier = data.get("_rbarrier")
+            if barrier:
+                src.barrier_height_1, src.barrier_dcl_1 = barrier[0], barrier[1]
+                if len(barrier) == 4:
+                    src.barrier_height_2, src.barrier_dcl_2 = barrier[2], barrier[3]
+            depress = data.get("_rdepress")
+            if depress:
+                (src.depression_depth, src.depression_wtop,
+                 src.depression_wbottom) = depress
+            src.vegetative_barriers = list(data.get("_vbarrier", []))
         elif stype == "BUOYLINE":
             # Each BUOYLINE LOCATION is one *segment*; the source proper
             # is the BLPGROUP that names them, parameterised by BLPINPUT.
@@ -886,34 +1139,26 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 if hasattr(src, attr):
                     setattr(src, attr, values)
 
-        # Apply gas deposition parameters
-        if sid in gas_dep_data and hasattr(src, "gas_deposition"):
-            src.gas_deposition = gas_dep_data[sid]
-
-        # Apply particle deposition parameters
-        if sid in part_dep_data and hasattr(src, "particle_deposition"):
-            pd = part_dep_data[sid]
-            src.particle_deposition = ParticleDepositionParams(
-                diameters=pd.get("diameters", []),
-                mass_fractions=pd.get("mass_fractions", []),
-                densities=pd.get("densities", []),
-            )
-
-        # Apply URBANSRC designation
-        if sid in urbansrc_data and hasattr(src, "is_urban"):
-            src.is_urban = True
-            src.urban_area_name = urbansrc_data[sid]
-
+        _apply_per_source(src, sid)
         sources.append(src)
 
     # Assemble buoyant-line sources. Each BUOYLINE LOCATION is a single
     # line segment; the source is the BLPGROUP naming them, carrying the
-    # averaged geometry from its BLPINPUT record. A deck with one
-    # buoyant line may omit both the BLPGROUP and the group ID on
-    # BLPINPUT, in which case every BUOYLINE segment belongs to "ALL".
+    # averaged geometry from its BLPINPUT record. With no BLPGROUP at
+    # all AERMOD puts every BUOYLINE segment in the group of the (single,
+    # eight-field) BLPINPUT record, named "ALL"; "BLPGROUP ALL" does the
+    # same explicitly. Members may be ranges and a group ID repeated on
+    # a later line continues the group (soset.f BLPGRP).
     buoyline_ids = [sid for sid, t in src_types.items() if t == "BUOYLINE"]
     if buoyline_ids:
-        groups = blp_groups or {"ALL": buoyline_ids}
+        groups: Dict[str, List[str]] = {}
+        for grp_id, tokens in blp_group_tokens.items():
+            if grp_id.upper() == "ALL" and not tokens:
+                groups[grp_id] = list(buoyline_ids)
+            else:
+                groups[grp_id] = _expand_source_ids(tokens, buoyline_ids)
+        if not groups:
+            groups = {"ALL": buoyline_ids}
         for grp_id, member_ids in groups.items():
             avg = blp_params.get(grp_id) or blp_params.get("ALL")
             if avg is None:
@@ -936,10 +1181,19 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                     release_height=(
                         seg_params[1] if len(seg_params) > 1 else 0.0
                     ),
+                    base_elevation=seg_data.get("z_elev", 0.0),
                 ))
             if not segments:
                 continue
-            sources.append(BuoyLineSource(
+            # One shared elevation goes on the group; only differing
+            # values stay on the segments.
+            elevations = {seg.base_elevation for seg in segments}
+            group_elev = 0.0
+            if len(elevations) == 1:
+                group_elev = elevations.pop() or 0.0
+                for seg in segments:
+                    seg.base_elevation = None
+            src = BuoyLineSource(
                 source_id=grp_id,
                 avg_line_length=avg[0],
                 avg_building_height=avg[1],
@@ -948,7 +1202,13 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                 avg_building_separation=avg[4],
                 avg_buoyancy_parameter=avg[5],
                 line_segments=segments,
-            ))
+                base_elevation=group_elev,
+            )
+            # Per-source keywords name the segments; the group carries
+            # them once (the writer emits one line per segment).
+            for seg in segments:
+                _apply_per_source(src, seg.source_id)
+            sources.append(src)
 
     # Build BackgroundConcentration if any BACKGRND keywords were found
     background: Optional[BackgroundConcentration] = None
@@ -961,7 +1221,23 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     elif bg_uniform is not None:
         background = BackgroundConcentration(uniform_value=bg_uniform)
 
-    return SourcePathway(sources=sources, group_definitions=group_defs, background=background)
+    group_defs = [SourceGroupDefinition(group_name=name, member_source_ids=members)
+                  for name, members in src_groups.items()]
+    pathway = SourcePathway(
+        sources=sources, group_definitions=group_defs, background=background,
+        psd_groups=[SourceGroupDefinition(group_name=name, member_source_ids=members)
+                    for name, members in psd_groups.items()],
+        rline_moves_units=rline_moves_units,
+        solid_barriers=solid_barriers,
+        **units,
+    )
+    # OLMGROUP lives on ChemistryOptions.olm_groups; parse_aermod_input
+    # moves it there once the CO pathway is known.
+    pathway._olm_groups = [  # type: ignore[attr-defined]
+        SourceGroupDefinition(group_name=name, member_source_ids=members)
+        for name, members in olm_groups.items()
+    ]
+    return pathway
 
 
 def _parse_receptors(block: _PathwayBlock) -> ReceptorPathway:
@@ -1279,6 +1555,13 @@ def parse_aermod_input(text: str) -> AERMODProject:
 
     control = _parse_control(blocks["CO"])
     sources = _parse_sources(blocks["SO"])
+    olm_groups = sources.__dict__.pop("_olm_groups", [])
+    if olm_groups:
+        if control.chemistry is None:
+            # OLMGROUP without OLM is E144 in AERMOD; keep the groups so
+            # the deck can be repaired and written back.
+            control.chemistry = ChemistryOptions(method=ChemistryMethod.OLM)
+        control.chemistry.olm_groups = olm_groups
     receptors = _parse_receptors(blocks["RE"])
     meteorology = _parse_meteorology(blocks["ME"])
     output = _parse_output(blocks.get("OU", _PathwayBlock("OU")))

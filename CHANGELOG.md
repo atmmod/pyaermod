@@ -51,6 +51,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The restart reader, it turns out, keeps a title only up to its first
     comma and upper-cases it; the restart-file tests allow for that and
     the docstrings say so.
+- **Source construction, reader tranche 2.** The SO keywords the v26135
+  audit listed as recognised but not constructed, or not read at all,
+  are now stored on the source model and written back in the field
+  layout `soset.f` parses. Each form passes AERMOD's setup pass
+  (`tests/test_so_deck_acceptance.py`, 20 cases), every EPA deck that
+  uses it round-trips the keyword lines token for token
+  (`tests/test_epa_source_roundtrip.py`, seven more decks vendored), and
+  the fourteen EPA decks whose SO pathway uses these keywords reproduce
+  EPA's reference POSTFILEs when run with pyaermod's rewritten SO
+  pathway (`tests/regulatory/test_epa_rewritten_so.py`; nine of them
+  also as whole rewritten decks). Reader coverage goes from 77 to 91 of
+  the 115 dispatched keywords.
+  - AREAPOLY: `AREAVERT` rings accumulate over any number of lines, a
+    closing repeat of the first vertex is dropped (AERMOD closes the ring
+    itself), and `AreaPolySource.initial_vertical_dimension` carries the
+    optional fourth SRCPARAM field. `LineSource` gains the same field.
+  - BUOYLINE: `BLPGROUP` continuation lines, source-ID ranges and `ALL`
+    (soset.f BLPGRP); per-segment base elevations
+    (`BuoyLineSegment.base_elevation`); the eight-field `BLPINPUT` with
+    no BLPGROUP is AERMOD's implicit single group, which a
+    `BuoyLineSource` named `ALL` now writes back as such instead of the
+    nine-field form.
+  - RLINEXT: the eleventh LOCATION field (base elevation) is read and
+    always written; `RBARRIER` (one or two barriers), `RDEPRESS` and the
+    v26135 `VBARRIER` (`RLineExtSource.vegetative_barriers`,
+    `VegetativeBarrier`) are read back; `SBARRIER` solid barriers
+    (`SourcePathway.solid_barriers`, `SolidBarrier`,
+    `SolidBarrierSegment`) and the bare `RLEMCONV` switch
+    (`SourcePathway.rline_moves_units`) are new.
+  - `OLMGROUP` is read into `ChemistryOptions.olm_groups`, including the
+    bare `OLMGROUP ALL` form, continuation lines and ranges (member
+    tokens are kept as written); `PSDGROUP` into
+    `SourcePathway.psd_groups` with `ControlPathway.psd_credit` for the
+    PSDCREDIT option, under which the writer emits PSDGROUP instead of
+    SRCGROUP as AERMOD requires; `NO2RATIO` (ID or range) into
+    `no2_ratio`, which every source type now has.
+  - `EMISUNIT`, `CONCUNIT`, `DEPOUNIT` (`EmissionUnits` on
+    `SourcePathway.emission_units` / `concentration_units` /
+    `deposition_units`); Fortran `D` exponents (`3.6D6`) are read.
+  - `MODELOPT` `ALPHA`, `BETA` and `PSDCREDIT` are read back (they were
+    dropped, so a rewritten RLINEXT or GASDEPOS deck failed E198).
+  - `URBANSRC ALL`, ranges and the multi-area `urbanid srcids` form are
+    read; `URBANOPT` is read in both its field orders and
+    `ControlPathway.urban_roughness` carries the optional roughness.
+  - Deposition presets (`chemistry_presets.deposition_defaults_for`)
+    now return AERMOD's own built-in GASDEPOS values (soset.f GASDEP)
+    for SO2, NO2, HG0, HGII, TCDD and BAP.
+  - Validator rules for the above, each naming the AERMOD code: E144
+    (OLMGROUP needs OLM), E146/E105/E287 (PSDGROUP), E158/E159 (unit
+    conflicts), E198/E713 (barriers need ALPHA and FLAT), E320,
+    E371-E374 (barrier ranges), E380/E195 (GASDEPOS).
+  - `scripts/oracle_decks/13`-`18`: the probe decks that settled these
+    forms, with what AERMOD said about the first guesses; the oracle
+    workflow's default keyword list covers the tranche.
+
+### Changed
+- **`GasDepositionParams` now has AERMOD's field semantics** (audit
+  follow-up 7): `GASDEPOS srcid Da Dw rcl Henry`, i.e. `diffusivity`,
+  `diffusivity_water`, `cuticular_resistance` and a required
+  `henry_constant`. The former `alpha_r` and `reactivity` names, the
+  0-1 check on the third field and the `dry_dep_velocity` fallback (which
+  wrote a velocity into the Henry's-law field) are gone; EPA's `testgas`
+  values (`0.08962 1.04E-5 2.51E4 557.0`) validate and are written back
+  unchanged. Positional construction is unaffected.
+- **URBANSRC and URBANOPT are written in the single-urban-area forms
+  AERMOD reads**: `URBANSRC srcid` (a trailing area name was an
+  undefined source, E300) and `URBANOPT population [name] [roughness]`
+  (the old `name population` order was an illegal numeric field, E208).
+  `is_urban=True` no longer needs `urban_area_name` to emit the keyword.
+- Numeric fields with an exponent are written with a decimal point in
+  the mantissa (`1.0e+06`, not `1e+06`), which is what AERMOD's STODBL
+  accepts.
+- SRCGROUP continuation lines are merged into one
+  `SourceGroupDefinition` on read, and the writer keeps every group's
+  lines together with `SRCGROUP ALL BACKGROUND` on the card that
+  defines ALL: AERMOD files a non-adjacent continuation card under the
+  last group defined, whichever ID it names.
+
+### Fixed
+- The reader dropped every source's base elevation (the LOCATION
+  elevation field was parsed and never applied) and the fourth SRCPARAM
+  field of LINE sources.
+
 - **Structural reading and writing of the regulatory-critical CO and OU
   keywords** the v26135 audit listed as pass-through only. Each is stored
   on the project model, written back in the field layout AERMOD's

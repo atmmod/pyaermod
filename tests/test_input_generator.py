@@ -726,8 +726,8 @@ class TestDepositionParameters:
             source_id="STK1", x_coord=0.0, y_coord=0.0,
             stack_height=50.0, emission_rate=1.0,
             gas_deposition=GasDepositionParams(
-                diffusivity=0.22, alpha_r=1000.0,
-                reactivity=0.5, henry_constant=0.011,
+                diffusivity=0.22, diffusivity_water=1.8e-5,
+                cuticular_resistance=732.0, henry_constant=0.011,
             ),
         )
         output = source.to_aermod_input()
@@ -736,18 +736,16 @@ class TestDepositionParameters:
         assert "0.22" in output
         assert "0.011" in output
 
-    def test_gas_deposition_dry_dep_velocity(self):
+    def test_gas_deposition_writes_aermod_field_order(self):
+        """GASDEPOS srcid Da Dw rcl Henry, all four required (soset.f GASDEP)."""
         source = AreaSource(
             source_id="AREA1", x_coord=0.0, y_coord=0.0,
             emission_rate=1.0,
-            gas_deposition=GasDepositionParams(
-                diffusivity=0.15, alpha_r=500.0,
-                reactivity=0.8, dry_dep_velocity=0.5,
-            ),
+            gas_deposition=GasDepositionParams(0.08962, 1.04e-5, 2.51e4, 557.0),
         )
-        output = source.to_aermod_input()
-        assert "GASDEPOS" in output
-        assert "0.5" in output
+        line = next(ln for ln in source.to_aermod_input().splitlines()
+                    if "GASDEPOS" in ln)
+        assert [float(t) for t in line.split()[2:]] == [0.08962, 1.04e-5, 2.51e4, 557.0]
 
     def test_particle_deposition(self):
         source = PointSource(
@@ -790,8 +788,8 @@ class TestDepositionParameters:
             source_id="LN1", x_start=0.0, y_start=0.0,
             x_end=100.0, y_end=100.0, emission_rate=1.0,
             gas_deposition=GasDepositionParams(
-                diffusivity=0.22, alpha_r=1000.0,
-                reactivity=0.5, henry_constant=0.011,
+                diffusivity=0.22, diffusivity_water=1.8e-5,
+                cuticular_resistance=732.0, henry_constant=0.011,
             ),
         )
         output = source.to_aermod_input()
@@ -1223,7 +1221,8 @@ class TestParametrizedDepositionKeywords:
     def test_gas_deposition_keywords(self, source_cls, base_kwargs):
         """Gas deposition parameters must produce GASDEPOS keyword for all source types."""
         gas_dep = GasDepositionParams(
-            diffusivity=0.15, alpha_r=2.0, reactivity=0.5, henry_constant=0.01
+            diffusivity=0.15, diffusivity_water=2e-5,
+            cuticular_resistance=500.0, henry_constant=0.01,
         )
         source = source_cls(**base_kwargs, gas_deposition=gas_dep)
         output = source.to_aermod_input()

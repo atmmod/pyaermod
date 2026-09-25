@@ -1,0 +1,66 @@
+**    D091 BLPINPUT check missing
+**    with 2 BUOYLINE, 2 BLPINPUT, 2 BLPGROUPs - should run OK
+
+CO STARTING
+   TITLEONE Two lines angled ~10 degrees:
+   TITLETWO Lovett meteorology
+   MODELOPT  CONC   FLAT ALPHA
+CO URBANOPT  70889.0
+   AVERTIME  1 ANNUAL
+   POLLUTID  OTHER
+   RUNORNOT RUN
+CO DEBUGOPT  BLPDBUG ../Outputs/Modified_BLP_w-AREA.DBG
+CO FINISHED
+
+SO STARTING
+   ELEVUNIT  METERS
+
+   LOCATION  2S26  BUOYLINE  200.0   700.0   800.0  600.0  0.0
+   LOCATION  2S29  BUOYLINE  200.0  1100.0   800.0 1000.0  0.0
+
+** Buoyant Line Source     QS     HS
+** Parameters:            ----   ----
+   SRCPARAM  2S26     100.0   30.0
+   SRCPARAM  2S29     100.0   30.0
+
+** Average values for buoyant line plume rise calculations
+
+**                  BldLen BldHt BldWid LineWid BldSep BuoyParm
+**                  ------ ----- ------ ------- ------ --------
+   BLPINPUT  2S26 648.0  30.0  150.0     2.0   37.5    400.0
+   BLPINPUT  2S29 648.0  30.0  150.0     2.0   37.5    400.0
+
+
+SO URBANSRC  2S26
+SO URBANSRC  2S29
+
+   BLPGROUP  2S26 2S26
+   BLPGROUP  2S29 2S29
+   SRCGROUP  2S26 2S26
+   SRCGROUP  2S29 2S29
+   SRCGROUP  ALL
+
+SO FINISHED
+
+RE STARTING
+   GRIDCART CAR1 STA
+                 XYINC  0.  15  100  0.  15  100
+   GRIDCART CAR1 END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  ../meteorology/lovett.sfc
+   PROFFILE  ../meteorology/lovett.pfl
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   SITEDATA  99999  1988  HUDSON
+**   STARTEND  88 01 01 01  88 01 2 24
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+OU FILEFORM EXP
+OU RECTABLE 1.0 1.0
+OU POSTFILE 1 2S26 PLOT ../postfiles/BLP_URBAN_2S26_01H.PST
+OU POSTFILE 1 2S29 PLOT ../postfiles/BLP_URBAN_2S29_01H.PST
+OU FINISHED

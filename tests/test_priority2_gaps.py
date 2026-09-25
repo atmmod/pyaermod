@@ -233,6 +233,10 @@ class TestRLineExtValidation:
     def test_valid_depression_no_errors(self):
         src = self._rlinext(depression_depth=-2.0, depression_wtop=10.0, depression_wbottom=5.0)
         project = _project_with_source(src)
+        # RDEPRESS needs the ALPHA option and FLAT terrain (soset.f: E198 / E713)
+        project.control.alpha = True
+        project.control.regulatory_default = False
+        project.control.terrain_type = TerrainType.FLAT
         result = Validator.validate(project)
         dep_errors = [e for e in result.errors if "depression" in e.field]
         assert len(dep_errors) == 0

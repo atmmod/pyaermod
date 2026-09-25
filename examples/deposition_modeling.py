@@ -41,12 +41,13 @@ def example_1_gas_deposition():
     print("EXAMPLE 1: Gas Dry Deposition (SO2)")
     print("=" * 70)
 
-    # SO2 gas deposition parameters (EPA defaults)
+    # SO2 gas deposition parameters: AERMOD's own built-in values for SO2
+    # (soset.f GASDEP), in GASDEPOS field order.
     gas_dep = GasDepositionParams(
-        diffusivity=0.1089,         # cm2/s — molecular diffusivity in air
-        alpha_r=40.0,               # dimensionless — effective Henry's law
-        reactivity=8.0,             # reactivity factor (0=non-reactive, 18=max)
-        henry_constant=40.0,        # Pa m3/mol — Henry's law constant
+        diffusivity=0.1112,         # cm2/s -- molecular diffusivity in air (Da)
+        diffusivity_water=1.83e-5,  # cm2/s -- molecular diffusivity in water (Dw)
+        cuticular_resistance=732.0, # s/cm -- lipid cuticle resistance (rcl)
+        henry_constant=72.0,        # Pa m3/mol -- Henry's law constant
     )
 
     # Create source with dry deposition
@@ -211,10 +212,10 @@ def example_3_multi_source_groups():
 
     # Gas source — SO2 from combustion
     gas_dep = GasDepositionParams(
-        diffusivity=0.1089,
-        alpha_r=40.0,
-        reactivity=8.0,
-        henry_constant=40.0,
+        diffusivity=0.1112,
+        diffusivity_water=1.83e-5,
+        cuticular_resistance=732.0,
+        henry_constant=72.0,
     )
     sources.add_source(
         PointSource(

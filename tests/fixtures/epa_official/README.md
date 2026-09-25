@@ -22,11 +22,23 @@ Source archive:
 | `no2_1yrAK_grsm.inp` | `aermet26135_aermod26135/inputs/` | GRSM: `NOXVALUE 10.0 PPB`, `OZONEVAL`/`OZONEFIL` with units and a Fortran read format, `MAXDCONT ALL 8 8`. |
 | `testgas2.inp` | `aermet26135_aermod26135/inputs/` | Gas deposition: `GDSEASON` and `GDLANUSE 36*4`. |
 | `testprt2.inp` | `aermet26135_aermod26135/inputs/` | `FILEFORM EXP` among the plot/post files. |
+| `allsrcs.inp` | `aermet26135_aermod26135/inputs/` | One source of every type: AREAPOLY with a two-line `AREAVERT` ring and the fourth `SRCPARAM` field, three BUOYLINE segments under an eight-field `BLPINPUT` (no group ID, no BLPGROUP), RLINEXT with `RBARRIER` and `RDEPRESS`, `LINE` with `szinit`, and continuation `SRCGROUP` lines. |
+| `blp_urban.inp` | `aermet26135_aermod26135/inputs/` | Two buoyant-line groups: nine-field `BLPINPUT` per group, `BLPGROUP`, single-area `URBANOPT` / `URBANSRC`. |
+| `olmgrp.inp` | `aermet26135_aermod26135/inputs/` | `OLMGROUP ALL`. |
+| `psdcred.inp` | `aermet26135_aermod26135/inputs/` | `PSDCREDIT` with the three `PSDGROUP` IDs and no SRCGROUP. |
+| `Test3_Base_cart_3cond_SNC_bar.inp`, `Test4_Base_cart_3cond_SNC_dep.inp` | `aermet26135_aermod26135/inputs/` | RLINEXT with the eleven-field LOCATION (base elevation), `RBARRIER` and `RDEPRESS`. |
+| `testgas.inp` | `aermet26135_aermod26135/inputs/` | `GASDEPOS 0.08962 1.04E-5 2.51E4 557.0` (Da Dw rcl Henry) and `DEPOUNIT`. |
 
-The five decks in the last four rows are the round-trip fixtures for
-`tests/test_epa_deck_roundtrip.py`; together they use every form of the
-restart, NOx/ozone background, gas-deposition and design-value keywords
-that appears anywhere in the 53-deck archive.
+The five decks in rows `bg_no2_olm_ppb` to `testprt2` are the round-trip
+fixtures for `tests/test_epa_deck_roundtrip.py`; together they use every
+form of the restart, NOx/ozone background, gas-deposition and
+design-value keywords that appears anywhere in the 53-deck archive. The
+last seven (with `testgas2`) are the fixtures for
+`tests/test_epa_source_roundtrip.py`, and carry every source-construction
+keyword the archive uses (AREAVERT, BLPINPUT, BLPGROUP, OLMGROUP,
+PSDGROUP, DEPOUNIT, RBARRIER, RDEPRESS, GASDEPOS, URBANSRC); NO2RATIO,
+EMISUNIT, CONCUNIT, SBARRIER, VBARRIER and RLEMCONV appear in no EPA deck
+and are covered by the acceptance tests instead.
 
 All files are products of U.S. EPA and are in the public domain.
 
