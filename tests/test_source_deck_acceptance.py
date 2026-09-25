@@ -271,3 +271,178 @@ def test_the_check_can_actually_fail(tmp_path):
     assert run_setup_check(broken, tmp_path), (
         "AERMOD reported no fatal error for a deck with an empty SRCPARAM"
     )
+
+
+# ---------------------------------------------------------------------
+# CO restart / NOx background / gas-deposition keywords and the OU
+# design-value keywords: every form the writer can emit must pass setup
+# ---------------------------------------------------------------------
+
+def _control(**kwargs):
+    kwargs.setdefault("title_one", "keyword acceptance")
+    return ControlPathway(**kwargs)
+
+
+def _stack():
+    return SOURCE_CASES[0][1]
+
+
+def _keyword_cases():
+    from pyaermod.input_generator import (
+        BackgroundSpec,
+        ChemistryMethod,
+        ChemistryOptions,
+        GasDepositionDefaults,
+        InitFile,
+        MaxDailyContribution,
+        MaxDailyFile,
+        MultiYear,
+        NOxBackground,
+        OzoneData,
+        SaveFile,
+        TemporalValues,
+    )
+
+    def grsm(nox=None, oz=None):
+        return _control(
+            pollutant_id="NO2", averaging_periods=["1"], regulatory_default=False,
+            chemistry=ChemistryOptions(
+                method=ChemistryMethod.GRSM, default_no2_ratio=0.1,
+                ozone_data=oz or OzoneData(uniform_value=40.0, uniform_units="PPB"),
+                nox_background=nox,
+            ),
+        )
+
+    # (label, control, output, extra files to stage beside the deck)
+    return [
+        ("savefile-full", _control(
+            averaging_periods=["1", "24"], pollutant_id="SO2",
+            save_file=SaveFile("probe.sav", 30, "probe2.sav")), OutputPathway(), {}),
+        ("savefile-bare", _control(
+            averaging_periods=["1"], pollutant_id="SO2", save_file=SaveFile()),
+         OutputPathway(), {}),
+        ("initfile-named", _control(
+            averaging_periods=["1"], pollutant_id="SO2", init_file=InitFile("probe.sav")),
+         OutputPathway(), {"probe.sav": ""}),
+        ("multyear-first-year", _control(
+            averaging_periods=["24"], pollutant_id="PM10", multiyear=MultiYear("y1.sav")),
+         OutputPathway(), {}),
+        ("multyear-chained-h6h", _control(
+            averaging_periods=["24"], pollutant_id="PM10",
+            multiyear=MultiYear("y2.sav", "y1.sav", h6h=True)),
+         OutputPathway(), {"y1.sav": ""}),
+        ("nox-value-units", grsm(NOxBackground(value=10.0, value_units="PPB")), OutputPathway(), {}),
+        ("nox-file-units-format", grsm(NOxBackground(
+            hourly_file="nox.dat", file_units="PPB", file_format="FREE")),
+         OutputPathway(), {"nox.dat": "99 01 01 01 20.0\n"}),
+        ("nox-vals-hrofdy", grsm(NOxBackground(
+            varying=TemporalValues("HROFDY", [20.0] * 24), units="UG/M3")), OutputPathway(), {}),
+        ("nox-and-o3-sectors", grsm(
+            nox=NOxBackground(
+                sectors=[0.0, 180.0], units="PPB",
+                by_sector={1: BackgroundSpec(value=20.0), 2: BackgroundSpec(
+                    varying=TemporalValues("MONTH", [20.0] * 12))}),
+            oz=OzoneData(
+                sectors=[0.0, 90.0, 180.0, 270.0], units="PPB",
+                by_sector={1: BackgroundSpec(value=40.0), 2: BackgroundSpec(value=45.0, value_units="PPB"),
+                           3: BackgroundSpec(varying=TemporalValues("SEASON", [40, 50, 60, 45])),
+                           4: BackgroundSpec(hourly_file="o3.dat", file_units="PPB")}),
+        ), OutputPathway(), {"o3.dat": "99 01 01 01 40.0\n"}),
+        ("ozone-file-value-and-format", _control(
+            pollutant_id="NO2", averaging_periods=["1"], regulatory_default=False,
+            chemistry=ChemistryOptions(method=ChemistryMethod.OLM, default_no2_ratio=0.1, ozone_data=OzoneData(
+                uniform_value=40.0, uniform_units="PPB", ozone_file="o3.dat",
+                ozone_file_units="PPB", ozone_file_format="(i2,3i3,f9.3)"))),
+         OutputPathway(), {"o3.dat": "99  1  1  1   40.000\n"}),
+        ("gasdep-defaults", _control(
+            averaging_periods=["1"], pollutant_id="SO2", alpha=True, regulatory_default=False,
+            calculate_dry_deposition=True,
+            gas_deposition_defaults=GasDepositionDefaults(0.5, 0.5, 0.5, "SO2"),
+            gas_deposition_seasons=[4, 4, 4, 5, 1, 1, 1, 1, 1, 2, 3, 3],
+            gas_deposition_land_use=[4] * 36),
+         OutputPathway(), {"__gasdepos__": True}),
+        ("gasdep-velocity", _control(
+            averaging_periods=["1"], pollutant_id="SO2", alpha=True, regulatory_default=False,
+            calculate_dry_deposition=True, gas_deposition_velocity=0.01),
+         OutputPathway(), {}),
+        ("design-value-rank-form", _control(
+            averaging_periods=["1"], pollutant_id="SO2"),
+         OutputPathway(receptor_table_rank=4, file_format="EXP",
+                       max_daily_files=[MaxDailyFile("ALL", "md.dat")],
+                       max_daily_by_year_files=[MaxDailyFile("ALL", "my.dat", 52)],
+                       max_daily_contributions=[MaxDailyContribution("ALL", 4, "mdc.dat", lower_rank=4)]),
+         {}),
+        ("design-value-thresh-form", _control(
+            averaging_periods=["1"], pollutant_id="NO2"),
+         OutputPathway(receptor_table_rank=13, file_format="FIX",
+                       max_daily_contributions=[MaxDailyContribution(
+                           "ALL", 8, "mdc.dat", threshold=188.0, file_unit=53)]),
+         {}),
+    ]
+
+
+KEYWORD_CASES = _keyword_cases()
+
+
+@pytest.mark.parametrize(
+    "label,control,output,extra", KEYWORD_CASES, ids=[c[0] for c in KEYWORD_CASES]
+)
+def test_keyword_deck_passes_aermod_setup(label, control, output, extra, tmp_path):
+    """Restart, NOx/O3 background, gas-deposition and design-value keywords.
+
+    Each case writes one form the model can express and runs AERMOD's
+    setup pass on it. The field layouts came from coset.f and ouset.f
+    (scripts/keyword_oracle.py prints them); this is the check that the
+    writer reproduces them.
+    """
+    from pyaermod.sources import GasDepositionParams
+
+    source = _stack()
+    # EPA's GASDEPOS values are AERMOD's (Da, Dw, rcl, Henry); pyaermod's
+    # GasDepositionParams validator reads the third field as a 0-1
+    # reactivity, so this deck is checked by AERMOD alone.
+    validate = "__gasdepos__" not in extra
+    if extra.pop("__gasdepos__", False):
+        # EPA's testgas deck: benzene diffusivities, cuticular resistance
+        # and Henry's law constant.
+        source = PointSource(
+            "SRC1", 0.0, 0.0, stack_height=50.0, stack_diameter=2.0,
+            stack_temp=400.0, exit_velocity=15.0, emission_rate=10.0,
+            gas_deposition=GasDepositionParams(0.08962, 1.04e-5, 2.51e4, 557.0),
+        )
+    for name, content in extra.items():
+        (tmp_path / name).write_text(content)
+    project = AERMODProject(
+        control=control,
+        sources=SourcePathway(sources=[source]),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=MeteorologyPathway(
+            surface_file=SURFACE.name, profile_file=PROFILE.name,
+            surface_station_id=14735, upper_air_station_id=14735,
+            data_start_year=1988,
+        ),
+        output=output,
+    )
+    deck = re.sub(r"RUNORNOT\s+\w+", "RUNORNOT NOT",
+                  project.to_aermod_input(validate=validate))
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, (
+        f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+    )
+
+
+def test_keyword_check_can_fail(tmp_path):
+    """The old NOXVALUE-for-a-file form must be reported, or the cases prove nothing."""
+    control = KEYWORD_CASES[5][1]
+    project = AERMODProject(
+        control=control, sources=SourcePathway(sources=[_stack()]),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=MeteorologyPathway(
+            surface_file=SURFACE.name, profile_file=PROFILE.name,
+            surface_station_id=14735, upper_air_station_id=14735, data_start_year=1988),
+        output=OutputPathway(),
+    )
+    deck = re.sub(r"RUNORNOT\s+\w+", "RUNORNOT NOT", project.to_aermod_input())
+    broken = deck.replace("   NOXVALUE  10  PPB", "   NOXVALUE  nox.dat")
+    assert broken != deck
+    assert run_setup_check(broken, tmp_path)

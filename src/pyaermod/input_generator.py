@@ -30,16 +30,25 @@ from typing import Optional, Union
 
 # ---- Re-export everything from the new submodules --------------------------
 from .pathways import (  # noqa: F401  -- re-exports
+    BackgroundSpec,
     ChemistryMethod,
     ChemistryOptions,
     ControlPathway,
     EventPathway,
     EventPeriod,
+    GasDepositionDefaults,
+    InitFile,
+    MaxDailyContribution,
+    MaxDailyFile,
     MeteorologyPathway,
+    MultiYear,
+    NOxBackground,
     OutputPathway,
     OzoneData,
     PollutantType,
+    SaveFile,
     SourceType,
+    TemporalValues,
     TerrainType,
 )
 from .receptors import (  # noqa: F401  -- re-exports

@@ -7,11 +7,13 @@ so a round-trip is possible:
     >>> project = read_aermod_input("facility.inp")
     >>> project.write("facility_clone.inp")
 
-Supported pathway keywords (v1.4):
+Supported pathway keywords:
     CO: TITLEONE, TITLETWO, MODELOPT (incl. OLM/PVMRM/ARM2/GRSM/NOCHKD),
         AVERTIME, POLLUTID, RUNORNOT, ELEVUNIT, FLAGPOLE, URBANOPT,
         LOW_WIND, HALFLIFE, DCAYCOEF, NO2STACK, NO2EQUIL, OZONEVAL,
-        OZONEFIL, O3VALUES, ERRORFIL, DEBUGOPT
+        OZONEFIL, O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE,
+        NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF, GASDEPVD, GDSEASON,
+        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, ERRORFIL, DEBUGOPT
     SO: LOCATION (POINT/AREA/VOLUME/LINE/RLINE/OPENPIT/AREACIRC),
         SRCPARAM, SRCGROUP, BACKGRND, BGSECTOR, BACKUNIT,
         GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, URBANSRC,
@@ -21,7 +23,8 @@ Supported pathway keywords (v1.4):
         ELEVUNIT, INCLUDED
     ME: SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND,
         WDROTATE, SITEDATA
-    OU: RECTABLE, MAXTABLE
+    OU: RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE,
+        POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
 
 Unknown keywords are collected in :attr:`AERMODProject.unparsed_lines`
 and preserved on write via the project's writer, but are not round-
@@ -49,6 +52,7 @@ from .input_generator import (
     AreaSource,
     BackgroundConcentration,
     BackgroundSector,
+    BackgroundSpec,
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
@@ -56,9 +60,15 @@ from .input_generator import (
     ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    GasDepositionDefaults,
     GasDepositionParams,
+    InitFile,
     LineSource,
+    MaxDailyContribution,
+    MaxDailyFile,
     MeteorologyPathway,
+    MultiYear,
+    NOxBackground,
     OpenPitSource,
     OutputPathway,
     OzoneData,
@@ -69,11 +79,14 @@ from .input_generator import (
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SaveFile,
     SourceGroupDefinition,
     SourcePathway,
+    TemporalValues,
     TerrainType,
     VolumeSource,
 )
+from .pathways import TEMPORAL_FLAG_COUNTS
 
 #: Leading digits of a rank token, so "8TH" reads as 8.
 _LEADING_DIGITS_RE = re.compile(r"\d+")
@@ -199,6 +212,55 @@ _CHEM_METHODS: Dict[str, ChemistryMethod] = {
 }
 
 
+_SECT_RE = re.compile(r"^SECT([1-6])$")
+
+
+def _split_sector(toks: List[str]) -> Tuple[Optional[int], List[str]]:
+    """Peel a leading ``SECTn`` token off a background keyword's fields."""
+    if toks:
+        m = _SECT_RE.match(toks[0].upper())
+        if m:
+            return int(m.group(1)), toks[1:]
+    return None, toks
+
+
+def _parse_background_keyword(
+    kw: str, toks: List[str], specs: Dict[Optional[int], BackgroundSpec],
+    *, value_kw: str, file_kw: str, vals_kw: str,
+) -> None:
+    """Fill ``specs`` from one OZONEVAL/OZONEFIL/O3VALUES-style line.
+
+    ``specs`` is keyed by sector index (``None`` for the whole-domain
+    form). Field layout per coset.f: ``[SECTn] value [units]``,
+    ``[SECTn] file [units [format]]``, ``[SECTn] flag values...`` with the
+    values of one flag accumulating over repeated lines.
+    """
+    sector, rest = _split_sector(toks)
+    if not rest:
+        return
+    spec = specs.setdefault(sector, BackgroundSpec())
+    if kw == value_kw:
+        with contextlib.suppress(ValueError):
+            spec.value = float(rest[0])
+            if len(rest) > 1:
+                spec.value_units = rest[1].upper()
+    elif kw == file_kw:
+        spec.hourly_file = rest[0]
+        if len(rest) > 1:
+            spec.file_units = rest[1].upper()
+        if len(rest) > 2:
+            spec.file_format = rest[2]
+    elif kw == vals_kw:
+        flag = rest[0].upper()
+        try:
+            values = [float(t) for t in rest[1:]]
+        except ValueError:
+            return
+        if spec.varying is None or spec.varying.flag != flag:
+            spec.varying = TemporalValues(flag=flag, values=[])
+        spec.varying.values.extend(values)
+
+
 def _parse_control(block: _PathwayBlock) -> ControlPathway:
     title_one = title_two = ""
     avertime: List[str] = []
@@ -217,8 +279,23 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
     chem_method: Optional[ChemistryMethod] = None
     no2_ratio: Optional[float] = None
-    ozone_uniform: Optional[float] = None
-    ozone_file: Optional[str] = None
+    o3_specs: Dict[Optional[int], BackgroundSpec] = {}
+    o3_sectors: List[float] = []
+    o3_units: Optional[str] = None
+    nox_specs: Dict[Optional[int], BackgroundSpec] = {}
+    nox_sectors: List[float] = []
+    nox_units: Optional[str] = None
+    o3_kw = dict(value_kw="OZONEVAL", file_kw="OZONEFIL", vals_kw="O3VALUES")
+    nox_kw = dict(value_kw="NOXVALUE", file_kw="NOX_FILE", vals_kw="NOX_VALS")
+
+    # Gas deposition defaults, restart and multi-year options
+    gas_defaults: Optional[GasDepositionDefaults] = None
+    gas_vd: Optional[float] = None
+    gas_seasons: Optional[List[int]] = None
+    gas_land_use: Optional[List[int]] = None
+    save_file: Optional[SaveFile] = None
+    init_file: Optional[InitFile] = None
+    multiyear: Optional[MultiYear] = None
 
     for kw, toks, _ln in _group_keywords(block):
         # Titles: join tokens with a single space, mirroring AERMOD's
@@ -278,37 +355,111 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                 no2_ratio = float(toks[0])
         elif kw == "NO2EQUIL":
             pass  # Recognized; equilibrium NO2/NOx ratio has no structural field yet
-        elif kw in ("OZONEVAL", "O3VALUES"):
-            # Forms: "OZONEVAL <value> [units]",  "O3VALUES UNIFORM <value>",
-            # "O3VALUES <filename>"
-            if not toks:
-                pass
-            elif toks[0].upper() == "UNIFORM" and len(toks) >= 2:
+        elif kw == "O3VALUES" and toks and toks[0].upper() == "UNIFORM":
+            # Not an AERMOD form (O3VALS rejects the flag, E203) but what
+            # pyaermod < 2.1 wrote for a uniform value; read it as one.
+            if len(toks) >= 2:
                 with contextlib.suppress(ValueError):
-                    ozone_uniform = float(toks[1])
-            else:
-                # First token may be a numeric value (possibly followed by units)
-                try:
-                    ozone_uniform = float(toks[0])
-                except ValueError:
-                    # Non-numeric → treat as a file path
-                    ozone_file = toks[0]
-        elif kw == "OZONEFIL" and toks:
-            ozone_file = toks[0]
+                    o3_specs.setdefault(None, BackgroundSpec()).value = float(toks[1])
+        elif kw == "O3VALUES" and len(toks) == 1 and toks[0].upper() not in TEMPORAL_FLAG_COUNTS:
+            # Likewise the old file form; AERMOD wants OZONEFIL for a file.
+            o3_specs.setdefault(None, BackgroundSpec()).hourly_file = toks[0]
+        elif kw in ("OZONEVAL", "OZONEFIL", "O3VALUES"):
+            _parse_background_keyword(kw, toks, o3_specs, **o3_kw)
+        elif kw == "O3SECTOR":
+            with contextlib.suppress(ValueError):
+                o3_sectors = [float(t) for t in toks]
+        elif kw == "OZONUNIT" and toks:
+            o3_units = toks[0].upper()
+        elif kw in ("NOXVALUE", "NOX_FILE", "NOX_VALS"):
+            _parse_background_keyword(kw, toks, nox_specs, **nox_kw)
+        elif kw == "NOXSECTR":
+            with contextlib.suppress(ValueError):
+                nox_sectors = [float(t) for t in toks]
+        elif kw == "NOX_UNIT" and toks:
+            nox_units = toks[0].upper()
+        elif kw == "GASDEPDF" and len(toks) >= 3:
+            # GASDEPDF fo fseas2 fseas5 [refspe]
+            with contextlib.suppress(ValueError):
+                gas_defaults = GasDepositionDefaults(
+                    reactivity=float(toks[0]), fseas2=float(toks[1]),
+                    fseas5=float(toks[2]),
+                    reference_species=toks[3] if len(toks) > 3 else None,
+                )
+        elif kw == "GASDEPVD" and toks:
+            with contextlib.suppress(ValueError):
+                gas_vd = float(toks[0])
+        elif kw == "GDSEASON" and toks:
+            # 12 monthly Wesely season categories; N*V shorthand is
+            # already expanded by _group_keywords.
+            with contextlib.suppress(ValueError):
+                gas_seasons = [int(float(t)) for t in toks]
+        elif kw == "GDLANUSE" and toks:
+            with contextlib.suppress(ValueError):
+                gas_land_use = [int(float(t)) for t in toks]
+        elif kw == "SAVEFILE":
+            # SAVEFILE [savfil [dayinc [savfl2]]]; a bare keyword means
+            # AERMOD's default SAVE.FIL, which is kept as filename=None.
+            save_file = SaveFile(
+                filename=toks[0] if toks else None,
+                alternate_filename=toks[2] if len(toks) > 2 else None,
+            )
+            if len(toks) > 1:
+                with contextlib.suppress(ValueError):
+                    save_file.day_increment = round(float(toks[1]))
+        elif kw == "INITFILE":
+            init_file = InitFile(filename=toks[0] if toks else None)
+        elif kw == "MULTYEAR":
+            # MULTYEAR [H6H] savfil [initfil]; the H6H field is a
+            # vestige AERMOD warns about but still accepts.
+            h6h = bool(toks) and toks[0].upper() == "H6H"
+            rest = toks[1:] if h6h else toks
+            if rest:
+                multiyear = MultiYear(
+                    save_file=rest[0],
+                    init_file=rest[1] if len(rest) > 1 else None,
+                    h6h=h6h,
+                )
         elif kw in ("ERRORFIL", "DEBUGOPT"):
             pass  # Recognized; no structural field
 
     # Build ChemistryOptions if any chemistry-related keywords were found
     chemistry: Optional[ChemistryOptions] = None
-    if chem_method is not None or no2_ratio is not None \
-            or ozone_uniform is not None or ozone_file is not None:
-        ozone_data: Optional[OzoneData] = None
-        if ozone_uniform is not None or ozone_file is not None:
-            ozone_data = OzoneData(ozone_file=ozone_file, uniform_value=ozone_uniform)
+    ozone_data: Optional[OzoneData] = None
+    if o3_specs or o3_sectors or o3_units:
+        whole = o3_specs.get(None, BackgroundSpec())
+        by_sector = {k: v for k, v in o3_specs.items() if k is not None}
+        ozone_data = OzoneData(
+            ozone_file=whole.hourly_file,
+            uniform_value=whole.value,
+            uniform_units=whole.value_units,
+            ozone_file_units=whole.file_units,
+            ozone_file_format=whole.file_format,
+            varying=whole.varying,
+            sectors=o3_sectors,
+            by_sector=by_sector,
+            units=o3_units,
+        )
+    nox_background: Optional[NOxBackground] = None
+    if nox_specs or nox_sectors or nox_units:
+        whole = nox_specs.get(None, BackgroundSpec())
+        nox_background = NOxBackground(
+            value=whole.value, value_units=whole.value_units,
+            hourly_file=whole.hourly_file, file_units=whole.file_units,
+            file_format=whole.file_format, varying=whole.varying,
+            units=nox_units, sectors=nox_sectors,
+            by_sector={k: v for k, v in nox_specs.items() if k is not None},
+        )
+    if (chem_method is not None or no2_ratio is not None
+            or ozone_data is not None or nox_background is not None):
         chemistry = ChemistryOptions(
             method=chem_method or ChemistryMethod.ARM2,
             ozone_data=ozone_data,
             default_no2_ratio=no2_ratio if no2_ratio is not None else 0.5,
+            # nox_file mirrors the whole-domain NOX_FILE for callers that
+            # only look at the shorthand (the validator's GRSM check).
+            nox_file=nox_background.hourly_file if nox_background else None,
+            nox_background=nox_background,
         )
 
     return ControlPathway(
@@ -330,6 +481,13 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         urban_population=urban_pop,
         low_wind_option=low_wind,
         chemistry=chemistry,
+        gas_deposition_defaults=gas_defaults,
+        gas_deposition_velocity=gas_vd,
+        gas_deposition_seasons=gas_seasons,
+        gas_deposition_land_use=gas_land_use,
+        save_file=save_file,
+        init_file=init_file,
+        multiyear=multiyear,
     )
 
 
@@ -993,6 +1151,10 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
     postfile_averaging: Optional[str] = None
     postfile_source_group = "ALL"
     postfile_format = "PLOT"
+    file_format: Optional[str] = None
+    max_daily: List[MaxDailyFile] = []
+    max_daily_by_year: List[MaxDailyFile] = []
+    max_daily_contributions: List[MaxDailyContribution] = []
 
     for kw, toks, _ln in _group_keywords(block):
         if kw == "RECTABLE" and len(toks) >= 2:
@@ -1046,6 +1208,40 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
                 postfile_source_group = toks[1]
                 postfile_format = toks[2].upper()
                 postfile = toks[3]
+        elif kw == "FILEFORM" and toks:
+            file_format = toks[0].upper()
+        elif kw in ("MAXDAILY", "MXDYBYYR") and len(toks) >= 2:
+            # MAXDAILY <group> <filename> [unit] -- no averaging period
+            # field; ouset.f reads the group from field 3.
+            entry = MaxDailyFile(source_group=toks[0], filename=toks[1])
+            if len(toks) > 2:
+                with contextlib.suppress(ValueError):
+                    entry.file_unit = int(float(toks[2]))
+            (max_daily if kw == "MAXDAILY" else max_daily_by_year).append(entry)
+        elif kw == "MAXDCONT" and len(toks) >= 4:
+            # MAXDCONT <group> <upper> <lower> <filename> [unit]
+            # MAXDCONT <group> <upper> THRESH <thresh> <filename> [unit]
+            try:
+                upper = int(float(toks[1]))
+                if toks[2].upper() == "THRESH":
+                    if len(toks) < 5:
+                        continue
+                    contribution = MaxDailyContribution(
+                        source_group=toks[0], upper_rank=upper,
+                        filename=toks[4], threshold=float(toks[3]),
+                    )
+                    unit_tok = toks[5] if len(toks) > 5 else None
+                else:
+                    contribution = MaxDailyContribution(
+                        source_group=toks[0], upper_rank=upper,
+                        filename=toks[3], lower_rank=int(float(toks[2])),
+                    )
+                    unit_tok = toks[4] if len(toks) > 4 else None
+                if unit_tok is not None:
+                    contribution.file_unit = int(float(unit_tok))
+            except ValueError:
+                continue
+            max_daily_contributions.append(contribution)
 
     return OutputPathway(
         receptor_table=receptor_table,
@@ -1062,6 +1258,10 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
         postfile_averaging=postfile_averaging,
         postfile_source_group=postfile_source_group,
         postfile_format=postfile_format,
+        file_format=file_format,
+        max_daily_files=max_daily,
+        max_daily_by_year_files=max_daily_by_year,
+        max_daily_contributions=max_daily_contributions,
     )
 
 
@@ -1156,19 +1356,41 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     _check("meteorology.surface_file", getattr(met, "surface_file", None))
     _check("meteorology.profile_file", getattr(met, "profile_file", None))
 
-    chem = getattr(project.control, "chemistry", None)
+    control = project.control
+    chem = getattr(control, "chemistry", None)
     if chem is not None:
         oz = getattr(chem, "ozone_data", None)
         if oz is not None:
             _check("chemistry.ozone_data.ozone_file",
                    getattr(oz, "ozone_file", None))
+            for sector, spec in (getattr(oz, "by_sector", None) or {}).items():
+                _check(f"chemistry.ozone_data.by_sector[{sector}]", spec.hourly_file)
         _check("chemistry.nox_file", getattr(chem, "nox_file", None))
+        nox = getattr(chem, "nox_background", None)
+        if nox is not None:
+            _check("chemistry.nox_background.hourly_file", nox.hourly_file)
+            for sector, spec in nox.by_sector.items():
+                _check(f"chemistry.nox_background.by_sector[{sector}]", spec.hourly_file)
+    if control.save_file is not None:
+        _check("control.save_file.filename", control.save_file.filename)
+        _check("control.save_file.alternate_filename",
+               control.save_file.alternate_filename)
+    if control.init_file is not None:
+        _check("control.init_file.filename", control.init_file.filename)
+    if control.multiyear is not None:
+        _check("control.multiyear.save_file", control.multiyear.save_file)
+        _check("control.multiyear.init_file", control.multiyear.init_file)
 
     out = project.output
     for attr in ("summary_file", "max_file", "plot_file", "postfile"):
         _check(f"output.{attr}", getattr(out, attr, None))
     for period, group, fname in (out.plot_file_groups or []):
         _check(f"output.plot_file_groups[{group}/{period}]", fname)
+    for label, entries in (("max_daily_files", out.max_daily_files),
+                           ("max_daily_by_year_files", out.max_daily_by_year_files),
+                           ("max_daily_contributions", out.max_daily_contributions)):
+        for entry in entries:
+            _check(f"output.{label}[{entry.source_group}]", entry.filename)
 
 
 __all__ = [

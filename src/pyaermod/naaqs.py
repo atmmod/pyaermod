@@ -25,13 +25,39 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class NAAQSStandard:
-    """One NAAQS row."""
+    """One NAAQS row.
+
+    ``percentile`` is set for the standards whose design value is an
+    annual percentile of daily values read off a rank table (40 CFR 50
+    appendices N, S and T); :meth:`design_rank` turns it into the rank
+    AERMOD's MAXDCONT/MXDYBYYR outputs and the design-value functions in
+    :mod:`pyaermod.design_values` work with.
+    """
     pollutant: str
     averaging_period: str
     form: str
     level: float
     units: str
     cfr_reference: str
+    percentile: float | None = None
+
+    def design_rank(self, n_days: int = 366) -> int:
+        """Rank (1 = highest) of this standard's percentile in a year.
+
+        The rank comes from the appendix tables via
+        :func:`pyaermod.design_values.naaqs_percentile_rank`; for a full
+        year that is the 8th-highest daily value for the 98th percentile
+        (1-hour NO2, 24-hour PM2.5) and the 4th-highest for the 99th
+        (1-hour SO2). Raises ``ValueError`` for a standard whose form is
+        not a percentile.
+        """
+        if self.percentile is None:
+            raise ValueError(
+                f"the {self.pollutant} {self.averaging_period} NAAQS is not "
+                f"a percentile form ({self.form}); it has no design rank"
+            )
+        from .design_values import naaqs_percentile_rank  # avoid a cycle
+        return naaqs_percentile_rank(n_days, self.percentile)
 
 
 # Note: PM2.5 24-hr was 35 µg/m³ before 2024; PM2.5 annual was lowered
@@ -43,7 +69,7 @@ NAAQS_TABLE: dict[str, list[NAAQSStandard]] = {
         NAAQSStandard("PM2.5", "annual", "annual mean", 9.0, "ug/m3",
                       "40 CFR 50.18"),
         NAAQSStandard("PM2.5", "24-hour", "98th percentile", 35.0, "ug/m3",
-                      "40 CFR 50.18"),
+                      "40 CFR 50.18", percentile=98.0),
     ],
     "PM10": [
         NAAQSStandard("PM10", "24-hour", "not exceeded > 1/yr (5-yr avg)",
@@ -53,11 +79,11 @@ NAAQS_TABLE: dict[str, list[NAAQSStandard]] = {
         NAAQSStandard("NO2", "annual", "annual mean", 53.0, "ppb",
                       "40 CFR 50.11"),
         NAAQSStandard("NO2", "1-hour", "98th percentile of daily max",
-                      100.0, "ppb", "40 CFR 50.11"),
+                      100.0, "ppb", "40 CFR 50.11", percentile=98.0),
     ],
     "SO2": [
         NAAQSStandard("SO2", "1-hour", "99th percentile of daily max",
-                      75.0, "ppb", "40 CFR 50.17"),
+                      75.0, "ppb", "40 CFR 50.17", percentile=99.0),
     ],
     "CO": [
         NAAQSStandard("CO", "1-hour",

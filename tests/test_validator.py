@@ -1611,3 +1611,235 @@ class TestParametrizedValidation:
         assert len(rh_errors) >= 1, (
             f"Expected release_height error for {source_cls.__name__}"
         )
+
+
+# ============================================================================
+# AERMOD's own cross-checks for the restart, background and design-value
+# keywords (coset.f E150/E195/E198/E602/E605/E171/E222/E227, ouset.f
+# E153/E162/E163/E272/E273/E290)
+# ============================================================================
+
+def _errors(project, field_substring):
+    result = Validator.validate(project, advanced=False)
+    return [e for e in result.errors if field_substring in e.field and e.severity == "error"]
+
+
+class TestRestartValidation:
+    def test_multiyear_with_savefile_or_initfile_is_rejected(self):
+        from pyaermod.input_generator import InitFile, MultiYear, SaveFile
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.PM10,
+                                 multiyear=MultiYear("y.sav"), save_file=SaveFile("s.sav"),
+                                 init_file=InitFile("i.sav"))
+        project = _make_valid_project(control=control)
+        assert _errors(project, "save_file") and _errors(project, "init_file")
+
+    def test_multiyear_alone_is_accepted_for_pm10(self):
+        from pyaermod.input_generator import MultiYear
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.PM10,
+                                 multiyear=MultiYear("y.sav", "x.sav"))
+        assert not _errors(_make_valid_project(control=control), "multiyear")
+
+    def test_multiyear_pollutant_restriction(self):
+        from pyaermod.input_generator import MultiYear
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.CO,
+                                 multiyear=MultiYear("y.sav"))
+        assert _errors(_make_valid_project(control=control), "multiyear")
+
+
+class TestGasDepositionDefaultValidation:
+    def _control(self, **kwargs):
+        return ControlPathway(title_one="t", pollutant_id=PollutantType.SO2, **kwargs)
+
+    def test_needs_alpha(self):
+        from pyaermod.input_generator import GasDepositionDefaults
+        c = self._control(gas_deposition_defaults=GasDepositionDefaults(0.5, 0.5, 0.5))
+        assert _errors(_make_valid_project(control=c), "gas_deposition_defaults")
+        c = self._control(alpha=True, regulatory_default=False,
+                          gas_deposition_defaults=GasDepositionDefaults(0.5, 0.5, 0.5))
+        assert not _errors(_make_valid_project(control=c), "gas_deposition")
+
+    def test_gasdepvd_excludes_seasons_and_land_use(self):
+        c = self._control(alpha=True, regulatory_default=False, gas_deposition_velocity=0.01,
+                          gas_deposition_seasons=[1] * 12, gas_deposition_land_use=[1] * 36)
+        p = _make_valid_project(control=c)
+        assert _errors(p, "gas_deposition_seasons") and _errors(p, "gas_deposition_land_use")
+
+    def test_season_and_land_use_counts_and_ranges(self):
+        c = self._control(alpha=True, regulatory_default=False,
+                          gas_deposition_seasons=[1] * 11, gas_deposition_land_use=[10] * 36)
+        p = _make_valid_project(control=c)
+        assert any("12 values" in e.message for e in _errors(p, "gas_deposition_seasons"))
+        assert any("1..9" in e.message for e in _errors(p, "gas_deposition_land_use"))
+
+
+class TestBackgroundKeywordValidation:
+    def _project(self, chemistry):
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.NO2,
+                                 averaging_periods=["1"], chemistry=chemistry)
+        return _make_valid_project(control=control)
+
+    def test_nox_keywords_need_grsm(self):
+        from pyaermod.input_generator import ChemistryMethod, ChemistryOptions, NOxBackground, OzoneData
+        chem = ChemistryOptions(method=ChemistryMethod.OLM, ozone_data=OzoneData(uniform_value=40.0),
+                                nox_background=NOxBackground(value=10.0))
+        assert _errors(self._project(chem), "nox_background")
+
+    def test_value_and_profile_conflict(self):
+        from pyaermod.input_generator import (
+            ChemistryMethod,
+            ChemistryOptions,
+            NOxBackground,
+            OzoneData,
+            TemporalValues,
+        )
+        chem = ChemistryOptions(method=ChemistryMethod.GRSM, ozone_data=OzoneData(uniform_value=40.0),
+                                nox_background=NOxBackground(value=10.0, varying=TemporalValues("ANNUAL", [1.0])))
+        assert any("E605" in e.message for e in _errors(self._project(chem), "nox_background"))
+
+    def test_sector_form_without_sectors(self):
+        from pyaermod.input_generator import BackgroundSpec, ChemistryMethod, ChemistryOptions, NOxBackground, OzoneData
+        chem = ChemistryOptions(method=ChemistryMethod.GRSM, ozone_data=OzoneData(uniform_value=40.0),
+                                nox_background=NOxBackground(by_sector={1: BackgroundSpec(value=1.0)}))
+        assert any("E171" in e.message for e in _errors(self._project(chem), "nox_background"))
+        chem = ChemistryOptions(method=ChemistryMethod.OLM, ozone_data=OzoneData(sector_values={1: 40.0}))
+        assert any("E171" in e.message for e in _errors(self._project(chem), "sector_values"))
+
+    def test_sector_geometry(self):
+        from pyaermod.input_generator import BackgroundSpec, ChemistryMethod, ChemistryOptions, OzoneData
+        oz = OzoneData(sectors=[0.0, 20.0], by_sector={1: BackgroundSpec(value=40.0), 2: BackgroundSpec(value=40.0)})
+        chem = ChemistryOptions(method=ChemistryMethod.OLM, ozone_data=oz)
+        assert any("30 degrees" in e.message for e in _errors(self._project(chem), "sectors"))
+        oz = OzoneData(sectors=[0.0, 180.0], by_sector={3: BackgroundSpec(value=40.0)})
+        chem = ChemistryOptions(method=ChemistryMethod.OLM, ozone_data=oz)
+        assert any("not one of the 2" in e.message for e in _errors(self._project(chem), "by_sector[3]"))
+
+    def test_units_and_profile_length(self):
+        from pyaermod.input_generator import ChemistryMethod, ChemistryOptions, OzoneData, TemporalValues
+        oz = OzoneData(uniform_value=40.0, uniform_units="PPT", varying=TemporalValues("SEASON", [1.0]))
+        chem = ChemistryOptions(method=ChemistryMethod.OLM, ozone_data=oz)
+        errs = _errors(self._project(chem), "ozone_data")
+        assert any("PPT" in e.message for e in errs)
+        assert any("SEASON needs 4 values" in e.message for e in errs)
+
+    def test_well_formed_grsm_background_passes(self):
+        from pyaermod.input_generator import (
+            BackgroundSpec,
+            ChemistryMethod,
+            ChemistryOptions,
+            NOxBackground,
+            OzoneData,
+            TemporalValues,
+        )
+        chem = ChemistryOptions(
+            method=ChemistryMethod.GRSM,
+            ozone_data=OzoneData(sectors=[0.0, 180.0], units="PPB",
+                                 by_sector={1: BackgroundSpec(value=40.0, value_units="PPB"),
+                                            2: BackgroundSpec(varying=TemporalValues("SEASON", [1, 2, 3, 4]))}),
+            nox_background=NOxBackground(hourly_file="nox.dat", file_units="PPB", file_format="FREE"),
+        )
+        result = Validator.validate(self._project(chem), advanced=False)
+        assert not [e for e in result.errors if e.severity == "error"], str(result)
+
+
+class TestDesignValueOutputValidation:
+    def _project(self, output, pollutant=PollutantType.SO2, periods=("1",), **control_kwargs):
+        control = ControlPathway(title_one="t", pollutant_id=pollutant,
+                                 averaging_periods=list(periods), **control_kwargs)
+        return _make_valid_project(control=control, output=output)
+
+    def test_naaqs_processing_rules(self):
+        c = ControlPathway(title_one="t", pollutant_id=PollutantType.SO2, averaging_periods=["1"])
+        assert Validator.naaqs_processing(c) == "1-hour"
+        c.averaging_periods = ["1", "ANNUAL"]
+        assert Validator.naaqs_processing(c) == "1-hour"
+        c.averaging_periods = ["1", "24"]
+        assert Validator.naaqs_processing(c) is None
+        c = ControlPathway(title_one="t", pollutant_id=PollutantType.PM25, averaging_periods=["24", "ANNUAL"])
+        assert Validator.naaqs_processing(c) == "24-hour"
+        c.averaging_periods = ["24", "PERIOD"]
+        assert Validator.naaqs_processing(c) is None
+
+    def test_max_daily_needs_naaqs_processing(self):
+        from pyaermod.input_generator import MaxDailyFile
+        out = OutputPathway(max_daily_files=[MaxDailyFile("ALL", "md.dat")])
+        assert not _errors(self._project(out), "max_daily")
+        assert _errors(self._project(out, periods=("1", "24")), "max_daily")
+        assert _errors(self._project(out, pollutant=PollutantType.CO), "max_daily")
+
+    def test_maxdcont_rank_range(self):
+        from pyaermod.input_generator import MaxDailyContribution
+        out = OutputPathway(receptor_table_rank=4,
+                            max_daily_contributions=[MaxDailyContribution("ALL", 8, "f", lower_rank=8)])
+        assert any("E290" in e.message for e in _errors(self._project(out), "max_daily_contributions"))
+        out.receptor_table_rank = 8
+        assert not _errors(self._project(out), "max_daily_contributions")
+        out.max_daily_contributions = [MaxDailyContribution("ALL", 8, "f", lower_rank=4)]
+        assert any("E272" in e.message for e in _errors(self._project(out), "max_daily_contributions"))
+
+    def test_thresh_form_needs_room_beyond_the_design_rank(self):
+        from pyaermod.input_generator import MaxDailyContribution
+        out = OutputPathway(receptor_table_rank=8,
+                            max_daily_contributions=[MaxDailyContribution("ALL", 4, "f", threshold=196.0)])
+        assert any("E273" in e.message for e in _errors(self._project(out), "max_daily_contributions"))
+        out.receptor_table_rank = 9
+        assert not _errors(self._project(out), "max_daily_contributions")
+        # NO2 and PM2.5 need more than 12.
+        out.receptor_table_rank = 12
+        assert _errors(self._project(out, pollutant=PollutantType.NO2), "max_daily_contributions")
+
+    def test_maxdcont_excludes_restart(self):
+        from pyaermod.input_generator import MaxDailyContribution, SaveFile
+        out = OutputPathway(receptor_table_rank=4,
+                            max_daily_contributions=[MaxDailyContribution("ALL", 4, "f", lower_rank=4)])
+        errs = _errors(self._project(out, save_file=SaveFile("s.sav")), "max_daily_contributions")
+        assert any("E153" in e.message for e in errs)
+
+    def test_fileform_value(self):
+        assert _errors(self._project(OutputPathway(file_format="BIN")), "file_format")
+        assert not _errors(self._project(OutputPathway(file_format="EXP")), "file_format")
+
+
+class TestBackgroundValidationEdges:
+    def _project(self, chemistry):
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.NO2,
+                                 averaging_periods=["1"], chemistry=chemistry)
+        return _make_valid_project(control=control)
+
+    def test_unknown_temporal_flag_and_bad_units(self):
+        from pyaermod.input_generator import (
+            ChemistryMethod,
+            ChemistryOptions,
+            NOxBackground,
+            OzoneData,
+            TemporalValues,
+        )
+        chem = ChemistryOptions(
+            method=ChemistryMethod.GRSM,
+            ozone_data=OzoneData(uniform_value=40.0, units="PPT"),
+            nox_background=NOxBackground(varying=TemporalValues("WEEKLY", [1.0]), units="MG/M3"),
+        )
+        errs = _errors(self._project(chem), "")
+        assert any("unknown temporal flag 'WEEKLY'" in e.message for e in errs)
+        assert any(e.field == "ozone_data.units" for e in errs)
+        assert any(e.field == "nox_background.units" for e in errs)
+
+    def test_sector_count_and_range(self):
+        from pyaermod.input_generator import BackgroundSpec, ChemistryMethod, ChemistryOptions, OzoneData
+        chem = ChemistryOptions(method=ChemistryMethod.OLM,
+                                ozone_data=OzoneData(sectors=[0.0], by_sector={1: BackgroundSpec(value=40.0)}))
+        assert any("2 to 6" in e.message for e in _errors(self._project(chem), "sectors"))
+        chem = ChemistryOptions(method=ChemistryMethod.OLM,
+                                ozone_data=OzoneData(sectors=[-10.0, 180.0], by_sector={1: BackgroundSpec(value=40.0)}))
+        assert any("0..360" in e.message for e in _errors(self._project(chem), "sectors"))
+
+
+class TestRestartAndGasDepositionEdges:
+    def test_empty_multiyear_save_file(self):
+        from pyaermod.input_generator import MultiYear
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.PM10, multiyear=MultiYear(""))
+        assert _errors(_make_valid_project(control=control), "multiyear.save_file")
+
+    def test_non_positive_deposition_velocity(self):
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.SO2, alpha=True,
+                                 regulatory_default=False, gas_deposition_velocity=0.0)
+        assert any("> 0" in e.message for e in _errors(_make_valid_project(control=control), "gas_deposition_velocity"))
