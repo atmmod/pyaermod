@@ -1,0 +1,54 @@
+# Citation metadata for PyAERMOD (Citation File Format 1.2.0).
+#
+# GitHub renders this file as a "Cite this repository" button, and Zenodo
+# reads it when the GitHub release is archived. Two fields are placeholders
+# that the release fills in (see RELEASING.md):
+#
+#   date-released  the day the vX.Y.Z GitHub release is published.
+#   doi            the Zenodo DOI. Zenodo mints it only after the GitHub
+#                  release is published, so it cannot be known at the time
+#                  the release commit is made. Paste the version DOI
+#                  (10.5281/zenodo.NNNNNNN) here afterward and commit it.
+#
+# Validate with:  cffconvert --validate   (tests/test_citation.py does).
+cff-version: 1.2.0
+message: "If you use PyAERMOD in your work, please cite it using the metadata in this file."
+type: software
+title: "PyAERMOD: Python wrapper for EPA's AERMOD air dispersion model"
+abstract: >-
+  PyAERMOD is a Python interface to the complete AERMOD modeling chain
+  (AERMET, AERMAP, AERSURFACE, AERSCREEN, BPIP-PRIME and AERMOD). It writes
+  and reads AERMOD runstreams from a typed object model, drives the EPA
+  binaries, parses their outputs into pandas DataFrames, computes NAAQS
+  design values, and is validated against EPA's published test cases.
+authors:
+  - family-names: Capps
+    given-names: Shannon
+    email: shannon.capps@gmail.com
+version: 2.2.0
+date-released: "2026-01-01"  # placeholder: set to the release day
+doi: 10.5281/zenodo.0000000  # placeholder: replace with the Zenodo DOI minted for the v2.2.0 release
+repository-code: "https://github.com/atmmod/pyaermod"
+url: "https://atmmod.github.io/pyaermod/"
+license: MIT
+keywords:
+  - AERMOD
+  - air quality
+  - atmospheric dispersion
+  - regulatory modeling
+  - EPA
+  - Python
+preferred-citation:
+  # The JAWMA paper describing PyAERMOD. The title is a working title;
+  # the fields not yet known (final author list, volume, issue, pages,
+  # article DOI, publication year) are added on acceptance. Until then
+  # this stub records what is settled.
+  type: article
+  title: "PyAERMOD: a validated open-source Python interface to EPA's AERMOD modeling chain"
+  authors:
+    - family-names: Capps
+      given-names: Shannon
+  journal: "Journal of the Air & Waste Management Association"
+  status: in-preparation
+  year: 2026
+  notes: "Manuscript in preparation; cites the PyAERMOD v2.2.0 archival release."
