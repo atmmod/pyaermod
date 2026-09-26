@@ -133,7 +133,10 @@ def _fx(value: float, spec: str) -> str:
     width, so the column layout survives and so does the value.
     """
     text = format(value, spec)
-    if float(text) == float(value):
+    # A relative test, not equality: 99999.12 + 5000.0 is 104999.12000000001
+    # in binary and its 12.4f text is the right one; only a value the
+    # column truly cannot hold (0.001 in 8.2f) takes the fallback.
+    if value == 0 or abs(float(text) - float(value)) <= 1e-6 * abs(float(value)):
         return text
     width = int(spec.split(".")[0]) if spec[0].isdigit() else 0
     return f"{_aermod_number(value):>{width}}"

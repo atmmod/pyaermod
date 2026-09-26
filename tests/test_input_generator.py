@@ -824,6 +824,13 @@ class TestDepositionParameters:
                           exit_velocity=0.001, stack_diameter=5.0, emission_rate=500.0)
         assert src.to_aermod_input().splitlines()[1].split() == \
             ["SRCPARAM", "S", "500.000000", "65.00", "425.00", "0.001", "5.00"]
+        # ... while a binary-noise sum keeps the column's text: 12345.67 + 0.05
+        # is 12345.720000000001, whose 12.4f text is right and whose
+        # six-significant-digit fallback (12345.7) would not be.
+        from pyaermod.sources import _fx
+        assert _fx(12345.67 + 0.05, "12.4f") == "  12345.7200"
+        assert _fx(0.1 + 0.2, "12.4f") == "      0.3000"
+        assert _fx(0.001, "8.2f") == "   0.001"
 
     def test_no_deposition_omits_keywords(self):
         source = PointSource(
