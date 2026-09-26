@@ -1471,6 +1471,13 @@ class SourcePathway:
     #: SBARRIER solid barriers (v26135).
     solid_barriers: List[SolidBarrier] = field(default_factory=list)
 
+    #: The bare ``SRCGROUP ALL`` line: None writes it whenever the pathway
+    #: has sources (the default for a project built in Python), True
+    #: always (a deck that had the line, even with its sources brought in
+    #: by INCLUDED), False never (a deck that grouped its sources without
+    #: it). The reader sets it from the deck.
+    include_all_group: Optional[bool] = None
+
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
                                        RLineExtSource, BuoyLineSource, OpenPitSource]):
@@ -1549,7 +1556,9 @@ class SourcePathway:
             by_name: Dict[str, List[SourceGroupDefinition]] = {}
             for group in self.group_definitions:
                 by_name.setdefault(group.group_name, []).append(group)
-            if all_ids or any(n.upper() == "ALL" for n in by_name):
+            write_all = (bool(all_ids) or any(n.upper() == "ALL" for n in by_name)
+                         if self.include_all_group is None else self.include_all_group)
+            if write_all:
                 all_members = [m for n, defs in by_name.items() if n.upper() == "ALL"
                                for g in defs for m in g.member_source_ids]
                 lines.append("   SRCGROUP  ALL" + ("  " + " ".join(all_members)

@@ -242,15 +242,17 @@ OU FINISHED
         assert grid.x_num == 10 and grid.y_num == 5
 
     def test_polar_grid(self):
+        # reset.f: DIST is a list of ring distances, GDIR is num init delta.
         p = self._minimal_with_re(
             "   GRIDPOLR  P  STA\n"
             "   GRIDPOLR  P  ORIG  0.0  0.0\n"
-            "   GRIDPOLR  P  DIST  100.0  10  100.0\n"
-            "   GRIDPOLR  P  GDIR  0.0  36  10.0\n"
+            "   GRIDPOLR  P  DIST  100.0  200.0  500.0\n"
+            "   GRIDPOLR  P  GDIR  36  0.0  10.0\n"
             "   GRIDPOLR  P  END"
         )
         g = p.receptors.polar_grids[0]
-        assert g.dir_num == 36 and g.dist_num == 10
+        assert g.distances == [100.0, 200.0, 500.0] and g.dist_num == 3
+        assert (g.dir_num, g.dir_init, g.dir_delta) == (36, 0.0, 10.0)
 
     def test_discrete_receptors(self):
         p = self._minimal_with_re(
@@ -1249,23 +1251,35 @@ class TestREKeywordsV26135:
         assert (g.x_init, g.x_num, g.x_delta) == (0.0, 5, 100.0)
         assert (g.y_init, g.y_num, g.y_delta) == (0.0, 4, 50.0)
 
-    @pytest.mark.parametrize("line", ["GRIDCART G1", "GRIDPOLR P1", "DISCCART 0 0"])
-    def test_short_receptor_lines_are_skipped(self, line):
+    @pytest.mark.parametrize("line", ["GRIDCART G1", "GRIDPOLR P1", "DISCCART 0"])
+    def test_short_receptor_lines_are_kept_verbatim(self, line):
         p = _wrap(re_body=f"   {line}\n   DISCCART 0 0 0\n")
         assert len(p.receptors.discrete_receptors) == 1
         assert p.receptors.cartesian_grids == []
         assert p.receptors.polar_grids == []
+        assert [u.raw.strip() for u in p.unparsed_lines] == [line]
+
+    def test_disccart_two_fields_is_a_flat_terrain_receptor(self):
+        # reset.f DISCAR: x y alone is the FLAT form (a z is W229 there).
+        p = _wrap(re_body="   DISCCART 10 20\n")
+        rec = p.receptors.discrete_receptors[0]
+        assert (rec.x_coord, rec.y_coord, rec.z_elev) == (10.0, 20.0, 0.0)
 
     _POLAR = "   GRIDPOLR P ORIG 0 0\n   GRIDPOLR P DIST 100. 500. 1000.\n"
 
-    def test_gridpolr_gdir_three_explicit_directions(self):
-        p = _wrap(re_body=self._POLAR + "   GRIDPOLR P GDIR 0.0 120.0 240.0\n")
+    def test_gridpolr_gdir_is_count_start_step(self):
+        # reset.f GENPOL: the three GDIR fields are num, init, delta; three
+        # explicit directions are spelt with DDIR. The reader used to guess
+        # from which field looked like an integer (audit item 3).
+        p = _wrap(re_body=self._POLAR + "   GRIDPOLR P GDIR 3 0.0 120.0\n")
         g = p.receptors.polar_grids[0]
-        assert (g.dir_init, g.dir_num, g.dir_delta) == (0.0, 3, 120.0)
+        assert (g.dir_num, g.dir_init, g.dir_delta) == (3, 0.0, 120.0)
+        assert g.direction_angles() == [0.0, 120.0, 240.0]
 
-    def test_gridpolr_gdir_explicit_list(self):
-        p = _wrap(re_body=self._POLAR + "   GRIDPOLR P GDIR 0 45 90 135\n")
+    def test_gridpolr_ddir_explicit_list(self):
+        p = _wrap(re_body=self._POLAR + "   GRIDPOLR P DDIR 0 45 90 135\n")
         g = p.receptors.polar_grids[0]
+        assert g.directions == [0.0, 45.0, 90.0, 135.0]
         assert (g.dir_init, g.dir_num, g.dir_delta) == (0.0, 4, 45.0)
 
     @pytest.mark.parametrize("line", ["EVALCART 0 0 0 0 0 ARC1", "DISCPOLR S1 100 45", "INCLUDED recs.inc"])
@@ -1329,11 +1343,6 @@ OU FINISHED
     ])
     def test_unhandled_me_keywords_pass_through(self, line):
         assert self._deck(me_extra=f"   {line}").meteorology.surface_file == "a.sfc"
-
-    def test_maxifile_filename_captured(self):
-        # The reader stores the first token as the filename; AERMOD's full
-        # syntax is MAXIFILE <aveper> <grpid> <thresh> <filename> (audit follow-up).
-        assert self._deck(ou_body="   MAXIFILE maxi.txt").output.max_file == "maxi.txt"
 
     @pytest.mark.parametrize("line", [
         "TOXXFILE 1 ALL 1.0 toxx.dat", "SEASONHR ALL seasonhr.dat", "RANKFILE 1 10 rank.dat",

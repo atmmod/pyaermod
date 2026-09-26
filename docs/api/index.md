@@ -16,6 +16,7 @@ Build, read, write, and validate AERMOD input files.
 | [receptors](receptors.md) | `CartesianGrid`, `PolarGrid`, `DiscreteReceptor`, `ReceptorPathway` |
 | [pathways](pathways.md) | Enums + `ControlPathway`, `MeteorologyPathway`, `OutputPathway`, `EventPathway` |
 | [input_reader](input_reader.md) | **Bidirectional** — parse existing `.inp` files back into `AERMODProject` |
+| [unparsed](unparsed.md) | `UnparsedLine` — deck lines the reader keeps verbatim and the writer puts back |
 
 ## Validation
 

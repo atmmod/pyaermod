@@ -110,31 +110,50 @@ def _check_point_source(src: Any) -> List[ValidationError]:
 def _iter_receptor_coords(receptors: Any):
     """Yield (x, y) for every receptor (grid + discrete)."""
     for grid in getattr(receptors, "cartesian_grids", []) or []:
-        for i in range(grid.x_num):
-            x = grid.x_init + i * grid.x_delta
-            for j in range(grid.y_num):
-                y = grid.y_init + j * grid.y_delta
+        for x in _cart_values(grid, "x"):
+            for y in _cart_values(grid, "y"):
                 yield (x, y)
     for grid in getattr(receptors, "polar_grids", []) or []:
         # Polar grids rotate around (x_origin, y_origin)
         import math
-        for i in range(grid.dir_num):
-            theta_deg = grid.dir_init + i * grid.dir_delta
+        for theta_deg in _polar_directions(grid):
             theta = math.radians(90.0 - theta_deg)  # met -> math
-            for j in range(grid.dist_num):
-                r = grid.dist_init + j * grid.dist_delta
+            for r in _polar_distances(grid):
                 yield (grid.x_origin + r * math.cos(theta),
                        grid.y_origin + r * math.sin(theta))
     for r in getattr(receptors, "discrete_receptors", []) or []:
         yield (r.x_coord, r.y_coord)
 
 
+def _cart_values(grid: Any, axis: str) -> List[float]:
+    """Explicit XPNTS/YPNTS list if the grid has one, else the generator."""
+    accessor = getattr(grid, f"{axis}_values", None)
+    if callable(accessor):
+        return list(accessor())
+    init, num, delta = (getattr(grid, f"{axis}_{k}") for k in ("init", "num", "delta"))
+    return [init + i * delta for i in range(num)]
+
+
+def _polar_distances(grid: Any) -> List[float]:
+    accessor = getattr(grid, "ring_distances", None)
+    if callable(accessor):
+        return list(accessor())
+    return [grid.dist_init + j * grid.dist_delta for j in range(grid.dist_num)]
+
+
+def _polar_directions(grid: Any) -> List[float]:
+    accessor = getattr(grid, "direction_angles", None)
+    if callable(accessor):
+        return list(accessor())
+    return [grid.dir_init + i * grid.dir_delta for i in range(grid.dir_num)]
+
+
 def _count_receptors(receptors: Any) -> int:
     n = 0
     for grid in getattr(receptors, "cartesian_grids", []) or []:
-        n += grid.x_num * grid.y_num
+        n += len(_cart_values(grid, "x")) * len(_cart_values(grid, "y"))
     for grid in getattr(receptors, "polar_grids", []) or []:
-        n += grid.dist_num * grid.dir_num
+        n += len(_polar_distances(grid)) * len(_polar_directions(grid))
     n += len(getattr(receptors, "discrete_receptors", []) or [])
     return n
 
@@ -152,15 +171,16 @@ def _receptor_bbox(receptors: Any) -> Optional[Tuple[float, float, float, float]
 
     for grid in getattr(receptors, "cartesian_grids", []) or []:
         # Corners only — grid is axis-aligned so bbox = corners
-        x_end = grid.x_init + (grid.x_num - 1) * grid.x_delta
-        y_end = grid.y_init + (grid.y_num - 1) * grid.y_delta
-        xs.extend([grid.x_init, x_end])
-        ys.extend([grid.y_init, y_end])
+        gx = _cart_values(grid, "x")
+        gy = _cart_values(grid, "y")
+        if gx and gy:
+            xs.extend([min(gx), max(gx)])
+            ys.extend([min(gy), max(gy)])
 
     for grid in getattr(receptors, "polar_grids", []) or []:
         # Max distance from origin; the bbox is origin ± max_radius in
         # each axis (conservative upper bound).
-        max_r = grid.dist_init + (grid.dist_num - 1) * grid.dist_delta
+        max_r = max(_polar_distances(grid), default=0.0)
         xs.extend([grid.x_origin - max_r, grid.x_origin + max_r])
         ys.extend([grid.y_origin - max_r, grid.y_origin + max_r])
 

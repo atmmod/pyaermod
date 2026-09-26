@@ -15,7 +15,6 @@ from ..state import AppState
 
 _PRIMARY_FIELDS = (
     "summary_file",
-    "max_file",
     "plot_file",
     "postfile",
     "postfile_format",
