@@ -1,0 +1,623 @@
+--- aerscreen.f	2026-09-25 20:16:34.369703403 +0000
++++ aerscreen_patched.f	2026-09-25 21:25:49.601983521 +0000
+@@ -1819,7 +1819,7 @@
+       read(*,'(a)')title
+       write(ilog,102)title
+  105  format(/'         ------------------  INITIAL ',
+-     +          'INFORMATION  -------------------'///' Enter Title: '\) 
++     +          'INFORMATION  -------------------'///' Enter Title: '$) 
+  102  format(a,/)
+ 
+ 
+@@ -1843,7 +1843,7 @@
+         write(*,999)units
+         goto 5
+       endif
+- 103  format(//' English or Metric Units? (E or M): '\)
++ 103  format(//' English or Metric Units? (E or M): '$)
+ 
+ c     prompt for source type  
+   1   write(*,104)
+@@ -1883,7 +1883,7 @@
+       endif
+       
+  104  format(//' POINT, VOLUME, AREA, AREACIRC, FLARE, POINTCAP,',
+-     & 'or POINTHOR Source? '/1x,'(P, V, A, C, F, S, or H): '\)
++     & 'or POINTHOR Source? '/1x,'(P, V, A, C, F, S, or H): '$)
+   999 format(1x,a,' is an invalid response')   
+       return
+       end
+@@ -3024,7 +3024,7 @@
+ 2000  format(//' RESTART file title: ',a40,///
+      +  ' Continue with RESTART File? <press Y>: '//
+      + '                 OR '//'    Start a NEW Run? <press Enter>: '///
+-     +  '           Enter choice: '\)
++     +  '           Enter choice: '$)
+      
+        if(bpipfile .eq. ' ')goto 98
+ 
+@@ -3338,13 +3338,13 @@
+       if (probedist .lt. xnear) goto 40
+       
+ !1001  format(///' Enter Maximum Distance (km) to probe '/
+-!     +  ' <Enter> for default (',i2,' km): '\)           
++!     +  ' <Enter> for default (',i2,' km): '$)           
+ 1001  format(///' Enter Maximum Distance (m) to probe '/
+-     +  ' <Enter> for default (',i5,' m): '\)    
++     +  ' <Enter> for default (',i5,' m): '$)    
+ 1012  format(//1x,'******* WARNING *************'/1x,
+      +  'Probe distance changed from ',f9.2,' m to ',/1x,f9.2,' m')     
+ 1017  format(///' Enter Minimum Distance ',a,' to Ambient Air'/
+-     +  '<Enter> for default 'a,': '\)
++     +  '<Enter> for default 'a,': '$)
+ 1023  format(/' Ambient distance ',f8.3,1x,a,
+      + ' is less than 2.15*sigma-y plus 1 m ',f8.3,1x,a)
+       return
+@@ -3997,7 +3997,7 @@
+ c     if changing emission rate only, go back to option list
+       if (iopt .eq. 1) goto 10
+ 
+-1030  format(///' Enter Emission Rate ',a,': '\)
++1030  format(///' Enter Emission Rate ',a,': '$)
+ 
+ c --- Enter Stack Height ---
+  20   if (lpoint .or. lcap .or. lhor) then
+@@ -4136,21 +4136,21 @@
+        if (iopt .eq. 5) goto 10  !go back to options
+       endif
+       
+-1000  format(//' Enter Stack Height ',a,': '\)
+-1001  format(//' Enter Stack Diameter ',a,': '\)
++1000  format(//' Enter Stack Height ',a,': '$)
++1001  format(//' Enter Stack Diameter ',a,': '$)
+ 1002  format(//' Enter Stack Temperature 'a,/
+      +   ' Enter 0 for ambient temperature '/
+      +   ' or a negative number for temperature difference (',a,')'
+-     +   / ' between stack temperature and ambient temperature: '\)
+-1003  format(/' Enter Exit Velocity (m/s): '\)
+-1004  format(/' Enter Exit Velocity (ft/s): '\)
+-1005  format(/' Enter Flow Rate (ACFM): '\)
++     +   / ' between stack temperature and ambient temperature: '$)
++1003  format(/' Enter Exit Velocity (m/s): '$)
++1004  format(/' Enter Exit Velocity (ft/s): '$)
++1005  format(/' Enter Flow Rate (ACFM): '$)
+ 1022  format(//'----------------------------------------------'/
+      + ' Option (1) - Exit Velocity (m/s)'/
+      + ' Option (2) - Exit Velocity (ft/s)'/
+      + ' Option (3) - Flow Rate (ACFM)'/
+      + '----------------------------------------------'//
+-     + ' Enter Option for Flow Rate or Exit Velocity: '\)
++     + ' Enter Option for Flow Rate or Exit Velocity: '$)
+      
+ c --- Enter Flare Stack Height ---
+ 55    if (lflare) then
+@@ -4180,7 +4180,7 @@
+        if (iopt .eq. 2) goto 201  ! calculate other stack parameters
+ 
+ c      heat release rate
+-60     write(*,'(//'' Enter Total Heat Release Rate (cal/sec): ''\)')
++60     write(*,'(//'' Enter Total Heat Release Rate (cal/sec): ''$)')
+        read(*,'(a)')response 
+        call checkanswer(response,lblank,lbad,2)
+        if (lbad .or. lblank) then
+@@ -4221,9 +4221,9 @@
+        endif
+        if (iopt .eq. 4) goto 201 ! calculate other stack parameters
+       endif
+- 1006 format(//' Enter Flare Stack Height ',a,': '\)    
++ 1006 format(//' Enter Flare Stack Height ',a,': '$)    
+  1020 format(//' Enter Radiative Heat Loss Fraction - '/
+-     + ' <Enter> for default value of 0.55: '\)
++     + ' <Enter> for default value of 0.55: '$)
+  1021 format(/' Heat Loss Fraction adjusted to ',f4.2,'! ')  
+ c ---  SET EFFECTIVE STACK PARAMETERS
+ c
+@@ -4301,9 +4301,9 @@
+        if (iopt .eq. 4) goto 10  !go back to options list
+       endif 
+ 
+- 1007 format(//' Enter Center of Volume Height ',a,': '\) 
+- 1008 format(//' Enter Initial Lateral Dimension ',a,': '\) 
+- 1009 format(//' Enter Initial Vertical Dimension ',a,': '\) 
++ 1007 format(//' Enter Center of Volume Height ',a,': '$) 
++ 1008 format(//' Enter Initial Lateral Dimension ',a,': '$) 
++ 1009 format(//' Enter Initial Vertical Dimension ',a,': '$) 
+  
+ c --- Enter AREA Source data ---
+  70   if (larea) then
+@@ -4460,13 +4460,13 @@
+       endif
+  
+ c formats for area sources (rectangular and circular)
+-1010  format(//' Enter Release Height Above Ground ',a,': '\)
++1010  format(//' Enter Release Height Above Ground ',a,': '$)
+ 1011  format(//' Enter Maximum horizontal dimension of Area Source ',
+-     +  a,': '\)
++     +  a,': '$)
+ 1012  format(//' Enter Minimum horizontal dimension of Area Source ',
+-     +  a,': '\)
+-1013  format(//' Enter Initial Vertical Dimension ',a,': '\)
+- 1014 format(//' Enter Radius of AREACIRC Source ',a,': '\)
++     +  a,': '$)
++1013  format(//' Enter Initial Vertical Dimension ',a,': '$)
++ 1014 format(//' Enter Radius of AREACIRC Source ',a,': '$)
+  
+ c --- Prompt for Rural vs. Urban ---
+  30   write(*,1015)
+@@ -4479,7 +4479,7 @@
+       endif
+       urban=trim(adjustl(response))
+       call upcase(urban)
+- 1015 format(//' Rural or Urban? (R or U): '\)
++ 1015 format(//' Rural or Urban? (R or U): '$)
+  
+   35  if(urban .eq. 'U') then
+        lurban=.true.
+@@ -4507,7 +4507,7 @@
+         write(*,999)
+         goto 30
+       endif
+- 1016 format(//' Enter Population of Urban Area: '\)
++ 1016 format(//' Enter Population of Urban Area: '$)
+  996  format(/1x,'Source is not urban, cannot change population'/)
+ c --- Prompt for Distance to Ambient Air (optional) ---
+  40   if (lmetric) then
+@@ -4572,7 +4572,7 @@
+       endif
+       if (iopt .gt. 0 .and. .not. lall) goto 10
+ 1017  format(///' Enter Minimum Distance ',a,' to Ambient Air'/
+-     +  '<Enter> for default 'a,': '\)
++     +  '<Enter> for default 'a,': '$)
+ 1023  format(/' Ambient distance ',f8.4,1x,a,
+      + ' is less than 2.15*sigma-y + 1 meter ',f8.4,1x,a)
+ 
+@@ -4681,14 +4681,14 @@
+      + 1x,'2)  Use Ozone Limiting Method (OLM)'/
+      + 1x,'3)  Use Plume Volume Molar Ratio Method (PVMRM)')
+      
+- 1026 format(//1x,'Enter in-stack NO2/NOx ratio ( 0 to 1.0): '\)
++ 1026 format(//1x,'Enter in-stack NO2/NOx ratio ( 0 to 1.0): '$)
+  
+  1027 format(//1x,'Enter concentration units for representative ',
+      + 'ozone concentration'/
+      + 1x,'1)  Micrograms per cubic meter (ugm/m^3)'/
+      + 1x,'2)  Parts per million (ppm)'/
+      + 1x,'3)  Parts per billion (ppb)')
+- 1028 format(//1x,'Enter ozone concentration: '\)
++ 1028 format(//1x,'Enter ozone concentration: '$)
+  1029 format(/1x,'NO2 chemistry is not being used')
+  999  format(1x,'Invalid response')
+ 100   return
+@@ -4945,7 +4945,7 @@
+       endif
+       bpip=trim(adjustl(response))
+       call upcase(bpip)
+- 2000 format(//' Include Building Downwash? (y/n): '\)    
++ 2000 format(//' Include Building Downwash? (y/n): '$)    
+  21   if(bpip .eq. 'N') then 
+         lbpip=.false.
+         if (iskip .eq. 2 .and. .not. lall) then
+@@ -4980,7 +4980,7 @@
+       endif
+       char=trim(adjustl(response))
+       call upcase(char)
+- 2001 format(//' Use pre-existing BPIPPRM input file? (y/n): '\)
++ 2001 format(//' Use pre-existing BPIPPRM input file? (y/n): '$)
+       if(char .eq. 'Y') then
+        write(*,2002)
+        read(*,*)bpipfile
+@@ -5022,7 +5022,7 @@
+         write(*,999)
+         goto 30
+       endif
+-2002  format(//' Enter user created BPIPPRM input file:  '\)
++2002  format(//' Enter user created BPIPPRM input file:  '$)
+ 2003  format(///' User defined BPIPPRM input file not found: ',a)
+ 3010  format(//1x,'BPIPPRM input file ',a,' is incorrectly formatted ',
+      + 'for AERSCREEN')
+@@ -5030,7 +5030,7 @@
+      +  'downwash')
+ 3012  format(/1x,'Number of stacks is greater than 1')
+ !3014  format(/1x,'<Enter> to use current BPIP file ',a,/1x,
+-!     + 'or enter user created BPIP input file: '\)
++!     + 'or enter user created BPIP input file: '$)
+      
+     5 call header()
+       write(*,*)' '
+@@ -5155,9 +5155,9 @@
+       if (iopt .eq. 5) goto 3  !go back to options
+       
+       
+- 2004 format(//' Enter Building Height ',a,': '\)
+- 2005 format(//' Enter Maximum Horizontal Building Dimension ',a,': '\)
+- 2006 format(//' Minimum Horizontal Building Dimension ',a,': '\)
++ 2004 format(//' Enter Building Height ',a,': '$)
++ 2005 format(//' Enter Maximum Horizontal Building Dimension ',a,': '$)
++ 2006 format(//' Minimum Horizontal Building Dimension ',a,': '$)
+  1011 format(//' Minimum horizontal building dimension'
+      +  /' is greater than maximum horizontal building dimension ') 
+       
+@@ -5188,7 +5188,7 @@
+       
+       
+  2007 format(//' Enter Maximum Building Dimension Angle to True ',
+-     +  'North (0 - 179 degees): '\)
++     +  'North (0 - 179 degees): '$)
+      
+ c --- Enter Stack Direction from Building Center ---
+  45   write(*,2008)
+@@ -5211,7 +5211,7 @@
+       endif
+       if (iopt .eq. 7) goto 3  !go back to options
+ 2008  format(//' Enter Direction of Stack from Building Center ',
+-     + '(0 - 360 degrees): '\)
++     + '(0 - 360 degrees): '$)
+      
+ c --- Enter Stack Distance from Building Center ---
+  50   if(lmetric) then
+@@ -5236,7 +5236,7 @@
+       if (iopt .eq. 8) goto 3  !go back to options
+      
+  2009 format(//'  Enter Distance Between Stack and Building Center ',a,
+-     +  ': '\)     
++     +  ': '$)     
+ 
+ c     check to make sure blength is larger than bwidth  and
+ c     other parameters are within valid ranges
+@@ -5653,7 +5653,7 @@
+           lterrain=.false.
+       endif
+       
+-1000  format(//' Include Terrain Heights? (y/n): '\)
++1000  format(//' Include Terrain Heights? (y/n): '$)
+ 
+       if (iskip .eq. 2 .and. iopt .eq. 1) then
+         if (lterrain .and. .not. lcalc .and. nada .ne. 0) then 
+@@ -5702,7 +5702,7 @@
+       if (iskip .eq. 2 .and. .not. lall) goto 45
+       
+ 1001  format(///' Enter Maximum Distance (m) to probe '/
+-     +  ' <Enter> for default (',i5,' m): '\)  
++     +  ' <Enter> for default (',i5,' m): '$)  
+ 1012  format(//1x,'******* WARNING *************'/1x,
+      +  'Probe distance changed from ',f9.2,' m to ',/1x,f9.2,' m')
+      
+@@ -5757,7 +5757,7 @@
+  
+  
+  
+- 400  format(/1x,'Include up to 10 discrete receptors (y/n)? '\)
++ 400  format(/1x,'Include up to 10 discrete receptors (y/n)? '$)
+  401  format(/1x,'Enter name of file with discrete receptors.',
+      + /1x,'Enclose filename with quotes if path or filename ',
+      + 'includes spaces... '/)
+@@ -5770,7 +5770,7 @@
+ c --- Prompt for flagpole heights (optional) ---
+ 
+   105 write(*,1018)
+-1018  format(//' Use Flagpole receptors? (y or n): '\)
++1018  format(//' Use Flagpole receptors? (y or n): '$)
+       read(*,'(a)')response
+       call checkanswer(response,lblank,lbad,1)
+       if (lblank .or. lbad) then
+@@ -5852,9 +5852,9 @@
+       endif
+       base=profbase
+  1002 format(///'Enter source elevation ',a,' or'/
+-     +  ' <Enter>  for AERMAP derived elevation: '\) 
++     +  ' <Enter>  for AERMAP derived elevation: '$) 
+  1003 format(///'Enter source elevation ',a,' or'/
+-     +  ' <Enter>  for default 0 m: '\) 
++     +  ' <Enter>  for default 0 m: '$) 
+ c      if (.not. lall .and. iopt .ne. 0) goto 45
+ c --- Prompt for lat/lons or UTM coordinates
+  65   if (lterrain) then
+@@ -5942,10 +5942,10 @@
+         goto 65
+       endif
+       
+- 1006 format(//' Enter Source Latitude (North positive) (xx.xxxx): '\)
+- 1007 format(//' Enter Source Longitude (West negative) (xx.xxxx): '\)
+- 1008 format(//' Enter Source UTM Easting (xxxxxx.x): '\)
+- 1009 format(//' Enter Source UTM Northing (xxxxxxx.x): '\)
++ 1006 format(//' Enter Source Latitude (North positive) (xx.xxxx): '$)
++ 1007 format(//' Enter Source Longitude (West negative) (xx.xxxx): '$)
++ 1008 format(//' Enter Source UTM Easting (xxxxxx.x): '$)
++ 1009 format(//' Enter Source UTM Northing (xxxxxxx.x): '$)
+  
+  70   if (llat) then
+         izone=0
+@@ -5972,7 +5972,7 @@
+           endif
+         endif
+       endif
+-1010  format(/' Enter Source UTM Zone (xx): '\)
++1010  format(/' Enter Source UTM Zone (xx): '$)
+ 75    if (iskip .eq. 2 .and. .not. lterrain) then
+         goto 45
+       else
+@@ -5990,7 +5990,7 @@
+      + ' Option (1) - North American Datum of 1927'/
+      + ' Option (4) - North American Datum of 1983'/
+      + '----------------------------------------------'//
+-     + ' Enter Option for Applicable UTM Nada: '\)
++     + ' Enter Option for Applicable UTM Nada: '$)
+      
+ 
+ 
+@@ -6779,11 +6779,11 @@
+       endif      
+ 
+  1000 format(//'<Enter> to default to ',i3,1x,i3,1x,a2,'... ')
+- 1001 format(//' Enter Minimum Temperature ',a,': '\)
+- 1002 format(//' Enter Maximum Temperature ',a,': '\)
++ 1001 format(//' Enter Minimum Temperature ',a,': '$)
++ 1002 format(//' Enter Maximum Temperature ',a,': '$)
+  1003 format(//' Enter Min & Max Ambient Temperatures (K)'/
+      +      'or <Enter> to default to ',i3,1x,i3,1x,a,'... '//
+-     +      ' Enter Minimum Temperature ',a,': '\)
++     +      ' Enter Minimum Temperature ',a,': '$)
+ 
+ c --- Allow user to set minimum MAKEMET wind speed -----
+ c --- Defaults to 0.5 m/s if no data is provided ---
+@@ -6792,7 +6792,7 @@
+  105  write(*,1004)
+       read(*,'(a)')response
+  1004 format(//' Enter Minimum Wind Speed or <Enter> to default to ',
+-     + '0.5 m/s... '\)
++     + '0.5 m/s... '$)
+      
+       call checkanswer(response,lblank,lbad,2)
+       if (lblank) then
+@@ -6817,7 +6817,7 @@
+ 
+ 110   write(*,1005)
+ 1005  format(//' Enter Anemometer Height or <Enter> to default to ',
+-     +  '10.0 meters... '\)
++     +  '10.0 meters... '$)
+       read(*,'(a)')response
+ 
+       call checkanswer(response,lblank,lbad,2)
+@@ -6856,7 +6856,7 @@
+      + '2) AERMET seasonal tables'/1x
+      + '3) External file'/1x
+      + '--------------------------------'/1x,'
+-     + Enter surface characteristics option: '\)
++     + Enter surface characteristics option: '$)
+      
+       if (ians .eq. 1) then
+        isurf = 0
+@@ -7075,11 +7075,11 @@
+       endif
+       
+ 
+- 1007 format(//' Enter Albedo: '\)
+- 1008 format(/' Enter Bowen Ratio: '\)
+- 1009 format(/' Enter Surface Roughness Length (m): '\)
+- 1010 format(//' Enter Dominant Surface Profile: '\)
+- 1011 format(//' Enter Dominant Climate Profile: '\)
++ 1007 format(//' Enter Albedo: '$)
++ 1008 format(/' Enter Bowen Ratio: '$)
++ 1009 format(/' Enter Surface Roughness Length (m): '$)
++ 1010 format(//' Enter Dominant Surface Profile: '$)
++ 1011 format(//' Enter Dominant Climate Profile: '$)
+  1012 format(//' Enter filename containing surface characteristics'/
+      + 'Enclose filename with quotes if path or filename ',
+      + 'includes spaces... '/
+@@ -7502,13 +7502,13 @@
+ 
+    60 format(//' Source is an urban source, will assume rural for',
+      +' fumigation calculations')     
+-  100 format(//' Apply inversion break-up fumigation (y/n): '\)
+-  105 format(//' Apply shoreline fumigation (y/n): '\)
+-  110 format(//' Enter minimum distance to shoreline (m): '\)
++  100 format(//' Apply inversion break-up fumigation (y/n): '$)
++  105 format(//' Apply shoreline fumigation (y/n): '$)
++  110 format(//' Enter minimum distance to shoreline (m): '$)
+   130 format(//' Enter optional direction to shoreline ',
+      +'(0 - 360 degrees) or enter -9 or <Enter> for no specific ',
+-     +'direction: '\)
+-  140 format(//' Run AERSCREEN (y/n): '\)
++     +'direction: '$)
++  140 format(//' Run AERSCREEN (y/n): '$)
+ 998   format(1x,'Minimum distance to shoreline is greater than 3 km',
+      +' or invalid')
+   999 format(1x,'Invalid response')
+@@ -7970,7 +7970,7 @@
+ c     +         /22x,'5 - Change Title; ',
+ c     +         /22x,'6 - Change Output Filename; ',
+ c     +         /22x,'          - or -       ',
+-c     +         /22x,' Hit <Enter> to Start Run  '\)
++c     +         /22x,' Hit <Enter> to Start Run  '$)
+      
+ c 5001 format(//' *** AERSCREEN Run is Ready to Begin - Choose Option ',
+ c     +         'to Proceed *** ',
+@@ -7982,7 +7982,7 @@
+ c     +         /22x,'6 - Change Output Filename; ',
+ c     +         /22x,'7 - Stop AERSCREEN; ',
+ c     +         /22x,'          - or -       ',
+-c     +         /22x,' Hit <Enter> to Start Run  '\)
++c     +         /22x,' Hit <Enter> to Start Run  '$)
+ 
+  5000 format(//' *** AERSCREEN Run is Ready to Begin - Choose Option ',
+      +         'to Proceed *** ',
+@@ -7995,7 +7995,7 @@
+      +         /22x,'7 - Change Debug Option; '
+      +         /22x,'8 - Change Output Filename; ',
+      +         /22x,'          - or -       ',
+-     +         /22x,' Hit <Enter> to Start Run  '\)
++     +         /22x,' Hit <Enter> to Start Run  '$)
+      
+  5001 format(//' *** AERSCREEN Run is Ready to Begin - Choose Option ',
+      +         'to Proceed *** ',
+@@ -8009,7 +8009,7 @@
+      +         /22x,'8 - Change Output Filename; ',
+      +         /22x,'9 - Stop AERSCREEN; ',
+      +         /22x,'          - or -       ',
+-     +         /22x,' Hit <Enter> to Start Run  '\)
++     +         /22x,' Hit <Enter> to Start Run  '$)
+       read(*,'(a)')response
+       call checkanswer(response,lblank,lbad,2)
+       if (lblank) then
+@@ -8702,6 +8702,11 @@
+        if(temp .ne. 'YBADJ   ')goto 140
+       enddo
+ 
++c --- An adjustment that rounds to zero can come back from BPIP as
++c --- -0.00; makeformat then picks a 3-character field for it, which
++c --- cannot hold the sign, and AERMOD is handed "36****". Drop the sign.
++      where (abs(bpipxad) .lt. 0.005) bpipxad = 0.0
++      where (abs(bpipyad) .lt. 0.005) bpipyad = 0.0
+ 
+ c --- Check to see if stack is GEP ---
+       igep = 1
+@@ -10163,13 +10168,13 @@
+ c --- Save Stage2 aermap.kil file for possible re-use in next run ---
+ !      if(istage .eq. 2)call system("copy aermap.kil aermap.lst > kil")
+       if(istage .eq. 2) then
+-          infil1='aermap.kil'
++          infil1='AERMAP.KIL'
+           outfil3='aermap.lst'
+           call aermapout
+       endif
+   15    if (istage .ne. 0) then
+ c  -- Find stack base elevation and clean up data file ---
+-        open(aermpkil,file='aermap.kil',status='unknown')
++        open(aermpkil,file='AERMAP.KIL',status='unknown')
+         open(aermpdat,file='aermap.dat')
+ 
+ c --- Find stack base elevation ---
+@@ -10271,7 +10276,7 @@
+           nadpath1=trim(adjustl(line(n+9:n+9+199)))
+           l=len_trim(nadpath1)
+           if (l .eq. 0) then
+-            nadpath1='.\'
++            nadpath1='./'
+             nadpath=nadpath1
+           else
+             n1=index(nadpath1,quote1)
+@@ -10284,12 +10289,12 @@
+ !              nadpath=trim(adjustl(nadpath1))//'\'
+             endif
+             n3=len_trim(nadpath)
+-            if (nadpath(n3:n3) .ne. '\') 
+-     +      nadpath=trim(adjustl(nadpath))//'\'         
++            if (nadpath(n3:n3) .ne. '/') 
++     +      nadpath=trim(adjustl(nadpath))//'/'         
+           endif
+ !          l=len_trim(nadpath1)
+ !          if (l .eq. 0) then
+-!            nadpath1='.\'  
++!            nadpath1='./'  
+ !            nadpath=nadpath1   
+ !          endif
+            lnadgrid=.true.
+@@ -10318,9 +10323,9 @@
+ !          gfile2=char(34)//trim(adjustl(nadpath))//'\'//
+ !     +    trim(adjustl(gfile(i)))//'.los'//char(34)
+ !        else
+-          gfile1=trim(adjustl(nadpath))//'\'//
++          gfile1=trim(adjustl(nadpath))//'/'//
+      +    trim(adjustl(gfile(i)))//'.las'
+-          gfile2=trim(adjustl(nadpath))//'\'//
++          gfile2=trim(adjustl(nadpath))//'/'//
+      +    trim(adjustl(gfile(i)))//'.los'
+ !        endif
+         inquire(file=gfile1,exist=exist1)
+@@ -10501,7 +10506,7 @@
+      +               '' cause AERMAP to CRASH ...'')')
+ 
+        write(*,'(//'' Press <Enter> to continue processing'',
+-     +            '' or <Ctrl-C> to abort... ''\)')
++     +            '' or <Ctrl-C> to abort... ''$)')
+ 
+       endif
+       return
+@@ -10699,13 +10704,13 @@
+ c     check terrain input filenames type and names from older AERMAP.OUT file
+ c     if file doesn't exist, set lrun to true and rerun AERMAP
+       eof=0
+-      inquire(file='AERMAP1.OUT',exist=lexist)
++      inquire(file='aermap1.out',exist=lexist)
+       if (.not. lexist) then
+         write(*,46)
+         write(ilog,46)
+         lrun=.true.
+       else
+-        open(unit=aermpout,file='AERMAP1.OUT',status='old')
++        open(unit=aermpout,file='aermap1.out',status='old')
+         read(aermpout,70,iostat=eof)line
+  75     if (eof .eq. 0) then
+           if (index(line,'CO DATATYPE') .gt. 0) then  !get datatype, NED or DEM
+@@ -10831,7 +10836,7 @@
+ 
+ !      call system("copy aermap.lst aermap.kil > nul")
+       infil1='aermap.lst'
+-      outfil3='aermap.kil'
++      outfil3='AERMAP.KIL'
+       call aermapout
+       iexist = 1
+ 
+@@ -10879,7 +10884,7 @@
+       version = '     '
+       eof=0
+       
+-      open(ascrnfil,file='aerscreen.fil',status='old')
++      open(ascrnfil,file='AERSCREEN.FIL',status='old')
+ 
+ c     get AERMOD version number
+       read(ascrnfil,'(a)',end=99)line
+@@ -10920,7 +10925,7 @@
+       close(ascrnfil)
+ c read H1H for all receptors
+       ir=1
+-      open(ascrnplt,file='aerscreen.plt',status='old')
++      open(ascrnplt,file='AERSCREEN.PLT',status='old')
+       read(ascrnplt,'(a)',iostat=eof)line
+  12   if (eof .eq. 0) then
+         read(line,'(a1)')temp
+@@ -12134,7 +12139,7 @@
+       if(lterrain .and. runscreen) then
+        open(aermapin,file='aermap.inp',status='unknown')
+        close(aermapin,status='delete')
+-       open(aermpout,file='AERMAP.OUT',status='old')
++       open(aermpout,file='aermap.out',status='old')
+        close(aermpout,status='delete')
+ !       call system("del aermap.inp > NUL")
+ !       call system("del aermap.out > NUL")
+@@ -12969,7 +12974,7 @@
+  4030 format(1x,a20,2(f8.2),f8.3)
+  4031 format(1x,a20,2(f8.2),f8.4)
+  4032 format(/' SURFACE FRICTION VELOCITY (U*) ',a)
+-      open(ascrnfil,file='aerscreen.fil',status='old')
++      open(ascrnfil,file='AERSCREEN.FIL',status='old')
+ !      open(isfcmet,file='aerscreen.sfc',status='old')
+       open(isfcmet,file=sfcfil,status='old')
+  
+@@ -13311,7 +13316,7 @@
+      +  'under Screening Guidance')
+ 
+ 
+-      open(ascrnfil,file='aerscreen.fil',status='old')
++      open(ascrnfil,file='AERSCREEN.FIL',status='old')
+ 
+ 
+ 
+@@ -14739,7 +14744,7 @@
+ c      ierr1=0
+ c      i1=1
+ c     write(ilog,*)'***************************************************'
+-      open(aermdout,file='AERMOD.OUT',status='old')
++      open(aermdout,file='aermod.out',status='old')
+  5    read(aermdout,'(a)')line
+       if(index(line,'STAGE') .gt. 0 .and. .not. badstage)then 
+          indx=index(line,'STAGE')
+@@ -14908,7 +14913,7 @@
+         blnkln(i:i)=' '
+       end do
+       
+-      open(aermpout,file='AERMAP.OUT',status='old')
++      open(aermpout,file='aermap.out',status='old')
+       
+  5    read(aermpout,'(a)',iostat=ierror)line
+       if(index(line,'STAGE') .gt. 0 .and. .not. badstage)then 

@@ -72,7 +72,13 @@ from .aermod_outputs import (
     read_seasonhr,
     read_toxxfile,
 )
-from .aerscreen import AERSCREENConfig, AERSCREENSourceType
+from .aerscreen import (
+    AERSCREENConfig,
+    AERSCREENImpact,
+    AERSCREENSourceType,
+    AERSCREENSummary,
+    parse_aerscreen_output,
+)
 from .aerscreen_runner import AERSCREENRunner, AERSCREENRunResult
 from .aersurface import AERSURFACEConfig
 from .aersurface_runner import AERSURFACERunner, AERSURFACERunResult
@@ -344,7 +350,8 @@ __all__ = [
     "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
     "AERSURFACEConfig", "AERSURFACERunner", "AERSURFACERunResult",
     "AERSCREENConfig", "AERSCREENSourceType", "AERSCREENRunner",
-    "AERSCREENRunResult",
+    "AERSCREENRunResult", "AERSCREENSummary", "AERSCREENImpact",
+    "parse_aerscreen_output",
     # Design values + NAAQS
     "DesignValue", "NAAQSStandard", "NAAQS_TABLE", "get_naaqs",
     "add_background", "annual_mean",
