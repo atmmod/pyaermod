@@ -7,7 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.2.0] - YYYY-MM-DD
+
+<!-- YYYY-MM-DD is a placeholder: RELEASING.md sets it to the day the GitHub release is published. -->
+
+The archival release the JAWMA manuscript cites. v2.1.0 was planned
+after PR #9 and never tagged, so this section carries everything since
+2.0.0: the validation of the regulatory math and file formats against
+EPA's own programs (#9), the reader's four completeness tranches (#10,
+#13, #14, #15) and the 53-deck round-trip guarantee (#14), the AERSCREEN
+rescue (#11), and the release engineering itself. Three dataclasses
+changed their fields incompatibly (`AERSURFACEConfig`,
+`AERSCREENConfig`, `EventPeriod`) and `OutputPathway.max_file` is gone;
+the upgrade notes are at the end of this section.
+
+#### Validation evidence
+
+What the release has been checked against, with the artifact each
+number comes from:
+
+| Check | Oracle | Result |
+|---|---|---|
+| EPA test-suite parity (`docs/validation.md`) | AERMOD v26135 built with gfortran, EPA reference set `aermet26135_aermod26135` | **142 / 142** POSTFILE comparisons within EPA's ±0.001 best-fit-slope margin |
+| AERTEST regression (`tests/test_real_aermod.py`) | EPA's `AERTEST_01H.PLT` | all 144 receptors bit for bit |
+| EPA deck round trip (`tests/test_epa_deck_roundtrip.py`, `tests/test_epa_source_roundtrip.py`) | the 53 decks of EPA's v26135 archive | **53 / 53** parse → write → re-parse with every pathway equal field for field, the keyword lines equal token for token, and every original line either modelled or kept in `unparsed_lines` |
+| EPA deck acceptance (`tests/test_epa_deck_acceptance.py`) | AERMOD's own setup pass over the rewritten decks | 49 / 53 accepted clean; the four chained MULTYEAR years report the same E500 as EPA's original does without the previous year's save file |
+| Rewritten decks against EPA's POSTFILEs (`tests/regulatory/test_epa_rewritten_so.py`) | EPA's reference POSTFILEs | fourteen decks with pyaermod's SO pathway and ten fully rewritten decks, all at slope 1.000000 |
+| Keyword coverage (`docs/keyword-audit-v26135.md`) | the 115 keywords AERMOD v26135's `modules.f` dispatches | **115 / 115** handled and tested (104 with a field, 11 stored verbatim by documented decision), from 59 at v2.0.0 |
+| AERSCREEN (`tests/test_aerscreen_known_answers.py`, `tests/test_real_aerscreen.py`) | EPA's `aerscreen_test_cases.zip` and the patched binary | all **22** restart decks reproduced byte for byte; **21** of the 22 cases (12 flat, through typed answers and through the restart file, and 9 terrain) reproduce EPA's `.OUT` line for line; the 22nd ships in EPA's archive as an OLM deck under a PVMRM name and cannot reproduce its own reference |
+| BPIP-PRIME (`tests/test_bpip_known_answers.py`) | EPA's BPIP-PRIME, compiled from source | exact over 6,480 direction comparisons |
+| AERSURFACE (`tests/test_real_aersurface.py`, `tests/test_aersurface_deck_acceptance.py`) | the binary and EPA's RDU reference | EPA's reference reproduced byte for byte; about 30 configurations through the setup pass |
+| NAAQS design values (`tests/test_naaqs_rank_tables.py`, `tests/regulatory/test_epa_known_answers.py`) | 40 CFR 50 appendices N, S and T; EPA's `.PLT`, `DA1`–`DA8` and `.SUM` files | exact, no tolerance |
+| Runner overhead and batch throughput (`docs/benchmarks.md`) | the same AERMOD binary called directly with `subprocess` | the numbers, and the machines they were measured on, are on that page |
+
 ### Added
+- **`CITATION.cff`** (Citation File Format 1.2.0) with the metadata the
+  archival release needs: title, author, licence, repository, version
+  and a `preferred-citation` stub for the JAWMA paper. `date-released`
+  and `doi` are placeholders the release fills in (Zenodo mints the DOI
+  only after the GitHub release is published; `RELEASING.md` says where
+  to paste it). `tests/test_citation.py` ties its version to
+  `pyproject.toml` and `pyaermod.__version__` and validates the file
+  with `cffconvert` when it is installed, which the 3.12 CI leg does.
+  `README.md` and the docs index carry the citation.
+- **AERMOD run benchmarks** (`benchmarks/bench_aermod_runs.py`,
+  `python benchmarks/run_benchmarks.py --aermod`): the wall time of one
+  run of EPA's `aertest` case driven through `pyaermod.runner` against
+  the same binary called directly with `subprocess`, interleaved and
+  reported as medians and quartiles, and the throughput of a batch of
+  runs through `AERMODRunner.run_batch` at 1, 2, 4 and all-core workers.
+  Both skip with a reason when `bin/aermod` or the case is missing;
+  `--require-aermod` makes that an error. The `Benchmarks` workflow's
+  manual dispatch builds AERMOD from EPA's source, unpacks the case from
+  EPA's test-case archive and runs them on a clean runner. The numbers,
+  from that job and from the session that wrote it, are on the new
+  `docs/benchmarks.md` page.
+- **Release notes** for this version under `docs/release-notes/`, and a
+  "Reproducing the validation report" section in `docs/validation.md`
+  (emitted by `scripts/run_epa_parity.py` too, so it survives
+  regeneration) with the commands that rebuild the parity report, the
+  keyword audit and the benchmarks from a clean checkout of the tag.
 - **AERSCREEN drives the real binary, and EPA's own test cases prove
   it.** AERSCREEN has no input deck: it is interactive, and it restarts
   from the `**` header of its own output file. `pyaermod.aerscreen` now
@@ -51,6 +112,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The restart reader, it turns out, keeps a title only up to its first
     comma and upper-cases it; the restart-file tests allow for that and
     the docstrings say so.
+- **Every v26135 runstream keyword is now read into a field (WP-5).** The
+  audit's "Unhandled (kept verbatim)" list -- the EV pathway, six ME and
+  five OU keywords, and the CO/SO leftovers -- is empty; the only lines
+  that still travel in `unparsed_lines` are the ones with no model by
+  design (EMISFACT, HOUREMIS, INCLUDED, SITEDATA, EVALCART, DISCPOLR,
+  ERRORFIL, DEBUGOPT, NO2EQUIL, BACKUNIT) and malformed forms. Field
+  layouts come from `evset.f`, `meset.f`, `ouset.f`, `coset.f` and
+  `soset.f` through `scripts/keyword_oracle.py`; probe decks 20-30 under
+  `scripts/oracle_decks/` record what AERMOD v26135 said about each form,
+  including the first guesses it rejected.
+  - **EV pathway** (`EventPeriod`, `EventLocation`, `EventPathway`) in the
+    layout AERMOD writes itself for `EVENTFIL` (`EVENTPER name aveper
+    grpid date conc`, `EVENTLOC name XR= x YR= y zelev [zhill [zflag]]` or
+    `RNG=`/`DIR=`); `AERMODProject.event_processing` and the `CO SO ME EV
+    OU` event-deck layout with `OutputPathway.event_output` (EVENTOUT);
+    `ControlPathway.eventfil_option`; `read_event_output()` for the
+    per-event source contributions of an EVENT run's `.out`.
+  - **ME**: `MeteorologyPathway.day_ranges` (DAYRANGE), `.num_years`
+    (NUMYEARS), `.wind_speed_categories` (WINDCATS), `.scim`
+    (`ScimOptions`, the three SCIMBYHR forms) and `.turbulence_option`
+    (the nine NOTURB/NOSA/NOSW keywords).
+  - **OU**: `OutputPathway.no_header` (NOHEADER), `.rank_files`
+    (`RankFile`), `.season_hour_files` (`SeasonHourFile`), `.eval_files`
+    (`EvalFile`), `.toxx_files` (`ToxxFile`); the file entries read their
+    output through the existing `aermod_outputs` readers.
+  - **CO**: `ControlPathway.arm2_ratios` (ARMRATIO), `.awma_downwash`
+    (AWMADWNW), `.ord_downwash` (ORD_DWNW), `.aircraft_option` /
+    `.airport_id` (ARCFTOPT).
+  - **SO**: `method_2` (`Method2Params`, `METHOD_2 srcid finemass dg`) on
+    every source type; `PointSource.platform` (`PlatformParams`,
+    PLATFORM); `SourcePathway.aircraft_sources` (ARCFTSRC) and
+    `.hbp_sources` (HBPSRCID); `PointCapSource`, `PointHorSource` and
+    `SidewashPointSource` construct POINTCAP, POINTHOR and SWPOINT;
+    `OPEN_PIT`/`OPEN-PIT` are read as OPENPIT; the `FLAT` literal in a
+    LOCATION elevation field is kept (`flat_source`) and written back.
+  - Validator rules naming the AERMOD code for each: E145/E380 (ARMRATIO),
+    E122/E123/E124/E126/E121 (the downwash options), E197/E198/E332/E386
+    (METHOD_2), E198/E631 (PLATFORM), E198 (SWPOINT), E821/E130 (ARCFTSRC,
+    HBPSRCID), E154/E200/E202/E380 (the ME keywords), E164/E203/E211
+    (the OU files), E130/E203/E297/E313 (the events).
+  - `tests/test_epa_deck_acceptance.py` runs every new writer form through
+    AERMOD's setup pass; `tests/regulatory/test_epa_rewritten_so.py` now
+    fully rewrites testpart, testprt2, openpits, capped, the two ARM2 decks,
+    flatelev, lovett, mcr and hrdow and scores them against EPA's
+    POSTFILEs (all at slope 1.000000); `tests/regulatory/test_event_rewrite.py`
+    runs AERMOD's own generated event deck and pyaermod's rewrite and
+    requires every contribution to agree. flatelev, scimtest,
+    no2_1yrAK_arm2 and the AERMOD-generated `events_generated.inp` are
+    vendored.
 - **Source construction, reader tranche 2.** The SO keywords the v26135
   audit listed as recognised but not constructed, or not read at all,
   are now stored on the source model and written back in the field
@@ -106,7 +216,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     forms, with what AERMOD said about the first guesses; the oracle
     workflow's default keyword list covers the tranche.
 
+- **Nothing the reader cannot model is dropped any more:
+  `AERMODProject.unparsed_lines`.** `pyaermod.input_reader` keeps every
+  runstream line it has no field for -- an unmodelled keyword (RANKFILE,
+  SEASONHR, EMISFACT, HOUREMIS, INCLUDED, SITEDATA, ERRORFIL, ...), an
+  unmodelled form of a known keyword (a BACKGRND hourly file, a PLOTFILE
+  with a lower rank, a second POSTFILE), the definition lines of a source
+  type it does not construct (POINTCAP, POINTHOR), or an inline EV
+  pathway -- as an `UnparsedLine` (pathway, keyword, fields as written,
+  line number), logs one warning per pathway and keyword, and the writer
+  puts them back into their pathway (`to_aermod_input(preserve_unparsed=
+  True)`, the default) where AERMOD accepts them: ELEVUNIT first, SO lines
+  before the group keywords, the rest before FINISHED. The module
+  docstring had promised this collection since the reader was written;
+  the implementation silently discarded the lines.
+- **The runstream layout AERMOD actually parses.** A line blank through
+  the keyword columns continues the previous keyword (setup.f EXKEY), as
+  twenty of EPA's decks write their GRIDPOLR blocks (`POL1 DIST 100.
+  1000.`); the reader took `POL1` for the keyword and dropped the line.
+- **Receptor networks as reset.f defines them.** `PolarGrid.distances`
+  (GRIDPOLR DIST is only ever a list of ring distances), `.directions`
+  (DDIR), `.origin_source_id` (`ORIG srcid`), `.elevations`/`.hills`/
+  `.flags`; `CartesianGrid.x_points`/`.y_points` (XPNTS/YPNTS) and
+  `.grid_flags`; `ring_distances()`, `direction_angles()`, `x_values()`,
+  `y_values()` and `receptor_count` for consumers, which the geospatial
+  expansion and the advanced validator now use. The reader fills the
+  GRIDCART ELEV/HILL rows the writer already emitted.
+- **`OutputPathway.maxi_files` (`MaxiFile`)**: MAXIFILE in the layout
+  ouset.f reads, `aveper grpid thresh filename [funit]`, one per
+  averaging period and group (audit item 1).
+- **`ControlPathway.urban_areas` (`UrbanArea`)** for decks with several
+  URBANOPT lines (EPA's multurb.inp), `.extra_model_options` for MODELOPT
+  tokens without a field (SCREEN, PSDCREDIT, NOCHKD, ...), `.run_model`
+  (RUNORNOT NOT round-trips), `ChemistryMethod.TTRM`/`TTRM2`,
+  `MeteorologyPathway.start_hour`/`.end_hour` (the eight-field STARTEND),
+  `SourcePathway.include_all_group` (a deck that groups its sources with
+  PSDGROUP gets no invented `SRCGROUP ALL`).
+- **The round-trip guarantee over EPA's whole archive.**
+  `tests/test_epa_deck_roundtrip.py` now compares the CO, RE, ME and OU
+  pathways field for field, the source groups and IDs, and the preserved
+  lines, and asserts every line of each of the 53 v26135 decks is either
+  modelled or in `unparsed_lines`; eleven decks are vendored so the check
+  runs without the archive. `tests/test_epa_deck_acceptance.py` runs
+  every deck pyaermod writes for the archive through AERMOD's setup pass
+  next to EPA's original: 49 are accepted clean, the four chained
+  MULTYEAR years report the same missing-save-file E500 as EPA's own
+  deck. The writer forms this release changed have setup-pass cases of
+  their own. Probe decks 13-19 under `scripts/oracle_decks/` record what
+  AERMOD said about the previous forms.
+
 ### Changed
+- `RELEASING.md` names every file a release touches (the third
+  `__version__`, in `pyaermod.api`, was missing), sets the changelog
+  date and `CITATION.cff`'s `date-released`, and adds the Zenodo step:
+  enable the GitHub–Zenodo archive before publishing, then paste the
+  minted DOI into `CITATION.cff`, `README.md` and `docs/index.md`.
+- **`EventPeriod` has AERMOD's field semantics** (`event_name,
+  averaging_period, date, source_group, original_conc, location`); the
+  former `start_date`/`end_date` pair matched no AERMOD card, EVENTLOC was
+  never written and the EV block went after OU, so no event deck pyaermod
+  wrote was ever accepted. `AERMODProject.write(event_filename=)` now
+  writes a complete event deck rather than an EV block. Event names may be
+  ten characters (`EVNAME*10`; AERMOD's own are).
+- `SourcePathway.sources` may hold `SidewashPointSource`; the GUI's source
+  registries list the three new classes.
+- The pre-commit ruff hook is pinned to the ruff release CI uses (the
+  v0.4.0 hook could not parse `pyproject.toml`'s `UP045` selector).
+- **`OutputPathway.max_file` is removed.** It wrote `MAXIFILE filename`,
+  which every AERMOD release rejects (E201: four fields are required);
+  use `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`. The
+  GUI's output page lists the new field.
+- `Validator` accepts explicit receptor lists (`distances`, `directions`,
+  `x_points`, `y_points`) in place of the generator fields they replace.
 - **`GasDepositionParams` now has AERMOD's field semantics** (audit
   follow-up 7): `GASDEPOS srcid Da Dw rcl Henry`, i.e. `diffusivity`,
   `diffusivity_water`, `cuticular_resistance` and a required
@@ -128,83 +309,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines together with `SRCGROUP ALL BACKGROUND` on the card that
   defines ALL: AERMOD files a non-adjacent continuation card under the
   last group defined, whichever ID it names.
-
-### Fixed
-- The reader dropped every source's base elevation (the LOCATION
-  elevation field was parsed and never applied) and the fourth SRCPARAM
-  field of LINE sources.
-
-- **Structural reading and writing of the regulatory-critical CO and OU
-  keywords** the v26135 audit listed as pass-through only. Each is stored
-  on the project model, written back in the field layout AERMOD's
-  `coset.f` / `ouset.f` read, and checked against the binary's own setup
-  pass (`tests/test_source_deck_acceptance.py`) and against every EPA
-  test deck that uses it (`tests/test_epa_deck_roundtrip.py`, token for
-  token). Reader coverage goes from 59 to 77 of the 115 dispatched
-  keywords.
-  - Restart and multi-year runs: `ControlPathway.save_file`
-    (`SaveFile`: SAVEFILE with its day increment and alternate file),
-    `.init_file` (`InitFile`, bare or named) and `.multiyear`
-    (`MultiYear`: MULTYEAR with the optional previous-year file and the
-    legacy `H6H` field AERMOD still tolerates). EPA's five-year
-    `testpm10_1986`–`1990` chain round-trips.
-  - The NOx background family for GRSM: `ChemistryOptions.nox_background`
-    (`NOxBackground`) carries NOXVALUE, NOX_FILE (units and Fortran
-    format), NOX_VALS (any of the twelve EMISFACT-style temporal flags,
-    accumulated over continuation lines), NOX_UNIT and NOXSECTR with
-    per-sector `BackgroundSpec`s. `OzoneData` gains the matching
-    O3SECTOR (`sectors`), OZONUNIT (`units`), per-sector `by_sector`,
-    the units on OZONEVAL/OZONEFIL and the OZONEFIL read format, and an
-    O3VALUES temporal profile (`TemporalValues`).
-  - Gas dry-deposition defaults: `ControlPathway.gas_deposition_defaults`
-    (`GasDepositionDefaults`: GASDEPDF), `.gas_deposition_velocity`
-    (GASDEPVD), `.gas_deposition_seasons` (GDSEASON) and
-    `.gas_deposition_land_use` (GDLANUSE).
-  - The 1-hour NO2/SO2 and 24-hour PM2.5 design-value outputs:
-    `OutputPathway.max_daily_files` / `.max_daily_by_year_files`
-    (`MaxDailyFile`: MAXDAILY, MXDYBYYR), `.max_daily_contributions`
-    (`MaxDailyContribution`: MAXDCONT in both the rank and the THRESH
-    form) and `.file_format` (FILEFORM).
-- **The 1-hour NAAQS workflow end to end.**
-  `design_values.naaqs_output_pathway(pollutant)` builds the OU pathway
-  for a design value with the rank taken from the NAAQS table
-  (`NAAQSStandard.percentile` / `.design_rank()`, new), `read_maxdaily()`
-  and `read_mxdybyyr()` parse AERMOD's MAXDAILY / MXDYBYYR files into
-  the frames the design-value functions take, and
-  `mxdybyyr_design_value()` reads AERMOD's own ranking back as a
-  cross-check. On EPA's Anchorage 1999 meteorology the SO2 and NO2 design
-  values pyaermod computes from MAXDAILY equal AERMOD's MXDYBYYR rank and
-  MAXDCONT total to the last printed digit
-  (`tests/fixtures/epa_style/{so2,no2}_1hr_*`, produced by the vendored
-  decks, which `naaqs_output_pathway` wrote).
-- **Validator rules for the cross-checks AERMOD applies to these
-  keywords**: MULTYEAR excludes SAVEFILE/INITFILE (E150) and is limited
-  to the pollutants it can chain; the gas-deposition defaults need ALPHA
-  (E198) and GASDEPVD excludes GDSEASON/GDLANUSE (E195); NOXVALUE and
-  NOX_VALS conflict (E605), sector forms need their sector keyword (E171)
-  and sectors must be ascending and at least 30 degrees apart (E222/E227);
-  MAXDAILY/MXDYBYYR/MAXDCONT require the NAAQS processing to be active
-  (`Validator.naaqs_processing`, E162/E163), MAXDCONT excludes restarts
-  (E153) and its ranks must sit inside the RECTABLE range (E290/E272),
-  with the THRESH form needing room beyond the design rank (E273).
-- **`scripts/keyword_oracle.py` and `.github/workflows/keyword_oracle.yml`**
-  — print, from EPA's Fortran and a freshly built binary, what AERMOD
-  does with a keyword: the dispatch branch and parsing subroutine, every
-  EPA test deck that uses it, and the setup-pass messages and produced
-  files from probe decks (`scripts/oracle_decks/`). Manual dispatch.
-
-### Fixed
-- **The ozone and NOx writer emitted lines AERMOD rejects.** An ozone
-  file was written as `O3VALUES <file>` (E201, no numerical parameters),
-  a constant as `O3VALUES UNIFORM <value>` (E203, invalid flag) and a
-  sector value as `O3VALUES SECTOR n <value>`; the NOx background file
-  was written on `NOXVALUE`, which takes a concentration (E208). They now
-  go on OZONEFIL, OZONEVAL, `OZONEVAL SECTn` and NOX_FILE, and the
-  setup-pass acceptance tests hold them there. The reader still accepts
-  the two legacy `O3VALUES` spellings so decks written by earlier
-  releases open.
-
-### Changed
 - `Validator._validate_output` receives the control pathway so the OU
   design-value keywords can be checked against the pollutant and
   averaging periods; `Validator.validate` is unchanged for callers.
@@ -403,110 +507,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one-line decks for every previously untested branch and a pass-through
   test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
   99.8 % (the one remaining line is an unreachable guard).
-
-### Upgrade notes — `AERSCREENConfig`
-
-`AERSCREENConfig`'s fields changed, because the deck it built was not in
-any AERSCREEN format: AERSCREEN has no keyword deck at all. It asks an
-ordered sequence of questions on stdin and can restart from the `**`
-header of its own output file, and the old fields described neither.
-No code that ran AERSCREEN can have depended on the old fields; code
-written against them can. Passing an old field name raises a
-`TypeError` naming the replacement.
-
-| Old | New |
-|-----|-----|
-| `initial_sigma_z`, `vertical_dim` | `vertical_dimension` (VOLUME, AREA and AREACIRC) |
-| `lateral_dim` | `lateral_dimension` |
-| `dominant_landuse` (an Auer code 1-12) | `land_use` (an AERMET land-use code 1-8) with `climate` (1-3) |
-| `terrain_file` | `dem_files` (with `dem_type` and `nad_grid_dir`); AERSCREEN lists them in `DEMlist.txt` for AERMAP |
-| `distances="AUTO"` / `[...]` | *removed* -- AERSCREEN probes its own distances; up to ten extra ones go in `discrete_receptors` |
-| `extra_lines` | *removed* -- there is no deck to append to |
-| `AERSCREENSourceType.CAPPED` / `.HORIZONTAL` | still work, as aliases of `POINTCAP` / `POINTHOR` |
-
-`stack_temp=None` still means ambient (AERSCREEN's `0`), and a negative
-value is a temperature difference above ambient, as AERSCREEN takes it.
-The surface characteristics must now be given one of AERSCREEN's three
-ways: `albedo` + `bowen_ratio` + `roughness_length`, `land_use` +
-`climate`, or an AERSURFACE output in `surface_file`. Files a run needs
-(`surface_file`, `discrete_receptor_file`, `bpip_file`, `dem_files`) are
-copied into the working directory by the runner and referred to by
-name, as AERSCREEN expects.
-
-```python
-# Old -- produced a KEY: value deck AERSCREEN never read
-cfg = AERSCREENConfig(
-    title="SO2 stack", source_type="POINT", emission_rate=10.0,
-    stack_height=30.0, stack_diameter=2.0, stack_temp=425.0,
-    exit_velocity=15.0, dominant_landuse=7, distances="AUTO",
-)
-
-# New -- the answers AERSCREEN asks for, or its restart file
-cfg = AERSCREENConfig(
-    title="SO2 stack", source_type="POINT", emission_rate=10.0,
-    stack_height=30.0, stack_diameter=2.0, stack_temp=425.0,
-    exit_velocity=15.0, land_use=7, climate=1,
-)
-result = AERSCREENRunner().run(cfg, working_dir="so2")   # mode="prompts"
-result.summary.maximum.conc_1hr                           # ug/m3
-```
-
-These fields are new and have no old equivalent: `flare_heat_loss`,
-`radius`, `ambient_distance`, the NO2 chemistry (`no2_method`,
-`no2_stack_ratio`, `ozone_concentration`, `ozone_units`), `bpip_file`,
-`stack_direction`, `stack_distance`, `probe_distance`,
-`discrete_receptor_file`, `flagpole_height`, `source_elevation`,
-`aermap_elevation`, the UTM location and `datum`, `min_wind_speed`,
-`surface_file`, `shoreline_fumigation` and its distance and direction,
-`run_aermod`, `debug` and `output_file`.
-
-### Upgrade notes — `AERSURFACEConfig`
-
-`AERSURFACEConfig`'s fields changed, because the deck it built was not
-in any AERSURFACE format: it emitted `TITLE`, `LOCATION`, `NLCDFILE`,
-`SNOW_TEMPER`, `OUTPATH` and friends, none of which AERSURFACE has ever
-accepted, and the real binary aborted in its control-file parser. No
-code that ran AERSURFACE can have depended on the old fields; code
-written against them can.
-
-Passing an old field name now raises a `TypeError` naming the
-replacement, rather than a bare "unexpected keyword argument".
-
-| Old | New |
-|-----|-----|
-| `nlcd_file` | `land_cover_file` |
-| `radius_roughness_km` | `zo_radius_km` |
-| `snow_cover_per_month=[...]` | months in the `WINTERWS` season: `seasons={"WINTERWS": (1,), ...}` |
-| `moisture_per_month=[...]` | one `moisture="AVERAGE" \| "WET" \| "DRY"` |
-| `output_dir` | `sfcchar_file` (plus `*_grid_file` for the optional grid outputs) |
-| `extra_lines` | `extra_co_lines` / `extra_ou_lines` |
-| `sectors=[30, 60, 225]` | `sectors=[(30, 60, "NONAP"), (60, 225, "AP"), (225, 30, "NONAP")]` |
-| `utc_offset` | *removed* — AERSURFACE has no UTC-offset keyword |
-| `snow_regime` | *removed* — use `snow=True/False`; `CLIMATE` has no temperature regime |
-| `radius_albedo_bowen_km` | *removed* — AERSURFACE averages over the single `ZORADIUS` |
-
-```python
-# Old — produced a deck AERSURFACE rejected
-cfg = AERSURFACEConfig(
-    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
-    utc_offset=-8, nlcd_file="NLCD_2019.img", nlcd_year=2019,
-    snow_regime="CONTINENTAL_WARM", radius_roughness_km=1.0,
-)
-
-# New
-cfg = AERSURFACEConfig(
-    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
-    land_cover_file="NLCD_2019_LC.tiff", nlcd_year=2019,
-    zo_radius_km=1.0, moisture="AVERAGE", snow=True,
-    sfcchar_file="salem_sfc.txt",
-)
-```
-
-These fields are new and have no old equivalent: `title_two`, `datum`,
-`canopy_file`, `impervious_file`, `site_type`, `zo_method`, `frequency`,
-`debug_options`, `run`, and the `*_grid_file` outputs.
-
-### Changed
 - **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
   build, EPA set `aermet26135_aermod26135`): **142 / 142** POSTFILE
   comparisons within EPA's ±0.001 slope margin in 323 s (the previous
@@ -647,6 +647,115 @@ These fields are new and have no old equivalent: `title_two`, `datum`,
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **`pyaermod.__version__` was `pyaermod.api`'s constant, not
+  `__init__.py`'s.** `api.py` defines its own `__version__` and the
+  package re-exports `api.*` after setting its own, so bumping the two
+  files `RELEASING.md` named left the package reporting the old number.
+  All three say 2.2.0, and `tests/test_citation.py` fails on a partial
+  bump.
+- **`deposition_method` wrote a `METHOD` line that no AERMOD release
+  accepts** (there is no METHOD keyword in `modules.f`; SO E105). The field
+  is kept for compatibility and writes nothing; Method 2 deposition is
+  `method_2`.
+- **Fixed-column source fields no longer round a value away**: EPA's
+  capped deck gives three stacks an exit velocity of 0.001 m/s, which the
+  `8.2f` SRCPARAM column wrote as 0.00; a value the column cannot hold is
+  now written with six significant digits in the same width.
+- A `LOCATION ... FLAT` source (flatelev) was written with elevation 0.00,
+  which moved the FLAT group's 1-hour maxima by 17 %.
+- The lines of an incomplete source definition (a POINT with four
+  SRCPARAM values, a LINE with no end point) are kept in `unparsed_lines`
+  instead of being dropped.
+- **Every polar grid pyaermod wrote had no receptors (RE E185).** The
+  writer emitted `DIST init num delta` and `GDIR init num delta`;
+  reset.f reads every DIST field as a ring and GDIR as `num init delta`,
+  so `GDIR 0.0 36 10.0` generated zero directions. The reader's
+  three-token heuristic for the same lines (audit item 3) read EPA's
+  `GDIR 36 10 10` as 10 directions starting at 36 degrees. Both now
+  follow the Fortran; there is no heuristic.
+- **Elevated terrain was written as `MODELOPT ... ELEVATED`, which
+  coset.f does not know (E203).** The token is `ELEV`; `FLATSRCS` is the
+  pair `FLAT ELEV`, and the reader maps `FLAT ELEV` back to
+  `TerrainType.FLATSRCS` and ignores a FLAT after ELEV as AERMOD does.
+- **`NO2STACK` was written for ARM2 runs, which reject it (E600).** It
+  is written only for OLM, PVMRM, GRSM and TTRM.
+- **A single `URBANOPT` was written name-first (E208).** With one card
+  coset.f reads `pop [name [z0]]`; the ID-first form belongs to decks
+  with several cards. The reader still accepts the old spelling.
+- **`GRIDCART` with `XPNTS`/`YPNTS` became a default 10 x 10 grid**, and
+  `STARTEND` with hours lost its last two fields; a source defined in an
+  INCLUDED file with SRCPARAM inline was re-defined at the origin (E310).
+- The reader dropped every source's base elevation (the LOCATION
+  elevation field was parsed and never applied) and the fourth SRCPARAM
+  field of LINE sources.
+
+- **Structural reading and writing of the regulatory-critical CO and OU
+  keywords** the v26135 audit listed as pass-through only. Each is stored
+  on the project model, written back in the field layout AERMOD's
+  `coset.f` / `ouset.f` read, and checked against the binary's own setup
+  pass (`tests/test_source_deck_acceptance.py`) and against every EPA
+  test deck that uses it (`tests/test_epa_deck_roundtrip.py`, token for
+  token). Reader coverage goes from 59 to 77 of the 115 dispatched
+  keywords.
+  - Restart and multi-year runs: `ControlPathway.save_file`
+    (`SaveFile`: SAVEFILE with its day increment and alternate file),
+    `.init_file` (`InitFile`, bare or named) and `.multiyear`
+    (`MultiYear`: MULTYEAR with the optional previous-year file and the
+    legacy `H6H` field AERMOD still tolerates). EPA's five-year
+    `testpm10_1986`–`1990` chain round-trips.
+  - The NOx background family for GRSM: `ChemistryOptions.nox_background`
+    (`NOxBackground`) carries NOXVALUE, NOX_FILE (units and Fortran
+    format), NOX_VALS (any of the twelve EMISFACT-style temporal flags,
+    accumulated over continuation lines), NOX_UNIT and NOXSECTR with
+    per-sector `BackgroundSpec`s. `OzoneData` gains the matching
+    O3SECTOR (`sectors`), OZONUNIT (`units`), per-sector `by_sector`,
+    the units on OZONEVAL/OZONEFIL and the OZONEFIL read format, and an
+    O3VALUES temporal profile (`TemporalValues`).
+  - Gas dry-deposition defaults: `ControlPathway.gas_deposition_defaults`
+    (`GasDepositionDefaults`: GASDEPDF), `.gas_deposition_velocity`
+    (GASDEPVD), `.gas_deposition_seasons` (GDSEASON) and
+    `.gas_deposition_land_use` (GDLANUSE).
+  - The 1-hour NO2/SO2 and 24-hour PM2.5 design-value outputs:
+    `OutputPathway.max_daily_files` / `.max_daily_by_year_files`
+    (`MaxDailyFile`: MAXDAILY, MXDYBYYR), `.max_daily_contributions`
+    (`MaxDailyContribution`: MAXDCONT in both the rank and the THRESH
+    form) and `.file_format` (FILEFORM).
+- **The 1-hour NAAQS workflow end to end.**
+  `design_values.naaqs_output_pathway(pollutant)` builds the OU pathway
+  for a design value with the rank taken from the NAAQS table
+  (`NAAQSStandard.percentile` / `.design_rank()`, new), `read_maxdaily()`
+  and `read_mxdybyyr()` parse AERMOD's MAXDAILY / MXDYBYYR files into
+  the frames the design-value functions take, and
+  `mxdybyyr_design_value()` reads AERMOD's own ranking back as a
+  cross-check. On EPA's Anchorage 1999 meteorology the SO2 and NO2 design
+  values pyaermod computes from MAXDAILY equal AERMOD's MXDYBYYR rank and
+  MAXDCONT total to the last printed digit
+  (`tests/fixtures/epa_style/{so2,no2}_1hr_*`, produced by the vendored
+  decks, which `naaqs_output_pathway` wrote).
+- **Validator rules for the cross-checks AERMOD applies to these
+  keywords**: MULTYEAR excludes SAVEFILE/INITFILE (E150) and is limited
+  to the pollutants it can chain; the gas-deposition defaults need ALPHA
+  (E198) and GASDEPVD excludes GDSEASON/GDLANUSE (E195); NOXVALUE and
+  NOX_VALS conflict (E605), sector forms need their sector keyword (E171)
+  and sectors must be ascending and at least 30 degrees apart (E222/E227);
+  MAXDAILY/MXDYBYYR/MAXDCONT require the NAAQS processing to be active
+  (`Validator.naaqs_processing`, E162/E163), MAXDCONT excludes restarts
+  (E153) and its ranks must sit inside the RECTABLE range (E290/E272),
+  with the THRESH form needing room beyond the design rank (E273).
+- **`scripts/keyword_oracle.py` and `.github/workflows/keyword_oracle.yml`**
+  — print, from EPA's Fortran and a freshly built binary, what AERMOD
+  does with a keyword: the dispatch branch and parsing subroutine, every
+  EPA test deck that uses it, and the setup-pass messages and produced
+  files from probe decks (`scripts/oracle_decks/`). Manual dispatch.
+- **The ozone and NOx writer emitted lines AERMOD rejects.** An ozone
+  file was written as `O3VALUES <file>` (E201, no numerical parameters),
+  a constant as `O3VALUES UNIFORM <value>` (E203, invalid flag) and a
+  sector value as `O3VALUES SECTOR n <value>`; the NOx background file
+  was written on `NOXVALUE`, which takes a concentration (E208). They now
+  go on OZONEFIL, OZONEVAL, `OZONEVAL SECTn` and NOX_FILE, and the
+  setup-pass acceptance tests hold them there. The reader still accepts
+  the two legacy `O3VALUES` spellings so decks written by earlier
+  releases open.
 - **`pyaermod.aerscreen` wrote a deck AERSCREEN never reads.** The
   `KEY: value` layout of the previous release was not an AERSCREEN
   format (it has none), so nothing that used `AERSCREENConfig` could
@@ -933,6 +1042,176 @@ These fields are new and have no old equivalent: `title_two`, `datum`,
   but re-read collapsed, so `write -> read` was not a fixed point. The
   property-based round-trip strategy is restricted to the representable
   (normalized, non-empty) title domain accordingly.
+
+### Removed
+- `OutputPathway.max_file`: it wrote `MAXIFILE filename`, which every
+  AERMOD release rejects (E201); use
+  `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`.
+- `AERSCREENConfig.distances` and `.extra_lines`: AERSCREEN probes its
+  own distances and has no deck to append to (up to ten extra
+  distances go in `discrete_receptors`). `initial_sigma_z`,
+  `vertical_dim`, `lateral_dim`, `dominant_landuse` and `terrain_file`
+  are renamed; see the upgrade notes.
+- `GasDepositionParams.alpha_r`, `.reactivity` and the
+  `dry_dep_velocity` fallback: the fields are AERMOD's (`diffusivity`,
+  `diffusivity_water`, `cuticular_resistance`, `henry_constant`).
+- The `METHOD` line `deposition_method` wrote (no AERMOD release has the
+  keyword); the field stays and writes nothing, and Method 2 deposition
+  is `method_2`.
+- `EventPeriod.start_date` and `.end_date`; see the upgrade notes.
+- The "known limitation" on `pyaermod.aerscreen` recorded after PR #9:
+  the module drives the real binary now.
+
+### Upgrade notes — `AERSCREENConfig`
+
+`AERSCREENConfig`'s fields changed, because the deck it built was not in
+any AERSCREEN format: AERSCREEN has no keyword deck at all. It asks an
+ordered sequence of questions on stdin and can restart from the `**`
+header of its own output file, and the old fields described neither.
+No code that ran AERSCREEN can have depended on the old fields; code
+written against them can. Passing an old field name raises a
+`TypeError` naming the replacement.
+
+| Old | New |
+|-----|-----|
+| `initial_sigma_z`, `vertical_dim` | `vertical_dimension` (VOLUME, AREA and AREACIRC) |
+| `lateral_dim` | `lateral_dimension` |
+| `dominant_landuse` (an Auer code 1-12) | `land_use` (an AERMET land-use code 1-8) with `climate` (1-3) |
+| `terrain_file` | `dem_files` (with `dem_type` and `nad_grid_dir`); AERSCREEN lists them in `DEMlist.txt` for AERMAP |
+| `distances="AUTO"` / `[...]` | *removed* -- AERSCREEN probes its own distances; up to ten extra ones go in `discrete_receptors` |
+| `extra_lines` | *removed* -- there is no deck to append to |
+| `AERSCREENSourceType.CAPPED` / `.HORIZONTAL` | still work, as aliases of `POINTCAP` / `POINTHOR` |
+
+`stack_temp=None` still means ambient (AERSCREEN's `0`), and a negative
+value is a temperature difference above ambient, as AERSCREEN takes it.
+The surface characteristics must now be given one of AERSCREEN's three
+ways: `albedo` + `bowen_ratio` + `roughness_length`, `land_use` +
+`climate`, or an AERSURFACE output in `surface_file`. Files a run needs
+(`surface_file`, `discrete_receptor_file`, `bpip_file`, `dem_files`) are
+copied into the working directory by the runner and referred to by
+name, as AERSCREEN expects.
+
+```python
+# Old -- produced a KEY: value deck AERSCREEN never read
+cfg = AERSCREENConfig(
+    title="SO2 stack", source_type="POINT", emission_rate=10.0,
+    stack_height=30.0, stack_diameter=2.0, stack_temp=425.0,
+    exit_velocity=15.0, dominant_landuse=7, distances="AUTO",
+)
+
+# New -- the answers AERSCREEN asks for, or its restart file
+cfg = AERSCREENConfig(
+    title="SO2 stack", source_type="POINT", emission_rate=10.0,
+    stack_height=30.0, stack_diameter=2.0, stack_temp=425.0,
+    exit_velocity=15.0, land_use=7, climate=1,
+)
+result = AERSCREENRunner().run(cfg, working_dir="so2")   # mode="prompts"
+result.summary.maximum.conc_1hr                           # ug/m3
+```
+
+These fields are new and have no old equivalent: `flare_heat_loss`,
+`radius`, `ambient_distance`, the NO2 chemistry (`no2_method`,
+`no2_stack_ratio`, `ozone_concentration`, `ozone_units`), `bpip_file`,
+`stack_direction`, `stack_distance`, `probe_distance`,
+`discrete_receptor_file`, `flagpole_height`, `source_elevation`,
+`aermap_elevation`, the UTM location and `datum`, `min_wind_speed`,
+`surface_file`, `shoreline_fumigation` and its distance and direction,
+`run_aermod`, `debug` and `output_file`.
+
+### Upgrade notes — `AERSURFACEConfig`
+
+`AERSURFACEConfig`'s fields changed, because the deck it built was not
+in any AERSURFACE format: it emitted `TITLE`, `LOCATION`, `NLCDFILE`,
+`SNOW_TEMPER`, `OUTPATH` and friends, none of which AERSURFACE has ever
+accepted, and the real binary aborted in its control-file parser. No
+code that ran AERSURFACE can have depended on the old fields; code
+written against them can.
+
+Passing an old field name now raises a `TypeError` naming the
+replacement, rather than a bare "unexpected keyword argument".
+
+| Old | New |
+|-----|-----|
+| `nlcd_file` | `land_cover_file` |
+| `radius_roughness_km` | `zo_radius_km` |
+| `snow_cover_per_month=[...]` | months in the `WINTERWS` season: `seasons={"WINTERWS": (1,), ...}` |
+| `moisture_per_month=[...]` | one `moisture="AVERAGE" \| "WET" \| "DRY"` |
+| `output_dir` | `sfcchar_file` (plus `*_grid_file` for the optional grid outputs) |
+| `extra_lines` | `extra_co_lines` / `extra_ou_lines` |
+| `sectors=[30, 60, 225]` | `sectors=[(30, 60, "NONAP"), (60, 225, "AP"), (225, 30, "NONAP")]` |
+| `utc_offset` | *removed* — AERSURFACE has no UTC-offset keyword |
+| `snow_regime` | *removed* — use `snow=True/False`; `CLIMATE` has no temperature regime |
+| `radius_albedo_bowen_km` | *removed* — AERSURFACE averages over the single `ZORADIUS` |
+
+```python
+# Old — produced a deck AERSURFACE rejected
+cfg = AERSURFACEConfig(
+    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
+    utc_offset=-8, nlcd_file="NLCD_2019.img", nlcd_year=2019,
+    snow_regime="CONTINENTAL_WARM", radius_roughness_km=1.0,
+)
+
+# New
+cfg = AERSURFACEConfig(
+    title="Salem", site_id="SALEM", latitude=44.92, longitude=-123.04,
+    land_cover_file="NLCD_2019_LC.tiff", nlcd_year=2019,
+    zo_radius_km=1.0, moisture="AVERAGE", snow=True,
+    sfcchar_file="salem_sfc.txt",
+)
+```
+
+These fields are new and have no old equivalent: `title_two`, `datum`,
+`canopy_file`, `impervious_file`, `site_type`, `zo_method`, `frequency`,
+`debug_options`, `run`, and the `*_grid_file` outputs.
+
+### Upgrade notes — `EventPeriod` and event decks
+
+`EventPeriod` carried a start and an end date and no receptor, which
+matches no AERMOD card: `evset.f` EVPER reads exactly five fields on
+`EVENTPER` (name, averaging period, source group, the `YYMMDDHH` of the
+period's *last* hour, and the concentration the main run found), every
+event needs an `EVENTLOC` card with its receptor (E130), and the EV
+pathway belongs between ME and OU. No event deck pyaermod wrote was ever
+accepted, so nothing that ran can have depended on the old fields.
+
+| Old | New |
+|-----|-----|
+| `start_date`, `end_date` | `date` (the period's last hour, `YYMMDDHH`) with `averaging_period` (hours, one of the run's `AVERTIME` periods) |
+| no receptor | `location=EventLocation(x, y, z_elev, z_hill, z_flag=None, polar=False)`; the elevation is required by AERMOD |
+| — | `original_conc`, the main run's value for the event (0 when unknown) |
+| `write(event_filename=)` wrote a bare EV block | writes the complete `CO SO ME EV OU` event deck AERMOD's `EV_SETUP` reads, with `OutputPathway.event_output` (EVENTOUT) and without the keywords an event run rejects |
+
+```python
+# Old
+EventPeriod(event_name="MAX1", start_date="88010101", end_date="88010124")
+
+# New -- the card AERMOD writes itself for EVENTFIL
+EventPeriod(
+    event_name="MAX1", averaging_period=24, date="88010124",
+    source_group="ALL", original_conc=51.36,
+    location=EventLocation(x=500.0, y=500.0, z_elev=10.0, z_hill=10.0),
+)
+```
+
+Event names may be ten characters (`EVNAME*10`; AERMOD's own are).
+`read_event_output()` reads an event run's per-event contributions.
+
+### Upgrade notes — `OutputPathway.max_file`
+
+`max_file="thresholds.dat"` wrote `MAXIFILE thresholds.dat`, and
+`ouset.f` OUMXFL wants `aveper grpid thresh filename [funit]` (fewer
+fields is E201), so the line was fatal in every AERMOD release. The
+field is removed rather than deprecated; the replacement takes one
+entry per averaging period and group:
+
+```python
+# Old (never accepted by AERMOD)
+OutputPathway(max_file="thresholds.dat")
+
+# New
+OutputPathway(maxi_files=[MaxiFile(averaging_period="1", source_group="ALL",
+                                   threshold=100.0, filename="thresholds.dat")])
+```
 
 ## [2.0.0] - 2026-05-04
 

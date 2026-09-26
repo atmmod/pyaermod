@@ -36,7 +36,7 @@ Groups (full surface):
 from __future__ import annotations
 
 # Package metadata
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 
 # --- Project building -----------------------------------------------------
 # --- Terrain --------------------------------------------------------------

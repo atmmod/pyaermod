@@ -17,6 +17,8 @@ REQUIRED_DOCS = [
     "common-errors.md",
     "regulatory-matrix.md",
     "index.md",
+    "benchmarks.md",
+    "release-notes/v2.2.0.md",
 ]
 
 

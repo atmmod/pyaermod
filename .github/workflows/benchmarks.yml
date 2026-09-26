@@ -5,6 +5,28 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual dispatch adds the AERMOD-backed measurements (the `aermod-runs`
+  # job below): they need a compiled binary and EPA's test case, which the
+  # PR gate does not fetch. Their numbers are recorded in docs/benchmarks.md.
+  workflow_dispatch:
+    inputs:
+      aermod_runs:
+        description: "Build AERMOD, fetch EPA's aertest case and run the single-run overhead and batch-throughput benchmarks"
+        type: boolean
+        required: false
+        default: true
+      repeats:
+        description: "Interleaved direct/pyaermod runs for the overhead measurement"
+        required: false
+        default: "50"
+      batch_runs:
+        description: "Runs per batch for the throughput measurement"
+        required: false
+        default: "32"
+
+env:
+  AERMOD_SOURCE_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+  AERMOD_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip"
 
 jobs:
   benchmark:
@@ -55,3 +77,103 @@ jobs:
         with:
           name: benchmark-results
           path: bench_current.json
+
+  # The two measurements the manuscript needs, on a clean runner: one AERMOD
+  # run driven through pyaermod.runner against the same binary called with
+  # subprocess directly, and a batch of runs at 1, 2, 4 and all-core
+  # workers. benchmarks/bench_aermod_runs.py documents both. The binary is
+  # compiled from EPA's current source with scripts/build_aermod.sh and the
+  # case is EPA's own aertest deck, unpacked from the test-case archive
+  # (only that deck, its meteorology and its reference POSTFILE: the full
+  # archive is 3.5 GB per reference set).
+  aermod-runs:
+    if: github.event_name == 'workflow_dispatch' && inputs.aermod_runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Compute EPA archive cache keys
+        id: keys
+        # Keyed on the URL and the calendar month, as real_aermod.yml does:
+        # an EPA re-release under the same URL is picked up within a month.
+        run: |
+          echo "src=epa-aermod-source-$(printf '%s' "$AERMOD_SOURCE_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+          echo "tc=epa-aermod-testcases-zip-$(printf '%s' "$AERMOD_TESTCASES_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache EPA source archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/epa_zips/aermod_source.zip
+          key: ${{ steps.keys.outputs.src }}
+
+      - name: Cache EPA test-case archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/epa_zips/aermod_test_cases.zip
+          key: ${{ steps.keys.outputs.tc }}
+
+      - name: Build AERMOD from EPA source
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          mkdir -p /tmp/epa_zips
+          bash scripts/fetch_epa_source.sh "$AERMOD_SOURCE_URL" /tmp/epa_zips/aermod_source.zip
+          AERMOD_ZIP=/tmp/epa_zips/aermod_source.zip bash scripts/build_aermod.sh aermod
+          bin/aermod --help || true
+          rm -f -- --help_ERRMSG.TMP
+
+      - name: Unpack EPA's aertest case from the test-case archive
+        run: |
+          set -euo pipefail
+          bash scripts/fetch_epa_source.sh "$AERMOD_TESTCASES_URL" /tmp/epa_zips/aermod_test_cases.zip
+          zip=/tmp/epa_zips/aermod_test_cases.zip
+          version=$(python -c 'from pyaermod.epa_testcases import aermod_binary_version as v; print(v("bin/aermod") or "")' | tail -n1)
+          sets=$(unzip -Z1 "$zip" | awk -F/ 'NF>1{print $1}' | sort -u | grep -E '^aermet_?[0-9]{5}_aermod_?[0-9]{5}$' || true)
+          echo "sets in archive:"; echo "$sets" | sed 's/^/  /'
+          set_name=$(echo "$sets" | grep -E "^aermet_?${version}_aermod_?${version}$" | head -1 || true)
+          [ -n "$set_name" ] || set_name=$(echo "$sets" | tail -1)
+          echo "using $set_name for AERMOD ${version:-unknown}"
+          # -C matches case-insensitively: EPA spells the met files in lower
+          # case in the 2026 bundle and in upper case before it.
+          unzip -q -C "$zip" \
+            "$set_name/inputs/aertest.inp" \
+            "$set_name/meteorology/aermet2.sfc" "$set_name/meteorology/aermet2.pfl" \
+            "$set_name/postfiles/aertest_01h.pst" \
+            -d test_cases
+          find test_cases -type f | sed 's/^/  /'
+
+      - name: Run the AERMOD benchmarks
+        env:
+          REPEATS: ${{ inputs.repeats }}
+          BATCH_RUNS: ${{ inputs.batch_runs }}
+        run: |
+          set -euo pipefail
+          nproc; cat /proc/cpuinfo | grep -m1 'model name' || true
+          python benchmarks/run_benchmarks.py --aermod --require-aermod \
+            --aermod-repeats "${REPEATS:-50}" --aermod-batch-runs "${BATCH_RUNS:-32}" \
+            --aermod-workers 1,2,4,auto \
+            --output bench_aermod.json
+          {
+            echo '## AERMOD run benchmarks'
+            echo
+            echo '```'
+            python -c "import json,sys; sys.path.insert(0,'benchmarks'); import bench_aermod_runs as b; print(b.format_report(json.load(open('bench_aermod.json'))['aermod']))"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload AERMOD benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: aermod-benchmark-results
+          path: bench_aermod.json

@@ -34,6 +34,11 @@ from typing import Any, Callable, Dict, List
 
 # Make the package importable when running directly from the repo
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# ... and the sibling benchmark modules, whether run as a script or imported
+# as ``benchmarks.run_benchmarks`` by the tests.
+sys.path.insert(0, str(Path(__file__).parent))
+
+import bench_aermod_runs
 
 from pyaermod import __version__
 from pyaermod.input_generator import (
@@ -164,7 +169,7 @@ def run_all(rounds: int = DEFAULT_ROUNDS) -> Dict[str, Any]:
     }
 
 
-def main() -> int:
+def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="benchmark_results.json")
     parser.add_argument(
@@ -173,9 +178,29 @@ def main() -> int:
              f"reported (default {DEFAULT_ROUNDS}).",
     )
     parser.add_argument("--quiet", action="store_true")
-    args = parser.parse_args()
+    # The AERMOD-backed measurements (benchmarks/bench_aermod_runs.py)
+    # need a built binary and an EPA test case, so they are opt-in. With
+    # --aermod and either missing, the harness records why under
+    # summary["aermod"]["skipped"] and still exits 0 (2 with
+    # --require-aermod, for a CI job whose whole point is those numbers).
+    parser.add_argument(
+        "--aermod", action="store_true",
+        help="also run the AERMOD single-run overhead and batch-throughput benchmarks",
+    )
+    aermod_group = parser.add_argument_group("AERMOD benchmarks (with --aermod)")
+    bench_aermod_runs.add_arguments(aermod_group)
+    args = parser.parse_args(argv)
 
     summary = run_all(rounds=args.rounds)
+    exit_code = 0
+    if args.aermod:
+        report = bench_aermod_runs.run_from_args(args)
+        summary["aermod"] = report["aermod"]
+        summary["results"].extend(report["results"])
+        if "skipped" in report["aermod"]:
+            print(f"SKIP AERMOD benchmarks: {report['aermod']['skipped']}")
+            if args.require_aermod:
+                exit_code = 2
     Path(args.output).write_text(json.dumps(summary, indent=2))
     if not args.quiet:
         print(
@@ -184,7 +209,10 @@ def main() -> int:
         )
         for r in summary["results"]:
             print(f"  {r['name']:<40s} {r['ms_per_call']:8.3f} ms/call")
-    return 0
+        if args.aermod and "skipped" not in summary.get("aermod", {}):
+            print()
+            print(bench_aermod_runs.format_report(summary["aermod"]))
+    return exit_code
 
 
 if __name__ == "__main__":
