@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
 from .pathways import ChemistryOptions
 
@@ -122,8 +122,8 @@ class PlatformParams:
     building_width: float
 
 
-def _fx(value: float, spec: str) -> str:
-    """A fixed-decimal field that never rounds a value away.
+def _fixed_column(spec: str) -> Callable[[float], str]:
+    """A fixed-decimal field writer that never rounds a value away.
 
     The writers lay SRCPARAM and LOCATION out in fixed columns
     (``8.2f``, ``10.6f``, ``12.4f``); a value with more decimals than the
@@ -131,24 +131,56 @@ def _fx(value: float, spec: str) -> str:
     an exit velocity of 0.001 m/s, which ``8.2f`` turns into 0.00 -- is
     written instead with :func:`_aermod_number`, right-aligned to the same
     width, so the column layout survives and so does the value.
+
+    The test is relative (one part in a million of the value), not
+    equality: 99999.12 + 5000.0 is 104999.12000000001 in binary and its
+    ``12.4f`` text is the right one. It is done on the scaled value with
+    float arithmetic alone, and the column's scale and width are bound
+    once here rather than parsed per call, because this runs for every
+    number of every source: the benchmark workflow gates a 25 % slowdown
+    of the 1000-source deck, and parsing the formatted text back was
+    over that on its own.
+
+    The LOCATION elevation is the one field with a non-numeric form: a
+    source flagged ``flat_source`` writes the literal ``FLAT`` there (EPA's
+    flatelev deck: ``LOCATION FLAT_STK POINT 5510. 67960. FLAT``).
     """
-    text = format(value, spec)
-    # A relative test, not equality: 99999.12 + 5000.0 is 104999.12000000001
-    # in binary and its 12.4f text is the right one; only a value the
-    # column truly cannot hold (0.001 in 8.2f) takes the fallback.
-    if value == 0 or abs(float(text) - float(value)) <= 1e-6 * abs(float(value)):
-        return text
-    width = int(spec.split(".")[0]) if spec[0].isdigit() else 0
-    return f"{_aermod_number(value):>{width}}"
+    width_text, _, decimals = spec.partition(".")
+    scale = 10.0 ** int(decimals.rstrip("f") or 0)
+    width = int(width_text) if width_text.isdigit() else 0
+    # printf-style formatting gives the same text as format() for these
+    # specs and costs a third less, which pays for the check below.
+    pct = "%" + spec
+
+    def fixed(value: float) -> str:
+        scaled = value * scale
+        frac = scaled % 1.0  # nan for inf/nan: every test fails, fine
+        if frac == 0.0:
+            return pct % value
+        tol = 1e-6 * scaled if scaled >= 0 else -1e-6 * scaled
+        if frac <= tol or 1.0 - frac <= tol:
+            return pct % value
+        return f"{_aermod_number(value):>{width}}"
+
+    return fixed
 
 
-def _loc_elev(source) -> str:
-    """The LOCATION elevation field: the base elevation, or the literal
-    ``FLAT`` for a source flagged flat in a FLATSRCS run (EPA's flatelev
-    deck: ``LOCATION FLAT_STK POINT 5510. 67960. FLAT``)."""
-    if getattr(source, "flat_source", False):
-        return "    FLAT"
-    return _fx(source.base_elevation, '8.2f')
+_f8_2 = _fixed_column("8.2f")
+_f10_6 = _fixed_column("10.6f")
+_f12_2 = _fixed_column("12.2f")
+_f12_4 = _fixed_column("12.4f")
+_FIXED_COLUMNS: Dict[str, Callable[[float], str]] = {
+    "8.2f": _f8_2, "10.6f": _f10_6, "12.2f": _f12_2, "12.4f": _f12_4,
+}
+
+
+def _fx(value: float, spec: str) -> str:
+    """:func:`_fixed_column` for any spec (the writers call the bound
+    columns above directly)."""
+    fixed = _FIXED_COLUMNS.get(spec)
+    if fixed is None:
+        fixed = _FIXED_COLUMNS[spec] = _fixed_column(spec)
+    return fixed(value)
 
 
 def _aermod_number(value: float) -> str:
@@ -237,7 +269,7 @@ def _format_building_keyword(
     kw = f"{keyword:<9}"
 
     if isinstance(values, (int, float)):
-        return [f"   {kw} {source_id:<8} {_fx(values, '8.2f')}"]
+        return [f"   {kw} {source_id:<8} {_f8_2(values)}"]
 
     if len(values) != 36:
         raise ValueError(
@@ -248,7 +280,7 @@ def _format_building_keyword(
     lines = []
     for row_start in range(0, 36, 10):
         chunk = values[row_start : row_start + 10]
-        val_str = " ".join(f"{_fx(v, '8.2f')}" for v in chunk)
+        val_str = " ".join(f"{_f8_2(v)}" for v in chunk)
         lines.append(f"   {kw} {source_id:<8} {val_str}")
     return lines
 
@@ -391,14 +423,14 @@ class PointSource:
         # LOCATION keyword (POINT, or POINTCAP / POINTHOR for the subclasses)
         lines.append(
             f"   LOCATION  {self.source_id:<8} {self.location_type}  "
-            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.stack_height, '8.2f')} "
-            f"{_fx(self.stack_temp, '8.2f')} {_fx(self.exit_velocity, '8.2f')} {_fx(self.stack_diameter, '8.2f')}"
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.stack_height)} "
+            f"{_f8_2(self.stack_temp)} {_f8_2(self.exit_velocity)} {_f8_2(self.stack_diameter)}"
         )
 
         # Building downwash parameters (scalar or 36-value direction-dependent)
@@ -468,6 +500,7 @@ class SidewashPointSource:
     ALPHA is required (E198, probe deck 23b). A building dimension of
     zero or less is reset to 1 m by AERMOD.
     """
+    location_type: ClassVar[str] = "SWPOINT"
     source_id: str
     x_coord: float
     y_coord: float
@@ -492,11 +525,11 @@ class SidewashPointSource:
         """Generate AERMOD SO pathway text for this source"""
         lines = [
             f"   LOCATION  {self.source_id:<8} SWPOINT  "
-            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}",
+            f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}",
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-            f"{_fx(self.building_width, '8.2f')} {_fx(self.building_length, '8.2f')} "
-            f"{_fx(self.building_height, '8.2f')} {_fx(self.building_angle, '8.2f')}",
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+            f"{_f8_2(self.building_width)} {_f8_2(self.building_length)} "
+            f"{_f8_2(self.building_height)} {_f8_2(self.building_angle)}",
         ]
         if self.no2_ratio is not None:
             lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
@@ -567,17 +600,17 @@ class AreaSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREA    "
-            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword -- angle is optional 5th parameter for AREA sources
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-            f"{_fx(self.initial_lateral_dimension, '8.2f')} {_fx(self.initial_vertical_dimension, '8.2f')}"
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+            f"{_f8_2(self.initial_lateral_dimension)} {_f8_2(self.initial_vertical_dimension)}"
         )
         if self.angle != 0.0:
-            srcparam += f" {_fx(self.angle, '8.2f')}"
+            srcparam += f" {_f8_2(self.angle)}"
         lines.append(srcparam)
 
         # Building downwash parameters
@@ -653,14 +686,14 @@ class AreaCircSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREACIRC "
-            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-            f"{_fx(self.radius, '8.2f')} {self.num_vertices:3d}"
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+            f"{_f8_2(self.radius)} {self.num_vertices:3d}"
         )
 
         # Per-source NO2/NOx ratio
@@ -734,7 +767,7 @@ class AreaPolySource:
         x_first, y_first = self.vertices[0]
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREAPOLY "
-            f"{_fx(x_first, '12.4f')} {_fx(y_first, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(x_first)} {_f12_4(y_first)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM for AREAPOLY is (emission rate, release height,
@@ -743,11 +776,11 @@ class AreaPolySource:
         # then every AREAVERT line is counted against an unset limit.
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
             f"{len(self.vertices):8d}"
         )
         if self.initial_vertical_dimension is not None:
-            srcparam += f" {_fx(self.initial_vertical_dimension, '8.2f')}"
+            srcparam += f" {_f8_2(self.initial_vertical_dimension)}"
         lines.append(srcparam)
 
         # AREAVERT keyword - vertices
@@ -755,7 +788,7 @@ class AreaPolySource:
         coords_per_line = 6
         for i in range(0, len(self.vertices), coords_per_line):
             chunk = self.vertices[i:i+coords_per_line]
-            coord_str = "  ".join(f"{_fx(x, '12.4f')} {_fx(y, '12.4f')}" for x, y in chunk)
+            coord_str = "  ".join(f"{_f12_4(x)} {_f12_4(y)}" for x, y in chunk)
             lines.append(f"   AREAVERT  {self.source_id:<8} {coord_str}")
 
         # Per-source NO2/NOx ratio
@@ -839,14 +872,14 @@ class VolumeSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} VOLUME  "
-            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-            f"{_fx(self.initial_lateral_dimension, '8.2f')} {_fx(self.initial_vertical_dimension, '8.2f')}"
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+            f"{_f8_2(self.initial_lateral_dimension)} {_f8_2(self.initial_vertical_dimension)}"
         )
 
         # Building downwash parameters
@@ -926,18 +959,18 @@ class LineSource:
         # LOCATION keyword -- LINE: srcid LINE X1 Y1 X2 Y2 [Zelev]
         lines.append(
             f"   LOCATION  {self.source_id:<8} LINE    "
-            f"{_fx(self.x_start, '12.4f')} {_fx(self.y_start, '12.4f')} "
-            f"{_fx(self.x_end, '12.4f')} {_fx(self.y_end, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_start)} {_f12_4(self.y_start)} "
+            f"{_f12_4(self.x_end)} {_f12_4(self.y_end)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword: emission relhgt width [szinit] (soset.f LPARM)
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-            f"{_fx(self.initial_lateral_dimension, '8.2f')}"
+            f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+            f"{_f8_2(self.initial_lateral_dimension)}"
         )
         if self.initial_vertical_dimension is not None:
-            srcparam += f" {_fx(self.initial_vertical_dimension, '8.2f')}"
+            srcparam += f" {_f8_2(self.initial_vertical_dimension)}"
         lines.append(srcparam)
 
         # Per-source NO2/NOx ratio
@@ -1082,15 +1115,15 @@ class RLineSource:
         # LOCATION keyword -- RLINE: srcid RLINE XSB YSB XSE YSE [Zelev]
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINE   "
-            f"{_fx(self.x_start, '12.4f')} {_fx(self.y_start, '12.4f')} "
-            f"{_fx(self.x_end, '12.4f')} {_fx(self.y_end, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_start)} {_f12_4(self.y_start)} "
+            f"{_f12_4(self.x_end)} {_f12_4(self.y_end)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword - RLINE has different parameters than LINE
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(erate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-            f"{_fx(self.initial_lateral_dimension, '8.2f')} {_fx(vert_dim, '8.2f')}"
+            f"{_f10_6(erate)} {_f8_2(self.release_height)} "
+            f"{_f8_2(self.initial_lateral_dimension)} {_f8_2(vert_dim)}"
         )
 
         # Per-source NO2/NOx ratio
@@ -1195,16 +1228,16 @@ class RLineExtSource:
         # so an ELEV run never falls back to ZS = 0.0 with warning W205.
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINEXT "
-            f"{_fx(self.x_start, '12.4f')} {_fx(self.y_start, '12.4f')} {_fx(self.z_start, '8.2f')} "
-            f"{_fx(self.x_end, '12.4f')} {_fx(self.y_end, '12.4f')} {_fx(self.z_end, '8.2f')} "
-            f"{_loc_elev(self)}"
+            f"{_f12_4(self.x_start)} {_f12_4(self.y_start)} {_f8_2(self.z_start)} "
+            f"{_f12_4(self.x_end)} {_f12_4(self.y_end)} {_f8_2(self.z_end)} "
+            f"{('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword: Qemis DCL Width InitSigmaZ
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{_fx(erate, '10.6f')} {_fx(self.dcl, '8.2f')} "
-            f"{_fx(self.road_width, '8.2f')} {_fx(sigma_z, '8.2f')}"
+            f"{_f10_6(erate)} {_f8_2(self.dcl)} "
+            f"{_f8_2(self.road_width)} {_f8_2(sigma_z)}"
         )
 
         # Optional RBARRIER
@@ -1212,29 +1245,29 @@ class RLineExtSource:
             if self.barrier_height_2 is not None and self.barrier_dcl_2 is not None:
                 lines.append(
                     f"   RBARRIER  {self.source_id:<8} "
-                    f"{_fx(self.barrier_height_1, '8.2f')} {_fx(self.barrier_dcl_1, '8.2f')} "
-                    f"{_fx(self.barrier_height_2, '8.2f')} {_fx(self.barrier_dcl_2, '8.2f')}"
+                    f"{_f8_2(self.barrier_height_1)} {_f8_2(self.barrier_dcl_1)} "
+                    f"{_f8_2(self.barrier_height_2)} {_f8_2(self.barrier_dcl_2)}"
                 )
             else:
                 lines.append(
                     f"   RBARRIER  {self.source_id:<8} "
-                    f"{_fx(self.barrier_height_1, '8.2f')} {_fx(self.barrier_dcl_1, '8.2f')}"
+                    f"{_f8_2(self.barrier_height_1)} {_f8_2(self.barrier_dcl_1)}"
                 )
 
         # Optional RDEPRESS
         if self.depression_depth is not None and self.depression_wtop is not None and self.depression_wbottom is not None:
             lines.append(
                 f"   RDEPRESS  {self.source_id:<8} "
-                f"{_fx(self.depression_depth, '8.2f')} {_fx(self.depression_wtop, '8.2f')} "
-                f"{_fx(self.depression_wbottom, '8.2f')}"
+                f"{_f8_2(self.depression_depth)} {_f8_2(self.depression_wtop)} "
+                f"{_f8_2(self.depression_wbottom)}"
             )
 
         # Optional VBARRIER: one barrier is 5 values, two are 10
         # (VBARRIER_INPUTS accepts 8 or 13 fields, nothing in between).
         if self.vegetative_barriers:
             vals = " ".join(
-                f"{_fx(b.height, '8.2f')} {_fx(b.width, '8.2f')} {_fx(b.dcl, '8.2f')} "
-                f"{_fx(b.leaf_area_index, '8.2f')} {_fx(b.mixing_length, '8.2f')}"
+                f"{_f8_2(b.height)} {_f8_2(b.width)} {_f8_2(b.dcl)} "
+                f"{_f8_2(b.leaf_area_index)} {_f8_2(b.mixing_length)}"
                 for b in self.vegetative_barriers[:2]
             )
             lines.append(f"   VBARRIER  {self.source_id:<8} {vals}")
@@ -1340,12 +1373,12 @@ class BuoyLineSource:
                     else self.base_elevation)
             lines.append(
                 f"   LOCATION  {seg.source_id:<8} BUOYLINE "
-                f"{_fx(seg.x_start, '12.4f')} {_fx(seg.y_start, '12.4f')} "
-                f"{_fx(seg.x_end, '12.4f')} {_fx(seg.y_end, '12.4f')} {'    FLAT' if self.flat_source else _fx(elev, '8.2f')}"
+                f"{_f12_4(seg.x_start)} {_f12_4(seg.y_start)} "
+                f"{_f12_4(seg.x_end)} {_f12_4(seg.y_end)} {'    FLAT' if self.flat_source else _f8_2(elev)}"
             )
             lines.append(
                 f"   SRCPARAM  {seg.source_id:<8} "
-                f"{_fx(seg.emission_rate, '10.6f')} {_fx(seg.release_height, '8.2f')}"
+                f"{_f10_6(seg.emission_rate)} {_f8_2(seg.release_height)}"
             )
 
         # BLPINPUT - average plume rise parameters. soset.f BL_AVGINP
@@ -1358,9 +1391,9 @@ class BuoyLineSource:
         # ID is written on both keywords, since a BLPGROUP whose ID has
         # no BLPINPUT record is E502.
         avg = (
-            f"{_fx(self.avg_line_length, '8.2f')} {_fx(self.avg_building_height, '8.2f')} "
-            f"{_fx(self.avg_building_width, '8.2f')} {_fx(self.avg_line_width, '8.2f')} "
-            f"{_fx(self.avg_building_separation, '8.2f')} {_fx(self.avg_buoyancy_parameter, '10.6f')}"
+            f"{_f8_2(self.avg_line_length)} {_f8_2(self.avg_building_height)} "
+            f"{_f8_2(self.avg_building_width)} {_f8_2(self.avg_line_width)} "
+            f"{_f8_2(self.avg_building_separation)} {_f10_6(self.avg_buoyancy_parameter)}"
         )
         if self.source_id.upper() == "ALL":
             lines.append(f"   BLPINPUT  {avg}")
@@ -1449,23 +1482,23 @@ class OpenPitSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} OPENPIT "
-            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
+            f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
         # SRCPARAM keyword: Qemis Hs Xinit Yinit Volume [Angle]
         if self.angle != 0.0:
             lines.append(
                 f"   SRCPARAM  {self.source_id:<8} "
-                f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-                f"{_fx(self.x_dimension, '8.2f')} {_fx(self.y_dimension, '8.2f')} "
-                f"{_fx(self.pit_volume, '12.2f')} {_fx(self.angle, '8.2f')}"
+                f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+                f"{_f8_2(self.x_dimension)} {_f8_2(self.y_dimension)} "
+                f"{_f12_2(self.pit_volume)} {_f8_2(self.angle)}"
             )
         else:
             lines.append(
                 f"   SRCPARAM  {self.source_id:<8} "
-                f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
-                f"{_fx(self.x_dimension, '8.2f')} {_fx(self.y_dimension, '8.2f')} "
-                f"{_fx(self.pit_volume, '12.2f')}"
+                f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
+                f"{_f8_2(self.x_dimension)} {_f8_2(self.y_dimension)} "
+                f"{_f12_2(self.pit_volume)}"
             )
 
         # Per-source NO2/NOx ratio
@@ -1591,9 +1624,9 @@ class SolidBarrier:
         for seg in self.segments:
             lines.append(
                 f"   SBARRIER  {self.barrier_id:<8} "
-                f"{_fx(seg.x_start, '12.4f')} {_fx(seg.y_start, '12.4f')} "
-                f"{_fx(seg.x_end, '12.4f')} {_fx(seg.y_end, '12.4f')} "
-                f"{_fx(seg.height, '8.2f')} {_fx(seg.elevation, '8.2f')}"
+                f"{_f12_4(seg.x_start)} {_f12_4(seg.y_start)} "
+                f"{_f12_4(seg.x_end)} {_f12_4(seg.y_end)} "
+                f"{_f8_2(seg.height)} {_f8_2(seg.elevation)}"
             )
         lines.append(f"   SBARRIER  {self.barrier_id:<8} END")
         return "\n".join(lines)

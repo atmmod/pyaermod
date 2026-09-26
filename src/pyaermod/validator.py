@@ -12,6 +12,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+from .pathways import (
+    EVENT_NAME_LENGTH,
+    EVENT_OUTPUT_OPTIONS,
+    NOHEADER_FILE_TYPES,
+    TURBULENCE_OPTIONS,
+    WIND_CATEGORY_COUNT,
+    dayrange_field_is_valid,
+)
+
 # Valid AERMOD averaging periods
 VALID_AVERAGING_PERIODS = {
     "1", "2", "3", "4", "6", "8", "12", "24", "MONTH", "ANNUAL", "PERIOD",
@@ -231,7 +240,10 @@ class Validator:
         has_urban_source = False
         for source in sources.sources:
             cls._validate_source(source, control, result)
-            cls._validate_source_options(source, control, result)
+            if (getattr(source, "method_2", None) is not None
+                    or getattr(source, "platform", None) is not None
+                    or getattr(source, "location_type", None) == "SWPOINT"):
+                cls._validate_source_options(source, control, result)
             if getattr(source, "is_urban", False):
                 has_urban_source = True
         cls._validate_source_flags(sources, control, result)
@@ -314,13 +326,13 @@ class Validator:
     def _validate_source_options(cls, source, control, result: ValidationResult):
         """METHOD_2, PLATFORM and SWPOINT as soset.f METH_2, PLATFM and
         SRCSIZ/SWPARM check them (probe decks 21-23b)."""
-        from pyaermod.input_generator import PointSource, SidewashPointSource
-
+        method_2 = getattr(source, "method_2", None)
+        platform = getattr(source, "platform", None)
+        sidewash = getattr(source, "location_type", None) == "SWPOINT"
         name = f"{type(source).__name__}({source.source_id})"
         alpha = bool(getattr(control, "alpha", False))
         dfault = bool(getattr(control, "regulatory_default", False))
 
-        method_2 = getattr(source, "method_2", None)
         if method_2 is not None:
             if not alpha:
                 result.errors.append(ValidationError(
@@ -341,8 +353,9 @@ class Validator:
                     "a source has either METHOD_2 or PARTDIAM/MASSFRAX/PARTDENS (E386)"
                 ))
 
-        platform = getattr(source, "platform", None)
         if platform is not None:
+            from pyaermod.input_generator import PointSource
+
             if not isinstance(source, PointSource):
                 result.errors.append(ValidationError(
                     name, "platform", "PLATFORM applies to POINT, POINTCAP and POINTHOR only (E631)"
@@ -352,7 +365,7 @@ class Validator:
                     name, "platform", "PLATFORM needs the ALPHA option (E198)"
                 ))
 
-        if isinstance(source, SidewashPointSource):
+        if sidewash:
             if not alpha:
                 result.errors.append(ValidationError(
                     name, "type", "SWPOINT needs the ALPHA option (E198)"
@@ -1551,8 +1564,6 @@ class Validator:
     def _validate_met_options(cls, met, result: ValidationResult, control=None):
         """DAYRANGE, NUMYEARS, WINDCATS, SCIMBYHR and the turbulence keyword
         as meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT check them."""
-        from .pathways import TURBULENCE_OPTIONS, WIND_CATEGORY_COUNT, dayrange_field_is_valid
-
         pathway = "MeteorologyPathway"
         extra = {str(o).upper() for o in getattr(control, "extra_model_options", [])} if control else set()
         scim_option = "SCIM" in extra
@@ -1734,7 +1745,9 @@ class Validator:
                                sources=None):
         """NOHEADER, RANKFILE, SEASONHR, EVALFILE and TOXXFILE as ouset.f
         NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX and OUTQA check them."""
-        from .pathways import NOHEADER_FILE_TYPES
+        if not (output.no_header or output.rank_files or output.season_hour_files
+                or output.eval_files or output.toxx_files):
+            return
 
         pathway = "OutputPathway"
         periods = {str(p).upper() for p in control.averaging_periods} if control else None
@@ -1931,8 +1944,6 @@ class Validator:
     def _validate_events(cls, events, control, sources, output,
                          result: ValidationResult, event_run: bool = False):
         """The EV pathway as evset.f checks it (EVPER, EVLOC, OEVENT, EVCARD)."""
-        from .pathways import EVENT_NAME_LENGTH, EVENT_OUTPUT_OPTIONS
-
         pathway = "EventPathway"
 
         if not events.events:

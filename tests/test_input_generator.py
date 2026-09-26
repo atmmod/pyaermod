@@ -832,6 +832,39 @@ class TestDepositionParameters:
         assert _fx(0.1 + 0.2, "12.4f") == "      0.3000"
         assert _fx(0.001, "8.2f") == "   0.001"
 
+    def test_bound_columns_write_what_the_slow_check_would(self):
+        # The writers call the columns bound once per spec (printf-style
+        # formatting and a float-only exactness test); the benchmark
+        # workflow gates the 1000-source deck at 25 % slower than main, and
+        # parsing the column text back for every number was 50 % on its
+        # own. The text must still be format()'s wherever the column holds
+        # the value to one part in a million, and the fallback elsewhere.
+        import math
+        import random
+
+        from pyaermod.sources import _aermod_number, _f8_2, _f10_6, _f12_2, _f12_4, _fx
+
+        def reference(value, spec):
+            text = format(value, spec)
+            if value == 0 or abs(float(text) - value) <= 1e-6 * abs(value):
+                return text
+            return f"{_aermod_number(value):>{int(spec.split('.')[0])}}"
+
+        rng = random.Random(26135)
+        values = [rng.uniform(-1e6, 1e6) for _ in range(300)]
+        values += [round(rng.uniform(-1000, 1000), 2) for _ in range(300)]
+        values += [rng.uniform(-1, 1) for _ in range(300)]
+        values += [0.0, -0.0, 0.001, -0.001, 0.125, 0.126, 1e30, 1e-30, 12345.67 + 0.05,
+                   99999.12 + 5000.0, 0.1 + 0.2, float("inf"), float("-inf")]
+        columns = ((_f8_2, "8.2f"), (_f10_6, "10.6f"), (_f12_2, "12.2f"), (_f12_4, "12.4f"))
+        for fixed, spec in columns:
+            for value in values:
+                assert fixed(value) == reference(value, spec) == _fx(value, spec), (value, spec)
+            assert fixed(math.nan) == format(math.nan, spec)
+        # The fallback does fire: a value the column cannot hold keeps its digits.
+        assert _f8_2(0.126) == "   0.126"
+        assert _f12_4(0.00001) == "     1.0e-05"  # STODBL wants a decimal point before the exponent
+
     def test_no_deposition_omits_keywords(self):
         source = PointSource(
             source_id="STK1", x_coord=0.0, y_coord=0.0,
