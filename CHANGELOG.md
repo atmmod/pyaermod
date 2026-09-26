@@ -8,6 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AERSCREEN drives the real binary, and EPA's own test cases prove
+  it.** AERSCREEN has no input deck: it is interactive, and it restarts
+  from the `**` header of its own output file. `pyaermod.aerscreen` now
+  produces both -- `AERSCREENConfig.to_stdin_answers()` gives the answers
+  in the order `AERSCREEN.FOR` asks them, `to_aerscreen_input()` writes
+  the restart header in `makeinput`'s exact column layout, and
+  `from_aerscreen_input()` parses it back -- and `AERSCREENRunner` feeds
+  either to the binary, staging the programs AERSCREEN spawns (AERMOD,
+  MAKEMET, BPIP-PRIME, AERMAP; it checks for `AERMOD.EXE`-style markers
+  and calls the lower-case names through the shell), the auxiliary
+  input files a run names, and `DEMlist.txt` for terrain runs.
+  `parse_aerscreen_output()` reads the `MAXIMUM IMPACT SUMMARY` and the
+  concentration-by-distance table of the `.OUT` file.
+  - `scripts/build_aerscreen.sh` fetches EPA's `aerscreen_code.zip` and
+    `makemet_code.zip`, applies `scripts/patches/aerscreen_21112.patch`
+    and compiles both into `./bin`. The patch is what gfortran needs:
+    the `\` non-advancing edit descriptor of every prompt FORMAT (an
+    Intel/Microsoft extension that even `-fdec` rejects) becomes `$`;
+    the file names AERSCREEN opens get the case AERMOD and AERMAP write
+    them with on Linux; the NAD-grid path uses `/`; and a `-0.00`
+    building adjustment from BPIP no longer overflows the 3-character
+    field `makeformat` gives it (which handed AERMOD `36****`). Applied
+    with `patch(1)` so a source change on EPA's side fails the build
+    loudly instead of silently building something else.
+  - `tests/test_aerscreen_known_answers.py` round-trips all 22 restart
+    decks of EPA's `aerscreen_test_cases.zip` (every source type, with
+    and without downwash, terrain, NO2 chemistry and the u* adjustment)
+    through the parser and the writer and requires the header back **byte
+    for byte**; the 22 `.OUT` files pin the output parser. The decks and
+    outputs are vendored under `tests/fixtures/epa_aerscreen`, so this
+    runs on every CI leg.
+  - `tests/test_real_aerscreen.py` drives every EPA case through the
+    built binaries, by typing the answers and by handing over the restart
+    file, and compares the `.OUT` with EPA's line for line (run
+    timestamps aside): all 12 flat cases through both interfaces and all
+    9 terrain cases (AERMAP over EPA's NED and DEM rasters) reproduce
+    EPA's outputs, one fumigation distance in the point downwash case
+    differing in its last digit. `.github/workflows/real_aerscreen.yml`
+    does this in CI, weekly and on pull requests that touch the
+    AERSCREEN code.
+  - The restart reader, it turns out, keeps a title only up to its first
+    comma and upper-cases it; the restart-file tests allow for that and
+    the docstrings say so.
 - **Source construction, reader tranche 2.** The SO keywords the v26135
   audit listed as recognised but not constructed, or not read at all,
   are now stored on the source model and written back in the field
@@ -361,21 +404,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
   99.8 % (the one remaining line is an unreachable guard).
 
-### Known limitations
+### Upgrade notes — `AERSCREENConfig`
 
-- **`pyaermod.aerscreen` writes a deck AERSCREEN does not read.** The
-  `KEY: value` layout `AERSCREENConfig.to_aerscreen_input()` produces is
-  not an AERSCREEN format; AERSCREEN is interactive, taking an ordered
-  sequence of answers on stdin, and reloads a previous run from the
-  `**`-prefixed header of its output file (which is otherwise an AERMOD
-  runstream it generates). This is the same defect `pyaermod.aersurface`
-  had, found the same way -- by comparing against EPA's own reference
-  files in `aerscreen_test_cases.zip`. It is *not* fixed: EPA's
-  `AERSCREEN.FOR` does not build under gfortran without patching (a
-  missing continuation comma at line 7995 swallows a FORMAT label, and
-  the source uses an Intel format extension), so there is no reference
-  implementation to validate a rewrite against. The module docstring now
-  says so instead of claiming conformance to the User's Guide.
+`AERSCREENConfig`'s fields changed, because the deck it built was not in
+any AERSCREEN format: AERSCREEN has no keyword deck at all. It asks an
+ordered sequence of questions on stdin and can restart from the `**`
+header of its own output file, and the old fields described neither.
+No code that ran AERSCREEN can have depended on the old fields; code
+written against them can. Passing an old field name raises a
+`TypeError` naming the replacement.
+
+| Old | New |
+|-----|-----|
+| `initial_sigma_z`, `vertical_dim` | `vertical_dimension` (VOLUME, AREA and AREACIRC) |
+| `lateral_dim` | `lateral_dimension` |
+| `dominant_landuse` (an Auer code 1-12) | `land_use` (an AERMET land-use code 1-8) with `climate` (1-3) |
+| `terrain_file` | `dem_files` (with `dem_type` and `nad_grid_dir`); AERSCREEN lists them in `DEMlist.txt` for AERMAP |
+| `distances="AUTO"` / `[...]` | *removed* -- AERSCREEN probes its own distances; up to ten extra ones go in `discrete_receptors` |
+| `extra_lines` | *removed* -- there is no deck to append to |
+| `AERSCREENSourceType.CAPPED` / `.HORIZONTAL` | still work, as aliases of `POINTCAP` / `POINTHOR` |
+
+`stack_temp=None` still means ambient (AERSCREEN's `0`), and a negative
+value is a temperature difference above ambient, as AERSCREEN takes it.
+The surface characteristics must now be given one of AERSCREEN's three
+ways: `albedo` + `bowen_ratio` + `roughness_length`, `land_use` +
+`climate`, or an AERSURFACE output in `surface_file`. Files a run needs
+(`surface_file`, `discrete_receptor_file`, `bpip_file`, `dem_files`) are
+copied into the working directory by the runner and referred to by
+name, as AERSCREEN expects.
+
+```python
+# Old -- produced a KEY: value deck AERSCREEN never read
+cfg = AERSCREENConfig(
+    title="SO2 stack", source_type="POINT", emission_rate=10.0,
+    stack_height=30.0, stack_diameter=2.0, stack_temp=425.0,
+    exit_velocity=15.0, dominant_landuse=7, distances="AUTO",
+)
+
+# New -- the answers AERSCREEN asks for, or its restart file
+cfg = AERSCREENConfig(
+    title="SO2 stack", source_type="POINT", emission_rate=10.0,
+    stack_height=30.0, stack_diameter=2.0, stack_temp=425.0,
+    exit_velocity=15.0, land_use=7, climate=1,
+)
+result = AERSCREENRunner().run(cfg, working_dir="so2")   # mode="prompts"
+result.summary.maximum.conc_1hr                           # ug/m3
+```
+
+These fields are new and have no old equivalent: `flare_heat_loss`,
+`radius`, `ambient_distance`, the NO2 chemistry (`no2_method`,
+`no2_stack_ratio`, `ozone_concentration`, `ozone_units`), `bpip_file`,
+`stack_direction`, `stack_distance`, `probe_distance`,
+`discrete_receptor_file`, `flagpole_height`, `source_elevation`,
+`aermap_elevation`, the UTM location and `datum`, `min_wind_speed`,
+`surface_file`, `shoreline_fumigation` and its distance and direction,
+`run_aermod`, `debug` and `output_file`.
 
 ### Upgrade notes — `AERSURFACEConfig`
 
@@ -564,6 +647,14 @@ These fields are new and have no old equivalent: `title_two`, `datum`,
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **`pyaermod.aerscreen` wrote a deck AERSCREEN never reads.** The
+  `KEY: value` layout of the previous release was not an AERSCREEN
+  format (it has none), so nothing that used `AERSCREENConfig` could
+  ever have run. EPA's `AERSCREEN.FOR` did not build under gfortran,
+  which is why the rewrite waited for a reference: with the source
+  patched (see *Added*) the binary is the oracle, and every flat EPA
+  test case now reproduces EPA's published output through pyaermod's
+  answers. See the upgrade notes for the field changes.
 - **Four AERSURFACE configurations produced decks the binary rejects**,
   all outside the single case the end-to-end test covers:
   - `frequency="SEASONAL"` still wrote `SEASON` keywords, which
