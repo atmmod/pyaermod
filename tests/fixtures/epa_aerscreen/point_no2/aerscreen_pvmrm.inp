@@ -1,0 +1,173 @@
+** STACK DATA         Rate    Height     Temp.  Velocity     Diam.     Flow
+**              0.1000E+01   61.0000  415.0000   11.0000    5.0000   457647.
+
+** BUILDING DATA   BPIP    Height  Max dim.  Min dim.   Orient.   Direct.    Offset
+**                  N      0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+
+** MAKEMET DATA    MinT    MaxT Speed   AnemHt Surf Clim  Albedo   Bowen  Length  SC FILE
+**               270.00  310.00   0.5   10.000    0    0   0.1600   0.4500   0.0540  "NA"
+
+** ADJUST U*      N
+
+** TERRAIN DATA   Terrain    UTM East   UTM North  Zone  Nada     Probe     PROFBASE  Use AERMAP elev
+**                   N            0.0         0.0     0     0       5000.0          25.00         N
+
+** DISCRETE RECEPTORS  Discflag   Receptor file
+**                      N        "NA"
+
+** UNITS/POPULATION   Units   R/U  Population      Amb. dist.   Flagpole    Flagpole height
+**                      M     R            0.          50.000       N         0.00
+
+** FUMIGATION        Inversion Break-up  Shoreline  Distance    Direct  Run AERSCREEN
+**                         N                  N         0.00      0.0     Y
+
+** DEBUG OPTION      Debug
+**                     N
+
+** OUTPUT FILE "AERSCREEN_OLM.OUT"
+
+** Temporal sector: Annual, spatial sector:  1
+
+CO STARTING
+   TITLEONE POINT, OLM
+**            REFINE STAGE 3
+   MODELOPT CONC SCREEN  FLAT  OLM
+   AVERTIME 1
+   POLLUTID NO2
+   NO2STACK 0.1000
+   OZONEVAL     40.0000 PPB
+   RUNORNOT RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION SOURCE POINT        0.0     0.0
+   SRCPARAM SOURCE   0.1000E+01   61.000  415.000   11.000    5.000
+
+   SRCGROUP  ALL
+
+SO FINISHED
+
+RE STARTING
+** Fence line receptor
+   DISCCART         50.00         0.00
+** Refined receptors
+   DISCCART        925.00         0.00
+   DISCCART        930.00         0.00
+   DISCCART        935.00         0.00
+   DISCCART        940.00         0.00
+   DISCCART        945.00         0.00
+   DISCCART        950.00         0.00
+   DISCCART        955.00         0.00
+   DISCCART        960.00         0.00
+   DISCCART        965.00         0.00
+   DISCCART        970.00         0.00
+   DISCCART        975.00         0.00
+   DISCCART        980.00         0.00
+   DISCCART        985.00         0.00
+   DISCCART        990.00         0.00
+   DISCCART        995.00         0.00
+   DISCCART       1000.00         0.00
+   DISCCART       1005.00         0.00
+   DISCCART       1010.00         0.00
+   DISCCART       1015.00         0.00
+   DISCCART       1020.00         0.00
+   DISCCART       1025.00         0.00
+   DISCCART       1030.00         0.00
+   DISCCART       1035.00         0.00
+   DISCCART       1040.00         0.00
+   DISCCART       1045.00         0.00
+   DISCCART       1050.00         0.00
+   DISCCART       1055.00         0.00
+   DISCCART       1060.00         0.00
+   DISCCART       1065.00         0.00
+   DISCCART       1070.00         0.00
+   DISCCART       1075.00         0.00
+   DISCCART       1080.00         0.00
+   DISCCART       1085.00         0.00
+   DISCCART       1090.00         0.00
+   DISCCART       1095.00         0.00
+   DISCCART       1100.00         0.00
+   DISCCART       1105.00         0.00
+   DISCCART       1110.00         0.00
+   DISCCART       1115.00         0.00
+   DISCCART       1120.00         0.00
+   DISCCART       1125.00         0.00
+   DISCCART       1130.00         0.00
+   DISCCART       1135.00         0.00
+   DISCCART       1140.00         0.00
+   DISCCART       1145.00         0.00
+   DISCCART       1150.00         0.00
+   DISCCART       1155.00         0.00
+   DISCCART       1160.00         0.00
+   DISCCART       1165.00         0.00
+   DISCCART       1170.00         0.00
+   DISCCART       1175.00         0.00
+   DISCCART       1180.00         0.00
+   DISCCART       1185.00         0.00
+   DISCCART       1190.00         0.00
+   DISCCART       1195.00         0.00
+   DISCCART       1200.00         0.00
+   DISCCART       1205.00         0.00
+   DISCCART       1210.00         0.00
+   DISCCART       1215.00         0.00
+   DISCCART       1220.00         0.00
+   DISCCART       1225.00         0.00
+   DISCCART       1230.00         0.00
+   DISCCART       1235.00         0.00
+   DISCCART       1240.00         0.00
+   DISCCART       1245.00         0.00
+   DISCCART       1250.00         0.00
+   DISCCART       1255.00         0.00
+   DISCCART       1260.00         0.00
+   DISCCART       1265.00         0.00
+   DISCCART       1270.00         0.00
+   DISCCART       1275.00         0.00
+   DISCCART       1280.00         0.00
+   DISCCART       1285.00         0.00
+   DISCCART       1290.00         0.00
+   DISCCART       1295.00         0.00
+   DISCCART       1300.00         0.00
+   DISCCART       1305.00         0.00
+   DISCCART       1310.00         0.00
+   DISCCART       1315.00         0.00
+   DISCCART       1320.00         0.00
+   DISCCART       1325.00         0.00
+   DISCCART       1330.00         0.00
+   DISCCART       1335.00         0.00
+   DISCCART       1340.00         0.00
+   DISCCART       1345.00         0.00
+   DISCCART       1350.00         0.00
+   DISCCART       1355.00         0.00
+   DISCCART       1360.00         0.00
+   DISCCART       1365.00         0.00
+   DISCCART       1370.00         0.00
+   DISCCART       1375.00         0.00
+   DISCCART       1380.00         0.00
+   DISCCART       1385.00         0.00
+   DISCCART       1390.00         0.00
+   DISCCART       1395.00         0.00
+   DISCCART       1400.00         0.00
+   DISCCART       1405.00         0.00
+   DISCCART       1410.00         0.00
+   DISCCART       1415.00         0.00
+   DISCCART       1420.00         0.00
+   DISCCART       1425.00         0.00
+
+RE FINISHED
+
+ME STARTING
+   SURFFILE  aerscreen_01_01.sfc  FREE
+   PROFFILE  aerscreen_01_01.pfl  FREE
+   SURFDATA  11111   2010  SCREEN
+   UAIRDATA  22222   2010  SCREEN
+   PROFBASE   25.0 METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE 1  FIRST
+   MAXTABLE  ALLAVE  50
+
+   FILEFORM  EXP
+   RANKFILE  1 10 AERSCREEN.FIL
+   PLOTFILE  1 ALL  FIRST  AERSCREEN.PLT
+OU FINISHED

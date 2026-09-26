@@ -13,10 +13,11 @@ repos:
     rev: v4.5.0
     hooks:
       # EPA's reference decks and files, and the writer's golden output,
-      # are compared byte for byte; their trailing blanks and line ends
-      # are part of the fixture.
+      # are compared byte for byte, and patches against EPA's Fortran
+      # carry its trailing blanks in their context lines: the blanks are
+      # part of the fixture, and stripping them breaks the patch.
       - id: trailing-whitespace
-        exclude: ^tests/fixtures/
+        exclude: ^(tests/fixtures/|scripts/patches/)
       - id: end-of-file-fixer
         exclude: ^tests/fixtures/
       - id: check-yaml

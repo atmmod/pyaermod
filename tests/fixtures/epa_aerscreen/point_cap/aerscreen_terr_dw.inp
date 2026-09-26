@@ -1,0 +1,177 @@
+** POINTCAP DATA      Rate    Height     Temp.  Velocity     Diam.     Flow
+**              0.1000E+01   10.0600  810.9000   14.0210    0.8130    15423.
+
+** BUILDING DATA   BPIP    Height  Max dim.  Min dim.   Orient.   Direct.    Offset
+**                  Y      4.3000   13.7000    9.1000    0.0000   90.0000    9.1000
+
+** MAKEMET DATA    MinT    MaxT Speed   AnemHt Surf Clim  Albedo   Bowen  Length  SC FILE
+**               255.40  308.10   0.5   10.000    0    0   0.1600   0.7000   0.0960  "NA"
+
+** ADJUST U*      N
+
+** TERRAIN DATA   Terrain    UTM East   UTM North  Zone  Nada     Probe     PROFBASE  Use AERMAP elev
+**                   Y       718341.6   5101116.5    11     4       2000.0        1185.40         N
+
+** DISCRETE RECEPTORS  Discflag   Receptor file
+**                      N        "NA"
+
+** UNITS/POPULATION   Units   R/U  Population      Amb. dist.   Flagpole    Flagpole height
+**                      M     R            0.          30.000       N         0.00
+
+** FUMIGATION        Inversion Break-up  Shoreline  Distance    Direct  Run AERSCREEN
+**                         N                  N         0.00      0.0     Y
+
+** DEBUG OPTION      Debug
+**                     N
+
+** OUTPUT FILE "AERSCREEN_TERR_DW.OUT"
+
+** Temporal sector: Annual, flow vector:  90 degrees, spatial sector:  1
+
+CO STARTING
+   TITLEONE CAPPED STACK, TERRAIN, DOWNWASH
+**            REFINE STAGE 3
+   MODELOPT CONC SCREEN
+   AVERTIME 1
+   POLLUTID OTHER
+   RUNORNOT RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION SOURCE POINTCAP     0.0     0.0   1185.40
+   SRCPARAM SOURCE   0.1000E+01   10.060  810.900   14.021    0.813
+
+   BUILDHGT SOURCE  36*4.30
+   BUILDWID SOURCE  36*13.70
+   BUILDLEN SOURCE  36*9.10
+   XBADJ    SOURCE  36*-13.65
+   YBADJ    SOURCE  36*.00
+
+   SRCGROUP  ALL
+
+SO FINISHED
+
+RE STARTING
+** Fence line receptor
+   DISCCART         30.00         0.00    1185.42    1185.42
+** Refined receptors
+   DISCCART        900.00         0.00    1187.56    1460.10
+   DISCCART        902.00         0.00    1188.22    1460.10
+   DISCCART        904.00         0.00    1189.26    1460.10
+   DISCCART        906.00         0.00    1190.29    1460.10
+   DISCCART        908.00         0.00    1191.33    1460.10
+   DISCCART        910.00         0.00    1192.36    1460.10
+   DISCCART        912.00         0.00    1193.39    1460.10
+   DISCCART        914.00         0.00    1194.42    1460.10
+   DISCCART        916.00         0.00    1195.44    1460.10
+   DISCCART        918.00         0.00    1196.46    1460.10
+   DISCCART        920.00         0.00    1197.49    1460.10
+   DISCCART        922.00         0.00    1198.51    1460.10
+   DISCCART        924.00         0.00    1199.61    1460.10
+   DISCCART        926.00         0.00    1200.91    1460.10
+   DISCCART        928.00         0.00    1202.22    1460.10
+   DISCCART        930.00         0.00    1203.53    1460.10
+   DISCCART        932.00         0.00    1204.85    1460.10
+   DISCCART        934.00         0.00    1206.16    1460.10
+   DISCCART        936.00         0.00    1207.48    1460.10
+   DISCCART        938.00         0.00    1208.80    1460.10
+   DISCCART        940.00         0.00    1210.12    1460.10
+   DISCCART        942.00         0.00    1211.45    1460.10
+   DISCCART        944.00         0.00    1212.77    1460.10
+   DISCCART        946.00         0.00    1213.89    1460.10
+   DISCCART        948.00         0.00    1214.82    1460.10
+   DISCCART        950.00         0.00    1215.74    1460.10
+   DISCCART        952.00         0.00    1216.67    1460.10
+   DISCCART        954.00         0.00    1217.60    1460.10
+   DISCCART        956.00         0.00    1218.54    1460.10
+   DISCCART        958.00         0.00    1219.47    1460.10
+   DISCCART        960.00         0.00    1220.41    1460.10
+   DISCCART        962.00         0.00    1221.35    1460.10
+   DISCCART        964.00         0.00    1222.29    1460.10
+   DISCCART        966.00         0.00    1223.24    1460.10
+   DISCCART        968.00         0.00    1223.87    1460.10
+   DISCCART        970.00         0.00    1224.41    1460.10
+   DISCCART        972.00         0.00    1224.94    1460.10
+   DISCCART        974.00         0.00    1225.47    1460.10
+   DISCCART        976.00         0.00    1226.01    1460.10
+   DISCCART        978.00         0.00    1226.54    1459.82
+   DISCCART        980.00         0.00    1227.08    1459.82
+   DISCCART        982.00         0.00    1227.61    1374.73
+   DISCCART        984.00         0.00    1228.15    1374.73
+   DISCCART        986.00         0.00    1228.69    1374.73
+   DISCCART        988.00         0.00    1229.22    1374.73
+   DISCCART        990.00         0.00    1229.70    1374.73
+   DISCCART        992.00         0.00    1230.17    1374.73
+   DISCCART        994.00         0.00    1230.62    1374.73
+   DISCCART        996.00         0.00    1231.06    1374.73
+   DISCCART        998.00         0.00    1231.51    1374.73
+   DISCCART       1000.00         0.00    1231.96    1374.73
+   DISCCART       1002.00         0.00    1232.41    1374.73
+   DISCCART       1004.00         0.00    1232.86    1374.73
+   DISCCART       1006.00         0.00    1233.30    1374.73
+   DISCCART       1008.00         0.00    1233.75    1374.73
+   DISCCART       1010.00         0.00    1234.16    1374.73
+   DISCCART       1012.00         0.00    1234.45    1374.73
+   DISCCART       1014.00         0.00    1234.74    1374.73
+   DISCCART       1016.00         0.00    1235.03    1374.73
+   DISCCART       1018.00         0.00    1235.31    1374.73
+   DISCCART       1020.00         0.00    1235.60    1374.73
+   DISCCART       1022.00         0.00    1235.89    1374.73
+   DISCCART       1024.00         0.00    1236.18    1374.73
+   DISCCART       1026.00         0.00    1236.46    1374.73
+   DISCCART       1028.00         0.00    1236.75    1374.73
+   DISCCART       1030.00         0.00    1237.04    1374.73
+   DISCCART       1032.00         0.00    1237.24    1374.73
+   DISCCART       1034.00         0.00    1237.33    1374.73
+   DISCCART       1036.00         0.00    1237.42    1374.73
+   DISCCART       1038.00         0.00    1237.52    1374.73
+   DISCCART       1040.00         0.00    1237.61    1374.73
+   DISCCART       1042.00         0.00    1237.71    1374.73
+   DISCCART       1044.00         0.00    1237.80    1374.73
+   DISCCART       1046.00         0.00    1237.89    1374.73
+   DISCCART       1048.00         0.00    1237.99    1374.73
+   DISCCART       1050.00         0.00    1238.08    1374.73
+   DISCCART       1052.00         0.00    1238.17    1374.73
+   DISCCART       1054.00         0.00    1238.23    1374.73
+   DISCCART       1056.00         0.00    1238.28    1374.73
+   DISCCART       1058.00         0.00    1238.32    1374.73
+   DISCCART       1060.00         0.00    1238.36    1374.73
+   DISCCART       1062.00         0.00    1238.41    1374.73
+   DISCCART       1064.00         0.00    1238.45    1374.73
+   DISCCART       1066.00         0.00    1238.50    1374.73
+   DISCCART       1068.00         0.00    1238.54    1374.73
+   DISCCART       1070.00         0.00    1238.58    1374.73
+   DISCCART       1072.00         0.00    1238.63    1374.73
+   DISCCART       1074.00         0.00    1238.67    1374.73
+   DISCCART       1076.00         0.00    1238.71    1374.73
+   DISCCART       1078.00         0.00    1238.75    1374.73
+   DISCCART       1080.00         0.00    1238.78    1374.73
+   DISCCART       1082.00         0.00    1238.82    1374.73
+   DISCCART       1084.00         0.00    1238.86    1374.73
+   DISCCART       1086.00         0.00    1238.90    1374.73
+   DISCCART       1088.00         0.00    1238.94    1374.73
+   DISCCART       1090.00         0.00    1238.98    1374.73
+   DISCCART       1092.00         0.00    1239.02    1374.73
+   DISCCART       1094.00         0.00    1239.06    1374.73
+   DISCCART       1096.00         0.00    1239.11    1374.73
+   DISCCART       1098.00         0.00    1239.18    1374.73
+   DISCCART       1100.00         0.00    1239.25    1374.73
+
+RE FINISHED
+
+ME STARTING
+   SURFFILE  aerscreen_01_01.sfc  FREE
+   PROFFILE  aerscreen_01_01.pfl  FREE
+   SURFDATA  11111   2010  SCREEN
+   UAIRDATA  22222   2010  SCREEN
+   PROFBASE 1185.4 METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE 1  FIRST
+   MAXTABLE  ALLAVE  50
+
+   FILEFORM  EXP
+   RANKFILE  1 10 AERSCREEN.FIL
+   PLOTFILE  1 ALL  FIRST  AERSCREEN.PLT
+OU FINISHED
