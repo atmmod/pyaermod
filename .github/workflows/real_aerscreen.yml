@@ -1,0 +1,139 @@
+name: Real AERSCREEN
+
+# Drives EPA's AERSCREEN test cases through a locally built AERSCREEN and
+# compares the outputs with the ones EPA ships. AERSCREEN spawns MAKEMET,
+# AERMOD and BPIP-PRIME, so all of them are compiled from EPA's source
+# (scripts/build_aermod.sh, build_bpip.sh, build_aerscreen.sh); the
+# AERSCREEN source needs the gfortran patch the build script applies.
+#
+# The archives are cached for a calendar month, keyed on their URLs, so
+# gaftp flakiness inside the month is absorbed and an EPA re-release is
+# picked up within it.
+
+on:
+  schedule:
+    - cron: "0 7 * * 3"  # Wednesday 07:00 UTC, after the Monday/Tuesday smokes
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/pyaermod/aerscreen.py"
+      - "src/pyaermod/aerscreen_runner.py"
+      - "tests/test_real_aerscreen.py"
+      - "tests/test_aerscreen_known_answers.py"
+      - "tests/fixtures/epa_aerscreen/**"
+      - "scripts/build_aerscreen.sh"
+      - "scripts/build_aermod.sh"
+      - "scripts/build_bpip.sh"
+      - "scripts/fetch_epa_source.sh"
+      - "scripts/patches/aerscreen_*.patch"
+      - ".github/workflows/real_aerscreen.yml"
+
+env:
+  SCRAM: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models"
+  ZIPS: /tmp/epa_zips
+
+jobs:
+  aerscreen:
+    runs-on: ubuntu-latest
+    # Four EPA downloads and four compiles, then ~25 AERSCREEN runs of a
+    # minute or two each; cap it well under the 6 h default.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Compute EPA archive cache key
+        id: key
+        run: |
+          urls="$SCRAM/screening/aerscreen/aerscreen_code.zip
+          $SCRAM/screening/aerscreen/makemet_code.zip
+          $SCRAM/screening/aerscreen/aerscreen_test_cases.zip
+          $SCRAM/preferred/aermod/aermod_source.zip
+          $SCRAM/related/aermap/aermap_source.zip
+          $SCRAM/related/bpip/bpipprime.zip"
+          echo "key=epa-aerscreen-$(printf '%s' "$urls" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache EPA archives
+        uses: actions/cache@v4
+        with:
+          path: /tmp/epa_zips
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Fetch EPA archives
+        run: |
+          set -euo pipefail
+          mkdir -p "$ZIPS"
+          # fetch_epa_source.sh reuses a cache-restored archive.
+          f() { bash scripts/fetch_epa_source.sh "$SCRAM/$1" "$ZIPS/$2"; }
+          f screening/aerscreen/aerscreen_code.zip       aerscreen_code.zip
+          f screening/aerscreen/makemet_code.zip         makemet_code.zip
+          f screening/aerscreen/aerscreen_test_cases.zip aerscreen_test_cases.zip
+          f preferred/aermod/aermod_source.zip           aermod_source.zip
+          f related/aermap/aermap_source.zip             aermap_source.zip
+          f related/bpip/bpipprime.zip                   bpipprime.zip
+          ls -l "$ZIPS"
+
+      - name: Build AERMOD, AERMAP, BPIP-PRIME, AERSCREEN and MAKEMET
+        env:
+          AERMOD_ZIP: /tmp/epa_zips/aermod_source.zip
+          AERMAP_ZIP: /tmp/epa_zips/aermap_source.zip
+          BPIP_ZIP: /tmp/epa_zips/bpipprime.zip
+          AERSCREEN_ZIP: /tmp/epa_zips/aerscreen_code.zip
+          MAKEMET_ZIP: /tmp/epa_zips/makemet_code.zip
+          AERSCREEN_TESTCASE_ZIP: /tmp/epa_zips/aerscreen_test_cases.zip
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          bash scripts/build_aermod.sh aermod
+          bash scripts/build_aermod.sh aermap
+          bash scripts/build_bpip.sh
+          bash scripts/build_aerscreen.sh --with-testcase
+          ls -l bin
+
+      - name: Run the AERSCREEN reference cases
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          # addopts is cleared because pytest.ini deselects `slow` tests.
+          pytest -o addopts="" -p no:cacheprovider -v --tb=short -rs \
+            --basetemp=/tmp/pyaermod_pytest \
+            --junitxml=/tmp/aerscreen-junit.xml \
+            tests/test_aerscreen_known_answers.py tests/test_real_aerscreen.py
+          rm -rf /tmp/pyaermod_pytest
+          # A green run in which the binary-backed tests all skipped is
+          # not evidence of anything; make that a failure.
+          python - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("/tmp/aerscreen-junit.xml").getroot()
+          ran = skipped = 0
+          for case in root.iter("testcase"):
+              if "test_real_aerscreen" not in case.get("classname", ""):
+                  continue
+              if case.find("skipped") is not None:
+                  skipped += 1
+              else:
+                  ran += 1
+          print(f"test_real_aerscreen: {ran} ran, {skipped} skipped")
+          if ran == 0:
+              print("::error::every real-AERSCREEN test skipped")
+              sys.exit(1)
+          EOF
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerscreen-junit
+          path: /tmp/aerscreen-junit.xml
+          if-no-files-found: warn

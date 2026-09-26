@@ -1,0 +1,121 @@
+** AREA DATA          Rate    Height    Length     Width   Angle     Szinit
+**              0.9954E+00    0.9144  152.4000   76.2000     0.0       0.09
+
+** BUILDING DATA   BPIP    Height  Max dim.  Min dim.   Orient.   Direct.    Offset
+**                  N      0.0000    0.0000    0.0000    0.0000    0.0000    0.0000
+
+** MAKEMET DATA    MinT    MaxT Speed   AnemHt Surf Clim  Albedo   Bowen  Length  SC FILE
+**               249.82  310.93   0.5   10.000    9    0   0.1600   0.8300   0.0230  "seasonal.out"
+
+** ADJUST U*      N
+
+** TERRAIN DATA   Terrain    UTM East   UTM North  Zone  Nada     Probe     PROFBASE  Use AERMAP elev
+**                   N            0.0         0.0     0     0       7000.0           0.00         N
+
+** DISCRETE RECEPTORS  Discflag   Receptor file
+**                      N        "NA"
+
+** UNITS/POPULATION   Units   R/U  Population      Amb. dist.   Flagpole    Flagpole height
+**                      M     R            0.         182.880       N         0.00
+
+** FUMIGATION        Inversion Break-up  Shoreline  Distance    Direct  Run AERSCREEN
+**                         N                  N         0.00     -9.0     Y
+
+** DEBUG OPTION      Debug
+**                     Y
+
+** OUTPUT FILE "AERSCREEN_AREA.OUT"
+
+** Temporal sector: Winter, flow vector:   0 degrees, spatial sector:  1
+
+CO STARTING
+   TITLEONE AREA SOURCE, ENGLISH UNITS
+**            REFINE STAGE 3
+   MODELOPT CONC SCREEN  FLAT FASTAREA
+   AVERTIME 1
+   POLLUTID OTHER
+   RUNORNOT RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION SOURCE AREA         -76.20    -38.10
+   SRCPARAM SOURCE   0.8572E-04    0.914  152.400   76.200    0.000    0.090
+
+   SRCGROUP  ALL
+
+SO FINISHED
+
+RE STARTING
+** Fence line receptor
+   DISCCART        182.88         0.00
+** Refined receptors
+   DISCCART        183.00         0.00
+   DISCCART        184.00         0.00
+   DISCCART        185.00         0.00
+   DISCCART        186.00         0.00
+   DISCCART        187.00         0.00
+   DISCCART        188.00         0.00
+   DISCCART        189.00         0.00
+   DISCCART        190.00         0.00
+   DISCCART        191.00         0.00
+   DISCCART        192.00         0.00
+   DISCCART        193.00         0.00
+   DISCCART        194.00         0.00
+   DISCCART        195.00         0.00
+   DISCCART        196.00         0.00
+   DISCCART        197.00         0.00
+   DISCCART        198.00         0.00
+   DISCCART        199.00         0.00
+   DISCCART        200.00         0.00
+   DISCCART        201.00         0.00
+   DISCCART        202.00         0.00
+   DISCCART        203.00         0.00
+   DISCCART        204.00         0.00
+   DISCCART        205.00         0.00
+   DISCCART        206.00         0.00
+   DISCCART        207.00         0.00
+   DISCCART        208.00         0.00
+   DISCCART        209.00         0.00
+   DISCCART        210.00         0.00
+   DISCCART        211.00         0.00
+   DISCCART        212.00         0.00
+   DISCCART        213.00         0.00
+   DISCCART        214.00         0.00
+   DISCCART        215.00         0.00
+   DISCCART        216.00         0.00
+   DISCCART        217.00         0.00
+   DISCCART        218.00         0.00
+   DISCCART        219.00         0.00
+   DISCCART        220.00         0.00
+   DISCCART        221.00         0.00
+   DISCCART        222.00         0.00
+   DISCCART        223.00         0.00
+   DISCCART        224.00         0.00
+   DISCCART        225.00         0.00
+   DISCCART        226.00         0.00
+   DISCCART        227.00         0.00
+   DISCCART        228.00         0.00
+   DISCCART        229.00         0.00
+   DISCCART        230.00         0.00
+   DISCCART        231.00         0.00
+   DISCCART        232.00         0.00
+
+RE FINISHED
+
+ME STARTING
+   SURFFILE  aerscreen_01_01.sfc  FREE
+   PROFFILE  aerscreen_01_01.pfl  FREE
+   SURFDATA  11111   2010  SCREEN
+   UAIRDATA  22222   2010  SCREEN
+   PROFBASE    0.0 METERS
+ME WDROTATE    0.0
+ME FINISHED
+
+OU STARTING
+   RECTABLE 1  FIRST
+   MAXTABLE  ALLAVE  50
+
+   FILEFORM  EXP
+   RANKFILE  1 10 AERSCREEN.FIL
+   PLOTFILE  1 ALL  FIRST  AERSCREEN.PLT
+OU FINISHED
