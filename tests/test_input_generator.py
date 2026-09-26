@@ -24,9 +24,13 @@ from pyaermod.input_generator import (
     GasDepositionParams,
     LineSource,
     MeteorologyPathway,
+    Method2Params,
     OpenPitSource,
     OutputPathway,
     ParticleDepositionParams,
+    PlatformParams,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
     PollutantType,
@@ -34,6 +38,7 @@ from pyaermod.input_generator import (
     RLineExtSource,
     RLineSource,
     SaveFile,
+    SidewashPointSource,
     SourcePathway,
     StreetCanyon,
     TerrainType,
@@ -764,16 +769,61 @@ class TestDepositionParameters:
         assert "MASSFRAX" in output
         assert "PARTDENS" in output
 
-    def test_deposition_method(self):
+    def test_deposition_method_writes_no_method_line(self):
+        # There is no METHOD keyword in AERMOD (modules.f; SO E105, probe
+        # deck 20): the field is kept for compatibility and writes nothing.
         source = PointSource(
             source_id="STK1", x_coord=0.0, y_coord=0.0,
             stack_height=50.0, emission_rate=1.0,
             deposition_method=(DepositionMethod.DRYDPLT, 0.5),
         )
         output = source.to_aermod_input()
-        assert "METHOD" in output
-        assert "DRYDPLT" in output
-        assert "0.5" in output
+        assert "METHOD" not in output and "DRYDPLT" not in output
+
+    def test_method_2_line(self):
+        # soset.f METH_2: METHOD_2 srcid finemass dg (EPA's testpart deck)
+        source = PointSource(
+            source_id="STACK1", x_coord=0.0, y_coord=0.0,
+            stack_height=35.0, emission_rate=100.0,
+            method_2=Method2Params(0.55, 1.2),
+        )
+        lines = source.to_aermod_input().splitlines()
+        assert [ln.split() for ln in lines if ln.split()[0] == "METHOD_2"] == \
+            [["METHOD_2", "STACK1", "0.55", "1.2"]]
+
+    def test_platform_line(self):
+        # soset.f PLATFM: PLATFORM srcid elev hb wb, after the downwash arrays
+        source = PointSource(
+            source_id="STACK1", x_coord=0.0, y_coord=0.0, stack_height=35.0,
+            building_height=20.0, platform=PlatformParams(0.0, 20.0, 30.0),
+        )
+        lines = [ln.split() for ln in source.to_aermod_input().splitlines()]
+        keywords = [ln[0] for ln in lines]
+        assert keywords.index("PLATFORM") > keywords.index("BUILDHGT")
+        assert lines[keywords.index("PLATFORM")] == ["PLATFORM", "STACK1", "0", "20", "30"]
+
+    def test_point_cap_and_hor_location_types(self):
+        cap = PointCapSource("C1", 0.0, 0.0, stack_height=10.0)
+        hor = PointHorSource("H1", 0.0, 0.0, stack_height=10.0)
+        assert cap.to_aermod_input().splitlines()[0].split()[:3] == ["LOCATION", "C1", "POINTCAP"]
+        assert hor.to_aermod_input().splitlines()[0].split()[:3] == ["LOCATION", "H1", "POINTHOR"]
+        assert isinstance(cap, PointSource)
+
+    def test_swpoint_srcparam(self):
+        src = SidewashPointSource("SW1", 0.0, 0.0, emission_rate=1.0, release_height=10.0,
+                                  building_width=20.0, building_length=30.0,
+                                  building_height=15.0, building_angle=90.0)
+        lines = [ln.split() for ln in src.to_aermod_input().splitlines()]
+        assert lines[0][:3] == ["LOCATION", "SW1", "SWPOINT"]
+        assert lines[1] == ["SRCPARAM", "SW1", "1.000000", "10.00", "20.00", "30.00", "15.00", "90.00"]
+
+    def test_fixed_columns_do_not_round_a_value_away(self):
+        # EPA's capped deck: an exit velocity of 0.001 m/s must survive
+        # the 8.2f column (it became 0.00).
+        src = PointSource("S", 0.0, 0.0, stack_height=65.0, stack_temp=425.0,
+                          exit_velocity=0.001, stack_diameter=5.0, emission_rate=500.0)
+        assert src.to_aermod_input().splitlines()[1].split() == \
+            ["SRCPARAM", "S", "500.000000", "65.00", "425.00", "0.001", "5.00"]
 
     def test_no_deposition_omits_keywords(self):
         source = PointSource(

@@ -147,6 +147,7 @@ class Validator:
 
         cls._validate_restart_options(control, result)
         cls._validate_gas_deposition_defaults(control, result)
+        cls._validate_downwash_and_arm2_options(control, result)
 
         # Chemistry options
         if getattr(control, "chemistry", None) is not None:
@@ -230,8 +231,10 @@ class Validator:
         has_urban_source = False
         for source in sources.sources:
             cls._validate_source(source, control, result)
+            cls._validate_source_options(source, control, result)
             if getattr(source, "is_urban", False):
                 has_urban_source = True
+        cls._validate_source_flags(sources, control, result)
 
         # Cross-field: urban sources need URBANOPT in control
         if has_urban_source and not control.urban_option:
@@ -306,6 +309,86 @@ class Validator:
                         pathway, "sector_values",
                         f"value for sector {sid} period '{period}' must be >= 0"
                     ))
+
+    @classmethod
+    def _validate_source_options(cls, source, control, result: ValidationResult):
+        """METHOD_2, PLATFORM and SWPOINT as soset.f METH_2, PLATFM and
+        SRCSIZ/SWPARM check them (probe decks 21-23b)."""
+        from pyaermod.input_generator import PointSource, SidewashPointSource
+
+        name = f"{type(source).__name__}({source.source_id})"
+        alpha = bool(getattr(control, "alpha", False))
+        dfault = bool(getattr(control, "regulatory_default", False))
+
+        method_2 = getattr(source, "method_2", None)
+        if method_2 is not None:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    name, "method_2", "METHOD_2 needs the ALPHA option (E198)"
+                ))
+            if dfault:
+                result.errors.append(ValidationError(
+                    name, "method_2", "METHOD_2 is a non-DFAULT option (E197)"
+                ))
+            if not 0.0 <= method_2.fine_mass_fraction <= 1.0:
+                result.errors.append(ValidationError(
+                    name, "method_2.fine_mass_fraction",
+                    f"must be 0-1, got {method_2.fine_mass_fraction} (E332)"
+                ))
+            if getattr(source, "particle_deposition", None) is not None:
+                result.errors.append(ValidationError(
+                    name, "method_2",
+                    "a source has either METHOD_2 or PARTDIAM/MASSFRAX/PARTDENS (E386)"
+                ))
+
+        platform = getattr(source, "platform", None)
+        if platform is not None:
+            if not isinstance(source, PointSource):
+                result.errors.append(ValidationError(
+                    name, "platform", "PLATFORM applies to POINT, POINTCAP and POINTHOR only (E631)"
+                ))
+            if not alpha:
+                result.errors.append(ValidationError(
+                    name, "platform", "PLATFORM needs the ALPHA option (E198)"
+                ))
+
+        if isinstance(source, SidewashPointSource):
+            if not alpha:
+                result.errors.append(ValidationError(
+                    name, "type", "SWPOINT needs the ALPHA option (E198)"
+                ))
+            if source.release_height < 0:
+                result.errors.append(ValidationError(
+                    name, "release_height", f"must be >= 0, got {source.release_height} (E209)"
+                ))
+
+    @classmethod
+    def _validate_source_flags(cls, sources, control, result: ValidationResult):
+        """ARCFTSRC and HBPSRCID (soset.f AIRCRAFT, HBPSOURCE; probe deck 25)."""
+        pathway = "SourcePathway"
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", []) or []}
+        alpha = bool(getattr(control, "alpha", False))
+        if getattr(sources, "aircraft_sources", None):
+            if not getattr(control, "aircraft_option", False):
+                result.errors.append(ValidationError(
+                    pathway, "aircraft_sources",
+                    "ARCFTSRC needs CO ARCFTOPT (ControlPathway.aircraft_option, E821)"
+                ))
+            result.errors.append(ValidationError(
+                pathway, "aircraft_sources",
+                "aircraft sources need an HOUREMIS file with the aircraft record for "
+                "every hour (E823); pyaermod keeps HOUREMIS lines in unparsed_lines",
+                severity="warning",
+            ))
+        if getattr(sources, "hbp_sources", None):
+            if "HBP" not in extra:
+                result.errors.append(ValidationError(
+                    pathway, "hbp_sources", "HBPSRCID needs MODELOPT HBP (E130)"
+                ))
+            if not alpha:
+                result.errors.append(ValidationError(
+                    pathway, "hbp_sources", "HBPSRCID needs the ALPHA option (E198)"
+                ))
 
     @classmethod
     def _validate_source(cls, source, control, result: ValidationResult):
@@ -1752,6 +1835,93 @@ class Validator:
                     f"TOXXFILE is meant for 1-hour averages; AERMOD warns for {period} (W296)",
                     severity="warning",
                 ))
+
+    # ------------------------------------------------------------------
+    # CO research options (coset.f ARM2_Ratios, AWMA_DOWNWASH, ORD_DOWNWASH)
+    # ------------------------------------------------------------------
+
+    _AWMA_OPTIONS = ("STREAMLINE", "STREAMLINED", "AWMAUEFF", "AWMAUTURB",
+                     "AWMAUTURBHX", "AWMAENTRAIN")
+    _ORD_OPTIONS = ("ORDCAV", "ORDUEFF", "ORDTURB")
+
+    @classmethod
+    def _validate_downwash_and_arm2_options(cls, control, result: ValidationResult):
+        pathway = "ControlPathway"
+        alpha = bool(getattr(control, "alpha", False))
+        dfault = bool(getattr(control, "regulatory_default", False))
+
+        ratios = getattr(control, "arm2_ratios", None)
+        if ratios is not None:
+            chem = getattr(control, "chemistry", None)
+            method = getattr(getattr(chem, "method", None), "value", None)
+            if method != "ARM2":
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios", "ARMRATIO needs the ARM2 option (E145)"
+                ))
+            lo, hi = float(ratios[0]), float(ratios[1])
+            if not (0.0 < lo <= 1.0 and 0.0 < hi <= 1.0):
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios", f"ratios must be in (0, 1], got {ratios} (E380)"
+                ))
+            elif hi < lo:
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios", f"maximum ratio below minimum: {ratios} (E380)"
+                ))
+            elif dfault and not (0.5 <= lo <= 0.9 and 0.5 <= hi <= 0.9):
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios",
+                    f"under DFAULT the ARM2 ratios must lie in 0.5-0.9, got {ratios} (E380)"
+                ))
+
+        awma = [str(o).upper() for o in getattr(control, "awma_downwash", []) or []]
+        ord_ = [str(o).upper() for o in getattr(control, "ord_downwash", []) or []]
+        if awma:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash", "AWMADWNW needs the ALPHA option (E122)"
+                ))
+            if len(awma) > 5:
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash", "AWMADWNW takes at most five options (E202)"
+                ))
+            for opt in awma:
+                if opt not in cls._AWMA_OPTIONS:
+                    result.errors.append(ValidationError(
+                        pathway, "awma_downwash", f"'{opt}' is not an AWMADWNW option (E203)"
+                    ))
+            if len(set(awma)) != len(awma):
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash", "duplicate AWMADWNW option (E121)"
+                ))
+            if ({"STREAMLINE", "STREAMLINED"} & set(awma)
+                    and not {"AWMAUTURB", "AWMAUTURBHX"} & set(awma)):
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash",
+                    "STREAMLINE requires AWMAUTURB or AWMAUTURBHX (E126)"
+                ))
+        if ord_:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    pathway, "ord_downwash", "ORD_DWNW needs the ALPHA option (E123)"
+                ))
+            if len(ord_) > 3:
+                result.errors.append(ValidationError(
+                    pathway, "ord_downwash", "ORD_DWNW takes at most three options (E202)"
+                ))
+            for opt in ord_:
+                if opt not in cls._ORD_OPTIONS:
+                    result.errors.append(ValidationError(
+                        pathway, "ord_downwash", f"'{opt}' is not an ORD_DWNW option (E203)"
+                    ))
+            if len(set(ord_)) != len(ord_):
+                result.errors.append(ValidationError(
+                    pathway, "ord_downwash", "duplicate ORD_DWNW option (E121)"
+                ))
+        if "AWMAUEFF" in awma and "ORDUEFF" in ord_:
+            result.errors.append(ValidationError(
+                pathway, "awma_downwash/ord_downwash",
+                "AWMAUEFF and ORDUEFF conflict (E124)"
+            ))
 
     # ------------------------------------------------------------------
     # Event pathway

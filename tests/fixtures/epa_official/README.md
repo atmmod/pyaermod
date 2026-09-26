@@ -30,21 +30,28 @@ Source archive:
 | `testgas.inp` | `aermet26135_aermod26135/inputs/` | `GASDEPOS 0.08962 1.04E-5 2.51E4 557.0` (Da Dw rcl Henry) and `DEPOUNIT`. |
 | `hrdow.inp` | `aermet26135_aermod26135/inputs/` | GRIDPOLR written with blank keyword columns (`POL1 GDIR 18 10. 20.`), 33 EMISFACT lines, six SEASONHR and six POSTFILE lines. |
 | `testpm25.inp` | `aermet26135_aermod26135/inputs/` | `MAXIFILE 24 ALL 35.0 <file>`, the four-field layout. |
-| `capped.inp` | `aermet26135_aermod26135/inputs/` | POINTCAP and POINTHOR sources with full downwash arrays, which the reader keeps verbatim. |
+| `capped.inp` | `aermet26135_aermod26135/inputs/` | POINTCAP and POINTHOR sources with full downwash arrays (`PointCapSource`, `PointHorSource`), and stacks with an exit velocity of 0.001 m/s that the fixed-column SRCPARAM writer used to round to 0.00. |
 | `multurb.inp` | `aermet26135_aermod26135/inputs/` | Four URBANOPT areas (ID-first layout) with the sources and polar grid in INCLUDED files (not vendored). |
+| `flatelev.inp` | `aermet26135_aermod26135/inputs/` | A `RANKFILE` per short-term period and a `LOCATION ... FLAT` source beside an elevated one under `MODELOPT FLAT ELEV`; receptors in an INCLUDED file (not vendored). |
+| `scimtest.inp` | `aermet26135_aermod26135/inputs/` | `MODELOPT SCIM` with the eight-field `SCIMBYHR` (wet-SCIM fields and the two summary files). |
+| `no2_1yrAK_arm2.inp` | `aermet26135_aermod26135/inputs/` | `ARMRATIO 0.5 0.9` under ARM2. |
+| `events_generated.inp` | written by AERMOD v26135 for `scripts/oracle_decks/29_event_main.inp` | The event deck AERMOD itself writes for a main run with `EVENTFIL ... SOCONT`: CO, SO and ME copied from the main deck, the EV pathway before OU, an OU pathway of `EVENTOUT` only. Not an archive deck (the archive has no EVENT case); it is the layout reference for `EventPathway` and the fixture for `tests/regulatory/test_event_rewrite.py`, which runs it against the vendored meteorology. |
 
 The decks from `bg_no2_olm_ppb.inp` down are the round-trip fixtures for
 `tests/test_epa_deck_roundtrip.py`; together they use every form of the
-restart, NOx/ozone background, gas-deposition, design-value, MAXIFILE and
-URBANOPT keywords that appears anywhere in the 53-deck archive, and the
-runstream forms (blank-keyword continuation lines, explicit grid lists)
-the RE parser was rewritten for. `allsrcs`, `blp_urban`, `olmgrp`,
-`psdcred`, the two `Test*` decks, `testgas` and `testgas2` are also the
-fixtures for `tests/test_epa_source_roundtrip.py`, and carry every
-source-construction keyword the archive uses (AREAVERT, BLPINPUT,
-BLPGROUP, OLMGROUP, PSDGROUP, DEPOUNIT, RBARRIER, RDEPRESS, GASDEPOS,
-URBANSRC); NO2RATIO, EMISUNIT, CONCUNIT, SBARRIER, VBARRIER and RLEMCONV
-appear in no EPA deck and are covered by the acceptance tests instead.
+restart, NOx/ozone background, gas-deposition, design-value, MAXIFILE,
+URBANOPT, RANKFILE, SEASONHR, SCIMBYHR, ARMRATIO, METHOD_2 and EV keywords
+that appears anywhere in the 53-deck archive (or, for the EV pathway, in
+the deck AERMOD generates), and the runstream forms (blank-keyword
+continuation lines, explicit grid lists) the RE parser was rewritten for. `allsrcs`, `blp_urban`, `olmgrp`,
+`psdcred`, the two `Test*` decks, `testgas`, `testgas2`, `capped` and
+`testprt2` are also the fixtures for `tests/test_epa_source_roundtrip.py`,
+and carry every source-construction keyword the archive uses (AREAVERT,
+BLPINPUT, BLPGROUP, OLMGROUP, PSDGROUP, DEPOUNIT, RBARRIER, RDEPRESS,
+GASDEPOS, URBANSRC, METHOD_2, POINTCAP and POINTHOR); NO2RATIO, EMISUNIT,
+CONCUNIT, SBARRIER, VBARRIER, RLEMCONV, PLATFORM, ARCFTSRC, HBPSRCID and
+SWPOINT appear in no EPA deck and are covered by the acceptance tests
+instead.
 The decks' trailing blanks are part of the fixture: the pre-commit
 whitespace hooks skip `tests/fixtures/`.
 

@@ -16,6 +16,8 @@ from pyaermod.input_generator import (
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DepositionMethod,
     DiscreteReceptor,
@@ -27,9 +29,11 @@ from pyaermod.input_generator import (
     LineSource,
     MaxiFile,
     MeteorologyPathway,
+    Method2Params,
     OpenPitSource,
     OutputPathway,
     ParticleDepositionParams,
+    PlatformParams,
     PointSource,
     PolarGrid,
     PollutantType,
@@ -39,6 +43,7 @@ from pyaermod.input_generator import (
     RLineSource,
     ScimOptions,
     SeasonHourFile,
+    SidewashPointSource,
     SourceGroupDefinition,
     SourcePathway,
     StreetCanyon,
@@ -1354,6 +1359,105 @@ class TestOutputFileValidation:
         result = Validator.validate(_make_valid_project(
             control=control, output=OutputPathway(toxx_files=[ToxxFile("24", 1.0, "t.dat")])))
         assert any("W296" in e.message and e.severity == "warning" for e in result.errors)
+
+
+class TestControlResearchOptionsValidation:
+    """coset.f ARM2_Ratios, AWMA_DOWNWASH, ORD_DOWNWASH (probes 24-24e)."""
+
+    def _errors(self, **control_kw):
+        control_kw.setdefault("title_one", "t")
+        control_kw.setdefault("averaging_periods", ["1"])
+        result = Validator.validate(_make_valid_project(control=ControlPathway(**control_kw)))
+        return [e.message for e in result.errors if e.pathway == "ControlPathway" and e.severity == "error"]
+
+    def test_armratio_needs_arm2_and_a_valid_range(self):
+        arm2 = dict(pollutant_id="NO2", chemistry=ChemistryOptions(method=ChemistryMethod.ARM2),
+                    regulatory_default=False)
+        assert self._errors(arm2_ratios=(0.5, 0.9), **arm2) == []
+        assert any("E145" in m for m in self._errors(arm2_ratios=(0.5, 0.9), pollutant_id="NO2"))
+        assert any("(0, 1]" in m for m in self._errors(arm2_ratios=(0.0, 0.9), **arm2))
+        assert any("below minimum" in m for m in self._errors(arm2_ratios=(0.9, 0.5), **arm2))
+        # probe 24b: 0.1 is E380 under DFAULT, accepted without it
+        assert self._errors(arm2_ratios=(0.1, 0.9), **arm2) == []
+        dfault = dict(arm2, regulatory_default=True)
+        assert any("0.5-0.9" in m for m in self._errors(arm2_ratios=(0.1, 0.9), **dfault))
+
+    def test_awmadwnw_rules(self):
+        alpha = dict(alpha=True, regulatory_default=False)
+        assert self._errors(awma_downwash=["STREAMLINE", "AWMAUTURB"], **alpha) == []
+        assert any("E122" in m for m in self._errors(awma_downwash=["AWMAUTURB"]))
+        assert any("E126" in m for m in self._errors(awma_downwash=["STREAMLINE"], **alpha))
+        assert any("E121" in m for m in self._errors(awma_downwash=["AWMAUTURB", "AWMAUTURB"], **alpha))
+        assert any("E203" in m for m in self._errors(awma_downwash=["AWMAFAST"], **alpha))
+
+    def test_ord_dwnw_rules_and_ueff_conflict(self):
+        alpha = dict(alpha=True, regulatory_default=False)
+        assert self._errors(ord_downwash=["ORDCAV", "ORDUEFF", "ORDTURB"], **alpha) == []
+        assert any("E123" in m for m in self._errors(ord_downwash=["ORDCAV"]))
+        assert any("E203" in m for m in self._errors(ord_downwash=["ORDFAST"], **alpha))
+        assert any("E124" in m for m in self._errors(awma_downwash=["AWMAUEFF"],
+                                                     ord_downwash=["ORDUEFF"], **alpha))
+        assert self._errors(awma_downwash=["AWMAUTURB"], ord_downwash=["ORDCAV"], **alpha) == []
+
+
+class TestSourceOptionsValidation:
+    """soset.f METH_2, PLATFM, SWPARM/SRCSIZ, AIRCRAFT, HBPSOURCE (probes 21-25c)."""
+
+    @staticmethod
+    def _control(**kw):
+        kw.setdefault("title_one", "t")
+        kw.setdefault("averaging_periods", ["1"])
+        return ControlPathway(**kw)
+
+    def _errors(self, source, control=None, **path_kw):
+        sources = SourcePathway(sources=[source], **path_kw)
+        result = Validator.validate(_make_valid_project(sources=sources, control=control or self._control()))
+        return [e.message for e in result.errors if e.severity == "error"
+                and (e.pathway.startswith(type(source).__name__) or e.pathway == "SourcePathway")]
+
+    def _stack(self, **kw):
+        return PointSource("STK1", 0, 0, stack_height=30.0, stack_diameter=1.5, stack_temp=400.0,
+                           exit_velocity=10.0, emission_rate=1.0, **kw)
+
+    def test_method_2_rules(self):
+        alpha = self._control(alpha=True, regulatory_default=False)
+        assert self._errors(self._stack(method_2=Method2Params(0.55, 1.2)), alpha) == []
+        assert any("E198" in m for m in self._errors(self._stack(method_2=Method2Params(0.55, 1.2)),
+                                                     self._control(regulatory_default=False)))
+        assert any("E197" in m for m in self._errors(self._stack(method_2=Method2Params(0.55, 1.2)),
+                                                     self._control(alpha=True, regulatory_default=True)))
+        assert any("E332" in m for m in self._errors(self._stack(method_2=Method2Params(1.5, 1.2)), alpha))
+        both = self._stack(method_2=Method2Params(0.5, 1.2),
+                           particle_deposition=ParticleDepositionParams([1.0], [1.0], [1.0]))
+        assert any("E386" in m for m in self._errors(both, alpha))
+
+    def test_platform_rules(self):
+        alpha = self._control(alpha=True, regulatory_default=False)
+        assert self._errors(self._stack(platform=PlatformParams(0.0, 20.0, 30.0)), alpha) == []
+        assert any("E198" in m for m in self._errors(self._stack(platform=PlatformParams(0.0, 20.0, 30.0)),
+                                                     self._control(regulatory_default=False)))
+
+    def test_swpoint_needs_alpha(self):
+        sw = SidewashPointSource("SW1", 0, 0, emission_rate=1.0, release_height=10.0,
+                                 building_width=20.0, building_length=30.0, building_height=15.0)
+        assert self._errors(sw, self._control(alpha=True, regulatory_default=False)) == []
+        assert any("E198" in m for m in self._errors(sw, self._control(regulatory_default=False)))
+        sw.release_height = -1.0
+        assert any("E209" in m for m in self._errors(sw, self._control(alpha=True, regulatory_default=False)))
+
+    def test_arcftsrc_and_hbpsrcid_flags(self):
+        vol = VolumeSource("VOL1", 0, 0, release_height=5.0, emission_rate=1.0,
+                           initial_lateral_dimension=10.0, initial_vertical_dimension=5.0)
+        alpha = self._control(alpha=True, regulatory_default=False)
+        assert any("E821" in m for m in self._errors(vol, alpha, aircraft_sources=["VOL1"]))
+        aircraft = self._control(alpha=True, regulatory_default=False, aircraft_option=True)
+        assert self._errors(vol, aircraft, aircraft_sources=["VOL1"]) == []
+        assert any("E130" in m for m in self._errors(self._stack(), alpha, hbp_sources=["STK1"]))
+        hbp = self._control(alpha=True, regulatory_default=False, extra_model_options=["HBP"])
+        assert self._errors(self._stack(), hbp, hbp_sources=["STK1"]) == []
+        assert any("E198" in m for m in self._errors(
+            self._stack(), self._control(regulatory_default=False, extra_model_options=["HBP"]),
+            hbp_sources=["STK1"]))
 
 
 # ---------------------------------------------------------------------------

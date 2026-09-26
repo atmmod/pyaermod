@@ -41,9 +41,12 @@ from pyaermod.sources import (
     BuoyLineSource,
     LineSource,
     OpenPitSource,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     RLineExtSource,
     RLineSource,
+    SidewashPointSource,
     VolumeSource,
 )
 
@@ -83,10 +86,10 @@ def line_endpoints(draw):
     return x1, y1, x1 + dx, y1 + dy
 
 
-def roundtrip(source):
+def roundtrip(source, **control_kw):
     """Write a one-source project and read it back."""
     project = AERMODProject(
-        control=ControlPathway(title_one="property"),
+        control=ControlPathway(title_one="property", **control_kw),
         sources=SourcePathway(sources=[source]),
         receptors=ReceptorPathway(
             discrete_receptors=[DiscreteReceptor(500.0, 500.0)]
@@ -260,6 +263,38 @@ def test_openpit(sid, x, y, xdim, ydim, volume, rate):
 # Coverage guard
 # ---------------------------------------------------------------------
 
+@_SETTINGS
+@given(cls=st.sampled_from([PointCapSource, PointHorSource]), sid=source_ids,
+       x=coord, y=coord, hs=positive, ts=num(250.0, 900.0), vs=num(0.0, 60.0),
+       ds=num(0.1, 20.0), rate=emission)
+def test_point_cap_and_hor(cls, sid, x, y, hs, ts, vs, ds, rate):
+    # POINTCAP / POINTHOR share POINT's SRCPARAM layout (soset.f PPARM).
+    src = cls(sid, x, y, stack_height=hs, stack_temp=ts, exit_velocity=vs,
+              stack_diameter=ds, emission_rate=rate)
+    got = roundtrip(src)
+    assert got.source_id == sid
+    assert close(got.x_coord, x) and close(got.y_coord, y)
+    assert close(got.stack_height, hs) and close(got.stack_temp, ts)
+    assert close(got.exit_velocity, vs) and close(got.stack_diameter, ds)
+    assert close(got.emission_rate, rate)
+
+
+@_SETTINGS
+@given(sid=source_ids, x=coord, y=coord, hs=num(0.0, 200.0), bw=positive, bl=positive,
+       bh=positive, ba=num(0.0, 359.0), rate=emission)
+def test_swpoint(sid, x, y, hs, bw, bl, bh, ba, rate):
+    # SRCPARAM emis hs bw bl bh ba (soset.f SWPARM); ALPHA required.
+    src = SidewashPointSource(sid, x, y, emission_rate=rate, release_height=hs,
+                              building_width=bw, building_length=bl,
+                              building_height=bh, building_angle=ba)
+    got = roundtrip(src, alpha=True, regulatory_default=False)
+    assert got.source_id == sid
+    assert close(got.x_coord, x) and close(got.y_coord, y)
+    assert close(got.release_height, hs) and close(got.emission_rate, rate)
+    assert close(got.building_width, bw) and close(got.building_length, bl)
+    assert close(got.building_height, bh) and close(got.building_angle, ba)
+
+
 def test_every_source_type_has_a_property():
     """Fail when pyaermod grows a source type this module does not cover."""
     import pyaermod.sources as sources_module
@@ -272,6 +307,7 @@ def test_every_source_type_has_a_property():
         "PointSource", "AreaSource", "AreaCircSource", "AreaPolySource",
         "VolumeSource", "LineSource", "RLineSource", "RLineExtSource",
         "BuoyLineSource", "OpenPitSource",
+        "PointCapSource", "PointHorSource", "SidewashPointSource",
     }
     assert exported == covered, (
         f"uncovered source types: {sorted(exported - covered)}; "

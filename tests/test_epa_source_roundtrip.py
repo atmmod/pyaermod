@@ -37,7 +37,10 @@ from pyaermod.input_generator import (
     AreaPolySource,
     BuoyLineSource,
     LineSource,
+    PointCapSource,
+    PointHorSource,
     RLineExtSource,
+    SidewashPointSource,
 )
 from pyaermod.input_reader import parse_aermod_input
 
@@ -50,8 +53,9 @@ KEYWORDS = (
     "AREAVERT", "BLPINPUT", "BLPGROUP", "OLMGROUP", "PSDGROUP", "NO2RATIO",
     "EMISUNIT", "CONCUNIT", "DEPOUNIT", "RBARRIER", "RDEPRESS", "SBARRIER",
     "VBARRIER", "RLEMCONV", "GASDEPOS", "URBANSRC",
+    "METHOD_2", "PLATFORM", "ARCFTSRC", "HBPSRCID",
 )
-CONSTRUCTED_TYPES = ("AREAPOLY", "BUOYLINE", "RLINEXT", "LINE")
+CONSTRUCTED_TYPES = ("AREAPOLY", "BUOYLINE", "RLINEXT", "LINE", "POINTCAP", "POINTHOR", "SWPOINT")
 
 _LINE_RE = re.compile(
     r"^\s*(?:SO\s+)?(" + "|".join((*KEYWORDS, "LOCATION", "SRCPARAM")) + r")\b(.*)$",
@@ -118,7 +122,8 @@ def _merge_areavert(lines: Counter) -> Counter:
 
 def _constructed_sources(project):
     return [s for s in project.sources.sources
-            if isinstance(s, (AreaPolySource, BuoyLineSource, RLineExtSource, LineSource))]
+            if isinstance(s, (AreaPolySource, BuoyLineSource, RLineExtSource, LineSource,
+                              PointCapSource, PointHorSource, SidewashPointSource))]
 
 
 def assert_roundtrip(path: Path) -> int:
@@ -129,8 +134,11 @@ def assert_roundtrip(path: Path) -> int:
     assert _constructed_sources(second) == _constructed_sources(first), path.name
     assert second.sources.psd_groups == first.sources.psd_groups
     assert second.sources.solid_barriers == first.sources.solid_barriers
+    # METHOD_2 travels on the source it names (a range resolves to IDs).
+    assert [(s.source_id, getattr(s, "method_2", None)) for s in second.sources.sources] == \
+        [(s.source_id, getattr(s, "method_2", None)) for s in first.sources.sources]
     for attr in ("emission_units", "concentration_units", "deposition_units",
-                 "rline_moves_units"):
+                 "rline_moves_units", "aircraft_sources", "hbp_sources"):
         assert getattr(second.sources, attr) == getattr(first.sources, attr), attr
     if first.control.chemistry is not None:
         assert second.control.chemistry.olm_groups == first.control.chemistry.olm_groups
@@ -159,7 +167,8 @@ def test_vendored_decks_cover_every_keyword_epa_uses():
     # SBARRIER, VBARRIER or RLEMCONV; those forms are covered by
     # tests/test_so_source_construction.py and the acceptance tests.
     assert {"AREAVERT", "BLPINPUT", "BLPGROUP", "OLMGROUP", "PSDGROUP", "DEPOUNIT",
-            "RBARRIER", "RDEPRESS", "GASDEPOS", "URBANSRC", "LOCATION", "SRCPARAM"} <= seen, sorted(seen)
+            "RBARRIER", "RDEPRESS", "GASDEPOS", "URBANSRC", "LOCATION", "SRCPARAM",
+            "METHOD_2"} <= seen, sorted(seen)
 
 
 def test_the_comparison_can_fail():

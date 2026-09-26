@@ -43,11 +43,14 @@ from ..input_generator import (
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SidewashPointSource,
     SourcePathway,
     VolumeSource,
 )
@@ -66,6 +69,9 @@ _SOURCE_TYPES: dict[str, Type] = {
     "RLineExtSource": RLineExtSource,
     "BuoyLineSource": BuoyLineSource,
     "OpenPitSource": OpenPitSource,
+    "PointCapSource": PointCapSource,
+    "PointHorSource": PointHorSource,
+    "SidewashPointSource": SidewashPointSource,
 }
 
 _RECEPTOR_TYPES: dict[str, Type] = {

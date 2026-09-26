@@ -77,11 +77,16 @@ from .sources import (  # noqa: F401  -- re-exports
     EmissionUnits,
     GasDepositionParams,
     LineSource,
+    Method2Params,
     OpenPitSource,
     ParticleDepositionParams,
+    PlatformParams,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     RLineExtSource,
     RLineSource,
+    SidewashPointSource,
     SolidBarrier,
     SolidBarrierSegment,
     SourceGroupDefinition,
@@ -104,7 +109,9 @@ from .unparsed import UnparsedLine, preserved_block
 # other group keywords) look their members up among the sources defined
 # so far (soset.f, E300), so a LOCATION or INCLUDED kept verbatim has to
 # come before the groups the writer generates.
-_PRESERVE_BEFORE = {"SO": ("SRCGROUP", "OLMGROUP", "PSDGROUP")}
+# ARCFTSRC and HBPSRCID are listed too: soset.f AIRCRAFT needs the HOUREMIS
+# card (kept verbatim) to have been read before the ARCFTSRC card (E823).
+_PRESERVE_BEFORE = {"SO": ("ARCFTSRC", "HBPSRCID", "SRCGROUP", "OLMGROUP", "PSDGROUP")}
 
 # Keywords AERMOD requires as the first card of their pathway (soset.f /
 # reset.f, E152); a preserved one goes straight after ``<code> STARTING``.

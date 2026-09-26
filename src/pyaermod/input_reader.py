@@ -15,12 +15,14 @@ Supported pathway keywords (stored on the project model and written back):
         LOW_WIND, HALFLIFE, DCAYCOEF, NO2STACK, OZONEVAL,
         OZONEFIL, O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE,
         NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF, GASDEPVD, GDSEASON,
-        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, EVENTFIL (file and option)
-    SO: LOCATION (POINT/AREA/VOLUME/LINE/RLINE/RLINEXT/OPENPIT/AREACIRC/
-        AREAPOLY/BUOYLINE), SRCPARAM, AREAVERT, BLPINPUT, BLPGROUP,
-        SRCGROUP, OLMGROUP, PSDGROUP, NO2RATIO, BACKGRND (value forms),
-        BGSECTOR, EMISUNIT, CONCUNIT, DEPOUNIT, GASDEPOS, PARTDIAM,
-        MASSFRAX, PARTDENS, URBANSRC, BUILDHGT, BUILDWID, BUILDLEN,
+        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, EVENTFIL (file and option),
+        ARMRATIO, AWMADWNW, ORD_DWNW, ARCFTOPT
+    SO: LOCATION (POINT/POINTCAP/POINTHOR/SWPOINT/AREA/VOLUME/LINE/RLINE/
+        RLINEXT/OPENPIT/AREACIRC/AREAPOLY/BUOYLINE), SRCPARAM, AREAVERT,
+        BLPINPUT, BLPGROUP, SRCGROUP, OLMGROUP, PSDGROUP, NO2RATIO,
+        BACKGRND (value forms), BGSECTOR, EMISUNIT, CONCUNIT, DEPOUNIT,
+        GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, METHOD_2, PLATFORM,
+        ARCFTSRC, HBPSRCID, URBANSRC, BUILDHGT, BUILDWID, BUILDLEN,
         XBADJ, YBADJ, RBARRIER, RDEPRESS, SBARRIER, VBARRIER, RLEMCONV
     RE: GRIDCART (XYINC or XPNTS/YPNTS, ELEV/HILL/FLAG rows), GRIDPOLR
         (ORIG by coordinates or source, DIST list, GDIR num/init/delta or
@@ -94,12 +96,16 @@ from .input_generator import (
     MaxDailyFile,
     MaxiFile,
     MeteorologyPathway,
+    Method2Params,
     MultiYear,
     NOxBackground,
     OpenPitSource,
     OutputPathway,
     OzoneData,
     ParticleDepositionParams,
+    PlatformParams,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
     PollutantType,
@@ -110,6 +116,7 @@ from .input_generator import (
     SaveFile,
     ScimOptions,
     SeasonHourFile,
+    SidewashPointSource,
     SolidBarrier,
     SolidBarrierSegment,
     SourceGroupDefinition,
@@ -399,6 +406,11 @@ def _parse_control(block: _PathwayBlock,
     run_model = True
     eventfil: Optional[str] = None
     eventfil_option: Optional[str] = None
+    arm2_ratios: Optional[Tuple[float, float]] = None
+    awma_downwash: List[str] = []
+    ord_downwash: List[str] = []
+    aircraft_option = False
+    airport_id: Optional[str] = None
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
     chem_method: Optional[ChemistryMethod] = None
@@ -492,6 +504,20 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "NO2STACK" and toks:
             with contextlib.suppress(ValueError):
                 no2_ratio = float(toks[0])
+        elif kw == "ARMRATIO" and len(toks) == 2:
+            # coset.f ARM2_Ratios: min max.
+            values = _floats(toks)
+            if values is None:
+                _drop(dropped, ln)
+            else:
+                arm2_ratios = (values[0], values[1])
+        elif kw == "AWMADWNW" and 1 <= len(toks) <= 5:
+            awma_downwash = [tok.upper() for tok in toks]
+        elif kw == "ORD_DWNW" and 1 <= len(toks) <= 3:
+            ord_downwash = [tok.upper() for tok in toks]
+        elif kw == "ARCFTOPT" and len(toks) <= 1:
+            aircraft_option = True
+            airport_id = toks[0] if toks else None
         elif kw == "EVENTFIL" and 1 <= len(toks) <= 2:
             # EVENTFIL evfile [SOCONT|DETAIL] (coset.f EVNTFL); the bare
             # form (AERMOD's EVENTS.INP with W207) is kept verbatim.
@@ -563,8 +589,8 @@ def _parse_control(block: _PathwayBlock,
                     h6h=h6h,
                 )
         else:
-            # ERRORFIL, DEBUGOPT, NO2EQUIL, ARMRATIO, an EVENTFIL with an
-            # output option, ... : kept verbatim in unparsed_lines.
+            # ERRORFIL, DEBUGOPT, NO2EQUIL, a bare EVENTFIL, a malformed
+            # line of a known keyword, ...: kept verbatim in unparsed_lines.
             _drop(dropped, ln)
 
     # URBANOPT: coset.f decides the field layout from the number of
@@ -665,6 +691,11 @@ def _parse_control(block: _PathwayBlock,
         run_model=run_model,
         eventfil=eventfil,
         eventfil_option=eventfil_option,
+        arm2_ratios=arm2_ratios,
+        awma_downwash=awma_downwash,
+        ord_downwash=ord_downwash,
+        aircraft_option=aircraft_option,
+        airport_id=airport_id,
         chemistry=chemistry,
         gas_deposition_defaults=gas_defaults,
         gas_deposition_velocity=gas_vd,
@@ -781,7 +812,10 @@ def _parse_sources(block: _PathwayBlock,
     # Per-source keywords whose source field may be an ID or a range;
     # resolved once every LOCATION has been seen.
     gas_dep_tokens: List[Tuple[str, GasDepositionParams]] = []
+    method2_tokens: List[Tuple[str, Method2Params]] = []
     no2_ratio_tokens: List[Tuple[str, float]] = []
+    aircraft_sources: List[str] = []
+    hbp_sources: List[str] = []
     part_dep_data: Dict[str, Dict[str, List[float]]] = {}  # srcid -> {diameters/fractions/densities}
     # URBANSRC: (urban area ID or None, member tokens); ALL is the empty list
     urban_tokens: List[Tuple[Optional[str], List[str]]] = []
@@ -813,6 +847,8 @@ def _parse_sources(block: _PathwayBlock,
                 continue
             sid, stype = toks[0], toks[1].upper()
             x, y = float(toks[2]), float(toks[3])
+            if stype in ("OPEN_PIT", "OPEN-PIT"):
+                stype = "OPENPIT"  # soset.f SOLOCA accepts the three spellings
             src_types[sid] = stype
             locs.setdefault(sid, {})
             locs[sid].setdefault("_lines", []).append(ln)
@@ -1046,6 +1082,31 @@ def _parse_sources(block: _PathwayBlock,
             if values is None:
                 continue
             gas_dep_tokens.append((toks[0], GasDepositionParams(*values)))
+        elif kw == "METHOD_2":
+            # METHOD_2 srcid|range finemass dg (soset.f METH_2: exactly two)
+            if len(toks) != 3:
+                _drop(dropped, ln)
+                continue
+            values = _floats(toks[1:])
+            if values is None:
+                _drop(dropped, ln)
+                continue
+            method2_tokens.append((toks[0], Method2Params(values[0], values[1])))
+            if "-" not in toks[0]:
+                locs.setdefault(toks[0], {}).setdefault("_lines", []).append(ln)
+        elif kw == "PLATFORM":
+            # PLATFORM srcid elev hb wb (soset.f PLATFM: at least two values)
+            values = _floats(toks[1:]) if len(toks) >= 3 else None
+            if values is None:
+                _drop(dropped, ln)
+                continue
+            values += [0.0] * (3 - len(values))
+            locs.setdefault(toks[0], {})["_platform"] = PlatformParams(*values[:3])
+            locs[toks[0]].setdefault("_lines", []).append(ln)
+        elif kw == "ARCFTSRC" and toks:
+            aircraft_sources.extend(toks)
+        elif kw == "HBPSRCID" and toks:
+            hbp_sources.extend(toks)
         elif kw == "PARTDIAM":
             # PARTDIAM srcid d1 d2 d3 ...
             if not toks:
@@ -1124,6 +1185,10 @@ def _parse_sources(block: _PathwayBlock,
     for token, ratio in no2_ratio_tokens:
         for sid in _expand_source_ids([token], all_ids):
             no2_ratios[sid] = ratio
+    method2_data: Dict[str, Method2Params] = {}
+    for token, m2 in method2_tokens:
+        for sid in _expand_source_ids([token], all_ids):
+            method2_data[sid] = m2
     urbansrc_data: Dict[str, Optional[str]] = {}
     if urban_all:
         urbansrc_data = dict.fromkeys(all_ids)
@@ -1153,6 +1218,15 @@ def _parse_sources(block: _PathwayBlock,
         if sid in no2_ratios and hasattr(src, "no2_ratio"):
             src.no2_ratio = no2_ratios[sid]
 
+        if sid in method2_data and hasattr(src, "method_2"):
+            src.method_2 = method2_data[sid]
+
+    def keep_lines(data: Dict[str, Any]) -> None:
+        """An incomplete definition (too few SRCPARAM values, a LINE with
+        no end point) builds no source; its lines stay in the deck."""
+        for lineno in data.get("_lines", []):
+            _drop(dropped, lineno)
+
     # Build source objects. The concrete type is chosen per LOCATION
     # keyword, so this list is deliberately heterogeneous.
     sources: List[Any] = []
@@ -1175,11 +1249,15 @@ def _parse_sources(block: _PathwayBlock,
             base_elevation=data.get("z_elev", 0.0),
         )
         src = None
-        if stype == "POINT":
+        if stype in ("POINT", "POINTCAP", "POINTHOR"):
             # SRCPARAM POINT: emission stackht stacktemp velocity diameter
+            # (soset.f PPARM, shared by the capped and horizontal types)
             if len(params) < 5:
+                keep_lines(data)
                 continue
-            src = PointSource(
+            point_cls = {"POINT": PointSource, "POINTCAP": PointCapSource,
+                         "POINTHOR": PointHorSource}[stype]
+            src = point_cls(
                 **common,
                 emission_rate=params[0],
                 stack_height=params[1],
@@ -1187,9 +1265,23 @@ def _parse_sources(block: _PathwayBlock,
                 exit_velocity=params[3],
                 stack_diameter=params[4],
             )
+            if data.get("_platform") is not None:
+                src.platform = data["_platform"]
+        elif stype == "SWPOINT":
+            # SRCPARAM SWPOINT: emis hs bw bl bh ba (soset.f SWPARM, six)
+            if len(params) < 6:
+                keep_lines(data)
+                continue
+            src = SidewashPointSource(
+                **common,
+                emission_rate=params[0], release_height=params[1],
+                building_width=params[2], building_length=params[3],
+                building_height=params[4], building_angle=params[5],
+            )
         elif stype == "AREA":
             # SRCPARAM AREA: emission relhgt xinit yinit [angle]
             if not params:
+                keep_lines(data)
                 continue
             src = AreaSource(
                 **common,
@@ -1202,6 +1294,7 @@ def _parse_sources(block: _PathwayBlock,
         elif stype == "VOLUME":
             # SRCPARAM VOLUME: emission relhgt sylinit szinit
             if not params:
+                keep_lines(data)
                 continue
             src = VolumeSource(
                 **common,
@@ -1216,6 +1309,7 @@ def _parse_sources(block: _PathwayBlock,
             extra = data.get("extra_loc", [])
             if len(extra) < 2 or not params:
                 # Treat as best-effort: require at least x_end,y_end
+                keep_lines(data)
                 continue
             src = LineSource(
                 source_id=sid,
@@ -1230,6 +1324,7 @@ def _parse_sources(block: _PathwayBlock,
         elif stype == "RLINE":
             extra = data.get("extra_loc", [])
             if len(extra) < 2 or not params:
+                keep_lines(data)
                 continue
             src = RLineSource(
                 source_id=sid,
@@ -1244,6 +1339,7 @@ def _parse_sources(block: _PathwayBlock,
         elif stype == "OPENPIT":
             # SRCPARAM: emission relhgt xinit yinit volume [angle]
             if len(params) < 5:
+                keep_lines(data)
                 continue
             src = OpenPitSource(
                 **common,
@@ -1257,6 +1353,7 @@ def _parse_sources(block: _PathwayBlock,
         elif stype == "AREACIRC":
             # SRCPARAM: emission relhgt radius [nverts]
             if not params:
+                keep_lines(data)
                 continue
             src = AreaCircSource(
                 **common,
@@ -1273,6 +1370,7 @@ def _parse_sources(block: _PathwayBlock,
             # (AXVERT(NVERTS+1) = AXVERT(1)), so the repeat is dropped.
             vertices = list(data.get("_vertices", []))
             if not params or len(vertices) < 3:
+                keep_lines(data)
                 continue
             nverts = round(params[2]) if len(params) > 2 else len(vertices)
             if len(vertices) == nverts + 1 and vertices[-1] == vertices[0]:
@@ -1291,6 +1389,7 @@ def _parse_sources(block: _PathwayBlock,
             # SRCPARAM (RLPARM): emission dcl width init_sigma_z
             extra = data.get("extra_loc", [])
             if len(extra) < 4 or not params:
+                keep_lines(data)
                 continue
             src = RLineExtSource(
                 source_id=sid,
@@ -1321,10 +1420,10 @@ def _parse_sources(block: _PathwayBlock,
             continue
 
         if src is None:
-            # A LOCATION type this reader does not construct (POINTCAP,
-            # POINTHOR, SWPOINT, ...) or an incomplete definition: the
-            # source's own lines are kept verbatim so the deck still
-            # carries it.
+            # A LOCATION type this reader does not construct (one AERMOD
+            # does not know either, since every v26135 type is built) or
+            # an incomplete definition: the source's own lines are kept
+            # verbatim so the deck still carries it.
             for lineno in data.get("_lines", []):
                 _drop(dropped, lineno)
             logger.warning(
@@ -1333,6 +1432,11 @@ def _parse_sources(block: _PathwayBlock,
                 sid, stype, len(data.get("_lines", [])),
             )
             continue
+
+        # LOCATION ... FLAT (soset.f SOLOCA): a flat-terrain source in a
+        # FLATSRCS run; written back as the literal.
+        if data.get("_flat_source"):
+            src.flat_source = True
 
         # Apply accumulated BUILDHGT/WID/LEN/XBADJ/YBADJ arrays, if any
         building = data.get("_building")
@@ -1436,6 +1540,8 @@ def _parse_sources(block: _PathwayBlock,
                     for name, members in psd_groups.items()],
         rline_moves_units=rline_moves_units,
         solid_barriers=solid_barriers,
+        aircraft_sources=aircraft_sources,
+        hbp_sources=hbp_sources,
         **units,
     )
     # OLMGROUP lives on ChemistryOptions.olm_groups; parse_aermod_input

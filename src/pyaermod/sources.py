@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from .pathways import ChemistryOptions
 
@@ -74,6 +74,80 @@ class ParticleDepositionParams:
     densities: List[float] = field(default_factory=list)
 
 
+@dataclass
+class Method2Params:
+    """``SO METHOD_2 srcid finemass dg``: Method 2 particle deposition.
+
+    soset.f METH_2 reads exactly two values -- the fine-mass fraction
+    (the fraction of the mass below 2.5 microns, 0-1, E332) and the mass
+    mean diameter in microns -- and builds a single particle category
+    from them, so a source has either this or the PARTDIAM/MASSFRAX/
+    PARTDENS arrays (E386). METHOD_2 is an ALPHA-only, non-DFAULT
+    keyword (E198/E197; probe decks 21 and 21b). EPA's testpart, testprt2
+    and openpits decks use it. A ``0`` in either field selects AERMOD's
+    built-in value for the pollutants AR, CD, PB, HG and POC (W473).
+
+    Parameters
+    ----------
+    fine_mass_fraction : float
+        Fraction of particle mass finer than 2.5 microns.
+    mass_mean_diameter : float
+        Representative particle diameter (microns).
+    """
+    fine_mass_fraction: float
+    mass_mean_diameter: float
+
+
+@dataclass
+class PlatformParams:
+    """``SO PLATFORM srcid elev hb wb``: an offshore platform under a stack.
+
+    soset.f PLATFM reads the platform base elevation above sea level, the
+    height of the platform's building above that base and its width;
+    downwash is applied only when both are above zero. POINT, POINTCAP
+    and POINTHOR sources only (E631), one card per source (E632), ALPHA
+    required (E198; probe deck 22).
+
+    Parameters
+    ----------
+    base_elevation : float
+        Platform base elevation above sea level (m).
+    building_height : float
+        Platform building height above the base (m).
+    building_width : float
+        Platform building width (m).
+    """
+    base_elevation: float
+    building_height: float
+    building_width: float
+
+
+def _fx(value: float, spec: str) -> str:
+    """A fixed-decimal field that never rounds a value away.
+
+    The writers lay SRCPARAM and LOCATION out in fixed columns
+    (``8.2f``, ``10.6f``, ``12.4f``); a value with more decimals than the
+    column holds -- EPA's capped deck gives its Implementation-Guide stacks
+    an exit velocity of 0.001 m/s, which ``8.2f`` turns into 0.00 -- is
+    written instead with :func:`_aermod_number`, right-aligned to the same
+    width, so the column layout survives and so does the value.
+    """
+    text = format(value, spec)
+    if float(text) == float(value):
+        return text
+    width = int(spec.split(".")[0]) if spec[0].isdigit() else 0
+    return f"{_aermod_number(value):>{width}}"
+
+
+def _loc_elev(source) -> str:
+    """The LOCATION elevation field: the base elevation, or the literal
+    ``FLAT`` for a source flagged flat in a FLATSRCS run (EPA's flatelev
+    deck: ``LOCATION FLAT_STK POINT 5510. 67960. FLAT``)."""
+    if getattr(source, "flat_source", False):
+        return "    FLAT"
+    return _fx(source.base_elevation, '8.2f')
+
+
 def _aermod_number(value: float) -> str:
     """A numeric field AERMOD's STODBL accepts.
 
@@ -92,9 +166,17 @@ def _deposition_to_aermod_lines(
     source_id: str,
     gas_deposition: Optional[GasDepositionParams],
     particle_deposition: Optional[ParticleDepositionParams],
-    deposition_method: Optional[Tuple[DepositionMethod, float]],
+    deposition_method: Optional[Tuple[DepositionMethod, float]] = None,
+    method_2: Optional[Method2Params] = None,
 ) -> List[str]:
-    """Generate AERMOD deposition keyword lines for a source."""
+    """Generate AERMOD deposition keyword lines for a source.
+
+    ``deposition_method`` is accepted for compatibility and writes
+    nothing: the ``METHOD srcid option value`` line earlier releases
+    emitted for it is not an AERMOD keyword (there is no METHOD in
+    modules.f; SO E105, probe deck 20). Method 2 deposition is the
+    ``METHOD_2`` card, from ``method_2``.
+    """
     lines = []
     if gas_deposition:
         gd = gas_deposition
@@ -111,9 +193,11 @@ def _deposition_to_aermod_lines(
         lines.append(f"   MASSFRAX  {source_id:<8} {f_vals}")
         r_vals = "  ".join(f"{r:.4g}" for r in pd.densities)
         lines.append(f"   PARTDENS  {source_id:<8} {r_vals}")
-    if deposition_method:
-        method, value = deposition_method
-        lines.append(f"   METHOD    {source_id:<8} {method.value}  {value:.6g}")
+    if method_2 is not None:
+        lines.append(
+            f"   METHOD_2  {source_id:<8} {_aermod_number(method_2.fine_mass_fraction)}  "
+            f"{_aermod_number(method_2.mass_mean_diameter)}"
+        )
     return lines
 
 
@@ -150,7 +234,7 @@ def _format_building_keyword(
     kw = f"{keyword:<9}"
 
     if isinstance(values, (int, float)):
-        return [f"   {kw} {source_id:<8} {values:8.2f}"]
+        return [f"   {kw} {source_id:<8} {_fx(values, '8.2f')}"]
 
     if len(values) != 36:
         raise ValueError(
@@ -161,7 +245,7 @@ def _format_building_keyword(
     lines = []
     for row_start in range(0, 36, 10):
         chunk = values[row_start : row_start + 10]
-        val_str = " ".join(f"{v:8.2f}" for v in chunk)
+        val_str = " ".join(f"{_fx(v, '8.2f')}" for v in chunk)
         lines.append(f"   {kw} {source_id:<8} {val_str}")
     return lines
 
@@ -233,6 +317,9 @@ class PointSource:
     x_coord: float
     y_coord: float
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Stack parameters
     stack_height: float = 0.0  # meters above base
@@ -266,6 +353,13 @@ class PointSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
+
+    # PLATFORM srcid elev hb wb (offshore platform downwash; ALPHA)
+    platform: Optional[PlatformParams] = None
+
+    #: The LOCATION source type; POINTCAP and POINTHOR are subclasses.
+    location_type: ClassVar[str] = "POINT"
 
     def _format_building_keyword(
         self, keyword: str, values: Union[float, List[float]]
@@ -291,21 +385,29 @@ class PointSource:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
 
-        # LOCATION keyword
+        # LOCATION keyword (POINT, or POINTCAP / POINTHOR for the subclasses)
         lines.append(
-            f"   LOCATION  {self.source_id:<8} POINT  "
-            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+            f"   LOCATION  {self.source_id:<8} {self.location_type}  "
+            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.stack_height:8.2f} "
-            f"{self.stack_temp:8.2f} {self.exit_velocity:8.2f} {self.stack_diameter:8.2f}"
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.stack_height, '8.2f')} "
+            f"{_fx(self.stack_temp, '8.2f')} {_fx(self.exit_velocity, '8.2f')} {_fx(self.stack_diameter, '8.2f')}"
         )
 
         # Building downwash parameters (scalar or 36-value direction-dependent)
         lines.extend(_building_downwash_lines(self.source_id, self))
+
+        # Offshore platform (soset.f PLATFM: elev hb wb)
+        if self.platform is not None:
+            pf = self.platform
+            lines.append(
+                f"   PLATFORM  {self.source_id:<8} {_aermod_number(pf.base_elevation)}  "
+                f"{_aermod_number(pf.building_height)}  {_aermod_number(pf.building_width)}"
+            )
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
@@ -314,7 +416,7 @@ class PointSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -330,6 +432,79 @@ class PointSource:
 
 
 @dataclass
+class PointCapSource(PointSource):
+    """``LOCATION srcid POINTCAP ...``: a point source with a rain cap.
+
+    Same SRCPARAM layout as POINT (soset.f PPARM); AERMOD doubles the
+    initial plume diameter for the PRIME algorithm (ADSFACT = 2) and, with
+    the BETA option, models the capped release directly (EPA's capped
+    deck). Every PointSource field applies.
+    """
+    location_type: ClassVar[str] = "POINTCAP"
+
+
+@dataclass
+class PointHorSource(PointSource):
+    """``LOCATION srcid POINTHOR ...``: a horizontally discharging stack.
+
+    Same SRCPARAM layout as POINT (soset.f PPARM); the exit velocity is
+    the horizontal release velocity.
+    """
+    location_type: ClassVar[str] = "POINTHOR"
+
+
+@dataclass
+class SidewashPointSource:
+    """``LOCATION srcid SWPOINT x y [zelev]`` with
+    ``SRCPARAM srcid emis hs bw bl bh ba``: a sidewash point source.
+
+    A stack on a building whose wake is modelled by the sidewash
+    algorithm (soset.f SWPARM, v26135): the six SRCPARAM values are the
+    emission rate, the release height, and the building's width, length,
+    height and orientation angle (degrees; AERMOD folds it into 0-360).
+    ALPHA is required (E198, probe deck 23b). A building dimension of
+    zero or less is reset to 1 m by AERMOD.
+    """
+    source_id: str
+    x_coord: float
+    y_coord: float
+    base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
+
+    emission_rate: float = 1.0  # g/s
+    release_height: float = 0.0  # m
+    building_width: float = 1.0  # m
+    building_length: float = 1.0  # m
+    building_height: float = 1.0  # m
+    building_angle: float = 0.0  # degrees
+
+    source_groups: List[str] = field(default_factory=list)
+    is_urban: bool = False
+    urban_area_name: Optional[str] = None
+    no2_ratio: Optional[float] = None
+
+    def to_aermod_input(self) -> str:
+        """Generate AERMOD SO pathway text for this source"""
+        lines = [
+            f"   LOCATION  {self.source_id:<8} SWPOINT  "
+            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}",
+            f"   SRCPARAM  {self.source_id:<8} "
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_fx(self.building_width, '8.2f')} {_fx(self.building_length, '8.2f')} "
+            f"{_fx(self.building_height, '8.2f')} {_fx(self.building_angle, '8.2f')}",
+        ]
+        if self.no2_ratio is not None:
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+        for group in self.source_groups:
+            lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
+        if self.is_urban:
+            lines.append(f"   URBANSRC  {self.source_id}")
+        return "\n".join(lines)
+
+
+@dataclass
 class AreaSource:
     """
     AERMOD area source (rectangular)
@@ -340,6 +515,9 @@ class AreaSource:
     x_coord: float
     y_coord: float
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Area parameters
     release_height: float = 0.0  # meters above ground
@@ -373,6 +551,7 @@ class AreaSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def set_building_from_bpip(self, building) -> None:
         """Populate building downwash fields from a Building object."""
@@ -385,17 +564,17 @@ class AreaSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREA    "
-            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword -- angle is optional 5th parameter for AREA sources
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-            f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_fx(self.initial_lateral_dimension, '8.2f')} {_fx(self.initial_vertical_dimension, '8.2f')}"
         )
         if self.angle != 0.0:
-            srcparam += f" {self.angle:8.2f}"
+            srcparam += f" {_fx(self.angle, '8.2f')}"
         lines.append(srcparam)
 
         # Building downwash parameters
@@ -408,7 +587,7 @@ class AreaSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -434,6 +613,9 @@ class AreaCircSource:
     x_coord: float
     y_coord: float
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Area parameters
     release_height: float = 0.0  # meters above ground
@@ -459,6 +641,7 @@ class AreaCircSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -467,14 +650,14 @@ class AreaCircSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREACIRC "
-            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-            f"{self.radius:8.2f} {self.num_vertices:3d}"
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_fx(self.radius, '8.2f')} {self.num_vertices:3d}"
         )
 
         # Per-source NO2/NOx ratio
@@ -484,7 +667,7 @@ class AreaCircSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -509,6 +692,9 @@ class AreaPolySource:
     source_id: str
     vertices: List[Tuple[float, float]]  # List of (x, y) coordinates
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Area parameters
     release_height: float = 0.0  # meters above ground
@@ -533,6 +719,7 @@ class AreaPolySource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -544,7 +731,7 @@ class AreaPolySource:
         x_first, y_first = self.vertices[0]
         lines.append(
             f"   LOCATION  {self.source_id:<8} AREAPOLY "
-            f"{x_first:12.4f} {y_first:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(x_first, '12.4f')} {_fx(y_first, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM for AREAPOLY is (emission rate, release height,
@@ -553,11 +740,11 @@ class AreaPolySource:
         # then every AREAVERT line is counted against an unset limit.
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
             f"{len(self.vertices):8d}"
         )
         if self.initial_vertical_dimension is not None:
-            srcparam += f" {self.initial_vertical_dimension:8.2f}"
+            srcparam += f" {_fx(self.initial_vertical_dimension, '8.2f')}"
         lines.append(srcparam)
 
         # AREAVERT keyword - vertices
@@ -565,7 +752,7 @@ class AreaPolySource:
         coords_per_line = 6
         for i in range(0, len(self.vertices), coords_per_line):
             chunk = self.vertices[i:i+coords_per_line]
-            coord_str = "  ".join(f"{x:12.4f} {y:12.4f}" for x, y in chunk)
+            coord_str = "  ".join(f"{_fx(x, '12.4f')} {_fx(y, '12.4f')}" for x, y in chunk)
             lines.append(f"   AREAVERT  {self.source_id:<8} {coord_str}")
 
         # Per-source NO2/NOx ratio
@@ -575,7 +762,7 @@ class AreaPolySource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -603,6 +790,9 @@ class VolumeSource:
     x_coord: float
     y_coord: float
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Volume parameters
     release_height: float = 0.0  # meters above ground (centroid height)
@@ -633,6 +823,7 @@ class VolumeSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def set_building_from_bpip(self, building) -> None:
         """Populate building downwash fields from a Building object."""
@@ -645,14 +836,14 @@ class VolumeSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} VOLUME  "
-            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-            f"{self.initial_lateral_dimension:8.2f} {self.initial_vertical_dimension:8.2f}"
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_fx(self.initial_lateral_dimension, '8.2f')} {_fx(self.initial_vertical_dimension, '8.2f')}"
         )
 
         # Building downwash parameters
@@ -665,7 +856,7 @@ class VolumeSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -695,6 +886,9 @@ class LineSource:
     x_end: float
     y_end: float
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Line parameters
     release_height: float = 0.0  # meters above ground
@@ -720,6 +914,7 @@ class LineSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -728,18 +923,18 @@ class LineSource:
         # LOCATION keyword -- LINE: srcid LINE X1 Y1 X2 Y2 [Zelev]
         lines.append(
             f"   LOCATION  {self.source_id:<8} LINE    "
-            f"{self.x_start:12.4f} {self.y_start:12.4f} "
-            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(self.x_start, '12.4f')} {_fx(self.y_start, '12.4f')} "
+            f"{_fx(self.x_end, '12.4f')} {_fx(self.y_end, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword: emission relhgt width [szinit] (soset.f LPARM)
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-            f"{self.initial_lateral_dimension:8.2f}"
+            f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_fx(self.initial_lateral_dimension, '8.2f')}"
         )
         if self.initial_vertical_dimension is not None:
-            srcparam += f" {self.initial_vertical_dimension:8.2f}"
+            srcparam += f" {_fx(self.initial_vertical_dimension, '8.2f')}"
         lines.append(srcparam)
 
         # Per-source NO2/NOx ratio
@@ -749,7 +944,7 @@ class LineSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -839,6 +1034,9 @@ class RLineSource:
     x_end: float
     y_end: float
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Roadway parameters
     release_height: float = 0.0  # meters above ground (typically vehicle exhaust height)
@@ -865,6 +1063,7 @@ class RLineSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -880,15 +1079,15 @@ class RLineSource:
         # LOCATION keyword -- RLINE: srcid RLINE XSB YSB XSE YSE [Zelev]
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINE   "
-            f"{self.x_start:12.4f} {self.y_start:12.4f} "
-            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(self.x_start, '12.4f')} {_fx(self.y_start, '12.4f')} "
+            f"{_fx(self.x_end, '12.4f')} {_fx(self.y_end, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword - RLINE has different parameters than LINE
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{erate:10.6f} {self.release_height:8.2f} "
-            f"{self.initial_lateral_dimension:8.2f} {vert_dim:8.2f}"
+            f"{_fx(erate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+            f"{_fx(self.initial_lateral_dimension, '8.2f')} {_fx(vert_dim, '8.2f')}"
         )
 
         # Per-source NO2/NOx ratio
@@ -898,7 +1097,7 @@ class RLineSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -930,6 +1129,9 @@ class RLineExtSource:
     y_end: float
     z_end: float    # source height at end endpoint (meters)
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # SRCPARAM fields
     emission_rate: float = 1.0           # g/(m*s) per unit length of road
@@ -970,6 +1172,7 @@ class RLineExtSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -989,16 +1192,16 @@ class RLineExtSource:
         # so an ELEV run never falls back to ZS = 0.0 with warning W205.
         lines.append(
             f"   LOCATION  {self.source_id:<8} RLINEXT "
-            f"{self.x_start:12.4f} {self.y_start:12.4f} {self.z_start:8.2f} "
-            f"{self.x_end:12.4f} {self.y_end:12.4f} {self.z_end:8.2f} "
-            f"{self.base_elevation:8.2f}"
+            f"{_fx(self.x_start, '12.4f')} {_fx(self.y_start, '12.4f')} {_fx(self.z_start, '8.2f')} "
+            f"{_fx(self.x_end, '12.4f')} {_fx(self.y_end, '12.4f')} {_fx(self.z_end, '8.2f')} "
+            f"{_loc_elev(self)}"
         )
 
         # SRCPARAM keyword: Qemis DCL Width InitSigmaZ
         lines.append(
             f"   SRCPARAM  {self.source_id:<8} "
-            f"{erate:10.6f} {self.dcl:8.2f} "
-            f"{self.road_width:8.2f} {sigma_z:8.2f}"
+            f"{_fx(erate, '10.6f')} {_fx(self.dcl, '8.2f')} "
+            f"{_fx(self.road_width, '8.2f')} {_fx(sigma_z, '8.2f')}"
         )
 
         # Optional RBARRIER
@@ -1006,29 +1209,29 @@ class RLineExtSource:
             if self.barrier_height_2 is not None and self.barrier_dcl_2 is not None:
                 lines.append(
                     f"   RBARRIER  {self.source_id:<8} "
-                    f"{self.barrier_height_1:8.2f} {self.barrier_dcl_1:8.2f} "
-                    f"{self.barrier_height_2:8.2f} {self.barrier_dcl_2:8.2f}"
+                    f"{_fx(self.barrier_height_1, '8.2f')} {_fx(self.barrier_dcl_1, '8.2f')} "
+                    f"{_fx(self.barrier_height_2, '8.2f')} {_fx(self.barrier_dcl_2, '8.2f')}"
                 )
             else:
                 lines.append(
                     f"   RBARRIER  {self.source_id:<8} "
-                    f"{self.barrier_height_1:8.2f} {self.barrier_dcl_1:8.2f}"
+                    f"{_fx(self.barrier_height_1, '8.2f')} {_fx(self.barrier_dcl_1, '8.2f')}"
                 )
 
         # Optional RDEPRESS
         if self.depression_depth is not None and self.depression_wtop is not None and self.depression_wbottom is not None:
             lines.append(
                 f"   RDEPRESS  {self.source_id:<8} "
-                f"{self.depression_depth:8.2f} {self.depression_wtop:8.2f} "
-                f"{self.depression_wbottom:8.2f}"
+                f"{_fx(self.depression_depth, '8.2f')} {_fx(self.depression_wtop, '8.2f')} "
+                f"{_fx(self.depression_wbottom, '8.2f')}"
             )
 
         # Optional VBARRIER: one barrier is 5 values, two are 10
         # (VBARRIER_INPUTS accepts 8 or 13 fields, nothing in between).
         if self.vegetative_barriers:
             vals = " ".join(
-                f"{b.height:8.2f} {b.width:8.2f} {b.dcl:8.2f} "
-                f"{b.leaf_area_index:8.2f} {b.mixing_length:8.2f}"
+                f"{_fx(b.height, '8.2f')} {_fx(b.width, '8.2f')} {_fx(b.dcl, '8.2f')} "
+                f"{_fx(b.leaf_area_index, '8.2f')} {_fx(b.mixing_length, '8.2f')}"
                 for b in self.vegetative_barriers[:2]
             )
             lines.append(f"   VBARRIER  {self.source_id:<8} {vals}")
@@ -1040,7 +1243,7 @@ class RLineExtSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -1093,6 +1296,9 @@ class BuoyLineSource:
     line_segments: List[BuoyLineSegment] = field(default_factory=list)
 
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # Source groups
     source_groups: List[str] = field(default_factory=list)
@@ -1108,6 +1314,7 @@ class BuoyLineSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     @property
     def emission_rate(self) -> float:
@@ -1130,12 +1337,12 @@ class BuoyLineSource:
                     else self.base_elevation)
             lines.append(
                 f"   LOCATION  {seg.source_id:<8} BUOYLINE "
-                f"{seg.x_start:12.4f} {seg.y_start:12.4f} "
-                f"{seg.x_end:12.4f} {seg.y_end:12.4f} {elev:8.2f}"
+                f"{_fx(seg.x_start, '12.4f')} {_fx(seg.y_start, '12.4f')} "
+                f"{_fx(seg.x_end, '12.4f')} {_fx(seg.y_end, '12.4f')} {'    FLAT' if self.flat_source else _fx(elev, '8.2f')}"
             )
             lines.append(
                 f"   SRCPARAM  {seg.source_id:<8} "
-                f"{seg.emission_rate:10.6f} {seg.release_height:8.2f}"
+                f"{_fx(seg.emission_rate, '10.6f')} {_fx(seg.release_height, '8.2f')}"
             )
 
         # BLPINPUT - average plume rise parameters. soset.f BL_AVGINP
@@ -1148,9 +1355,9 @@ class BuoyLineSource:
         # ID is written on both keywords, since a BLPGROUP whose ID has
         # no BLPINPUT record is E502.
         avg = (
-            f"{self.avg_line_length:8.2f} {self.avg_building_height:8.2f} "
-            f"{self.avg_building_width:8.2f} {self.avg_line_width:8.2f} "
-            f"{self.avg_building_separation:8.2f} {self.avg_buoyancy_parameter:10.6f}"
+            f"{_fx(self.avg_line_length, '8.2f')} {_fx(self.avg_building_height, '8.2f')} "
+            f"{_fx(self.avg_building_width, '8.2f')} {_fx(self.avg_line_width, '8.2f')} "
+            f"{_fx(self.avg_building_separation, '8.2f')} {_fx(self.avg_buoyancy_parameter, '10.6f')}"
         )
         if self.source_id.upper() == "ALL":
             lines.append(f"   BLPINPUT  {avg}")
@@ -1167,7 +1374,7 @@ class BuoyLineSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -1197,6 +1404,9 @@ class OpenPitSource:
     x_coord: float        # SW corner x-coordinate
     y_coord: float        # SW corner y-coordinate
     base_elevation: float = 0.0
+    # LOCATION's elevation field written as the literal FLAT: the source
+    # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
+    flat_source: bool = False
 
     # SRCPARAM fields
     emission_rate: float = 1.0       # g/(s*m^2)
@@ -1220,6 +1430,7 @@ class OpenPitSource:
     gas_deposition: Optional[GasDepositionParams] = None
     particle_deposition: Optional[ParticleDepositionParams] = None
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
+    method_2: Optional[Method2Params] = None
 
     @property
     def effective_depth(self) -> float:
@@ -1235,23 +1446,23 @@ class OpenPitSource:
         # LOCATION keyword
         lines.append(
             f"   LOCATION  {self.source_id:<8} OPENPIT "
-            f"{self.x_coord:12.4f} {self.y_coord:12.4f} {self.base_elevation:8.2f}"
+            f"{_fx(self.x_coord, '12.4f')} {_fx(self.y_coord, '12.4f')} {_loc_elev(self)}"
         )
 
         # SRCPARAM keyword: Qemis Hs Xinit Yinit Volume [Angle]
         if self.angle != 0.0:
             lines.append(
                 f"   SRCPARAM  {self.source_id:<8} "
-                f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-                f"{self.x_dimension:8.2f} {self.y_dimension:8.2f} "
-                f"{self.pit_volume:12.2f} {self.angle:8.2f}"
+                f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+                f"{_fx(self.x_dimension, '8.2f')} {_fx(self.y_dimension, '8.2f')} "
+                f"{_fx(self.pit_volume, '12.2f')} {_fx(self.angle, '8.2f')}"
             )
         else:
             lines.append(
                 f"   SRCPARAM  {self.source_id:<8} "
-                f"{self.emission_rate:10.6f} {self.release_height:8.2f} "
-                f"{self.x_dimension:8.2f} {self.y_dimension:8.2f} "
-                f"{self.pit_volume:12.2f}"
+                f"{_fx(self.emission_rate, '10.6f')} {_fx(self.release_height, '8.2f')} "
+                f"{_fx(self.x_dimension, '8.2f')} {_fx(self.y_dimension, '8.2f')} "
+                f"{_fx(self.pit_volume, '12.2f')}"
             )
 
         # Per-source NO2/NOx ratio
@@ -1261,7 +1472,7 @@ class OpenPitSource:
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
             self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method,
+            self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
         # Source groups
@@ -1377,9 +1588,9 @@ class SolidBarrier:
         for seg in self.segments:
             lines.append(
                 f"   SBARRIER  {self.barrier_id:<8} "
-                f"{seg.x_start:12.4f} {seg.y_start:12.4f} "
-                f"{seg.x_end:12.4f} {seg.y_end:12.4f} "
-                f"{seg.height:8.2f} {seg.elevation:8.2f}"
+                f"{_fx(seg.x_start, '12.4f')} {_fx(seg.y_start, '12.4f')} "
+                f"{_fx(seg.x_end, '12.4f')} {_fx(seg.y_end, '12.4f')} "
+                f"{_fx(seg.height, '8.2f')} {_fx(seg.elevation, '8.2f')}"
             )
         lines.append(f"   SBARRIER  {self.barrier_id:<8} END")
         return "\n".join(lines)
@@ -1448,7 +1659,8 @@ class SourcePathway:
     """Collection of sources"""
     sources: List[Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                         VolumeSource, LineSource, RLineSource,
-                        RLineExtSource, BuoyLineSource, OpenPitSource]] = field(default_factory=list)
+                        RLineExtSource, BuoyLineSource, OpenPitSource,
+                        SidewashPointSource]] = field(default_factory=list)
     background: Optional[BackgroundConcentration] = None
     group_definitions: List[SourceGroupDefinition] = field(default_factory=list)
 
@@ -1471,6 +1683,19 @@ class SourcePathway:
     #: SBARRIER solid barriers (v26135).
     solid_barriers: List[SolidBarrier] = field(default_factory=list)
 
+    #: ARCFTSRC: the sources modelled with the aircraft plume-rise
+    #: algorithms, as the member tokens of the card (IDs, ranges, or
+    #: ``ALL``; soset.f AIRCRAFT). Needs ``ControlPathway.aircraft_option``
+    #: (E821) and an HOUREMIS file carrying the aircraft record for each
+    #: (E823); AERMOD accepts VOLUME and AREA sources only (E833, probe
+    #: deck 25b). Kept as written and written back on one card.
+    aircraft_sources: List[str] = field(default_factory=list)
+
+    #: HBPSRCID: the point sources treated as highly buoyant plumes
+    #: (soset.f HBPSOURCE), as the member tokens of the card (IDs, ranges,
+    #: ``ALL``). Needs ``MODELOPT HBP`` (E130) with ALPHA (E198).
+    hbp_sources: List[str] = field(default_factory=list)
+
     #: The bare ``SRCGROUP ALL`` line: None writes it whenever the pathway
     #: has sources (the default for a project built in Python), True
     #: always (a deck that had the line, even with its sources brought in
@@ -1480,7 +1705,8 @@ class SourcePathway:
 
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
-                                       RLineExtSource, BuoyLineSource, OpenPitSource]):
+                                       RLineExtSource, BuoyLineSource, OpenPitSource,
+                                       SidewashPointSource]):
         """Add a source to the pathway"""
         self.sources.append(source)
 
@@ -1521,6 +1747,13 @@ class SourcePathway:
 
         for source in self.sources:
             lines.append(source.to_aermod_input())
+
+        # Per-source flags whose card names several sources; both must
+        # come before the group keywords (E140).
+        if self.aircraft_sources:
+            lines.append("   ARCFTSRC  " + "  ".join(self.aircraft_sources))
+        if self.hbp_sources:
+            lines.append("   HBPSRCID  " + "  ".join(self.hbp_sources))
 
         for keyword, units in (("EMISUNIT", self.emission_units),
                                ("CONCUNIT", self.concentration_units),

@@ -40,9 +40,12 @@ from ...input_generator import (
     BuoyLineSource,
     LineSource,
     OpenPitSource,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     RLineExtSource,
     RLineSource,
+    SidewashPointSource,
     VolumeSource,
 )
 from .._form import emit_field, is_numeric, is_optional_numeric  # noqa: F401
@@ -63,6 +66,9 @@ _SOURCE_TYPES: Dict[str, Type] = {
     "RLineExtSource":   RLineExtSource,
     "BuoyLineSource":   BuoyLineSource,
     "OpenPitSource":    OpenPitSource,
+    "PointCapSource":  PointCapSource,
+    "PointHorSource":  PointHorSource,
+    "SidewashPointSource": SidewashPointSource,
 }
 
 

@@ -30,11 +30,12 @@ from pyaermod.pathways import ChemistryOptions
 
 
 class TestSourceTypeRegistry:
-    def test_all_ten_source_types_present(self):
+    def test_all_thirteen_source_types_present(self):
         assert set(_SOURCE_TYPES) == {
             "PointSource", "VolumeSource", "AreaSource", "AreaCircSource",
             "AreaPolySource", "LineSource", "RLineSource", "RLineExtSource",
             "BuoyLineSource", "OpenPitSource",
+            "PointCapSource", "PointHorSource", "SidewashPointSource",
         }
 
 

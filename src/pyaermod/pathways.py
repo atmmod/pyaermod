@@ -62,6 +62,9 @@ class PollutantType(Enum):
 class SourceType(Enum):
     """AERMOD source types"""
     POINT = "POINT"
+    POINTCAP = "POINTCAP"
+    POINTHOR = "POINTHOR"
+    SWPOINT = "SWPOINT"
     VOLUME = "VOLUME"
     AREA = "AREA"
     AREACIRC = "AREACIRC"
@@ -541,6 +544,24 @@ class ControlPathway:
     # appends them to MODELOPT as given.
     extra_model_options: List[str] = field(default_factory=list)
 
+    # ARMRATIO min max (coset.f ARM2_Ratios): the ARM2 ratio bounds; needs
+    # ARM2 (E145), 0 < min <= max <= 1 (E380) and 0.5-0.9 under DFAULT.
+    arm2_ratios: Optional[Tuple[float, float]] = None
+
+    # AWMADWNW options (coset.f AWMA_DOWNWASH): one to five of STREAMLINE,
+    # AWMAUEFF, AWMAUTURB, AWMAUTURBHX, AWMAENTRAIN; ALPHA required (E122),
+    # STREAMLINE needs AWMAUTURB or AWMAUTURBHX (E126), AWMAUEFF conflicts
+    # with ORD_DWNW's ORDUEFF (E124). Probe decks 24c-24e.
+    awma_downwash: List[str] = field(default_factory=list)
+    # ORD_DWNW options (coset.f ORD_DOWNWASH): one to three of ORDCAV,
+    # ORDUEFF, ORDTURB; ALPHA required (E123).
+    ord_downwash: List[str] = field(default_factory=list)
+
+    # ARCFTOPT [airport]: aircraft plume-rise option (coset.f, after
+    # MODELOPT, E140); SourcePathway.aircraft_sources names the sources.
+    aircraft_option: bool = False
+    airport_id: Optional[str] = None
+
     # RUNORNOT: False writes ``RUNORNOT NOT``, which makes AERMOD parse
     # and cross-check the deck without running the model.
     run_model: bool = True
@@ -625,6 +646,10 @@ class ControlPathway:
 
         lines.append(f"   MODELOPT  {' '.join(model_opts)}")
 
+        # ARCFTOPT must follow MODELOPT (coset.f, E140)
+        if self.aircraft_option:
+            lines.append("   ARCFTOPT" + (f"  {self.airport_id}" if self.airport_id else ""))
+
         # Averaging periods
         lines.append(f"   AVERTIME  {' '.join(self.averaging_periods)}")
 
@@ -677,6 +702,12 @@ class ControlPathway:
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
 
+        # PRIME downwash research options (ALPHA)
+        if self.awma_downwash:
+            lines.append("   AWMADWNW  " + "  ".join(o.upper() for o in self.awma_downwash))
+        if self.ord_downwash:
+            lines.append("   ORD_DWNW  " + "  ".join(o.upper() for o in self.ord_downwash))
+
         # Gas dry-deposition defaults
         gdd = self.gas_deposition_defaults
         if gdd is not None:
@@ -712,6 +743,10 @@ class ControlPathway:
             nox = chem.effective_nox_background()
             if nox is not None:
                 lines += _nox_lines(nox)
+
+        # ARM2 ratio bounds (needs the ARM2 option, E145 otherwise)
+        if self.arm2_ratios is not None:
+            lines.append(f"   ARMRATIO  {_num(self.arm2_ratios[0])}  {_num(self.arm2_ratios[1])}")
 
         # Restart / multi-year options (not dispatched in an EVENT run)
         if event_processing:
