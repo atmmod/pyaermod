@@ -137,7 +137,7 @@ src/pyaermod/
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
     gui_v2/              # NiceGUI app + pywebview desktop wrapper
-tests/                   # 1383 tests, 98% coverage
+tests/                   # 2,200+ tests on every CI leg, coverage gated at 95%
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
 ```
@@ -177,6 +177,19 @@ it and citing the article is preferred.
 ## License
 
 MIT
+
+## Performance
+
+Driving AERMOD through `pyaermod.runner` costs a run 1 to 20 ms over
+calling the binary with `subprocess` directly (medians of 50 interleaved
+runs of EPA's `aertest` case, AERMOD v26135, on a GitHub Actions runner
+and in the release container), and nearly all of that is the latency of
+CPython's polling wait under `subprocess.run(timeout=...)`, not
+pyaermod's own file handling. A batch of 32 such runs through
+`AERMODRunner.run_batch` goes from 440 to 520 runs per minute at one
+worker to 1,370 to 1,410 at four on four-CPU machines (a 2.7× to 3.1×
+speed-up). The numbers, the machines and the command that reproduces
+them are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Disclaimer
 
