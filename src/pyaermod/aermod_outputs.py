@@ -463,13 +463,113 @@ def read_deposition(filepath: Union[str, Path]) -> AERMODAuxResult:
     return _read_expecting(filepath, ("DDEP", "WDEP", "TOTDEP"))
 
 
+# ---------------------------------------------------------------------------
+# EVENT-run output (the main .out file of an EVENT deck, evoutput.f)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EventContribution:
+    """One ``*** SOURCE CONTRIBUTIONS FOR EVENT: <name> ***`` block.
+
+    An EVENT run (a deck with an EV pathway, see
+    :class:`pyaermod.pathways.EventPathway`) writes, per event, the group
+    total and every source's share of it (``EVENTOUT SOCONT``; ``DETAIL``
+    adds the hourly meteorology and contributions, which are not parsed
+    here).
+
+    Attributes
+    ----------
+    event_name : str
+        The ``EVENTPER`` name.
+    averaging_period : int
+        Hours.
+    end_date : str
+        ``YYMMDDHH`` of the period's last hour, as printed.
+    x, y, z_elev, z_flag : float
+        The receptor, as printed on the ``LOCATION`` line.
+    group_id : str
+        The source group.
+    group_value : float
+        The group's concentration for the event.
+    contributions : dict
+        Source ID -> contribution to ``group_value``.
+    """
+    event_name: str
+    averaging_period: int
+    end_date: str
+    x: float
+    y: float
+    z_elev: float
+    z_flag: float
+    group_id: str
+    group_value: float
+    contributions: Dict[str, float] = field(default_factory=dict)
+
+
+_EVENT_HEAD_RE = re.compile(r"\*\*\* SOURCE CONTRIBUTIONS FOR EVENT:\s*(\S+)\s*\*\*\*")
+_EVENT_PER_RE = re.compile(
+    r"AVE\. PER\.:\s*(\d+)\s*HRS;\s*END DATE:\s*(\d+);\s*LOCATION \(XR,YR,ZELEV,ZFLAG\):"
+    r"\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)")
+_EVENT_GROUP_RE = re.compile(r"GROUP ID:\s*(\S+)\s+OF SOURCES:")
+_EVENT_VALUE_RE = re.compile(r"\*\*\* GROUP VALUE =\s*([-\d.Ee+]+)\s*\*\*\*")
+_EVENT_PAIR_RE = re.compile(r"(\S+)\s+([-\d.]+(?:[Ee][-+]?\d+)?)")
+
+
+def read_event_output(filepath: Union[str, Path]) -> List[EventContribution]:
+    """Read the per-event source contributions from an EVENT run's ``.out``.
+
+    Returns one :class:`EventContribution` per event, in file order. A
+    normal run's output has no event blocks and gives an empty list.
+    """
+    text = Path(filepath).read_text(encoding="latin-1", errors="replace")
+    events: List[EventContribution] = []
+    current: Optional[EventContribution] = None
+    in_table = False
+    for line in text.splitlines():
+        head = _EVENT_HEAD_RE.search(line)
+        if head:
+            current = EventContribution(head.group(1), 0, "", 0.0, 0.0, 0.0, 0.0, "", 0.0)
+            events.append(current)
+            in_table = False
+            continue
+        if current is None:
+            continue
+        if line.lstrip().startswith("*** AERMOD - VERSION"):
+            in_table = False  # a new page header ends the block
+            continue
+        m = _EVENT_PER_RE.search(line)
+        if m:
+            current.averaging_period = int(m.group(1))
+            current.end_date = m.group(2)
+            current.x, current.y, current.z_elev, current.z_flag = (
+                float(v) for v in m.groups()[2:6])
+            continue
+        m = _EVENT_GROUP_RE.search(line)
+        if m:
+            current.group_id = m.group(1)
+            continue
+        m = _EVENT_VALUE_RE.search(line)
+        if m:
+            current.group_value = float(m.group(1))
+            continue
+        if "SOURCE ID" in line and "CONTRIBUTION" in line:
+            in_table = True
+            continue
+        if in_table and line.strip() and not line.lstrip().startswith("-"):
+            for sid, value in _EVENT_PAIR_RE.findall(line):
+                current.contributions[sid] = float(value)
+    return events
+
+
 __all__ = [
     "AERMODAuxResult",
     "AERMODFileHeader",
+    "EventContribution",
     "parse_aermod_header",
     "parse_fortran_format",
     "read_aermod_aux_file",
     "read_deposition",
+    "read_event_output",
     "read_maxifile",
     "read_plotfile",
     "read_rankfile",

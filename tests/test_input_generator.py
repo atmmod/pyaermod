@@ -18,20 +18,27 @@ from pyaermod.input_generator import (
     CartesianGrid,
     ControlPathway,
     DepositionMethod,
+    EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
     LineSource,
     MeteorologyPathway,
+    Method2Params,
     OpenPitSource,
     OutputPathway,
     ParticleDepositionParams,
+    PlatformParams,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
     PollutantType,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SaveFile,
+    SidewashPointSource,
     SourcePathway,
     StreetCanyon,
     TerrainType,
@@ -762,16 +769,101 @@ class TestDepositionParameters:
         assert "MASSFRAX" in output
         assert "PARTDENS" in output
 
-    def test_deposition_method(self):
+    def test_deposition_method_writes_no_method_line(self):
+        # There is no METHOD keyword in AERMOD (modules.f; SO E105, probe
+        # deck 20): the field is kept for compatibility and writes nothing.
         source = PointSource(
             source_id="STK1", x_coord=0.0, y_coord=0.0,
             stack_height=50.0, emission_rate=1.0,
             deposition_method=(DepositionMethod.DRYDPLT, 0.5),
         )
         output = source.to_aermod_input()
-        assert "METHOD" in output
-        assert "DRYDPLT" in output
-        assert "0.5" in output
+        assert "METHOD" not in output and "DRYDPLT" not in output
+
+    def test_method_2_line(self):
+        # soset.f METH_2: METHOD_2 srcid finemass dg (EPA's testpart deck)
+        source = PointSource(
+            source_id="STACK1", x_coord=0.0, y_coord=0.0,
+            stack_height=35.0, emission_rate=100.0,
+            method_2=Method2Params(0.55, 1.2),
+        )
+        lines = source.to_aermod_input().splitlines()
+        assert [ln.split() for ln in lines if ln.split()[0] == "METHOD_2"] == \
+            [["METHOD_2", "STACK1", "0.55", "1.2"]]
+
+    def test_platform_line(self):
+        # soset.f PLATFM: PLATFORM srcid elev hb wb, after the downwash arrays
+        source = PointSource(
+            source_id="STACK1", x_coord=0.0, y_coord=0.0, stack_height=35.0,
+            building_height=20.0, platform=PlatformParams(0.0, 20.0, 30.0),
+        )
+        lines = [ln.split() for ln in source.to_aermod_input().splitlines()]
+        keywords = [ln[0] for ln in lines]
+        assert keywords.index("PLATFORM") > keywords.index("BUILDHGT")
+        assert lines[keywords.index("PLATFORM")] == ["PLATFORM", "STACK1", "0", "20", "30"]
+
+    def test_point_cap_and_hor_location_types(self):
+        cap = PointCapSource("C1", 0.0, 0.0, stack_height=10.0)
+        hor = PointHorSource("H1", 0.0, 0.0, stack_height=10.0)
+        assert cap.to_aermod_input().splitlines()[0].split()[:3] == ["LOCATION", "C1", "POINTCAP"]
+        assert hor.to_aermod_input().splitlines()[0].split()[:3] == ["LOCATION", "H1", "POINTHOR"]
+        assert isinstance(cap, PointSource)
+
+    def test_swpoint_srcparam(self):
+        src = SidewashPointSource("SW1", 0.0, 0.0, emission_rate=1.0, release_height=10.0,
+                                  building_width=20.0, building_length=30.0,
+                                  building_height=15.0, building_angle=90.0)
+        lines = [ln.split() for ln in src.to_aermod_input().splitlines()]
+        assert lines[0][:3] == ["LOCATION", "SW1", "SWPOINT"]
+        assert lines[1] == ["SRCPARAM", "SW1", "1.000000", "10.00", "20.00", "30.00", "15.00", "90.00"]
+
+    def test_fixed_columns_do_not_round_a_value_away(self):
+        # EPA's capped deck: an exit velocity of 0.001 m/s must survive
+        # the 8.2f column (it became 0.00).
+        src = PointSource("S", 0.0, 0.0, stack_height=65.0, stack_temp=425.0,
+                          exit_velocity=0.001, stack_diameter=5.0, emission_rate=500.0)
+        assert src.to_aermod_input().splitlines()[1].split() == \
+            ["SRCPARAM", "S", "500.000000", "65.00", "425.00", "0.001", "5.00"]
+        # ... while a binary-noise sum keeps the column's text: 12345.67 + 0.05
+        # is 12345.720000000001, whose 12.4f text is right and whose
+        # six-significant-digit fallback (12345.7) would not be.
+        from pyaermod.sources import _fx
+        assert _fx(12345.67 + 0.05, "12.4f") == "  12345.7200"
+        assert _fx(0.1 + 0.2, "12.4f") == "      0.3000"
+        assert _fx(0.001, "8.2f") == "   0.001"
+
+    def test_bound_columns_write_what_the_slow_check_would(self):
+        # The writers call the columns bound once per spec (printf-style
+        # formatting and a float-only exactness test); the benchmark
+        # workflow gates the 1000-source deck at 25 % slower than main, and
+        # parsing the column text back for every number was 50 % on its
+        # own. The text must still be format()'s wherever the column holds
+        # the value to one part in a million, and the fallback elsewhere.
+        import math
+        import random
+
+        from pyaermod.sources import _aermod_number, _f8_2, _f10_6, _f12_2, _f12_4, _fx
+
+        def reference(value, spec):
+            text = format(value, spec)
+            if value == 0 or abs(float(text) - value) <= 1e-6 * abs(value):
+                return text
+            return f"{_aermod_number(value):>{int(spec.split('.')[0])}}"
+
+        rng = random.Random(26135)
+        values = [rng.uniform(-1e6, 1e6) for _ in range(300)]
+        values += [round(rng.uniform(-1000, 1000), 2) for _ in range(300)]
+        values += [rng.uniform(-1, 1) for _ in range(300)]
+        values += [0.0, -0.0, 0.001, -0.001, 0.125, 0.126, 1e30, 1e-30, 12345.67 + 0.05,
+                   99999.12 + 5000.0, 0.1 + 0.2, float("inf"), float("-inf")]
+        columns = ((_f8_2, "8.2f"), (_f10_6, "10.6f"), (_f12_2, "12.2f"), (_f12_4, "12.4f"))
+        for fixed, spec in columns:
+            for value in values:
+                assert fixed(value) == reference(value, spec) == _fx(value, spec), (value, spec)
+            assert fixed(math.nan) == format(math.nan, spec)
+        # The fallback does fire: a value the column cannot hold keeps its digits.
+        assert _f8_2(0.126) == "   0.126"
+        assert _f12_4(0.00001) == "     1.0e-05"  # STODBL wants a decimal point before the exponent
 
     def test_no_deposition_omits_keywords(self):
         source = PointSource(
@@ -848,34 +940,50 @@ class TestDepositionParameters:
 
 
 class TestEventProcessing:
-    """Test event pathway generation."""
+    """The EV pathway in the layout AERMOD writes for EVENTFIL (probe 29b)."""
+
+    @staticmethod
+    def _events():
+        return EventPathway(events=[
+            EventPeriod("H001H01001", 1, "88030214", "G2", 52.33812,
+                        EventLocation(500.0, 500.0, 0.0, 0.0, 0.0)),
+            EventPeriod("EVT02", 24, 88030224, location=EventLocation(700.0, 45.0, 12.5, polar=True)),
+        ])
+
+    @staticmethod
+    def _project(**kw):
+        return AERMODProject(
+            control=ControlPathway(title_one="Test", eventfil="events.inp",
+                                   averaging_periods=["1", "24"]),
+            sources=SourcePathway(),
+            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
+            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
+            output=OutputPathway(),
+            **kw,
+        )
 
     def test_event_pathway_generation(self):
-        ep = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-            EventPeriod("EVT02", "24020101", "24020224", source_group="GRP1"),
-        ])
-        output = ep.to_aermod_input()
-        assert "EV STARTING" in output
-        assert "EV FINISHED" in output
-        assert "EVENTPER" in output
-        assert "EVT01" in output
-        assert "24010101" in output
-        assert "GRP1" in output
+        lines = self._events().to_aermod_input().splitlines()
+        assert lines[0] == "EV STARTING" and lines[-1] == "EV FINISHED"
+        # EVENTPER evname aveper grpid date conc; EVENTLOC evname XR= x YR= y ze zh zf
+        assert lines[1].split() == ["EVENTPER", "H001H01001", "1", "G2", "88030214", "52.33812"]
+        assert lines[2].split() == ["EVENTLOC", "H001H01001", "XR=", "500.000000", "YR=",
+                                    "500.000000", "0.0000", "0.0000", "0.0000"]
+        # ALL by default, an integer date is zero-padded to eight digits,
+        # a polar receptor uses RNG=/DIR=, and no flagpole leaves the field off.
+        assert lines[3].split() == ["EVENTPER", "EVT02", "24", "ALL", "88030224", "0.00000"]
+        assert lines[4].split() == ["EVENTLOC", "EVT02", "RNG=", "700.000000", "DIR=",
+                                    "45.000000", "12.5000", "0.0000"]
 
-    def test_event_pathway_default_source_group(self):
-        ep = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-        ])
-        output = ep.to_aermod_input()
-        assert "ALL" in output
+    def test_event_without_location_writes_eventper_only(self):
+        ep = EventPathway(events=[EventPeriod("E1", 1, "88030101")])
+        assert [ln.split()[0] for ln in ep.to_aermod_input().splitlines()[1:-1]] == ["EVENTPER"]
 
     def test_control_pathway_eventfil(self):
-        control = ControlPathway(
-            title_one="Test", eventfil="events.inp",
-        )
-        output = control.to_aermod_input()
-        assert "EVENTFIL  events.inp" in output
+        control = ControlPathway(title_one="Test", eventfil="events.inp")
+        assert "EVENTFIL  events.inp" in control.to_aermod_input()
+        control.eventfil_option = "SOCONT"
+        assert "   EVENTFIL  events.inp  SOCONT" in control.to_aermod_input().splitlines()
 
     def test_control_pathway_no_eventfil(self):
         control = ControlPathway(title_one="Test")
@@ -883,48 +991,57 @@ class TestEventProcessing:
         assert "EVENTFIL" not in output
 
     def test_project_with_events(self):
-        project = AERMODProject(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-            sources=SourcePathway(),
-            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
-            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
-            output=OutputPathway(),
-            events=EventPathway(events=[
-                EventPeriod("EVT01", "24010101", "24010124"),
-            ]),
-        )
-        # Main input should have EVENTFIL
+        project = self._project(events=self._events())
+        # The main deck carries EVENTFIL and no EV block.
         main_input = project.to_aermod_input(validate=False)
-        assert "EVENTFIL" in main_input
-        # Event pathway generates separately
-        ev_input = project.events.to_aermod_input()
-        assert "EV STARTING" in ev_input
+        assert "EVENTFIL" in main_input and "EV STARTING" not in main_input
+        # The event deck is CO SO ME EV OU: no RE, EV before OU, no EVENTFIL.
+        ev_input = project.to_aermod_input(validate=False, event_processing=True)
+        order = [ln.split()[0] for ln in ev_input.splitlines() if ln.endswith("STARTING")]
+        assert order == ["CO", "SO", "ME", "EV", "OU"]
+        assert "EVENTFIL" not in ev_input
+        ou = ev_input[ev_input.index("OU STARTING"):]
+        assert ou.split("\n")[1:-1] == ["   EVENTOUT  DETAIL"]
+
+    def test_event_deck_takes_eventout_from_the_project(self):
+        project = self._project(events=self._events())
+        project.control.eventfil_option = "SOCONT"
+        assert "   EVENTOUT  SOCONT" in project.to_aermod_input(validate=False, event_processing=True)
+        project.output.event_output = "DETAIL"
+        assert "   EVENTOUT  DETAIL" in project.to_aermod_input(validate=False, event_processing=True)
+        project.output.file_format = "EXP"
+        ou = project.to_aermod_input(validate=False, event_processing=True).split("OU STARTING")[1]
+        assert ou.split("\n")[1:3] == ["   FILEFORM  EXP", "   EVENTOUT  DETAIL"]
+
+    def test_event_deck_leaves_out_the_keywords_evonly_skips(self):
+        # coset.f/meset.f dispatch EVENTFIL, SAVEFILE, INITFILE, MULTYEAR
+        # and STARTEND only when .NOT.EVONLY.
+        project = self._project(events=self._events())
+        project.control.save_file = SaveFile("save.fil")
+        project.meteorology.start_year, project.meteorology.start_month = 1988, 3
+        project.meteorology.start_day = 1
+        project.meteorology.end_year, project.meteorology.end_month = 1988, 3
+        project.meteorology.end_day = 10
+        main = project.to_aermod_input(validate=False)
+        assert "SAVEFILE" in main and "STARTEND" in main
+        ev = project.to_aermod_input(validate=False, event_processing=True)
+        assert "SAVEFILE" not in ev and "STARTEND" not in ev
 
     def test_project_write_with_events(self, tmp_path):
-        project = AERMODProject(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-            sources=SourcePathway(),
-            receptors=ReceptorPathway(cartesian_grids=[CartesianGrid()]),
-            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
-            output=OutputPathway(),
-            events=EventPathway(events=[
-                EventPeriod("EVT01", "24010101", "24010124"),
-            ]),
-        )
+        project = self._project(events=self._events())
         main_file = tmp_path / "aermod.inp"
         event_file = tmp_path / "events.inp"
         project.write(main_file, event_filename=event_file, validate=False)
-        assert main_file.exists()
-        assert event_file.exists()
         assert "EVENTFIL" in main_file.read_text()
-        assert "EVENTPER" in event_file.read_text()
+        event_text = event_file.read_text()
+        assert event_text.startswith("CO STARTING") and "EVENTPER" in event_text
+        assert "RE STARTING" not in event_text
 
     def test_add_event(self):
         ep = EventPathway()
-        ep.add_event(EventPeriod("EVT01", "24010101", "24010124"))
+        ep.add_event(EventPeriod("EVT01", 1, "88030101"))
         assert len(ep.events) == 1
-        output = ep.to_aermod_input()
-        assert "EVT01" in output
+        assert "EVT01" in ep.to_aermod_input()
 
 
 # ---------------------------------------------------------------------------

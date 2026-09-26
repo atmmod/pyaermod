@@ -22,14 +22,25 @@ from pyaermod.input_generator import (
     ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    EvalFile,
+    EventLocation,
     MaxiFile,
     MeteorologyPathway,
+    Method2Params,
     OutputPathway,
+    PlatformParams,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
+    RankFile,
     ReceptorPathway,
+    ScimOptions,
+    SeasonHourFile,
+    SidewashPointSource,
     SourcePathway,
     TerrainType,
+    ToxxFile,
     UnparsedLine,
     UrbanArea,
 )
@@ -89,6 +100,49 @@ def rewrite(project: AERMODProject, **kw) -> AERMODProject:
 def keyword_lines(text: str, keyword: str) -> list[list[str]]:
     return [line.split()[1:] for line in text.splitlines()
             if line.split() and line.split()[0].upper() == keyword]
+
+
+EVENT_DECK = """\
+CO STARTING
+   TITLEONE  event fidelity
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  RUN
+CO FINISHED
+SO STARTING
+   LOCATION  S1  POINT  0  0  0
+   SRCPARAM  S1  1  30  400  10  2
+   LOCATION  S2  POINT  100  0  0
+   SRCPARAM  S2  1  30  400  10  2
+   SRCGROUP  G2  S2
+   SRCGROUP  ALL
+SO FINISHED
+ME STARTING
+   SURFFILE  a.sfc
+   PROFFILE  a.pfl
+   SURFDATA  1  1988
+   UAIRDATA  1  1988
+   PROFBASE  0.0
+ME FINISHED
+EV STARTING
+{ev_body}EV FINISHED
+OU STARTING
+{ou_body}
+OU FINISHED
+"""
+
+#: The events AERMOD itself wrote for probe deck 29 (scripts/oracle_decks/29b).
+EV_GENERATED = (
+    "   EVENTPER H001H01001   1  G2         88030214          52.33812\n"
+    "   EVENTLOC H001H01001 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000\n"
+    "   EVENTPER H001H24002  24  ALL        88030224          16.54005\n"
+    "   EVENTLOC H001H24002 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000\n"
+)
+
+
+def event_deck(ev_body=EV_GENERATED, ou_body="   EVENTOUT  SOCONT"):
+    return EVENT_DECK.format(ev_body=ev_body, ou_body=ou_body)
 
 
 # ---------------------------------------------------------------------------
@@ -368,13 +422,13 @@ class TestUnparsedLines:
     def test_lines_are_collected_with_pathway_keyword_and_position(self):
         project = parse(co_extra="   ERRORFIL  errors.out\n   DEBUGOPT  MODEL",
                         me_extra="   SITEDATA  99999  2020  HERE",
-                        ou_body="   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100  rank.dat")
+                        ou_body="   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100")
         got = [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines]
         assert got == [
             ("CO", "ERRORFIL", ["errors.out"]),
             ("CO", "DEBUGOPT", ["MODEL"]),
             ("ME", "SITEDATA", ["99999", "2020", "HERE"]),
-            ("OU", "RANKFILE", ["1", "100", "rank.dat"]),
+            ("OU", "RANKFILE", ["1", "100"]),   # a RANKFILE short of its filename
         ]
         assert [u.lineno for u in project.unparsed_lines] == sorted(u.lineno for u in project.unparsed_lines)
         assert project.unparsed_lines[0].raw == "   ERRORFIL  errors.out"
@@ -400,10 +454,10 @@ class TestUnparsedLines:
     def test_parse_logs_one_warning_per_pathway_and_keyword(self, caplog):
         with caplog.at_level(logging.WARNING, logger="pyaermod.input_reader"):
             parse(so_body=SO_DEFAULT + "   EMISFACT S1 SEASON 1 1 1 1\n   EMISFACT S1 SEASON 2 2 2 2\n",
-                  ou_body="   NOHEADER  ALL")
+                  ou_body="   POSTFILE  1  ALL  PLOT  a.pst\n   POSTFILE  24  ALL  PLOT  b.pst")
         messages = [r.getMessage() for r in caplog.records]
         assert any(m.startswith("SO EMISFACT: 2 lines") for m in messages)
-        assert any(m.startswith("OU NOHEADER: 1 line ") for m in messages)
+        assert any(m.startswith("OU POSTFILE: 1 line ") for m in messages)
         assert len(messages) == 2
 
     def test_clean_deck_has_no_unparsed_lines_and_no_warning(self, caplog):
@@ -417,10 +471,10 @@ class TestUnparsedLines:
                         so_body=SO_DEFAULT + "   HOUREMIS  hr.dat  S1\n",
                         re_body=RE_DEFAULT + "\n   DISCPOLR  S1  100.  45.",
                         me_extra="   SITEDATA  99999  2020",
-                        ou_body="   RECTABLE  ALLAVE  FIRST\n   SEASONHR  ALL  seas.dat")
+                        ou_body="   POSTFILE  1  ALL  PLOT  a.pst\n   POSTFILE  24  ALL  PLOT  b.pst")
         text = project.to_aermod_input(validate=False)
         for code, keyword in (("CO", "ERRORFIL"), ("SO", "HOUREMIS"), ("RE", "DISCPOLR"),
-                              ("ME", "SITEDATA"), ("OU", "SEASONHR")):
+                              ("ME", "SITEDATA"), ("OU", "b.pst")):
             start = text.index(f"{code} STARTING")
             end = text.index(f"{code} FINISHED")
             assert keyword in text[start:end], (code, keyword)
@@ -430,9 +484,9 @@ class TestUnparsedLines:
             [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines]
 
     def test_preserve_unparsed_false_drops_them(self):
-        project = parse(ou_body="   RECTABLE  ALLAVE  FIRST\n   SEASONHR  ALL  seas.dat")
+        project = parse(ou_body="   POSTFILE  1  ALL  PLOT  a.pst\n   POSTFILE  24  ALL  PLOT  b.pst")
         text = project.to_aermod_input(validate=False, preserve_unparsed=False)
-        assert "SEASONHR" not in text and PRESERVED_BANNER not in text
+        assert "b.pst" not in text and PRESERVED_BANNER not in text
 
     def test_so_lines_go_before_the_group_keywords(self):
         # soset.f resolves SRCGROUP members among the sources defined so
@@ -450,14 +504,17 @@ class TestUnparsedLines:
         so_lines = [ln for ln in text[text.index("SO STARTING"):].splitlines()[1:] if ln.strip()]
         assert so_lines[0].split() == ["ELEVUNIT", "FEET"]
 
-    def test_inline_ev_pathway_is_kept_whole(self):
-        text = deck() + "EV STARTING\n   EVENTPER  E1  1  ALL  20200101 20200102\n" \
-                        "   EVENTLOC  E1  XR=  100.  YR=  200.\nEV FINISHED\n"
-        project = parse_aermod_input(text)
-        assert [u.keyword for u in project.unparsed_lines] == ["EVENTPER", "EVENTLOC"]
+    def test_ev_lines_without_a_model_stay_in_the_ev_block(self):
+        # An EVENTPER with the wrong field count, an EVENTLOC for an
+        # unknown event and INCLUDED are kept verbatim, inside EV.
+        project = parse_aermod_input(event_deck(
+            "   EVENTPER  E1  1  ALL  88030214\n"
+            "   EVENTLOC  E9  XR=  100.  YR=  200.  0.\n"
+            "   INCLUDED  more_events.inc\n"))
+        assert [u.keyword for u in project.unparsed_lines] == ["EVENTPER", "EVENTLOC", "INCLUDED"]
         written = project.to_aermod_input(validate=False)
-        assert written.rstrip().endswith("EV FINISHED")
-        assert "EVENTLOC" in written[written.index("EV STARTING"):]
+        ev = written[written.index("EV STARTING"):written.index("EV FINISHED")]
+        assert "INCLUDED  more_events.inc" in ev and "EVENTLOC  E9" in ev
 
     def test_helpers(self):
         lines = [UnparsedLine("OU", "RANKFILE", ["1"], 9), UnparsedLine("CO", "ERRORFIL", ["e"], 2),
@@ -480,9 +537,10 @@ class TestUnparsedLines:
 
 class TestSourceLinesKeptVerbatim:
     def test_unconstructed_source_type_keeps_its_definition(self, caplog):
-        # EPA's capped.inp: POINTCAP / POINTHOR are not constructed yet
-        # (audit item 2, WP-2); before this branch the source vanished.
-        so = SO_DEFAULT + ("   LOCATION  S1C  POINTCAP  0  0  0\n"
+        # Every v26135 source type is constructed now (POINTCAP/POINTHOR/
+        # SWPOINT in WP-5), so the case left is a type AERMOD does not know
+        # either; before PR #14 such a source vanished.
+        so = SO_DEFAULT + ("   LOCATION  S1C  FLARE  0  0  0\n"
                            "   SRCPARAM  S1C  1  30  400  10  2\n"
                            "   BUILDHGT  S1C  36*50.\n"
                            "   URBANSRC  S1C\n")
@@ -491,9 +549,9 @@ class TestSourceLinesKeptVerbatim:
         assert [s.source_id for s in project.sources.sources] == ["S1"]
         assert [u.keyword for u in project.unparsed_lines] == [
             "LOCATION", "SRCPARAM", "BUILDHGT", "URBANSRC"]
-        assert any("S1C (POINTCAP)" in r.getMessage() for r in caplog.records)
+        assert any("S1C (FLARE)" in r.getMessage() for r in caplog.records)
         text = project.to_aermod_input(validate=False)
-        assert "LOCATION  S1C  POINTCAP" in text
+        assert "LOCATION  S1C  FLARE" in text
 
     def test_lines_for_sources_defined_elsewhere_are_kept(self):
         # EPA's lovett.inp defines the LOCATION in an INCLUDED file and
@@ -530,6 +588,204 @@ class TestSourceLinesKeptVerbatim:
         assert pathway.include_all_group is None
         assert "SRCGROUP  ALL" in pathway.to_aermod_input()
         assert "SRCGROUP" not in SourcePathway().to_aermod_input()
+
+
+# ---------------------------------------------------------------------------
+# The EV pathway (evset.f EVPER / EVLOC / OEVENT; probe decks 29b and 30)
+# ---------------------------------------------------------------------------
+
+class TestEventPathway:
+    def test_an_ev_pathway_makes_the_deck_an_event_run(self):
+        project = parse_aermod_input(event_deck())
+        assert project.event_processing is True
+        assert project.receptors.discrete_receptors == [] and project.receptors.polar_grids == []
+        assert project.unparsed_lines == []
+        assert project.output.event_output == "SOCONT"
+        assert not project.output.receptor_table and not project.output.max_table
+
+    def test_eventper_and_eventloc_fields(self):
+        events = parse_aermod_input(event_deck()).events.events
+        assert [e.event_name for e in events] == ["H001H01001", "H001H24002"]
+        first = events[0]
+        assert (first.averaging_period, first.source_group, first.date) == (1, "G2", "88030214")
+        assert first.original_conc == pytest.approx(52.33812)
+        assert first.location == EventLocation(500.0, 500.0, 0.0, 0.0, 0.0)
+        assert events[1].averaging_period == 24 and events[1].source_group == "ALL"
+
+    def test_eventloc_field_counts_and_polar_form(self):
+        # EVLOC: name XR= x YR= y zelev [zhill [zflag]]; RNG=/DIR= for range
+        # and direction. Probe 30: the elevation is not optional (E201).
+        ev = ("   EVENTPER  E1  1  ALL  88030101  0.0\n   EVENTLOC  E1  XR=  1.  YR=  2.  3.\n"
+              "   EVENTPER  E2  1  ALL  88030102  0.0\n   EVENTLOC  E2  XR=  1.  YR=  2.  3.  4.\n"
+              "   EVENTPER  E3  1  ALL  88030103  0.0\n   EVENTLOC  E3  RNG=  700.  DIR=  45.  0.  0.  1.5\n"
+              "   EVENTPER  E4  1  ALL  88030104  0.0\n   EVENTLOC  E4  XR=  1.  YR=  2.\n")
+        project = parse_aermod_input(event_deck(ev))
+        locs = {e.event_name: e.location for e in project.events.events}
+        assert locs["E1"] == EventLocation(1.0, 2.0, 3.0, 0.0, None)
+        assert locs["E2"] == EventLocation(1.0, 2.0, 3.0, 4.0, None)
+        assert locs["E3"] == EventLocation(700.0, 45.0, 0.0, 0.0, 1.5, polar=True)
+        assert locs["E4"] is None
+        assert [u.fields for u in project.unparsed_lines] == [["E4", "XR=", "1.", "YR=", "2."]]
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "EVENTLOC")[0][:4] == ["E1", "XR=", "1.000000", "YR="]
+        assert len(keyword_lines(text, "EVENTLOC")[0]) == 7   # no flagpole field
+        assert len(keyword_lines(text, "EVENTLOC")[1]) == 7
+        assert keyword_lines(text, "EVENTLOC")[2] == ["E3", "RNG=", "700.000000", "DIR=", "45.000000",
+                                                       "0.0000", "0.0000", "1.5000"]
+
+    def test_event_deck_round_trips_token_for_token(self):
+        text = event_deck()
+        project = parse_aermod_input(text)
+        written = project.to_aermod_input(validate=False)
+        for kw in ("EVENTPER", "EVENTLOC", "EVENTOUT"):
+            assert keyword_lines(written, kw) == keyword_lines(text, kw), kw
+        again = rewrite(project)
+        assert again.events == project.events
+        assert again.output == project.output and again.event_processing
+
+    def test_event_deck_layout_is_co_so_me_ev_ou(self):
+        written = parse_aermod_input(event_deck()).to_aermod_input(validate=False)
+        assert [ln.split()[0] for ln in written.splitlines() if ln.endswith("STARTING")] == \
+            ["CO", "SO", "ME", "EV", "OU"]
+        ou = written[written.index("OU STARTING"):]
+        assert ou.splitlines()[1:-1] == ["   EVENTOUT  SOCONT"]
+
+    def test_validator_accepts_the_generated_deck(self):
+        project = parse_aermod_input(event_deck())
+        from pyaermod.validator import Validator
+        result = Validator.validate(project)
+        assert [e for e in result.errors if e.severity == "error"] == [], str(result)
+
+    def test_a_normal_deck_has_no_events(self):
+        project = parse()
+        assert project.events is None and project.event_processing is False
+        assert "EV STARTING" not in project.to_aermod_input(validate=False)
+
+    def test_event_deck_written_as_a_normal_run_keeps_eventout(self):
+        # Nothing is dropped; the validator, not the writer, says the
+        # combination is wrong.
+        project = parse_aermod_input(event_deck())
+        text = project.to_aermod_input(validate=False, event_processing=False)
+        assert "RE STARTING" in text and "   EVENTOUT  SOCONT" in text
+
+
+# ---------------------------------------------------------------------------
+# The remaining SO keywords and source types (soset.f METH_2, PLATFM,
+# AIRCRAFT, HBPSOURCE, PPARM, SWPARM; probe decks 20-25c)
+# ---------------------------------------------------------------------------
+
+class TestRemainingSourceKeywords:
+    CAPPED = ("   LOCATION  C1  POINTCAP  0  0  0\n   SRCPARAM  C1  500.0  65.00  425.  0.001  5.\n"
+              "   BUILDHGT  C1  36*50.\n"
+              "   LOCATION  H1  POINTHOR  100  0  0\n   SRCPARAM  H1  500.0  65.00  425.  15.0  5.\n"
+              "   LOCATION  SW1  SWPOINT  200  0  0\n   SRCPARAM  SW1  1.0  10.0  20.0  30.0  15.0  90.0\n"
+              "   SRCGROUP  ALL\n")
+
+    def test_capped_horizontal_and_sidewash_points_are_constructed(self):
+        project = parse(modelopt="FLAT ALPHA", so_body=self.CAPPED)
+        srcs = {s.source_id: s for s in project.sources.sources}
+        assert type(srcs["C1"]) is PointCapSource and type(srcs["H1"]) is PointHorSource
+        assert isinstance(srcs["C1"], PointSource) and srcs["C1"].exit_velocity == 0.001
+        assert srcs["C1"].building_height == [50.0] * 36
+        sw = srcs["SW1"]
+        assert type(sw) is SidewashPointSource
+        assert (sw.release_height, sw.building_width, sw.building_length,
+                sw.building_height, sw.building_angle) == (10.0, 20.0, 30.0, 15.0, 90.0)
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert [ln[:2] for ln in keyword_lines(text, "LOCATION")] == \
+            [["C1", "POINTCAP"], ["H1", "POINTHOR"], ["SW1", "SWPOINT"]]
+        # the 0.001 exit velocity survives the fixed-column SRCPARAM (capped.inp)
+        assert keyword_lines(text, "SRCPARAM")[0][4] == "0.001"
+        again = rewrite(project)
+        assert again.sources.sources == project.sources.sources
+
+    def test_flat_location_literal_round_trips(self):
+        # soset.f SOLOCA: the elevation field may be the literal FLAT (a
+        # flat-terrain source in a FLAT ELEV run); EPA's flatelev deck. The
+        # reader used to note it and the writer wrote 0.00 (parity 1.17).
+        so = ("   LOCATION  ELEV_STK  POINT  5510.  67960.  3.25\n   SRCPARAM  ELEV_STK  1  30  400  10  2\n"
+              "   LOCATION  FLAT_STK  POINT  5510.  67960.  FLAT\n   SRCPARAM  FLAT_STK  1  30  400  10  2\n"
+              "   LOCATION  FLAT_AREA  AREA  0.  0.  FLAT\n   SRCPARAM  FLAT_AREA  1  1  10  10\n"
+              "   SRCGROUP  ALL\n")
+        project = parse(modelopt="FLAT ELEV", so_body=so)
+        flags = {s.source_id: s.flat_source for s in project.sources.sources}
+        assert flags == {"ELEV_STK": False, "FLAT_STK": True, "FLAT_AREA": True}
+        text = project.to_aermod_input(validate=False)
+        assert [ln[-1] for ln in keyword_lines(text, "LOCATION")] == ["3.25", "FLAT", "FLAT"]
+        assert {s.source_id: s.flat_source for s in rewrite(project).sources.sources} == flags
+
+    def test_open_pit_spellings_are_openpit(self):
+        # soset.f SOLOCA takes OPENPIT, OPEN_PIT and OPEN-PIT.
+        for spelling in ("OPEN_PIT", "OPEN-PIT"):
+            so = (f"   LOCATION  P1  {spelling}  0  0  0\n"
+                  "   SRCPARAM  P1  1.0E-5  0.0  1800.  180.0  0.16E+08  -45.0\n   SRCGROUP  ALL\n")
+            project = parse(so_body=so)
+            assert [type(s).__name__ for s in project.sources.sources] == ["OpenPitSource"]
+            assert project.unparsed_lines == []
+
+    def test_swpoint_with_five_values_is_kept_verbatim(self):
+        so = ("   LOCATION  SW1  SWPOINT  200  0  0\n   SRCPARAM  SW1  1.0  10.0  20.0  30.0  15.0\n"
+              "   SRCGROUP  ALL\n")
+        project = parse(modelopt="FLAT ALPHA", so_body=so)
+        assert project.sources.sources == []
+        assert [u.keyword for u in project.unparsed_lines] == ["LOCATION", "SRCPARAM"]
+
+    def test_method_2_for_one_source_and_a_range(self):
+        so = ("   LOCATION  STK1  POINT  0  0  0\n   SRCPARAM  STK1  1  30  400  10  2\n"
+              "   LOCATION  STK2  POINT  0  0  0\n   SRCPARAM  STK2  1  30  400  10  2\n"
+              "   LOCATION  STK3  POINT  0  0  0\n   SRCPARAM  STK3  1  30  400  10  2\n"
+              "   METHOD_2  STK1  0.55  1.2\n   METHOD_2  STK2-STK3  0.5  1.0\n   SRCGROUP  ALL\n")
+        project = parse(modelopt="FLAT DDEP ALPHA", so_body=so)
+        m2 = {s.source_id: s.method_2 for s in project.sources.sources}
+        assert m2 == {"STK1": Method2Params(0.55, 1.2), "STK2": Method2Params(0.5, 1.0),
+                      "STK3": Method2Params(0.5, 1.0)}
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "METHOD_2") == [["STK1", "0.55", "1.2"], ["STK2", "0.5", "1"],
+                                                    ["STK3", "0.5", "1"]]
+        assert "METHOD " not in text
+        assert {s.source_id: s.method_2 for s in rewrite(project).sources.sources} == m2
+
+    @pytest.mark.parametrize("line", ["METHOD_2  STK1  0.55", "METHOD_2  STK1  0.55  1.2  3",
+                                      "METHOD_2  STK1  half  1.2", "PLATFORM  STK1  10.0"])
+    def test_malformed_method_2_and_platform_lines_are_kept_verbatim(self, line):
+        so = ("   LOCATION  STK1  POINT  0  0  0\n   SRCPARAM  STK1  1  30  400  10  2\n"
+              f"   {line}\n   SRCGROUP  ALL\n")
+        project = parse(modelopt="FLAT ALPHA", so_body=so)
+        assert [u.raw.split() for u in project.unparsed_lines] == [line.split()]
+        assert project.sources.sources[0].method_2 is None
+        assert project.sources.sources[0].platform is None
+
+    def test_platform_with_three_and_two_fields(self):
+        # soset.f PLATFM: elev hb wb; two fields leave the width at 0 (no downwash).
+        so = ("   LOCATION  STK1  POINT  0  0  0\n   SRCPARAM  STK1  1  30  400  10  2\n"
+              "   PLATFORM  STK1  0.0  20.0  30.0\n"
+              "   LOCATION  STK2  POINT  0  0  0\n   SRCPARAM  STK2  1  30  400  10  2\n"
+              "   PLATFORM  STK2  5.0  15.0\n   SRCGROUP  ALL\n")
+        project = parse(modelopt="FLAT ALPHA", so_body=so)
+        pf = {s.source_id: s.platform for s in project.sources.sources}
+        assert pf == {"STK1": PlatformParams(0.0, 20.0, 30.0), "STK2": PlatformParams(5.0, 15.0, 0.0)}
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "PLATFORM") == [["STK1", "0", "20", "30"], ["STK2", "5", "15", "0"]]
+        assert {s.source_id: s.platform for s in rewrite(project).sources.sources} == pf
+
+    def test_arcftsrc_and_hbpsrcid_tokens_round_trip(self):
+        so = SO_DEFAULT.replace("   SRCGROUP  ALL\n", "") + \
+            "   ARCFTSRC  S1\n   HBPSRCID  S1  S2-S9\n   HBPSRCID  ALL\n   SRCGROUP  ALL\n"
+        project = parse(modelopt="FLAT ALPHA HBP", co_extra="   ARCFTOPT  KLAX", so_body=so)
+        assert project.sources.aircraft_sources == ["S1"]
+        assert project.sources.hbp_sources == ["S1", "S2-S9", "ALL"]
+        assert (project.control.aircraft_option, project.control.airport_id) == (True, "KLAX")
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        so_text = text[text.index("SO STARTING"):text.index("SO FINISHED")]
+        assert so_text.index("ARCFTSRC") < so_text.index("HBPSRCID") < so_text.index("SRCGROUP")
+        assert keyword_lines(text, "HBPSRCID") == [["S1", "S2-S9", "ALL"]]
+        co_text = text[:text.index("CO FINISHED")]
+        assert co_text.index("MODELOPT") < co_text.index("ARCFTOPT  KLAX") < co_text.index("AVERTIME")
+        again = rewrite(project)
+        assert (again.sources.aircraft_sources, again.sources.hbp_sources) == (["S1"], ["S1", "S2-S9", "ALL"])
 
 
 # ---------------------------------------------------------------------------
@@ -585,11 +841,39 @@ class TestControlPathwayFidelity:
         assert control.run_model is False
         assert keyword_lines(control.to_aermod_input(), "RUNORNOT") == [["NOT"]]
 
-    def test_eventfil_single_field_is_structural_two_fields_verbatim(self):
-        assert parse(co_extra="   EVENTFIL  ev.inp").control.eventfil == "ev.inp"
-        project = parse(co_extra="   EVENTFIL  ev.inp  DETAIL")
+    def test_eventfil_with_and_without_its_option(self):
+        # coset.f EVNTFL: EVENTFIL evfile [SOCONT|DETAIL].
+        project = parse(co_extra="   EVENTFIL  ev.inp  SOCONT")
+        assert (project.control.eventfil, project.control.eventfil_option) == ("ev.inp", "SOCONT")
+        assert project.unparsed_lines == []
+        assert keyword_lines(project.to_aermod_input(validate=False), "EVENTFIL") == [["ev.inp", "SOCONT"]]
+        project = parse(co_extra="   EVENTFIL  ev.inp")
+        assert (project.control.eventfil, project.control.eventfil_option) == ("ev.inp", None)
+        assert keyword_lines(project.to_aermod_input(validate=False), "EVENTFIL") == [["ev.inp"]]
+
+    def test_armratio_awmadwnw_ord_dwnw(self):
+        # coset.f ARM2_Ratios (two fields), AWMA_DOWNWASH (1-5 options),
+        # ORD_DOWNWASH (1-3 options); probe decks 24-24e.
+        project = parse(modelopt="FLAT ALPHA ARM2",
+                        co_extra="   ARMRATIO  0.5  0.9\n   AWMADWNW  STREAMLINE  AWMAUTURB\n"
+                                 "   ORD_DWNW  ORDCAV  ORDTURB")
+        c = project.control
+        assert c.arm2_ratios == (0.5, 0.9)
+        assert c.awma_downwash == ["STREAMLINE", "AWMAUTURB"] and c.ord_downwash == ["ORDCAV", "ORDTURB"]
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "ARMRATIO") == [["0.5", "0.9"]]
+        assert keyword_lines(text, "AWMADWNW") == [["STREAMLINE", "AWMAUTURB"]]
+        assert keyword_lines(text, "ORD_DWNW") == [["ORDCAV", "ORDTURB"]]
+        again = rewrite(project).control
+        assert (again.arm2_ratios, again.awma_downwash, again.ord_downwash) == \
+            ((0.5, 0.9), ["STREAMLINE", "AWMAUTURB"], ["ORDCAV", "ORDTURB"])
+
+    def test_bare_eventfil_is_kept_verbatim(self):
+        # The bare form means EVENTS.INP with W207; there is no field for it.
+        project = parse(co_extra="   EVENTFIL")
         assert project.control.eventfil is None
-        assert project.unparsed_lines[0].fields == ["ev.inp", "DETAIL"]
+        assert [u.keyword for u in project.unparsed_lines] == ["EVENTFIL"]
 
     def test_single_urbanopt_is_pop_name_roughness(self):
         control = parse(co_extra="   URBANOPT  2000000  Denver  1.0").control
@@ -620,6 +904,62 @@ class TestControlPathwayFidelity:
 
 
 class TestMeteorologyFidelity:
+    # meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT; probe decks 26-27.
+    def test_dayrange_fields_accumulate_and_write_back_as_written(self):
+        project = parse(me_extra="   DAYRANGE  1/1-3/31  100\n   DAYRANGE  150-160")
+        assert project.meteorology.day_ranges == ["1/1-3/31", "100", "150-160"]
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "DAYRANGE") == [["1/1-3/31", "100", "150-160"]]
+        assert rewrite(project).meteorology == project.meteorology
+
+    def test_numyears_and_windcats(self):
+        project = parse(me_extra="   NUMYEARS  5\n   WINDCATS  1.54  3.09  5.14  8.23  10.8")
+        met = project.meteorology
+        assert met.num_years == 5
+        assert met.wind_speed_categories == [1.54, 3.09, 5.14, 8.23, 10.8]
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "NUMYEARS") == [["5"]]
+        assert keyword_lines(text, "WINDCATS") == [["1.54", "3.09", "5.14", "8.23", "10.8"]]
+        assert rewrite(project).meteorology == met
+
+    def test_windcats_with_another_count_is_kept_verbatim(self):
+        # WSCATS wants exactly five values (probe 26b: four is E200).
+        project = parse(me_extra="   WINDCATS  1.54  3.09  5.14  8.23")
+        assert project.meteorology.wind_speed_categories is None
+        assert [u.keyword for u in project.unparsed_lines] == ["WINDCATS"]
+
+    @pytest.mark.parametrize("line, expected", [
+        ("SCIMBYHR 1 25", ScimOptions(1, 25)),
+        ("SCIMBYHR 1 25 0 0", ScimOptions(1, 25, 0, 0)),
+        ("SCIMBYHR 1 25 scim.sfc scim.pfl", ScimOptions(1, 25, None, None, "scim.sfc", "scim.pfl")),
+        ("SCIMBYHR 1 25 0 0 ../met/s.sfc ../met/s.pfl",
+         ScimOptions(1, 25, 0, 0, "../met/s.sfc", "../met/s.pfl")),
+    ])
+    def test_scimbyhr_forms(self, line, expected):
+        # SCIMIT: 4, 6 or 8 fields; a six-field card holds the wet-SCIM
+        # pair when numeric, the summary files otherwise (probes 27-27c).
+        project = parse(modelopt="FLAT SCIM", me_extra=f"   {line}")
+        assert project.meteorology.scim == expected
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "SCIMBYHR") == [line.split()[1:]]
+        assert rewrite(project).meteorology.scim == expected
+
+    def test_scimbyhr_with_an_odd_field_count_is_kept_verbatim(self):
+        project = parse(modelopt="FLAT SCIM", me_extra="   SCIMBYHR  1  25  scim.sfc")
+        assert project.meteorology.scim is None
+        assert [u.keyword for u in project.unparsed_lines] == ["SCIMBYHR"]
+
+    def test_turbulence_keyword_is_stored_and_a_second_one_kept_verbatim(self):
+        # TURBOPT: nine bare keywords on one status switch (E135 for a second).
+        project = parse(me_extra="   NOTURBST\n   NOSA")
+        assert project.meteorology.turbulence_option == "NOTURBST"
+        assert [u.keyword for u in project.unparsed_lines] == ["NOSA"]
+        text = project.to_aermod_input(validate=False)
+        me = text[text.index("ME STARTING"):text.index("ME FINISHED")]
+        assert "   NOTURBST\n" in me and "   NOSA" in me
+        assert rewrite(parse(me_extra="   NOSWCO")).meteorology.turbulence_option == "NOSWCO"
+
     def test_startend_with_hours(self):
         # EPA's testpm10_1986.inp: meset.f STAEND takes eight fields with
         # an hour after each date; six fields were read and two dropped.
@@ -642,6 +982,54 @@ class TestMeteorologyFidelity:
 
 
 class TestOutputFidelity:
+    # ouset.f NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX; probe decks 28-28c.
+    def test_rankfile_seasonhr_evalfile_toxxfile_fields(self):
+        ou = ("   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100  rank01.rnk\n"
+              "   RANKFILE  24  50  rank24.rnk  60\n   SEASONHR  ALL  seas.dat\n"
+              "   EVALFILE  S1  eval.dat  62\n   TOXXFILE  1  1.0  toxx.dat\n"
+              "   TOXXFILE  24  2.5  toxx24.dat  63\n   NOHEADER  RANKFILE  SEASONHR\n")
+        project = parse(ou_body=ou)
+        out = project.output
+        assert out.rank_files == [RankFile("1", 100, "rank01.rnk"), RankFile("24", 50, "rank24.rnk", 60)]
+        assert out.season_hour_files == [SeasonHourFile("ALL", "seas.dat")]
+        assert out.eval_files == [EvalFile("S1", "eval.dat", 62)]
+        assert out.toxx_files == [ToxxFile("1", 1.0, "toxx.dat"), ToxxFile("24", 2.5, "toxx24.dat", 63)]
+        assert out.no_header == ["RANKFILE", "SEASONHR"]
+        assert project.unparsed_lines == []
+        text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "RANKFILE") == [["1", "100", "rank01.rnk"], ["24", "50", "rank24.rnk", "60"]]
+        assert keyword_lines(text, "SEASONHR") == [["ALL", "seas.dat"]]
+        assert keyword_lines(text, "EVALFILE") == [["S1", "eval.dat", "62"]]
+        assert keyword_lines(text, "TOXXFILE") == [["1", "1", "toxx.dat"], ["24", "2.5", "toxx24.dat", "63"]]
+        assert keyword_lines(text, "NOHEADER") == [["RANKFILE", "SEASONHR"]]
+        assert rewrite(project).output == out
+
+    def test_noheader_all_and_several_cards(self):
+        project = parse(ou_body="   RECTABLE ALLAVE FIRST\n   NOHEADER  ALL\n")
+        assert project.output.no_header == ["ALL"]
+        project = parse(ou_body="   RECTABLE ALLAVE FIRST\n   NOHEADER  MAXIFILE\n   NOHEADER  POSTFILE\n")
+        assert project.output.no_header == ["MAXIFILE", "POSTFILE"]
+
+    @pytest.mark.parametrize("line", [
+        "NOHEADER  SUMMFILE", "RANKFILE  1  100", "RANKFILE  1  ten  r.rnk",
+        "SEASONHR  ALL", "EVALFILE  S1", "TOXXFILE  1  toxx.dat", "TOXXFILE  1  x  toxx.dat",
+    ])
+    def test_malformed_ou_file_lines_are_kept_verbatim(self, line):
+        project = parse(ou_body=f"   RECTABLE ALLAVE FIRST\n   {line}\n")
+        assert [u.raw.split() for u in project.unparsed_lines] == [line.split()]
+        out = project.output
+        assert not (out.rank_files or out.season_hour_files or out.eval_files or out.toxx_files or out.no_header)
+
+    def test_file_entries_read_through_the_output_readers(self, tmp_path):
+        rank = tmp_path / "rank.rnk"
+        rank.write_text("* AERMOD ( 26135): test\n* RANKFILE\n"
+                        "* FORMAT: (1X,I6,1X,F13.5,1X,I8.8,2(1X,F13.5),3(1X,F7.2),2X,A8)\n"
+                        "*   RANK      CONC       DATE(YYMMDDHH)     X          Y       ZELEV   ZHILL   ZFLAG  GRP\n"
+                        "      1      10.50000  88030214     500.00000     500.00000    0.00    0.00    0.00  ALL\n")
+        result = RankFile("1", 100, "rank.rnk").read(tmp_path)
+        assert result.n_records == 1
+        assert result.header.file_type == "RANKFILE"
+
     def test_plotfile_with_a_lower_rank_is_kept_verbatim(self):
         # surfcoal.inp asks for 1ST..8TH; the model has no rank field and
         # wrote FIRST eight times (OU E203).

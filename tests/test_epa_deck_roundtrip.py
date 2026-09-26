@@ -55,6 +55,11 @@ STRUCTURAL_KEYWORDS = (
     "MAXDAILY", "MXDYBYYR", "MAXDCONT", "FILEFORM", "MAXIFILE",
     "GASDEPDF", "GASDEPVD", "GDSEASON", "GDLANUSE",
     "URBANOPT", "STARTEND",
+    "EVENTPER", "EVENTLOC", "EVENTOUT", "EVENTFIL",
+    "DAYRANGE", "NUMYEARS", "WINDCATS", "SCIMBYHR", "NOTURB", "NOTURBST", "NOTURBCO",
+    "NOSA", "NOSW", "NOSAST", "NOSWST", "NOSACO", "NOSWCO",
+    "NOHEADER", "RANKFILE", "SEASONHR", "EVALFILE", "TOXXFILE",
+    "ARMRATIO", "AWMADWNW", "ORD_DWNW", "ARCFTOPT",
 )
 
 #: What the reader stores structurally, per pathway (its module docstring).
@@ -67,22 +72,25 @@ MODELLED_KEYWORDS = {
            "NO2STACK", "OZONEVAL", "OZONEFIL", "O3VALUES", "O3SECTOR", "OZONUNIT",
            "NOXVALUE", "NOX_FILE", "NOX_VALS", "NOX_UNIT", "NOXSECTR", "GASDEPDF",
            "GASDEPVD", "GDSEASON", "GDLANUSE", "SAVEFILE", "INITFILE", "MULTYEAR",
-           "EVENTFIL"},
+           "EVENTFIL", "ARMRATIO", "AWMADWNW", "ORD_DWNW", "ARCFTOPT"},
     "SO": {"LOCATION", "SRCPARAM", "SRCGROUP", "BACKGRND", "BGSECTOR", "GASDEPOS",
            "PARTDIAM", "MASSFRAX", "PARTDENS", "URBANSRC", "BUILDHGT", "BUILDWID",
            "BUILDLEN", "XBADJ", "YBADJ", "AREAVERT", "BLPINPUT", "BLPGROUP",
            "OLMGROUP", "PSDGROUP", "NO2RATIO", "EMISUNIT", "CONCUNIT", "DEPOUNIT",
-           "RLEMCONV", "RBARRIER", "RDEPRESS", "SBARRIER", "VBARRIER"},
+           "RLEMCONV", "RBARRIER", "RDEPRESS", "SBARRIER", "VBARRIER",
+           "METHOD_2", "PLATFORM", "ARCFTSRC", "HBPSRCID"},
     "RE": {"GRIDCART", "GRIDPOLR", "DISCCART", "ELEVUNIT"},
     "ME": {"SURFFILE", "PROFFILE", "SURFDATA", "UAIRDATA", "PROFBASE", "STARTEND",
-           "WDROTATE"},
+           "WDROTATE", "DAYRANGE", "NUMYEARS", "WINDCATS", "SCIMBYHR", "NOTURB",
+           "NOTURBST", "NOTURBCO", "NOSA", "NOSW", "NOSAST", "NOSWST", "NOSACO", "NOSWCO"},
     "OU": {"RECTABLE", "MAXTABLE", "DAYTABLE", "SUMMFILE", "MAXIFILE", "PLOTFILE",
-           "POSTFILE", "FILEFORM", "MAXDAILY", "MXDYBYYR", "MAXDCONT"},
-    "EV": set(),
+           "POSTFILE", "FILEFORM", "MAXDAILY", "MXDYBYYR", "MAXDCONT", "EVENTOUT",
+           "NOHEADER", "RANKFILE", "SEASONHR", "EVALFILE", "TOXXFILE"},
+    "EV": {"EVENTPER", "EVENTLOC"},
 }
 
 _LINE_RE = re.compile(
-    r"^\s*(?:CO|OU|ME)?\s*(" + "|".join(STRUCTURAL_KEYWORDS) + r")\b(.*)$", re.IGNORECASE,
+    r"^\s*(?:CO|OU|ME|EV)?\s*(" + "|".join(STRUCTURAL_KEYWORDS) + r")\b(.*)$", re.IGNORECASE,
 )
 _REPEAT_RE = re.compile(r"^(\d+)\*(.+)$")
 
@@ -112,7 +120,8 @@ def keyword_lines(text: str) -> Counter:
         # Units and flags are case-insensitive in AERMOD (FIELD is
         # upper-cased); filenames and formats are not, and stay as is.
         if keyword in ("OZONEVAL", "NOXVALUE", "OZONUNIT", "NOX_UNIT", "FILEFORM",
-                       "O3VALUES", "NOX_VALS", "MAXIFILE"):
+                       "O3VALUES", "NOX_VALS", "MAXIFILE", "EVENTOUT", "EVENTLOC",
+                       "NOHEADER", "WINDCATS", "DAYRANGE", "AWMADWNW", "ORD_DWNW"):
             toks = [t.upper() if i != 3 else t for i, t in enumerate(toks)] \
                 if keyword == "MAXIFILE" else [t.upper() for t in toks]
         elif keyword in ("OZONEFIL", "NOX_FILE"):
@@ -175,6 +184,10 @@ def structural_differences(first, second) -> list[str]:
     ids = lambda p: [s.source_id for s in p.sources.sources]  # noqa: E731
     if ids(first) != ids(second):
         diffs.append(f"source ids {ids(first)} -> {ids(second)}")
+    if first.events != second.events:
+        diffs.append(f"events: {first.events!r} -> {second.events!r}")
+    if first.event_processing != second.event_processing:
+        diffs.append("event_processing")
     if _unparsed_keys(first) != _unparsed_keys(second):
         lost = set(_unparsed_keys(first)) - set(_unparsed_keys(second))
         gained = set(_unparsed_keys(second)) - set(_unparsed_keys(first))
@@ -246,7 +259,9 @@ def test_vendored_decks_cover_every_keyword_epa_uses():
                 if rec.keyword == "URBANOPT":
                     forms.add("URBANOPT")
     assert {"MULTYEAR", "NOXVALUE", "OZONEVAL", "OZONEFIL", "MAXDCONT",
-            "FILEFORM", "GDSEASON", "GDLANUSE", "MAXIFILE", "URBANOPT"} <= seen, sorted(seen)
+            "FILEFORM", "GDSEASON", "GDLANUSE", "MAXIFILE", "URBANOPT",
+            "EVENTPER", "EVENTLOC", "EVENTOUT", "SEASONHR", "RANKFILE", "SCIMBYHR",
+            "ARMRATIO"} <= seen, sorted(seen)
     assert {"continuation", "GDIR", "DIST", "XPNTS", "URBANOPT"} <= forms, sorted(forms)
 
 
@@ -258,8 +273,8 @@ def test_vendored_decks_exercise_the_unparsed_path():
         project = parse_aermod_input(path.read_text(encoding="latin-1"))
         kept |= {(u.pathway, u.keyword) for u in project.unparsed_lines}
     expected = {("CO", "ERRORFIL"), ("SO", "EMISFACT"), ("SO", "INCLUDED"),
-                ("SO", "LOCATION"), ("RE", "INCLUDED"), ("RE", "DISCPOLR"), ("RE", "EVALCART"),
-                ("ME", "SITEDATA"), ("OU", "SEASONHR"), ("OU", "POSTFILE")}
+                ("RE", "INCLUDED"), ("RE", "DISCPOLR"), ("RE", "EVALCART"),
+                ("ME", "SITEDATA"), ("OU", "POSTFILE")}
     assert expected <= kept, sorted(expected - kept)
 
 

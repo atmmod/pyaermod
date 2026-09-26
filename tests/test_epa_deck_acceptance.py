@@ -35,22 +35,40 @@ from pyaermod.epa_testcases import find_epa_testcase_set
 from pyaermod.input_generator import (
     AERMODProject,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
+    EvalFile,
+    EventLocation,
+    EventPathway,
+    EventPeriod,
     MaxiFile,
     MeteorologyPathway,
+    Method2Params,
     OutputPathway,
+    PlatformParams,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
+    RankFile,
     ReceptorPathway,
+    ScimOptions,
+    SeasonHourFile,
+    SidewashPointSource,
     SourcePathway,
     TerrainType,
+    ToxxFile,
+    UnparsedLine,
     UrbanArea,
+    VolumeSource,
 )
 from pyaermod.input_reader import parse_aermod_input
 
 AERMOD_EXE = shutil.which("aermod")
 ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "tests" / "fixtures" / "epa_official"
 MET_DIR = ROOT / "test_cases" / "aermet26135_aermod26135" / "meteorology"
 SURFACE = MET_DIR / "aermet2.sfc"
 PROFILE = MET_DIR / "aermet2.pfl"
@@ -218,6 +236,219 @@ def test_writer_forms_pass_aermod_setup(label, project, tmp_path):
     assert not errors, (
         f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
     )
+
+
+# ---------------------------------------------------------------------
+# CO and SO keywords given a field in WP-5 (probe decks 20-25c)
+# ---------------------------------------------------------------------
+
+def _met(**kw) -> MeteorologyPathway:
+    return MeteorologyPathway(
+        surface_file=SURFACE.name, profile_file=PROFILE.name,
+        surface_station_id=14735, upper_air_station_id=14735, data_start_year=1988, **kw)
+
+
+def _stack(sid="SRC1", x=0.0, cls=PointSource, **kw) -> PointSource:
+    params = dict(stack_height=50.0, stack_diameter=2.0, stack_temp=400.0,
+                  exit_velocity=15.0, emission_rate=10.0)
+    params.update(kw)
+    return cls(sid, x, 0.0, **params)
+
+
+def _alpha(**kw) -> ControlPathway:
+    kw.setdefault("title_one", "acceptance")
+    kw.setdefault("averaging_periods", ["1", "24"])
+    return ControlPathway(alpha=True, regulatory_default=False, **kw)
+
+
+def _so(*sources, **kw) -> SourcePathway:
+    return SourcePathway(sources=list(sources), **kw)
+
+
+CO_SO_CASES = [
+    ("method-2-source-and-range", AERMODProject(
+        control=_alpha(pollutant_id="OTHER", calculate_concentration=True,
+                       calculate_dry_deposition=True),
+        sources=_so(_stack("STACK1", method_2=Method2Params(0.55, 1.2)),
+                    _stack("STACK2", 100.0, method_2=Method2Params(0.5, 1.0))),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=_met(), output=OutputPathway())),
+    ("platform-three-and-two-fields", AERMODProject(
+        control=_alpha(),
+        sources=_so(_stack("STACK1", platform=PlatformParams(0.0, 20.0, 30.0)),
+                    _stack("STACK2", 100.0, platform=PlatformParams(5.0, 15.0, 0.0))),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=_met(), output=OutputPathway())),
+    ("pointcap-pointhor-swpoint", AERMODProject(
+        control=_alpha(),
+        sources=_so(_stack("CAP1", cls=PointCapSource, exit_velocity=0.001,
+                           building_height=[50.0] * 36, building_width=[60.0] * 36,
+                           building_length=[70.0] * 36, building_x_offset=[-10.0] * 36,
+                           building_y_offset=[5.0] * 36),
+                    _stack("HOR1", 100.0, cls=PointHorSource),
+                    SidewashPointSource("SW1", 200.0, 0.0, emission_rate=1.0, release_height=10.0,
+                                        building_width=20.0, building_length=30.0,
+                                        building_height=15.0, building_angle=90.0)),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=_met(), output=OutputPathway())),
+    ("armratio", _project(control=ControlPathway(
+        title_one="acceptance", pollutant_id="NO2", averaging_periods=["1"],
+        regulatory_default=False, arm2_ratios=(0.5, 0.9),
+        chemistry=ChemistryOptions(method=ChemistryMethod.ARM2)))),
+    ("awmadwnw-and-ord-dwnw", _project(control=_alpha(
+        awma_downwash=["STREAMLINE", "AWMAUTURB", "AWMAENTRAIN"],
+        ord_downwash=["ORDCAV", "ORDTURB"]))),
+    ("hbpsrcid", AERMODProject(
+        control=_alpha(extra_model_options=["HBP"]),
+        sources=_so(_stack("STACK1"), _stack("STACK2", 100.0), hbp_sources=["STACK1", "STACK2"]),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=_met(), output=OutputPathway())),
+]
+
+
+@_met_ok
+@pytest.mark.parametrize("label,project", CO_SO_CASES, ids=[c[0] for c in CO_SO_CASES])
+def test_co_so_forms_pass_aermod_setup(label, project, tmp_path):
+    deck = project.to_aermod_input(validate=True)
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+@_met_ok
+def test_arcftsrc_with_an_aircraft_hourly_file_passes_aermod_setup(tmp_path):
+    # soset.f AIRCRAFT / aermod.f AHRQREAD: VOLUME or AREA sources with an
+    # HOUREMIS file carrying the sixteen-field aircraft record (probe 25b);
+    # the HOUREMIS card is an unparsed line the writer keeps before SRCGROUP.
+    project = AERMODProject(
+        control=_alpha(aircraft_option=True, airport_id="KLAX"),
+        sources=SourcePathway(
+            sources=[VolumeSource("VOL1", 0.0, 0.0, release_height=5.0, emission_rate=1.0,
+                                  initial_lateral_dimension=10.0, initial_vertical_dimension=5.0)],
+            aircraft_sources=["VOL1"]),
+        receptors=ReceptorPathway(discrete_receptors=[DiscreteReceptor(500.0, 500.0)]),
+        meteorology=_met(), output=OutputPathway(),
+        unparsed_lines=[UnparsedLine("SO", "HOUREMIS", ["aircraft_hourly.dat", "VOL1"])],
+    )
+    shutil.copy(ROOT / "scripts" / "oracle_decks" / "25b_hourly.dat", tmp_path / "aircraft_hourly.dat")
+    deck = project.to_aermod_input(validate=True)
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+@_met_ok
+def test_rewritten_capped_deck_passes_aermod_setup(tmp_path):
+    """EPA's capped deck, whose POINTCAP/POINTHOR sources the reader now
+    constructs, rewritten and run through the setup pass (BETA as EPA)."""
+    text = (FIXTURES / "capped.inp").read_text(encoding="latin-1")
+    project = parse_aermod_input(text)
+    assert {type(s).__name__ for s in project.sources.sources} == {"PointSource", "PointCapSource", "PointHorSource"}
+    written = project.to_aermod_input(validate=False)
+    written = written.replace("../meteorology/aermet2.sfc", SURFACE.name).replace(
+        "../meteorology/aermet2.pfl", PROFILE.name)
+    work = tmp_path / "inputs"
+    work.mkdir()
+    for name in ("Outputs", "plotfiles", "postfiles"):
+        (tmp_path / name).mkdir()
+    errors = run_setup_check(written, work)
+    assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{written}"
+
+
+# ---------------------------------------------------------------------
+# ME and OU keywords given a field in WP-5 (probe decks 26-28c)
+# ---------------------------------------------------------------------
+
+def _scim(**kw) -> AERMODProject:
+    # SCIM is a non-DFAULT option (CO E204 beside DFAULT).
+    return _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["ANNUAL"],
+                               regulatory_default=False, extra_model_options=["SCIM"]),
+        meteorology=_met(scim=ScimOptions(1, 25, **kw)))
+
+
+ME_OU_CASES = [
+    ("me-dayrange-numyears-windcats-noturbst", _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"]),
+        meteorology=_met(day_ranges=["3/1-3/31", "100", "150-160"], num_years=1,
+                         wind_speed_categories=[1.54, 3.09, 5.14, 8.23, 10.8],
+                         turbulence_option="NOTURBST"))),
+    ("scimbyhr-two-fields", _scim()),
+    ("scimbyhr-with-summary-files", _scim(surface_summary_file="scim.sfc", profile_summary_file="scim.pfl")),
+    ("scimbyhr-epa-eight-fields", _scim(wet_start_hour=0, wet_interval=0,
+                                         surface_summary_file="scim.sfc", profile_summary_file="scim.pfl")),
+    ("ou-noheader-rankfile-seasonhr-toxxfile", _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"]),
+        output=OutputPathway(max_table=True, max_table_rank=100, no_header=["RANKFILE", "SEASONHR"],
+                             rank_files=[RankFile("1", 100, "rank01.rnk"), RankFile("24", 50, "rank24.rnk", 60)],
+                             season_hour_files=[SeasonHourFile("ALL", "seas.dat", 61)],
+                             toxx_files=[ToxxFile("1", 1.0, "toxx.dat")]))),
+    ("ou-noheader-all", _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"]),
+        output=OutputPathway(no_header=["ALL"], maxi_files=[MaxiFile("1", "ALL", 30.0, "maxi01.dat")]))),
+]
+
+
+@_met_ok
+@pytest.mark.parametrize("label,project", ME_OU_CASES, ids=[c[0] for c in ME_OU_CASES])
+def test_me_ou_forms_pass_aermod_setup(label, project, tmp_path):
+    deck = project.to_aermod_input(validate=True)
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+@_met_ok
+def test_evalfile_with_a_preserved_evalcart_arc_passes_aermod_setup(tmp_path):
+    # OUTQA E256 without EVALCART receptors (probe 28); the arc is an RE
+    # line the reader keeps verbatim, written back inside RE.
+    project = _project(output=OutputPathway(eval_files=[EvalFile("SRC1", "eval.dat")]))
+    project.unparsed_lines.append(UnparsedLine("RE", "EVALCART", ["600.", "600.", "0.", "0.", "0.", "ARC1"]))
+    deck = project.to_aermod_input(validate=True)
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+# ---------------------------------------------------------------------
+# The EVENT-run layout (evset.f EV_SETUP; probe decks 29b and 30)
+# ---------------------------------------------------------------------
+
+def _event_project(**output_kw) -> AERMODProject:
+    project = _project(
+        control=ControlPathway(title_one="acceptance", averaging_periods=["1", "24"],
+                               eventfil="events.inp", eventfil_option="SOCONT"),
+        output=OutputPathway(**output_kw),
+    )
+    project.events = EventPathway(events=[
+        EventPeriod("H001H01001", 1, "88030214", "ALL", 52.33812,
+                    EventLocation(500.0, 500.0, 0.0, 0.0, 0.0)),
+        EventPeriod("POLAR1", 24, "88030224", location=EventLocation(700.0, 45.0, 2.5, polar=True)),
+        EventPeriod("NOFLAG", 1, "88030101", location=EventLocation(500.0, 500.0, 0.0, 0.0)),
+    ])
+    return project
+
+
+@_met_ok
+@pytest.mark.parametrize("label,project", [
+    ("event-deck-socont", _event_project()),
+    ("event-deck-detail-exp", _event_project(event_output="DETAIL", file_format="EXP")),
+], ids=["event-deck-socont", "event-deck-detail-exp"])
+def test_event_deck_passes_aermod_setup(label, project, tmp_path):
+    deck = project.to_aermod_input(validate=False, event_processing=True)
+    assert "RE STARTING" not in deck and "EVENTFIL" not in deck
+    errors = run_setup_check(deck, tmp_path)
+    assert not errors, f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
+
+
+@_met_ok
+def test_rewritten_generated_event_deck_passes_aermod_setup(tmp_path):
+    """The event deck AERMOD v26135 wrote for probe 29, read and written
+    back by pyaermod, is accepted with no fatal error."""
+    text = (FIXTURES / "events_generated.inp").read_text()
+    project = parse_aermod_input(text)
+    assert project.event_processing and len(project.events.events) == 4
+    written = project.to_aermod_input(validate=True)
+    for met in ("AERMET2.SFC", "AERMET2.PFL"):
+        shutil.copy(FIXTURES / met, tmp_path / met)
+    errors = run_setup_check(written, tmp_path)
+    assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{written}"
 
 
 @_met_ok

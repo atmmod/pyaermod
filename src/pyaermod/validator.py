@@ -12,6 +12,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+from .pathways import (
+    EVENT_NAME_LENGTH,
+    EVENT_OUTPUT_OPTIONS,
+    NOHEADER_FILE_TYPES,
+    TURBULENCE_OPTIONS,
+    WIND_CATEGORY_COUNT,
+    dayrange_field_is_valid,
+)
+
 # Valid AERMOD averaging periods
 VALID_AVERAGING_PERIODS = {
     "1", "2", "3", "4", "6", "8", "12", "24", "MONTH", "ANNUAL", "PERIOD",
@@ -104,13 +113,25 @@ class Validator:
         ValidationResult
         """
         result = ValidationResult()
+        event_run = bool(getattr(project, "event_processing", False))
         cls._validate_control(project.control, result)
         cls._validate_sources(project.sources, project.control, result)
-        cls._validate_receptors(project.receptors, result)
-        cls._validate_meteorology(project.meteorology, result, check_files)
-        cls._validate_output(project.output, result, project.control)
-        if getattr(project, "events", None) is not None:
-            cls._validate_events(project.events, project.control, result)
+        if not event_run:
+            # An EVENT deck has no RE pathway; its receptors are the
+            # EVENTLOC cards.
+            cls._validate_receptors(project.receptors, result)
+        cls._validate_meteorology(project.meteorology, result, check_files,
+                                  project.control)
+        cls._validate_output(project.output, result, project.control, project.sources)
+        events = getattr(project, "events", None)
+        if event_run and events is None:
+            result.errors.append(ValidationError(
+                "EventPathway", "events",
+                "event_processing is set but the project has no events"
+            ))
+        if events is not None:
+            cls._validate_events(events, project.control, project.sources,
+                                 project.output, result, event_run)
 
         if advanced:
             # Lazy import to avoid circulars: validator_advanced uses
@@ -135,6 +156,7 @@ class Validator:
 
         cls._validate_restart_options(control, result)
         cls._validate_gas_deposition_defaults(control, result)
+        cls._validate_downwash_and_arm2_options(control, result)
 
         # Chemistry options
         if getattr(control, "chemistry", None) is not None:
@@ -218,8 +240,13 @@ class Validator:
         has_urban_source = False
         for source in sources.sources:
             cls._validate_source(source, control, result)
+            if (getattr(source, "method_2", None) is not None
+                    or getattr(source, "platform", None) is not None
+                    or getattr(source, "location_type", None) == "SWPOINT"):
+                cls._validate_source_options(source, control, result)
             if getattr(source, "is_urban", False):
                 has_urban_source = True
+        cls._validate_source_flags(sources, control, result)
 
         # Cross-field: urban sources need URBANOPT in control
         if has_urban_source and not control.urban_option:
@@ -294,6 +321,87 @@ class Validator:
                         pathway, "sector_values",
                         f"value for sector {sid} period '{period}' must be >= 0"
                     ))
+
+    @classmethod
+    def _validate_source_options(cls, source, control, result: ValidationResult):
+        """METHOD_2, PLATFORM and SWPOINT as soset.f METH_2, PLATFM and
+        SRCSIZ/SWPARM check them (probe decks 21-23b)."""
+        method_2 = getattr(source, "method_2", None)
+        platform = getattr(source, "platform", None)
+        sidewash = getattr(source, "location_type", None) == "SWPOINT"
+        name = f"{type(source).__name__}({source.source_id})"
+        alpha = bool(getattr(control, "alpha", False))
+        dfault = bool(getattr(control, "regulatory_default", False))
+
+        if method_2 is not None:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    name, "method_2", "METHOD_2 needs the ALPHA option (E198)"
+                ))
+            if dfault:
+                result.errors.append(ValidationError(
+                    name, "method_2", "METHOD_2 is a non-DFAULT option (E197)"
+                ))
+            if not 0.0 <= method_2.fine_mass_fraction <= 1.0:
+                result.errors.append(ValidationError(
+                    name, "method_2.fine_mass_fraction",
+                    f"must be 0-1, got {method_2.fine_mass_fraction} (E332)"
+                ))
+            if getattr(source, "particle_deposition", None) is not None:
+                result.errors.append(ValidationError(
+                    name, "method_2",
+                    "a source has either METHOD_2 or PARTDIAM/MASSFRAX/PARTDENS (E386)"
+                ))
+
+        if platform is not None:
+            from pyaermod.input_generator import PointSource
+
+            if not isinstance(source, PointSource):
+                result.errors.append(ValidationError(
+                    name, "platform", "PLATFORM applies to POINT, POINTCAP and POINTHOR only (E631)"
+                ))
+            if not alpha:
+                result.errors.append(ValidationError(
+                    name, "platform", "PLATFORM needs the ALPHA option (E198)"
+                ))
+
+        if sidewash:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    name, "type", "SWPOINT needs the ALPHA option (E198)"
+                ))
+            if source.release_height < 0:
+                result.errors.append(ValidationError(
+                    name, "release_height", f"must be >= 0, got {source.release_height} (E209)"
+                ))
+
+    @classmethod
+    def _validate_source_flags(cls, sources, control, result: ValidationResult):
+        """ARCFTSRC and HBPSRCID (soset.f AIRCRAFT, HBPSOURCE; probe deck 25)."""
+        pathway = "SourcePathway"
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", []) or []}
+        alpha = bool(getattr(control, "alpha", False))
+        if getattr(sources, "aircraft_sources", None):
+            if not getattr(control, "aircraft_option", False):
+                result.errors.append(ValidationError(
+                    pathway, "aircraft_sources",
+                    "ARCFTSRC needs CO ARCFTOPT (ControlPathway.aircraft_option, E821)"
+                ))
+            result.errors.append(ValidationError(
+                pathway, "aircraft_sources",
+                "aircraft sources need an HOUREMIS file with the aircraft record for "
+                "every hour (E823); pyaermod keeps HOUREMIS lines in unparsed_lines",
+                severity="warning",
+            ))
+        if getattr(sources, "hbp_sources", None):
+            if "HBP" not in extra:
+                result.errors.append(ValidationError(
+                    pathway, "hbp_sources", "HBPSRCID needs MODELOPT HBP (E130)"
+                ))
+            if not alpha:
+                result.errors.append(ValidationError(
+                    pathway, "hbp_sources", "HBPSRCID needs the ALPHA option (E198)"
+                ))
 
     @classmethod
     def _validate_source(cls, source, control, result: ValidationResult):
@@ -1413,7 +1521,8 @@ class Validator:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _validate_meteorology(cls, met, result: ValidationResult, check_files: bool):
+    def _validate_meteorology(cls, met, result: ValidationResult, check_files: bool,
+                              control=None):
         pathway = "MeteorologyPathway"
 
         if not met.surface_file or not met.surface_file.strip():
@@ -1447,6 +1556,74 @@ class Validator:
                 pathway, "start/end dates",
                 f"partial date range: {set_count} of 6 date fields set; "
                 "set all or none"
+            ))
+
+        cls._validate_met_options(met, result, control)
+
+    @classmethod
+    def _validate_met_options(cls, met, result: ValidationResult, control=None):
+        """DAYRANGE, NUMYEARS, WINDCATS, SCIMBYHR and the turbulence keyword
+        as meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT check them."""
+        pathway = "MeteorologyPathway"
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", [])} if control else set()
+        scim_option = "SCIM" in extra
+
+        for token in getattr(met, "day_ranges", []) or []:
+            if not dayrange_field_is_valid(str(token)):
+                result.errors.append(ValidationError(
+                    pathway, "day_ranges",
+                    f"'{token}' is not a Julian day, a Julian range, a month/day or "
+                    "a month/day range (E203/E208)"
+                ))
+        if getattr(met, "day_ranges", None) and scim_option:
+            result.errors.append(ValidationError(
+                pathway, "day_ranges", "DAYRANGE cannot be used with the SCIM option (E154)"
+            ))
+
+        num_years = getattr(met, "num_years", None)
+        if num_years is not None and (int(num_years) != num_years or int(num_years) < 1):
+            result.errors.append(ValidationError(
+                pathway, "num_years", f"must be a positive integer, got {num_years!r} (E208)"
+            ))
+
+        cats = getattr(met, "wind_speed_categories", None)
+        if cats is not None:
+            if len(cats) != WIND_CATEGORY_COUNT:
+                result.errors.append(ValidationError(
+                    pathway, "wind_speed_categories",
+                    f"WINDCATS takes exactly {WIND_CATEGORY_COUNT} upper bounds, got {len(cats)} (E200)"
+                ))
+            if any(not 1.0 <= float(c) <= 20.0 for c in cats):
+                result.errors.append(ValidationError(
+                    pathway, "wind_speed_categories", "each bound must be in 1-20 m/s (E380)"
+                ))
+            if any(float(b) <= float(a) for a, b in itertools.pairwise(cats)):
+                result.errors.append(ValidationError(
+                    pathway, "wind_speed_categories", "bounds must increase (E203)"
+                ))
+
+        scim = getattr(met, "scim", None)
+        if scim is not None:
+            if not scim_option:
+                result.errors.append(ValidationError(
+                    pathway, "scim",
+                    "SCIMBYHR is read only with MODELOPT SCIM "
+                    "(ControlPathway.extra_model_options)"
+                ))
+            if not 1 <= int(scim.start_hour) <= 24:
+                result.errors.append(ValidationError(
+                    pathway, "scim.start_hour", f"must be 1-24, got {scim.start_hour} (E380)"
+                ))
+            if int(scim.interval) < 1:
+                result.errors.append(ValidationError(
+                    pathway, "scim.interval", f"must be at least 1, got {scim.interval} (E380)"
+                ))
+
+        turb = getattr(met, "turbulence_option", None)
+        if turb is not None and str(turb).upper() not in TURBULENCE_OPTIONS:
+            result.errors.append(ValidationError(
+                pathway, "turbulence_option",
+                f"'{turb}' is not one of {TURBULENCE_OPTIONS}"
             ))
 
     # ------------------------------------------------------------------
@@ -1538,7 +1715,7 @@ class Validator:
                 ))
 
     @classmethod
-    def _validate_output(cls, output, result: ValidationResult, control=None):
+    def _validate_output(cls, output, result: ValidationResult, control=None, sources=None):
         pathway = "OutputPathway"
         cls._validate_design_value_outputs(output, control, result)
 
@@ -1561,12 +1738,212 @@ class Validator:
                 f"must be one of {valid_output_types}, got '{output.output_type}'"
             ))
 
+        cls._validate_output_files(output, result, control, sources)
+
+    @classmethod
+    def _validate_output_files(cls, output, result: ValidationResult, control=None,
+                               sources=None):
+        """NOHEADER, RANKFILE, SEASONHR, EVALFILE and TOXXFILE as ouset.f
+        NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX and OUTQA check them."""
+        if not (output.no_header or output.rank_files or output.season_hour_files
+                or output.eval_files or output.toxx_files):
+            return
+
+        pathway = "OutputPathway"
+        periods = {str(p).upper() for p in control.averaging_periods} if control else None
+        in_use = {
+            "MAXIFILE": bool(output.maxi_files),
+            "POSTFILE": bool(output.postfile),
+            "PLOTFILE": bool(output.plot_file or output.plot_file_groups),
+            "SEASONHR": bool(output.season_hour_files),
+            "RANKFILE": bool(output.rank_files),
+            "MAXDAILY": bool(output.max_daily_files),
+            "MXDYBYYR": bool(output.max_daily_by_year_files),
+            "MAXDCONT": bool(output.max_daily_contributions),
+        }
+        for token in output.no_header:
+            name = str(token).upper()
+            if name == "ALL":
+                continue
+            if name not in NOHEADER_FILE_TYPES:
+                result.errors.append(ValidationError(
+                    pathway, "no_header", f"'{token}' is not an output file type (E203)"
+                ))
+            elif not in_use[name]:
+                result.errors.append(ValidationError(
+                    pathway, "no_header",
+                    f"NOHEADER names {name} but the pathway writes no {name} (E164)"
+                ))
+
+        seen_rank = set()
+        for rf in output.rank_files:
+            period = str(rf.averaging_period).upper()
+            if periods is not None and period not in periods:
+                result.errors.append(ValidationError(
+                    pathway, "rank_files",
+                    f"RANKFILE period {rf.averaging_period!r} is not on AVERTIME (E203)"
+                ))
+            if period in seen_rank:
+                result.errors.append(ValidationError(
+                    pathway, "rank_files", f"two RANKFILE cards for period {period} (E211)"
+                ))
+            seen_rank.add(period)
+            if int(rf.rank) < 1:
+                result.errors.append(ValidationError(
+                    pathway, "rank_files", f"RANKFILE rank must be positive, got {rf.rank}"
+                ))
+
+        groups = None
+        if sources is not None:
+            groups = {"ALL"} | {g.group_name.upper() for g in sources.group_definitions}
+            groups |= {g.group_name.upper() for g in getattr(sources, "psd_groups", [])}
+        seen_groups = set()
+        for sh in output.season_hour_files:
+            gid = sh.source_group.upper()
+            if groups is not None and gid not in groups:
+                result.errors.append(ValidationError(
+                    pathway, "season_hour_files",
+                    f"SEASONHR group '{sh.source_group}' is not defined (E203)"
+                ))
+            if gid in seen_groups:
+                result.errors.append(ValidationError(
+                    pathway, "season_hour_files", f"two SEASONHR cards for group {gid} (E211)"
+                ))
+            seen_groups.add(gid)
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", [])} if control else set()
+        if output.season_hour_files and "SCIM" in extra:
+            result.errors.append(ValidationError(
+                pathway, "season_hour_files", "SEASONHR cannot be used with the SCIM option (E154)"
+            ))
+
+        if sources is not None:
+            ids = set()
+            for src in sources.sources:
+                ids.add(src.source_id.upper())
+                for seg in getattr(src, "line_segments", []) or []:
+                    ids.add(seg.source_id.upper())
+            for ef in output.eval_files:
+                if ef.source_id.upper() not in ids:
+                    result.errors.append(ValidationError(
+                        pathway, "eval_files",
+                        f"EVALFILE source '{ef.source_id}' is not defined (E203)"
+                    ))
+
+        seen_toxx = set()
+        for tf in output.toxx_files:
+            period = str(tf.averaging_period).upper()
+            if periods is not None and period not in periods:
+                result.errors.append(ValidationError(
+                    pathway, "toxx_files",
+                    f"TOXXFILE period {tf.averaging_period!r} is not on AVERTIME (E203)"
+                ))
+            if period in seen_toxx:
+                result.errors.append(ValidationError(
+                    pathway, "toxx_files", f"two TOXXFILE cards for period {period} (E211)"
+                ))
+            seen_toxx.add(period)
+            if period != "1":
+                result.errors.append(ValidationError(
+                    pathway, "toxx_files",
+                    f"TOXXFILE is meant for 1-hour averages; AERMOD warns for {period} (W296)",
+                    severity="warning",
+                ))
+
+    # ------------------------------------------------------------------
+    # CO research options (coset.f ARM2_Ratios, AWMA_DOWNWASH, ORD_DOWNWASH)
+    # ------------------------------------------------------------------
+
+    _AWMA_OPTIONS = ("STREAMLINE", "STREAMLINED", "AWMAUEFF", "AWMAUTURB",
+                     "AWMAUTURBHX", "AWMAENTRAIN")
+    _ORD_OPTIONS = ("ORDCAV", "ORDUEFF", "ORDTURB")
+
+    @classmethod
+    def _validate_downwash_and_arm2_options(cls, control, result: ValidationResult):
+        pathway = "ControlPathway"
+        alpha = bool(getattr(control, "alpha", False))
+        dfault = bool(getattr(control, "regulatory_default", False))
+
+        ratios = getattr(control, "arm2_ratios", None)
+        if ratios is not None:
+            chem = getattr(control, "chemistry", None)
+            method = getattr(getattr(chem, "method", None), "value", None)
+            if method != "ARM2":
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios", "ARMRATIO needs the ARM2 option (E145)"
+                ))
+            lo, hi = float(ratios[0]), float(ratios[1])
+            if not (0.0 < lo <= 1.0 and 0.0 < hi <= 1.0):
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios", f"ratios must be in (0, 1], got {ratios} (E380)"
+                ))
+            elif hi < lo:
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios", f"maximum ratio below minimum: {ratios} (E380)"
+                ))
+            elif dfault and not (0.5 <= lo <= 0.9 and 0.5 <= hi <= 0.9):
+                result.errors.append(ValidationError(
+                    pathway, "arm2_ratios",
+                    f"under DFAULT the ARM2 ratios must lie in 0.5-0.9, got {ratios} (E380)"
+                ))
+
+        awma = [str(o).upper() for o in getattr(control, "awma_downwash", []) or []]
+        ord_ = [str(o).upper() for o in getattr(control, "ord_downwash", []) or []]
+        if awma:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash", "AWMADWNW needs the ALPHA option (E122)"
+                ))
+            if len(awma) > 5:
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash", "AWMADWNW takes at most five options (E202)"
+                ))
+            for opt in awma:
+                if opt not in cls._AWMA_OPTIONS:
+                    result.errors.append(ValidationError(
+                        pathway, "awma_downwash", f"'{opt}' is not an AWMADWNW option (E203)"
+                    ))
+            if len(set(awma)) != len(awma):
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash", "duplicate AWMADWNW option (E121)"
+                ))
+            if ({"STREAMLINE", "STREAMLINED"} & set(awma)
+                    and not {"AWMAUTURB", "AWMAUTURBHX"} & set(awma)):
+                result.errors.append(ValidationError(
+                    pathway, "awma_downwash",
+                    "STREAMLINE requires AWMAUTURB or AWMAUTURBHX (E126)"
+                ))
+        if ord_:
+            if not alpha:
+                result.errors.append(ValidationError(
+                    pathway, "ord_downwash", "ORD_DWNW needs the ALPHA option (E123)"
+                ))
+            if len(ord_) > 3:
+                result.errors.append(ValidationError(
+                    pathway, "ord_downwash", "ORD_DWNW takes at most three options (E202)"
+                ))
+            for opt in ord_:
+                if opt not in cls._ORD_OPTIONS:
+                    result.errors.append(ValidationError(
+                        pathway, "ord_downwash", f"'{opt}' is not an ORD_DWNW option (E203)"
+                    ))
+            if len(set(ord_)) != len(ord_):
+                result.errors.append(ValidationError(
+                    pathway, "ord_downwash", "duplicate ORD_DWNW option (E121)"
+                ))
+        if "AWMAUEFF" in awma and "ORDUEFF" in ord_:
+            result.errors.append(ValidationError(
+                pathway, "awma_downwash/ord_downwash",
+                "AWMAUEFF and ORDUEFF conflict (E124)"
+            ))
+
     # ------------------------------------------------------------------
     # Event pathway
     # ------------------------------------------------------------------
 
     @classmethod
-    def _validate_events(cls, events, control, result: ValidationResult):
+    def _validate_events(cls, events, control, sources, output,
+                         result: ValidationResult, event_run: bool = False):
+        """The EV pathway as evset.f checks it (EVPER, EVLOC, OEVENT, EVCARD)."""
         pathway = "EventPathway"
 
         if not events.events:
@@ -1575,32 +1952,65 @@ class Validator:
             ))
             return
 
+        periods = {str(p).upper() for p in control.averaging_periods}
+        groups = {"ALL"} | {g.group_name.upper() for g in sources.group_definitions}
+        groups |= {g.group_name.upper() for g in getattr(sources, "psd_groups", [])}
         seen_names = set()
         for event in events.events:
-            if len(event.event_name) > 8:
+            name = event.event_name
+            if len(name) > EVENT_NAME_LENGTH:
                 result.errors.append(ValidationError(
                     pathway, "event_name",
-                    f"'{event.event_name}' exceeds 8 characters"
+                    f"'{name}' exceeds {EVENT_NAME_LENGTH} characters (AERMOD's EVNAME)"
                 ))
-
-            if event.event_name in seen_names:
+            if name in seen_names:
                 result.errors.append(ValidationError(
-                    pathway, "event_name",
-                    f"duplicate event name '{event.event_name}'"
+                    pathway, "event_name", f"duplicate event name '{name}' (E313)"
                 ))
-            seen_names.add(event.event_name)
+            seen_names.add(name)
 
-            for date_str, field_name in [
-                (event.start_date, "start_date"),
-                (event.end_date, "end_date"),
-            ]:
-                if len(date_str) != 8 or not date_str.isdigit():
-                    result.errors.append(ValidationError(
-                        pathway, field_name,
-                        f"must be YYMMDDHH format (8 digits), got '{date_str}'"
-                    ))
+            try:
+                hours = int(event.averaging_period)
+            except (TypeError, ValueError):
+                hours = -1
+            if str(hours) not in periods:
+                result.errors.append(ValidationError(
+                    pathway, "averaging_period",
+                    f"event '{name}': {event.averaging_period!r} is not on AVERTIME (E203)"
+                ))
+            if hours > 24:
+                result.errors.append(ValidationError(
+                    pathway, "averaging_period",
+                    f"event '{name}': averaging period must be 24 hours or less (E297)"
+                ))
 
-        if events.events and not control.eventfil:
+            date = str(event.date)
+            if not (len(date) == 8 and date.isdigit()):
+                result.errors.append(ValidationError(
+                    pathway, "date",
+                    f"event '{name}': must be YYMMDDHH (8 digits), got '{date}'"
+                ))
+
+            if event.source_group.upper() not in groups:
+                result.errors.append(ValidationError(
+                    pathway, "source_group",
+                    f"event '{name}': source group '{event.source_group}' is not defined (E203)"
+                ))
+
+            if event.location is None:
+                result.errors.append(ValidationError(
+                    pathway, "location",
+                    f"event '{name}' has no EVENTLOC receptor (E130)"
+                ))
+
+        option = output.event_output or control.eventfil_option
+        if option is not None and option.upper() not in EVENT_OUTPUT_OPTIONS:
+            result.errors.append(ValidationError(
+                "OutputPathway", "event_output",
+                f"EVENTOUT must be one of {EVENT_OUTPUT_OPTIONS}, got '{option}' (E203)"
+            ))
+
+        if not event_run and not control.eventfil:
             result.errors.append(ValidationError(
                 pathway, "eventfil",
                 "events defined but ControlPathway.eventfil not set",

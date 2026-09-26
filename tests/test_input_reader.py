@@ -26,13 +26,20 @@ from pyaermod import (
     VolumeSource,
 )
 from pyaermod.input_generator import (
+    EvalFile,
     GasDepositionDefaults,
     InitFile,
     MaxDailyContribution,
     MaxDailyFile,
+    Method2Params,
     MultiYear,
+    PlatformParams,
+    RankFile,
     SaveFile,
+    ScimOptions,
+    SeasonHourFile,
     TemporalValues,
+    ToxxFile,
 )
 from pyaermod.input_reader import parse_aermod_input, read_aermod_input
 
@@ -947,14 +954,27 @@ class TestCOKeywordsV26135:
         # A later POLLUTID overrides the wrapper's NO2; non-enum names survive.
         assert _wrap(co_kw="   POLLUTID xylene99").control.pollutant_id == "XYLENE99"
 
-    @pytest.mark.parametrize("line", [
-        "RUNORNOT RUN", "EVENTFIL events.inp", "ARMRATIO 0.2 0.9",
-        "AWMADWNW", "ORD_DWNW", "ARCFTOPT",
+    @pytest.mark.parametrize("line, attr, expected", [
+        ("RUNORNOT RUN", "run_model", True),
+        ("EVENTFIL events.inp", "eventfil", "events.inp"),
+        ("ARMRATIO 0.2 0.9", "arm2_ratios", (0.2, 0.9)),
+        ("AWMADWNW AWMAUTURB", "awma_downwash", ["AWMAUTURB"]),
+        ("ORD_DWNW ORDCAV ORDTURB", "ord_downwash", ["ORDCAV", "ORDTURB"]),
+        ("ARCFTOPT", "aircraft_option", True),
+        ("ARCFTOPT KLAX", "airport_id", "KLAX"),
     ])
-    def test_unhandled_co_keywords_pass_through(self, line):
-        """v26135 CO keywords the reader does not model must not break parsing."""
+    def test_remaining_co_keywords_are_structural(self, line, attr, expected):
+        """coset.f ARM2_Ratios, AWMA_DOWNWASH, ORD_DOWNWASH and the ARCFTOPT
+        branch; their pass-through entries lived here before."""
         p = _wrap(co_kw=f"   {line}")
-        assert p.control.title_one == "t"
+        assert getattr(p.control, attr) == expected
+        assert p.unparsed_lines == []
+
+    @pytest.mark.parametrize("line", ["AWMADWNW", "ORD_DWNW", "ARMRATIO 0.5", "ARCFTOPT KLAX X"])
+    def test_malformed_co_option_lines_are_kept_verbatim(self, line):
+        # coset.f: no options is E200, one ARMRATIO field E201, two ARCFTOPT fields ignored.
+        p = _wrap(co_kw=f"   {line}")
+        assert [u.raw.split() for u in p.unparsed_lines] == [line.split()]
 
 
 def _co_roundtrip(co_kw: str):
@@ -1225,19 +1245,16 @@ class TestSOKeywordsV26135:
     def test_incomplete_source_definitions_are_dropped(self, so, why):
         assert _wrap(so_body=so).sources.sources == [], why
 
-    @pytest.mark.parametrize("line", [
-        "METHOD_2 S1 0.5 2.0", "PLATFORM S1 10.0 20.0", "HBPSRCID S1", "ARCFTSRC S1",
-    ])
-    def test_unhandled_so_keywords_pass_through(self, line):
-        """v26135 SO keywords the reader does not model must not break parsing.
-
-        Reader tranche 2 replaced the AREAVERT, BLPINPUT, BLPGROUP,
-        OLMGROUP, PSDGROUP, NO2RATIO, EMISUNIT, CONCUNIT, DEPOUNIT,
-        RBARRIER, RDEPRESS, SBARRIER, VBARRIER and RLEMCONV entries with
-        the structural assertions in tests/test_so_source_construction.py.
-        """
-        p = _wrap(so_body=_DEFAULT_SO + f"   {line}\n")
-        assert [s.source_id for s in p.sources.sources] == ["S1"]
+    def test_remaining_so_keywords_are_structural(self):
+        """METHOD_2, PLATFORM, HBPSRCID and ARCFTSRC (soset.f METH_2, PLATFM,
+        HBPSOURCE, AIRCRAFT); their pass-through entries lived here before."""
+        p = _wrap(so_body=_DEFAULT_SO + "   METHOD_2 S1 0.5 2.0\n   PLATFORM S1 10.0 20.0\n"
+                                        "   HBPSRCID S1\n   ARCFTSRC S1\n")
+        src = p.sources.sources[0]
+        assert src.method_2 == Method2Params(0.5, 2.0)
+        assert src.platform == PlatformParams(10.0, 20.0, 0.0)
+        assert p.sources.hbp_sources == ["S1"] and p.sources.aircraft_sources == ["S1"]
+        assert p.unparsed_lines == []
 
 
 class TestREKeywordsV26135:
@@ -1337,20 +1354,33 @@ OU FINISHED
         out = self._deck(ou_body="   MAXTABLE ALLAVE 50").output
         assert out.max_table and out.max_table_rank == 50
 
-    @pytest.mark.parametrize("line", [
-        "DAYRANGE 1/1 12/31", "SCIMBYHR 1 4", "WINDCATS 1.54 3.09 5.14 8.23 10.8",
-        "NUMYEARS 5", "NOTURBST", "NOTURBCO",
+    @pytest.mark.parametrize("line, attr, expected", [
+        ("DAYRANGE 1/1 12/31", "day_ranges", ["1/1", "12/31"]),
+        ("SCIMBYHR 1 4", "scim", ScimOptions(1, 4)),
+        ("WINDCATS 1.54 3.09 5.14 8.23 10.8", "wind_speed_categories", [1.54, 3.09, 5.14, 8.23, 10.8]),
+        ("NUMYEARS 5", "num_years", 5),
+        ("NOTURBST", "turbulence_option", "NOTURBST"),
+        ("NOTURBCO", "turbulence_option", "NOTURBCO"),
     ])
-    def test_unhandled_me_keywords_pass_through(self, line):
-        assert self._deck(me_extra=f"   {line}").meteorology.surface_file == "a.sfc"
+    def test_remaining_me_keywords_are_structural(self, line, attr, expected):
+        """The ME keywords WP-5 gave a field (meset.f DAYRNG, SCIMIT, WSCATS,
+        NUMYR, TURBOPT); their pass-through entries lived here before."""
+        project = self._deck(me_extra=f"   {line}")
+        assert getattr(project.meteorology, attr) == expected
+        assert project.unparsed_lines == []
 
-    @pytest.mark.parametrize("line", [
-        "TOXXFILE 1 ALL 1.0 toxx.dat", "SEASONHR ALL seasonhr.dat", "RANKFILE 1 10 rank.dat",
-        "EVALFILE S1 eval.dat", "NOHEADER ALL",
+    @pytest.mark.parametrize("line, attr, expected", [
+        ("TOXXFILE 1 1.0 toxx.dat", "toxx_files", [ToxxFile("1", 1.0, "toxx.dat")]),
+        ("SEASONHR ALL seasonhr.dat", "season_hour_files", [SeasonHourFile("ALL", "seasonhr.dat")]),
+        ("RANKFILE 1 10 rank.dat", "rank_files", [RankFile("1", 10, "rank.dat")]),
+        ("EVALFILE S1 eval.dat", "eval_files", [EvalFile("S1", "eval.dat")]),
+        ("NOHEADER ALL", "no_header", ["ALL"]),
     ])
-    def test_unhandled_ou_keywords_pass_through(self, line):
-        out = self._deck(ou_body=f"   {line}").output
-        assert out.plot_file is None
+    def test_remaining_ou_keywords_are_structural(self, line, attr, expected):
+        """ouset.f OUTOXX, OUSEAS, OURANK, OUEVAL, NOHEADER."""
+        project = self._deck(ou_body=f"   {line}")
+        assert getattr(project.output, attr) == expected
+        assert project.unparsed_lines == []
 
     def _ou_roundtrip(self, ou_body):
         first = self._deck(ou_body=ou_body)

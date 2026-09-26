@@ -1,0 +1,39 @@
+** Probe: the METHOD line pyaermod's deposition_method field wrote
+** (METHOD srcid DRYDPLT value). Setup pass only.
+** AERMOD said: SO E105, invalid keyword METHOD. There is no METHOD keyword
+** in modules.f; the deposition method keyword is METHOD_2 (probe 21).
+CO STARTING
+   TITLEONE  oracle 20: METHOD line pyaermod's deposition_method wrote
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  20.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   LOCATION  STACK2  POINT  100.0  0.0  0.0
+   SRCPARAM  STACK2  50.0  35.00  400.  10.0  2.
+   LOCATION  STACK3  POINT  200.0  0.0  0.0
+   SRCPARAM  STACK3  50.0  35.00  400.  10.0  2.
+   METHOD    STACK1   DRYDPLT  0.5
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.  0.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

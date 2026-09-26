@@ -29,12 +29,15 @@ from pyaermod.input_generator import (
     MeteorologyPathway,
     OpenPitSource,
     OutputPathway,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     PolarGrid,
     PollutantType,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SidewashPointSource,
     SourcePathway,
     TerrainType,
     VolumeSource,
@@ -57,7 +60,7 @@ def _make_source(source_cls, *, source_groups=None, is_urban=False, urban_area_n
     if urban_area_name:
         kwargs["urban_area_name"] = urban_area_name
 
-    if source_cls is PointSource:
+    if source_cls in (PointSource, PointCapSource, PointHorSource):
         return source_cls(
             source_id="SRC1", x_coord=0, y_coord=0,
             stack_height=20, stack_temp=350, exit_velocity=10,
@@ -126,6 +129,12 @@ def _make_source(source_cls, *, source_groups=None, is_urban=False, urban_area_n
             emission_rate=0.01, pit_volume=50000,
             **kwargs,
         )
+    elif source_cls is SidewashPointSource:
+        return source_cls(
+            source_id="SRC1", x_coord=0, y_coord=0, emission_rate=1.0,
+            release_height=10.0, building_width=20.0, building_length=30.0,
+            building_height=15.0, building_angle=0.0, **kwargs,
+        )
     else:
         raise ValueError(f"Unknown source class: {source_cls}")
 
@@ -135,6 +144,7 @@ ALL_SOURCE_TYPES = [
     PointSource, AreaSource, AreaCircSource, AreaPolySource,
     VolumeSource, LineSource, RLineSource, RLineExtSource,
     BuoyLineSource, OpenPitSource,
+    PointCapSource, PointHorSource, SidewashPointSource,
 ]
 
 
