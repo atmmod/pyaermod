@@ -441,17 +441,22 @@ v26135 Fortran source in [`keyword-audit-v26135.md`](keyword-audit-v26135.md)):
 
 STARTING, FINISHED, TITLEONE, TITLETWO, MODELOPT, AVERTIME, POLLUTID,
 RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND,
-EVENTFIL, NO2STACK, NO2EQUIL, OZONEVAL, OZONEFIL, O3VALUES, O3SECTOR,
-OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF,
-GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE, INITFILE, MULTYEAR
+EVENTFIL (file and SOCONT/DETAIL option), NO2STACK, OZONEVAL, OZONEFIL,
+O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT,
+NOXSECTR, ARMRATIO, GASDEPDF, GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE,
+INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT. (DEBUGOPT, ERRORFIL and
+NO2EQUIL have no field and travel in `unparsed_lines`.)
 
 ### Source Pathway (SO)
 
-LOCATION (POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT,
-BUOYLINE, OPENPIT), SRCPARAM, BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ,
-SRCGROUP, URBANSRC, APTS_CAP, BLPINPUT, BLPGROUP, RBARRIER, RDEPRESS,
-BACKGRND, BGSECTOR, GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, METHOD_2,
-DEPRESS
+LOCATION (POINT, POINTCAP, POINTHOR, SWPOINT, AREA, AREACIRC, AREAPOLY,
+VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT, with `FLAT` in the
+elevation field), SRCPARAM, BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ,
+SRCGROUP, OLMGROUP, PSDGROUP, URBANSRC, AREAVERT, BLPINPUT, BLPGROUP,
+RBARRIER, RDEPRESS, VBARRIER, SBARRIER, RLEMCONV, BACKGRND, BGSECTOR,
+GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, METHOD_2, PLATFORM, NO2RATIO,
+EMISUNIT, CONCUNIT, DEPOUNIT, ARCFTSRC, HBPSRCID. (EMISFACT, HOUREMIS,
+INCLUDED, BACKUNIT and SO ELEVUNIT travel in `unparsed_lines`.)
 
 ### Receptor Pathway (RE)
 
@@ -463,32 +468,48 @@ previous keyword, as EPA's own decks write their GRIDPOLR blocks.
 
 ### Meteorology Pathway (ME)
 
-SURFFILE, PROFFILE, SURFDATA, UAIRDATA, STARTEND, WDROTATE
+SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND (with or without
+hours), WDROTATE, DAYRANGE, NUMYEARS, WINDCATS, SCIMBYHR
+(`MeteorologyPathway.scim`, a `ScimOptions`), and one of the turbulence
+keywords NOTURB, NOTURBST, NOTURBCO, NOSA, NOSW, NOSAST, NOSWST, NOSACO,
+NOSWCO (`turbulence_option`). SITEDATA travels in `unparsed_lines`.
 
 ### Output Pathway (OU)
 
 RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE (`OutputPathway.maxi_files`,
 one `MaxiFile(aveper, group, threshold, filename)` per line), PLOTFILE,
-POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
+POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT, NOHEADER, RANKFILE
+(`RankFile`), SEASONHR (`SeasonHourFile`), EVALFILE (`EvalFile`), TOXXFILE
+(`ToxxFile`), EVENTOUT. `RankFile.read()`, `SeasonHourFile.read()` and
+`ToxxFile.read()` open the file AERMOD wrote through `pyaermod.aermod_outputs`.
+
+### Event Pathway (EV)
+
+EVENTPER and EVENTLOC (`EventPathway`, `EventPeriod`, `EventLocation`), in
+the layout AERMOD itself writes for a main run with EVENTFIL. A deck with an
+EV pathway is an EVENT run: `project.event_processing` is set, there is no RE
+pathway, and `to_aermod_input()` writes `CO SO ME EV OU` with an OU pathway
+of EVENTOUT and FILEFORM only. `read_event_output()` reads the per-event
+source contributions from the run's `.out` file.
 
 ### Everything else: `unparsed_lines`
 
-Any other line of a deck -- RANKFILE, SEASONHR, EMISFACT, HOUREMIS, INCLUDED,
-SITEDATA, a BACKGRND hourly file, a source type the reader does not construct
--- is kept verbatim in `project.unparsed_lines` (pathway, keyword, fields,
-line number), reported with one `logging` warning per pathway and keyword,
-and written back into its pathway by `project.write()` /
-`project.to_aermod_input()`. Pass `preserve_unparsed=False` to write only
-what the model represents.
+Any other line of a deck -- EMISFACT, HOUREMIS, INCLUDED, SITEDATA,
+EVALCART, DISCPOLR, a BACKGRND hourly file, a second POSTFILE, a malformed
+line of a known keyword -- is kept verbatim in `project.unparsed_lines`
+(pathway, keyword, fields, line number), reported with one `logging` warning
+per pathway and keyword, and written back into its pathway by
+`project.write()` / `project.to_aermod_input()`. Pass
+`preserve_unparsed=False` to write only what the model represents.
 
 ```python
 import logging
 logging.basicConfig(level=logging.WARNING)
 project = read_aermod_input("epa_deck.inp")
-# WARNING:pyaermod.input_reader:OU SEASONHR: 6 lines not modelled by pyaermod; ...
+# WARNING:pyaermod.input_reader:SO EMISFACT: 33 lines not modelled by pyaermod; ...
 for line in project.unparsed_lines:
     print(line.pathway, line.keyword, line.fields)
-project.write("epa_deck_copy.inp")   # the SEASONHR lines are in the OU pathway
+project.write("epa_deck_copy.inp")   # the EMISFACT lines are in the SO pathway
 ```
 
 The 1-hour NO2/SO2 (and 24-hour PM2.5) design-value workflow is one call

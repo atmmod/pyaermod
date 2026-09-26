@@ -8,6 +8,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Every v26135 runstream keyword is now read into a field (WP-5).** The
+  audit's "Unhandled (kept verbatim)" list -- the EV pathway, six ME and
+  five OU keywords, and the CO/SO leftovers -- is empty; the only lines
+  that still travel in `unparsed_lines` are the ones with no model by
+  design (EMISFACT, HOUREMIS, INCLUDED, SITEDATA, EVALCART, DISCPOLR,
+  ERRORFIL, DEBUGOPT, NO2EQUIL, BACKUNIT) and malformed forms. Field
+  layouts come from `evset.f`, `meset.f`, `ouset.f`, `coset.f` and
+  `soset.f` through `scripts/keyword_oracle.py`; probe decks 20-30 under
+  `scripts/oracle_decks/` record what AERMOD v26135 said about each form,
+  including the first guesses it rejected.
+  - **EV pathway** (`EventPeriod`, `EventLocation`, `EventPathway`) in the
+    layout AERMOD writes itself for `EVENTFIL` (`EVENTPER name aveper
+    grpid date conc`, `EVENTLOC name XR= x YR= y zelev [zhill [zflag]]` or
+    `RNG=`/`DIR=`); `AERMODProject.event_processing` and the `CO SO ME EV
+    OU` event-deck layout with `OutputPathway.event_output` (EVENTOUT);
+    `ControlPathway.eventfil_option`; `read_event_output()` for the
+    per-event source contributions of an EVENT run's `.out`.
+  - **ME**: `MeteorologyPathway.day_ranges` (DAYRANGE), `.num_years`
+    (NUMYEARS), `.wind_speed_categories` (WINDCATS), `.scim`
+    (`ScimOptions`, the three SCIMBYHR forms) and `.turbulence_option`
+    (the nine NOTURB/NOSA/NOSW keywords).
+  - **OU**: `OutputPathway.no_header` (NOHEADER), `.rank_files`
+    (`RankFile`), `.season_hour_files` (`SeasonHourFile`), `.eval_files`
+    (`EvalFile`), `.toxx_files` (`ToxxFile`); the file entries read their
+    output through the existing `aermod_outputs` readers.
+  - **CO**: `ControlPathway.arm2_ratios` (ARMRATIO), `.awma_downwash`
+    (AWMADWNW), `.ord_downwash` (ORD_DWNW), `.aircraft_option` /
+    `.airport_id` (ARCFTOPT).
+  - **SO**: `method_2` (`Method2Params`, `METHOD_2 srcid finemass dg`) on
+    every source type; `PointSource.platform` (`PlatformParams`,
+    PLATFORM); `SourcePathway.aircraft_sources` (ARCFTSRC) and
+    `.hbp_sources` (HBPSRCID); `PointCapSource`, `PointHorSource` and
+    `SidewashPointSource` construct POINTCAP, POINTHOR and SWPOINT;
+    `OPEN_PIT`/`OPEN-PIT` are read as OPENPIT; the `FLAT` literal in a
+    LOCATION elevation field is kept (`flat_source`) and written back.
+  - Validator rules naming the AERMOD code for each: E145/E380 (ARMRATIO),
+    E122/E123/E124/E126/E121 (the downwash options), E197/E198/E332/E386
+    (METHOD_2), E198/E631 (PLATFORM), E198 (SWPOINT), E821/E130 (ARCFTSRC,
+    HBPSRCID), E154/E200/E202/E380 (the ME keywords), E164/E203/E211
+    (the OU files), E130/E203/E297/E313 (the events).
+  - `tests/test_epa_deck_acceptance.py` runs every new writer form through
+    AERMOD's setup pass; `tests/regulatory/test_epa_rewritten_so.py` now
+    fully rewrites testpart, testprt2, openpits, capped, the two ARM2 decks,
+    flatelev, lovett, mcr and hrdow and scores them against EPA's
+    POSTFILEs (all at slope 1.000000); `tests/regulatory/test_event_rewrite.py`
+    runs AERMOD's own generated event deck and pyaermod's rewrite and
+    requires every contribution to agree. flatelev, scimtest,
+    no2_1yrAK_arm2 and the AERMOD-generated `events_generated.inp` are
+    vendored.
+
+### Changed
+- **`EventPeriod` has AERMOD's field semantics** (`event_name,
+  averaging_period, date, source_group, original_conc, location`); the
+  former `start_date`/`end_date` pair matched no AERMOD card, EVENTLOC was
+  never written and the EV block went after OU, so no event deck pyaermod
+  wrote was ever accepted. `AERMODProject.write(event_filename=)` now
+  writes a complete event deck rather than an EV block. Event names may be
+  ten characters (`EVNAME*10`; AERMOD's own are).
+- `SourcePathway.sources` may hold `SidewashPointSource`; the GUI's source
+  registries list the three new classes.
+- The pre-commit ruff hook is pinned to the ruff release CI uses (the
+  v0.4.0 hook could not parse `pyproject.toml`'s `UP045` selector).
+
+### Fixed
+- **`deposition_method` wrote a `METHOD` line that no AERMOD release
+  accepts** (there is no METHOD keyword in `modules.f`; SO E105). The field
+  is kept for compatibility and writes nothing; Method 2 deposition is
+  `method_2`.
+- **Fixed-column source fields no longer round a value away**: EPA's
+  capped deck gives three stacks an exit velocity of 0.001 m/s, which the
+  `8.2f` SRCPARAM column wrote as 0.00; a value the column cannot hold is
+  now written with six significant digits in the same width.
+- A `LOCATION ... FLAT` source (flatelev) was written with elevation 0.00,
+  which moved the FLAT group's 1-hour maxima by 17 %.
+- The lines of an incomplete source definition (a POINT with four
+  SRCPARAM values, a LINE with no end point) are kept in `unparsed_lines`
+  instead of being dropped.
+
+### Added (reader tranches 2 and 3)
 - **Source construction, reader tranche 2.** The SO keywords the v26135
   audit listed as recognised but not constructed, or not read at all,
   are now stored on the source model and written back in the field
@@ -112,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their own. Probe decks 13-19 under `scripts/oracle_decks/` record what
   AERMOD said about the previous forms.
 
-### Changed
+### Changed (reader tranches 2 and 3)
 - **`OutputPathway.max_file` is removed.** It wrote `MAXIFILE filename`,
   which every AERMOD release rejects (E201: four fields are required);
   use `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`. The
@@ -141,7 +220,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defines ALL: AERMOD files a non-adjacent continuation card under the
   last group defined, whichever ID it names.
 
-### Fixed
+### Fixed (reader tranches 2 and 3)
 - **Every polar grid pyaermod wrote had no receptors (RE E185).** The
   writer emitted `DIST init num delta` and `GDIR init num delta`;
   reset.f reads every DIST field as a ring and GDIR as `num init delta`,
