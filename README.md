@@ -156,6 +156,24 @@ docs/                    # Architecture and quickstart guides
 - [API Reference](https://atmmod.github.io/pyaermod/api/)
 - [Examples](examples/)
 
+## Citing PyAERMOD
+
+If PyAERMOD contributes to published work, please cite the archival release.
+The repository's [`CITATION.cff`](CITATION.cff) carries the metadata in a
+form GitHub, Zenodo and reference managers read directly (GitHub's
+"Cite this repository" button renders it as APA or BibTeX):
+
+> Capps, S. (2026). *PyAERMOD: Python wrapper for EPA's AERMOD air
+> dispersion model* (version 2.2.0) [Computer software].
+> https://github.com/atmmod/pyaermod. DOI: 10.5281/zenodo.XXXXXXX
+> (the Zenodo DOI is minted when the v2.2.0 release is published and is
+> recorded in `CITATION.cff`).
+
+A journal article describing PyAERMOD and its validation is in
+preparation for the *Journal of the Air & Waste Management Association*;
+once it is published, `CITATION.cff`'s `preferred-citation` will point to
+it and citing the article is preferred.
+
 ## License
 
 MIT

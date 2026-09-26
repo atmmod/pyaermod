@@ -57,6 +57,22 @@ pip install pyaermod[all]
 - numpy, pandas (core dependencies)
 - AERMOD executable from [EPA SCRAM](https://www.epa.gov/scram) (for running simulations)
 
+## Citing PyAERMOD
+
+If PyAERMOD contributes to published work, please cite the archival
+release. The repository's `CITATION.cff` carries the metadata in a form
+GitHub, Zenodo and reference managers read directly:
+
+> Capps, S. (2026). *PyAERMOD: Python wrapper for EPA's AERMOD air
+> dispersion model* (version 2.2.0) [Computer software].
+> https://github.com/atmmod/pyaermod. DOI: 10.5281/zenodo.XXXXXXX
+> (the Zenodo DOI is minted when the v2.2.0 release is published and is
+> recorded in `CITATION.cff`).
+
+A journal article describing PyAERMOD and its validation is in
+preparation for the *Journal of the Air & Waste Management Association*;
+once published, citing the article is preferred.
+
 ## License
 
 MIT
