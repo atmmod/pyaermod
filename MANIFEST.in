@@ -14,3 +14,4 @@ prune aermap
 prune .github
 prune benchmarks
 prune .claude
+include CITATION.cff

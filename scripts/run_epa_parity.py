@@ -220,7 +220,69 @@ def _format_markdown(scores: List[ParityScore],
                 f"- **{s.case}** — slope={s.slope:.6f}, n={s.n_paired}, "
                 f"mean|Δ|={s.mean_abs_error:.4g}"
             )
+    lines += ["", REPRODUCING_SECTION.rstrip("\n")]
     return "\n".join(lines) + "\n"
+
+
+# Appended to every report so the page that publishes the numbers also
+# says how to regenerate them from a clean checkout of the release tag.
+# Edited here, not in docs/validation.md: the report is rewritten whole.
+REPRODUCING_SECTION = """\
+## Reproducing the validation report
+
+Everything above, the keyword audit and the benchmarks regenerate from a
+clean checkout of the release tag with EPA's public archives. The
+commands below assume Linux or macOS with `gfortran` (Ubuntu:
+`sudo apt-get install gfortran`; macOS: `brew install gcc`) and about
+5 GB of disk for one unpacked EPA reference set.
+
+```bash
+git clone https://github.com/atmmod/pyaermod.git
+cd pyaermod
+git checkout v2.2.0                      # the tag the report was made from
+pip install -e ".[dev,all]"
+
+# 1. AERMOD (and AERMAP, AERMET) from EPA's current source -> bin/
+scripts/build_aermod.sh
+scripts/build_bpip.sh                    # optional: BPIP-PRIME parity tests
+scripts/build_aersurface.sh              # optional: AERSURFACE parity tests
+
+# 2. EPA's AERMOD test cases (about 490 MB; unpack only the set the
+#    binary matches, ~3.5 GB, into test_cases/)
+scripts/fetch_epa_source.sh \\
+    https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip \\
+    aermod_test_cases.zip
+unzip -q aermod_test_cases.zip "aermet26135_aermod26135/*" -d test_cases
+
+# 3. The parity report (this page): every EPA deck through the binary,
+#    every POSTFILE scored against EPA's reference
+PATH="$PWD/bin:$PATH" python scripts/run_epa_parity.py --output docs/validation.md
+
+# 4. The binary-backed test suite: the 53-deck round trip and AERMOD
+#    setup-pass acceptance, the rewritten decks at slope 1.000000, the
+#    AERTEST bit-exact regression, BPIP and AERSURFACE parity
+make test-binaries
+
+# 5. The keyword audit (docs/keyword-audit-v26135.md): its counts come
+#    from EPA's Fortran with the grep quoted at the top of that page, and
+#    scripts/keyword_oracle.py prints, for any keyword, the dispatch
+#    branch, the parsing subroutine and every EPA deck that uses it
+scripts/fetch_epa_source.sh \\
+    https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip \\
+    aermod_source.zip
+unzip -q aermod_source.zip -d aermod_src
+python scripts/keyword_oracle.py source aermod_src/aermod_source_v26135 MAXIFILE GRIDPOLR EVENTPER
+
+# 6. The benchmarks (docs/benchmarks.md)
+python benchmarks/run_benchmarks.py --aermod --require-aermod --output benchmark_results.json
+```
+
+`.github/workflows/epa_parity.yml` runs steps 1 to 3 weekly on a clean
+runner and uploads the regenerated report; the `Benchmarks` workflow's
+manual dispatch runs step 6. The Provenance table above records the
+AERMOD version, compiler, reference set, pyaermod version and commit the
+numbers came from.
+"""
 
 
 def main() -> int:
