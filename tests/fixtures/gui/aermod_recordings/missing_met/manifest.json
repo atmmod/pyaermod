@@ -1,0 +1,28 @@
+{
+  "scenario": "missing_met",
+  "description": "The reference scenario with the GUI's default averaging periods (1 and ANNUAL) and a surface file, MISSING.SFC, that does not exist. AERMOD stops during setup with fatal error E500 and exits with code 0.",
+  "aermod_version": "26135",
+  "fatal_errors": 1,
+  "warnings": 4,
+  "informational": 0,
+  "finishes_successfully": false,
+  "exit_code": 0,
+  "build": "EPA AERMOD v26135 source compiled with gfortran -O2 by scripts/build_aermod.sh (FFLAGS -O2 -fbounds-check -Wuninitialized)",
+  "aermod_sha256": "4d7d4829b2fca38e1488fa0722397846f6b6efefaa02002f433eefc898d33435",
+  "recorded": "2026-09-28",
+  "command": "aermod",
+  "working_directory": "a fresh temporary directory holding aermod.inp and the met files it names",
+  "recorder": "python scripts/record_aermod_fixtures.py",
+  "deck": "aermod.inp",
+  "inputs": [],
+  "met_files": [
+    "AERMET2.PFL"
+  ],
+  "stdout": "stdout.txt",
+  "stderr": "stderr.txt",
+  "outputs": [
+    "aermod.out"
+  ],
+  "gzipped_outputs": [],
+  "maxima": {}
+}
