@@ -1,0 +1,46 @@
+** Probe: a main run with EVENTFIL so that AERMOD writes the event deck
+** itself (output.f EVEFIL / MXEVNT); RUNORNOT RUN over the first days of
+** the fixture meteorology. The deck AERMOD wrote is vendored as probe 29b.
+** AERMOD said: MX E580 at the end (the vendored AERMET2.SFC holds 96
+** hours, STARTEND asks for ten days), but 29_events.inp is written with
+** the four high-first-high events (one per averaging period and group),
+** named H001H01001 and so on.
+CO STARTING
+   TITLEONE  oracle 29: main run with EVENTFIL so AERMOD writes the event deck
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   EVENTFIL  29_events.inp  SOCONT
+   RUNORNOT  RUN
+   ERRORFIL  29.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   LOCATION  STACK2  POINT  100.0  0.0  0.0
+   SRCPARAM  STACK2  50.0  35.00  400.  10.0  2.
+   LOCATION  STACK3  POINT  200.0  0.0  0.0
+   SRCPARAM  STACK3  50.0  35.00  400.  10.0  2.
+   SRCGROUP  G2  STACK2
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.
+   DISCCART  -500.  500.
+   DISCCART  0.  700.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+   STARTEND  1988  3  1  1988  3  10
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

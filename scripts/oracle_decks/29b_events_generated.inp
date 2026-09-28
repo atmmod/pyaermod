@@ -1,0 +1,51 @@
+** Probe: the event deck AERMOD v26135 wrote for probe 29 (EVENTFIL with
+** SOCONT), verbatim: CO, SO and ME copied from the main deck (the
+** EVENTFIL card dropped, SRCGROUP ALL appended), then EV before OU, and
+** an OU pathway holding only EVENTOUT. This is the layout pyaermod's
+** EventPathway writer mirrors:
+**   EVENTPER name(A10) aveper(I3) grpid(A8) date(I8.8) conc(F17.5)
+**   EVENTLOC name XR= x(F15.6) YR= y(F15.6) zelev zhill zflag(F10.4)
+** AERMOD said: accepted; the event run reproduces each event's
+** concentration.
+CO STARTING
+   TITLEONE  oracle 29: main run with EVENTFIL so AERMOD writes the event deck
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  RUN
+   ERRORFIL  29b.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   LOCATION  STACK2  POINT  100.0  0.0  0.0
+   SRCPARAM  STACK2  50.0  35.00  400.  10.0  2.
+   LOCATION  STACK3  POINT  200.0  0.0  0.0
+   SRCPARAM  STACK3  50.0  35.00  400.  10.0  2.
+   SRCGROUP  G2  STACK2
+   SRCGROUP  ALL
+SO FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+EV STARTING
+   EVENTPER H001H01001   1  G2         88030214          52.33812
+   EVENTLOC H001H01001 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000
+   EVENTPER H001H01002   1  ALL        88030214         156.85619
+   EVENTLOC H001H01002 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000
+   EVENTPER H001H24001  24  G2         88030224           5.31381
+   EVENTLOC H001H24001 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000
+   EVENTPER H001H24002  24  ALL        88030224          16.54005
+   EVENTLOC H001H24002 XR=      500.000000 YR=      500.000000     0.0000     0.0000     0.0000
+EV FINISHED
+
+OU STARTING
+   EVENTOUT  SOCONT
+OU FINISHED

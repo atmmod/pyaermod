@@ -42,9 +42,12 @@ from pyaermod.sources import (
     BuoyLineSource,
     LineSource,
     OpenPitSource,
+    PointCapSource,
+    PointHorSource,
     PointSource,
     RLineExtSource,
     RLineSource,
+    SidewashPointSource,
     VolumeSource,
 )
 
@@ -114,6 +117,20 @@ SOURCE_CASES = [
         "SRC1", 0.0, 0.0, release_height=0.0, x_dimension=100.0,
         y_dimension=80.0, pit_volume=50000.0, emission_rate=1e-4,
     ), False),
+    # v26135 point variants (soset.f PPARM / SWPARM; probe decks 23, 23b)
+    ("pointcap", PointCapSource(
+        "SRC1", 0.0, 0.0, stack_height=50.0, stack_diameter=2.0,
+        stack_temp=400.0, exit_velocity=15.0, emission_rate=10.0,
+    ), False),
+    ("pointhor", PointHorSource(
+        "SRC1", 0.0, 0.0, stack_height=50.0, stack_diameter=2.0,
+        stack_temp=400.0, exit_velocity=15.0, emission_rate=10.0,
+    ), False),
+    ("swpoint", SidewashPointSource(
+        "SRC1", 0.0, 0.0, emission_rate=1.0, release_height=10.0,
+        building_width=20.0, building_length=30.0, building_height=15.0,
+        building_angle=90.0,
+    ), True),
 ]
 
 # AERMOD stamps fatal errors as "<PATH> E<nnn>" in the message block.

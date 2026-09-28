@@ -16,26 +16,39 @@ from pyaermod.input_generator import (
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DepositionMethod,
     DiscreteReceptor,
+    EvalFile,
+    EventLocation,
     EventPathway,
     EventPeriod,
     GasDepositionParams,
     LineSource,
+    MaxiFile,
     MeteorologyPathway,
+    Method2Params,
     OpenPitSource,
     OutputPathway,
     ParticleDepositionParams,
+    PlatformParams,
     PointSource,
     PolarGrid,
     PollutantType,
+    RankFile,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    ScimOptions,
+    SeasonHourFile,
+    SidewashPointSource,
+    SourceGroupDefinition,
     SourcePathway,
     StreetCanyon,
     TerrainType,
+    ToxxFile,
     VolumeSource,
 )
 from pyaermod.validator import ValidationError, ValidationResult, Validator
@@ -1164,93 +1177,287 @@ class TestDepositionValidation:
 # ---------------------------------------------------------------------------
 
 class TestEventValidation:
-    """Test event processing validation."""
+    """The EV pathway as evset.f checks it (EVPER, EVLOC, OEVENT, EVCARD)."""
 
-    def _project_with_events(self, events, eventfil="events.inp"):
-        control = ControlPathway(
-            title_one="Test", pollutant_id="OTHER",
-            averaging_periods=["ANNUAL"],
-            eventfil=eventfil,
-        )
-        return _make_valid_project(
-            control=control,
-            **{"events": EventPathway(events=events)} if events else {},
-        )
+    @staticmethod
+    def _control(**kw):
+        kw.setdefault("title_one", "Test")
+        kw.setdefault("averaging_periods", ["1", "24"])
+        kw.setdefault("eventfil", "events.inp")
+        return ControlPathway(**kw)
+
+    @staticmethod
+    def _event(name="EVT01", **kw):
+        kw.setdefault("averaging_period", 1)
+        kw.setdefault("date", "88030214")
+        kw.setdefault("location", EventLocation(500.0, 500.0))
+        return EventPeriod(name, **kw)
+
+    def _errors(self, events, control=None, **kw):
+        project = _make_valid_project(control=control or self._control(), **kw)
+        project.events = EventPathway(events=events)
+        result = Validator.validate(project)
+        return [e for e in result.errors if "EventPathway" in e.pathway]
 
     def test_valid_events(self):
-        project = _make_valid_project(
-            control=ControlPathway(
-                title_one="Test", eventfil="events.inp",
-            ),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-        ])
-        result = Validator.validate(project)
-        ev_errors = [e for e in result.errors if "EventPathway" in e.pathway]
-        assert len(ev_errors) == 0
+        assert self._errors([self._event(), self._event("EVT02", averaging_period=24,
+                                                        source_group="ALL")]) == []
 
     def test_empty_events_list(self):
-        project = _make_valid_project()
-        project.events = EventPathway(events=[])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "no event periods" in e.message]
+        errors = [e for e in self._errors([]) if "no event periods" in e.message]
         assert len(errors) >= 1
 
-    def test_event_name_too_long(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("TOOLONGNAME", "24010101", "24010124"),
-        ])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "exceeds 8" in e.message]
+    def test_event_name_longer_than_evname(self):
+        # EVNAME is CHARACTER*10; AERMOD's own H001H01001 uses all ten.
+        assert self._errors([self._event("H001H01001")]) == []
+        errors = [e for e in self._errors([self._event("ELEVENCHARS")])
+                  if "exceeds 10" in e.message]
         assert len(errors) >= 1
 
     def test_duplicate_event_names(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-            EventPeriod("EVT01", "24020101", "24020224"),
-        ])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "duplicate" in e.message]
+        errors = [e for e in self._errors([self._event(), self._event()])
+                  if "duplicate" in e.message]
         assert len(errors) >= 1
 
-    def test_invalid_date_format(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "2024010", "24010124"),  # 7 digits
-        ])
-        result = Validator.validate(project)
-        errors = [e for e in result.errors if "YYMMDDHH" in e.message]
+    @pytest.mark.parametrize("date", ["2024010", "2401AB01", "202401011"])
+    def test_invalid_date_format(self, date):
+        errors = [e for e in self._errors([self._event(date=date)]) if "YYMMDDHH" in e.message]
         assert len(errors) >= 1
 
-    def test_non_digit_date(self):
-        project = _make_valid_project(
-            control=ControlPathway(title_one="Test", eventfil="events.inp"),
-        )
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "2401AB01", "24010124"),
-        ])
+    def test_averaging_period_must_be_on_avertime_and_at_most_24(self):
+        errors = self._errors([self._event(averaging_period=3)])
+        assert any("not on AVERTIME" in e.message for e in errors)
+        errors = self._errors([self._event(averaging_period=720)],
+                              control=self._control(averaging_periods=["1", "MONTH", "720"]))
+        assert any("24 hours or less" in e.message for e in errors)
+
+    def test_source_group_must_be_defined(self):
+        errors = self._errors([self._event(source_group="G9")])
+        assert any("not defined" in e.message for e in errors)
+        sources = SourcePathway(sources=[PointSource("STK1", 0, 0, stack_height=30.0,
+                                                     stack_diameter=1.5, stack_temp=400.0,
+                                                     exit_velocity=10.0, emission_rate=1.0)],
+                                group_definitions=[SourceGroupDefinition("G9", ["STK1"])])
+        assert self._errors([self._event(source_group="G9")], sources=sources) == []
+
+    def test_every_event_needs_a_location(self):
+        errors = [e for e in self._errors([self._event(location=None)]) if "EVENTLOC" in e.message]
+        assert len(errors) == 1
+
+    def test_event_output_option(self):
+        project = _make_valid_project(control=self._control(),
+                                      output=OutputPathway(event_output="VERBOSE"))
+        project.events = EventPathway(events=[self._event()])
         result = Validator.validate(project)
-        errors = [e for e in result.errors if "YYMMDDHH" in e.message]
-        assert len(errors) >= 1
+        assert any("EVENTOUT" in e.message for e in result.errors)
+        project.output.event_output = "SOCONT"
+        assert not [e for e in Validator.validate(project).errors if "EVENTOUT" in e.message]
 
     def test_missing_eventfil_warning(self):
-        project = _make_valid_project()
-        project.events = EventPathway(events=[
-            EventPeriod("EVT01", "24010101", "24010124"),
-        ])
+        project = _make_valid_project(control=self._control(eventfil=None))
+        project.events = EventPathway(events=[self._event()])
         result = Validator.validate(project)
         warnings = [e for e in result.errors
                     if "eventfil" in e.field and e.severity == "warning"]
         assert len(warnings) >= 1
+        # An event deck itself carries no EVENTFIL and needs no receptors.
+        project.event_processing = True
+        project.receptors = ReceptorPathway()
+        result = Validator.validate(project)
+        assert not [e for e in result.errors if "eventfil" in e.field]
+        assert not [e for e in result.errors if e.pathway == "ReceptorPathway"]
+
+    def test_event_run_without_events(self):
+        project = _make_valid_project(control=self._control())
+        project.event_processing = True
+        result = Validator.validate(project)
+        assert any("no events" in e.message for e in result.errors)
+
+
+class TestMeteorologyOptionsValidation:
+    """meset.f DAYRNG / NUMYR / WSCATS / SCIMIT / TURBOPT (probes 26-27)."""
+
+    def _errors(self, control=None, **met_kw):
+        met = MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl", **met_kw)
+        kw = {"meteorology": met}
+        if control is not None:
+            kw["control"] = control
+        result = Validator.validate(_make_valid_project(**kw))
+        return [e.message for e in result.errors if e.pathway == "MeteorologyPathway"]
+
+    def test_dayrange_field_forms(self):
+        assert self._errors(day_ranges=["50", "50-60", "3/15", "3/15-4/30"]) == []
+        assert any("Julian" in m for m in self._errors(day_ranges=["March"]))
+        assert any("Julian" in m for m in self._errors(day_ranges=["3/15/1988"]))
+
+    def test_dayrange_and_scim_exclude_each_other(self):
+        control = ControlPathway(title_one="t", averaging_periods=["ANNUAL"], extra_model_options=["SCIM"])
+        assert any("E154" in m for m in self._errors(control, day_ranges=["50"]))
+
+    def test_numyears_positive_integer(self):
+        assert self._errors(num_years=5) == []
+        assert any("positive integer" in m for m in self._errors(num_years=0))
+
+    def test_windcats_count_range_and_order(self):
+        assert self._errors(wind_speed_categories=[1.54, 3.09, 5.14, 8.23, 10.8]) == []
+        assert any("exactly 5" in m for m in self._errors(wind_speed_categories=[1.54, 3.09]))
+        assert any("1-20" in m for m in self._errors(wind_speed_categories=[0.5, 3.09, 5.14, 8.23, 10.8]))
+        assert any("increase" in m for m in self._errors(wind_speed_categories=[3.09, 1.54, 5.14, 8.23, 10.8]))
+
+    def test_scimbyhr_needs_scim_and_valid_hours(self):
+        assert any("MODELOPT SCIM" in m for m in self._errors(scim=ScimOptions(1, 25)))
+        control = ControlPathway(title_one="t", averaging_periods=["ANNUAL"], extra_model_options=["SCIM"])
+        assert self._errors(control, scim=ScimOptions(1, 25)) == []
+        assert any("1-24" in m for m in self._errors(control, scim=ScimOptions(25, 25)))
+        assert any("at least 1" in m for m in self._errors(control, scim=ScimOptions(1, 0)))
+
+    def test_turbulence_option_must_be_one_of_the_nine(self):
+        assert self._errors(turbulence_option="NOSWCO") == []
+        assert any("NOTURB" in m for m in self._errors(turbulence_option="NOTURBULENCE"))
+
+
+class TestOutputFileValidation:
+    """ouset.f NOHEADER / OURANK / OUSEAS / OUEVAL / OUTOXX and OUTQA (probes 28-28c)."""
+
+    def _errors(self, control=None, sources=None, **out_kw):
+        kw = {"output": OutputPathway(**out_kw)}
+        if control is not None:
+            kw["control"] = control
+        if sources is not None:
+            kw["sources"] = sources
+        result = Validator.validate(_make_valid_project(**kw))
+        return [e.message for e in result.errors if e.pathway == "OutputPathway" and e.severity == "error"]
+
+    def test_noheader_names_types_in_use(self):
+        assert self._errors(no_header=["ALL"]) == []
+        assert any("E164" in m for m in self._errors(no_header=["MAXIFILE"]))
+        assert self._errors(no_header=["MAXIFILE"],
+                            maxi_files=[MaxiFile("ANNUAL", "ALL", 1.0, "m.dat")]) == []
+        assert any("not an output file type" in m for m in self._errors(no_header=["SUMMFILE"]))
+
+    def test_rankfile_period_and_repeats(self):
+        control = ControlPathway(title_one="t", averaging_periods=["1", "24"])
+        assert self._errors(control, rank_files=[RankFile("1", 10, "r.rnk"), RankFile("24", 10, "s.rnk")]) == []
+        assert any("AVERTIME" in m for m in self._errors(control, rank_files=[RankFile("3", 10, "r.rnk")]))
+        assert any("E211" in m for m in self._errors(
+            control, rank_files=[RankFile("1", 10, "r.rnk"), RankFile("1", 5, "s.rnk")]))
+
+    def test_seasonhr_group_and_scim(self):
+        assert self._errors(season_hour_files=[SeasonHourFile("ALL", "s.dat")]) == []
+        assert any("not defined" in m for m in self._errors(season_hour_files=[SeasonHourFile("G9", "s.dat")]))
+        control = ControlPathway(title_one="t", averaging_periods=["ANNUAL"], extra_model_options=["SCIM"])
+        assert any("E154" in m for m in self._errors(control, season_hour_files=[SeasonHourFile("ALL", "s.dat")]))
+
+    def test_evalfile_source_must_exist(self):
+        assert self._errors(eval_files=[EvalFile("STK1", "e.dat")]) == []
+        assert any("not defined" in m for m in self._errors(eval_files=[EvalFile("STK9", "e.dat")]))
+
+    def test_toxxfile_period(self):
+        control = ControlPathway(title_one="t", averaging_periods=["1", "24"])
+        assert self._errors(control, toxx_files=[ToxxFile("1", 1.0, "t.dat")]) == []
+        assert any("AVERTIME" in m for m in self._errors(control, toxx_files=[ToxxFile("3", 1.0, "t.dat")]))
+        result = Validator.validate(_make_valid_project(
+            control=control, output=OutputPathway(toxx_files=[ToxxFile("24", 1.0, "t.dat")])))
+        assert any("W296" in e.message and e.severity == "warning" for e in result.errors)
+
+
+class TestControlResearchOptionsValidation:
+    """coset.f ARM2_Ratios, AWMA_DOWNWASH, ORD_DOWNWASH (probes 24-24e)."""
+
+    def _errors(self, **control_kw):
+        control_kw.setdefault("title_one", "t")
+        control_kw.setdefault("averaging_periods", ["1"])
+        result = Validator.validate(_make_valid_project(control=ControlPathway(**control_kw)))
+        return [e.message for e in result.errors if e.pathway == "ControlPathway" and e.severity == "error"]
+
+    def test_armratio_needs_arm2_and_a_valid_range(self):
+        arm2 = dict(pollutant_id="NO2", chemistry=ChemistryOptions(method=ChemistryMethod.ARM2),
+                    regulatory_default=False)
+        assert self._errors(arm2_ratios=(0.5, 0.9), **arm2) == []
+        assert any("E145" in m for m in self._errors(arm2_ratios=(0.5, 0.9), pollutant_id="NO2"))
+        assert any("(0, 1]" in m for m in self._errors(arm2_ratios=(0.0, 0.9), **arm2))
+        assert any("below minimum" in m for m in self._errors(arm2_ratios=(0.9, 0.5), **arm2))
+        # probe 24b: 0.1 is E380 under DFAULT, accepted without it
+        assert self._errors(arm2_ratios=(0.1, 0.9), **arm2) == []
+        dfault = dict(arm2, regulatory_default=True)
+        assert any("0.5-0.9" in m for m in self._errors(arm2_ratios=(0.1, 0.9), **dfault))
+
+    def test_awmadwnw_rules(self):
+        alpha = dict(alpha=True, regulatory_default=False)
+        assert self._errors(awma_downwash=["STREAMLINE", "AWMAUTURB"], **alpha) == []
+        assert any("E122" in m for m in self._errors(awma_downwash=["AWMAUTURB"]))
+        assert any("E126" in m for m in self._errors(awma_downwash=["STREAMLINE"], **alpha))
+        assert any("E121" in m for m in self._errors(awma_downwash=["AWMAUTURB", "AWMAUTURB"], **alpha))
+        assert any("E203" in m for m in self._errors(awma_downwash=["AWMAFAST"], **alpha))
+
+    def test_ord_dwnw_rules_and_ueff_conflict(self):
+        alpha = dict(alpha=True, regulatory_default=False)
+        assert self._errors(ord_downwash=["ORDCAV", "ORDUEFF", "ORDTURB"], **alpha) == []
+        assert any("E123" in m for m in self._errors(ord_downwash=["ORDCAV"]))
+        assert any("E203" in m for m in self._errors(ord_downwash=["ORDFAST"], **alpha))
+        assert any("E124" in m for m in self._errors(awma_downwash=["AWMAUEFF"],
+                                                     ord_downwash=["ORDUEFF"], **alpha))
+        assert self._errors(awma_downwash=["AWMAUTURB"], ord_downwash=["ORDCAV"], **alpha) == []
+
+
+class TestSourceOptionsValidation:
+    """soset.f METH_2, PLATFM, SWPARM/SRCSIZ, AIRCRAFT, HBPSOURCE (probes 21-25c)."""
+
+    @staticmethod
+    def _control(**kw):
+        kw.setdefault("title_one", "t")
+        kw.setdefault("averaging_periods", ["1"])
+        return ControlPathway(**kw)
+
+    def _errors(self, source, control=None, **path_kw):
+        sources = SourcePathway(sources=[source], **path_kw)
+        result = Validator.validate(_make_valid_project(sources=sources, control=control or self._control()))
+        return [e.message for e in result.errors if e.severity == "error"
+                and (e.pathway.startswith(type(source).__name__) or e.pathway == "SourcePathway")]
+
+    def _stack(self, **kw):
+        return PointSource("STK1", 0, 0, stack_height=30.0, stack_diameter=1.5, stack_temp=400.0,
+                           exit_velocity=10.0, emission_rate=1.0, **kw)
+
+    def test_method_2_rules(self):
+        alpha = self._control(alpha=True, regulatory_default=False)
+        assert self._errors(self._stack(method_2=Method2Params(0.55, 1.2)), alpha) == []
+        assert any("E198" in m for m in self._errors(self._stack(method_2=Method2Params(0.55, 1.2)),
+                                                     self._control(regulatory_default=False)))
+        assert any("E197" in m for m in self._errors(self._stack(method_2=Method2Params(0.55, 1.2)),
+                                                     self._control(alpha=True, regulatory_default=True)))
+        assert any("E332" in m for m in self._errors(self._stack(method_2=Method2Params(1.5, 1.2)), alpha))
+        both = self._stack(method_2=Method2Params(0.5, 1.2),
+                           particle_deposition=ParticleDepositionParams([1.0], [1.0], [1.0]))
+        assert any("E386" in m for m in self._errors(both, alpha))
+
+    def test_platform_rules(self):
+        alpha = self._control(alpha=True, regulatory_default=False)
+        assert self._errors(self._stack(platform=PlatformParams(0.0, 20.0, 30.0)), alpha) == []
+        assert any("E198" in m for m in self._errors(self._stack(platform=PlatformParams(0.0, 20.0, 30.0)),
+                                                     self._control(regulatory_default=False)))
+
+    def test_swpoint_needs_alpha(self):
+        sw = SidewashPointSource("SW1", 0, 0, emission_rate=1.0, release_height=10.0,
+                                 building_width=20.0, building_length=30.0, building_height=15.0)
+        assert self._errors(sw, self._control(alpha=True, regulatory_default=False)) == []
+        assert any("E198" in m for m in self._errors(sw, self._control(regulatory_default=False)))
+        sw.release_height = -1.0
+        assert any("E209" in m for m in self._errors(sw, self._control(alpha=True, regulatory_default=False)))
+
+    def test_arcftsrc_and_hbpsrcid_flags(self):
+        vol = VolumeSource("VOL1", 0, 0, release_height=5.0, emission_rate=1.0,
+                           initial_lateral_dimension=10.0, initial_vertical_dimension=5.0)
+        alpha = self._control(alpha=True, regulatory_default=False)
+        assert any("E821" in m for m in self._errors(vol, alpha, aircraft_sources=["VOL1"]))
+        aircraft = self._control(alpha=True, regulatory_default=False, aircraft_option=True)
+        assert self._errors(vol, aircraft, aircraft_sources=["VOL1"]) == []
+        assert any("E130" in m for m in self._errors(self._stack(), alpha, hbp_sources=["STK1"]))
+        hbp = self._control(alpha=True, regulatory_default=False, extra_model_options=["HBP"])
+        assert self._errors(self._stack(), hbp, hbp_sources=["STK1"]) == []
+        assert any("E198" in m for m in self._errors(
+            self._stack(), self._control(regulatory_default=False, extra_model_options=["HBP"]),
+            hbp_sources=["STK1"]))
 
 
 # ---------------------------------------------------------------------------

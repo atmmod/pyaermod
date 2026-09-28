@@ -332,3 +332,63 @@ class TestFileTypeDetection:
             "     1     500.00      500.00       1.234    2020012400\n"
         )
         assert read_rankfile(path).header.file_type == "RANKFILE"
+
+
+# ---------------------------------------------------------------------------
+# EVENT-run output (evoutput.f SOCONT blocks)
+# ---------------------------------------------------------------------------
+
+_EVENT_OUT = """\
+ *** AERMOD - VERSION 26135  ***   ***  event run   ***        09/25/26
+ *** MODELOPTs:   NonDFAULT CONC      FLAT      RURAL     SigA&SigW
+
+                                          *** SOURCE CONTRIBUTIONS FOR EVENT: H001H01002 ***
+ ---> AVE. PER.:   1 HRS;  END DATE:  88030214;  LOCATION (XR,YR,ZELEV,ZFLAG):     500.00     500.00       0.00       0.00 (M)
+
+ GROUP ID: ALL      OF SOURCES: STACK1      , STACK2      , STACK3      ,
+
+   *** GROUP VALUE =      156.85619 ***
+
+   SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION
+ -------------    ------------            -------------    ------------            -------------    ------------
+  STACK1              10.70815             STACK2              52.33812             STACK3              93.80992
+
+ *** AERMOD - VERSION 26135  ***   ***  event run   ***        09/25/26
+
+                                          *** SOURCE CONTRIBUTIONS FOR EVENT: H001H24001 ***
+ ---> AVE. PER.:  24 HRS;  END DATE:  88030224;  LOCATION (XR,YR,ZELEV,ZFLAG):     500.00     500.00       0.00       0.00 (M)
+
+ GROUP ID: G2       OF SOURCES: STACK2      ,
+
+   *** GROUP VALUE =        5.31381 ***
+
+   SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION
+ -------------    ------------            -------------    ------------            -------------    ------------
+  STACK2               5.31381
+
+ *** Message Summary : AERMOD Model Execution ***
+"""
+
+
+def test_read_event_output_parses_each_event_block(tmp_path):
+    from pyaermod.aermod_outputs import read_event_output
+
+    path = tmp_path / "aermod.out"
+    path.write_text(_EVENT_OUT)
+    events = read_event_output(path)
+    assert [e.event_name for e in events] == ["H001H01002", "H001H24001"]
+    first = events[0]
+    assert (first.averaging_period, first.end_date, first.group_id) == (1, "88030214", "ALL")
+    assert (first.x, first.y, first.z_elev, first.z_flag) == (500.0, 500.0, 0.0, 0.0)
+    assert first.group_value == 156.85619
+    assert first.contributions == {"STACK1": 10.70815, "STACK2": 52.33812, "STACK3": 93.80992}
+    assert events[1].contributions == {"STACK2": 5.31381}
+    assert events[1].averaging_period == 24
+
+
+def test_read_event_output_of_a_normal_run_is_empty(tmp_path):
+    from pyaermod.aermod_outputs import read_event_output
+
+    path = tmp_path / "aermod.out"
+    path.write_text(" *** AERMOD - VERSION 26135 ***\n *** Message Summary : AERMOD Model Execution ***\n")
+    assert read_event_output(path) == []

@@ -68,12 +68,23 @@ SO_SPLICE = [
     "testgas.inp", "testgas2.inp",
 ]
 
+#: Decks whose answer depends on a keyword WP-5 gave a field: METHOD_2
+#: (testpart, testprt2, openpits), POINTCAP/POINTHOR with an exit velocity
+#: of 0.001 m/s (capped), ARMRATIO (the two ARM2 decks), RANKFILE and
+#: SEASONHR (flatelev, lovett, mcr, hrdow). Each is fully rewritten.
+WP5_REWRITE = [
+    "testpart.inp", "testprt2.inp", "openpits.inp", "capped.inp",
+    "no2_1yrAK_arm2.inp", "no2_1yrAK_arm2min.inp",
+    "flatelev.inp", "lovett.inp", "mcr.inp", "hrdow.inp",
+]
+
 #: The subset whose CO, RE, ME and OU pathways also round-trip today.
 FULL_REWRITE = [
     "allsrcs.inp", "blp_urban.inp",
     "aermod-baldwin45.inp", "aermod-baldwinHoriz.inp", "aermod-baldwinVert.inp",
     "Test1_Base_cart_3cond_SNC.inp", "Test20_Urban_cart_3cond_SNC.inp",
     "Test3_Base_cart_3cond_SNC_bar.inp", "Test4_Base_cart_3cond_SNC_dep.inp",
+    *WP5_REWRITE,
 ]
 
 
