@@ -51,7 +51,7 @@ env:
   DEFAULT_AERMET_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/met/aermet/aermet_test_cases.zip"
   AERMOD_SOURCE_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
   # Bump to force a fresh download/unpack even when URLs + upstream headers are unchanged.
-  EPA_TESTCASES_CACHE_SALT: "v1"
+  EPA_TESTCASES_CACHE_SALT: "v2"
 
 concurrency:
   group: epa-parity
@@ -267,8 +267,13 @@ jobs:
           # Keyed by the set directory as it sits under test_cases/, so a set
           # that fills both roles keeps the union of the two subdir lists.
           keep: dict[str, set[str]] = {}
+          # inputs/meteorology/postfiles drive the parity runs; plotfiles/
+          # and Outputs/ are the reference .PLT, .DA1-.DA8 and .SUM files
+          # tests/regulatory/test_epa_known_answers.py compares pyaermod's
+          # design values against. Without them that suite has nothing to
+          # compare and its non-empty guard fails the job.
           keep.setdefault(parity.path.name, set()).update(
-              {"inputs", "meteorology", "postfiles"}
+              {"inputs", "meteorology", "postfiles", "plotfiles", "Outputs"}
           )
           # Same acceptance test as tests/test_epa_cases.py and
           # tests/test_real_cases.py: they quote AERMOD 24142 values, so they

@@ -647,6 +647,21 @@ number comes from:
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **Scalar building-downwash values produced a deck AERMOD rejects.**
+  A source whose `building_height`, `building_width`, `building_length`,
+  `building_x_offset` or `building_y_offset` was a single float wrote one
+  value per keyword, and AERMOD reads one per 10-degree sector: a POINT
+  source was fatal (SO E236, E237, E241, E246, E247). A scalar is now
+  written as the same value for all 36 sectors, and the point, area and
+  volume forms pass AERMOD's setup pass in
+  `tests/test_source_deck_acceptance.py` (keyword audit item 10).
+- **The EPA parity workflow pruned the reference files the known-answer
+  suite compares against.** It kept only `inputs/`, `meteorology/` and
+  `postfiles/` of the parity set, so the PST/PLT rank comparisons, the
+  surfcoal `.DA1`-`.DA8` ranks and the AERTEST `.SUM` check had nothing to
+  read and the suite's non-empty guard failed the job. The set now also
+  keeps `plotfiles/` and `Outputs/` (about 32 MB), and the cache salt is
+  bumped so the previously pruned cache is not reused.
 - **`pyaermod.__version__` was `pyaermod.api`'s constant, not
   `__init__.py`'s.** `api.py` defines its own `__version__` and the
   package re-exports `api.*` after setting its own, so bumping the two

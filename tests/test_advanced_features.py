@@ -604,11 +604,17 @@ class TestModuleLevelBuildingHelper:
     """Tests for module-level _format_building_keyword function."""
 
     def test_scalar_value(self):
+        # AERMOD has no scalar form: a scalar is written as 36 equal
+        # values, ten per line, like BPIP output (soset.f; one value is E236).
         lines = _format_building_keyword("STK1", "BUILDHGT", 25.0)
-        assert len(lines) == 1
-        assert "BUILDHGT" in lines[0]
-        assert "STK1" in lines[0]
-        assert "25.00" in lines[0]
+        assert len(lines) == 4
+        assert all(line.split()[:2] == ["BUILDHGT", "STK1"] for line in lines)
+        values = [v for line in lines for v in line.split()[2:]]
+        assert values == ["25.00"] * 36
+
+    def test_scalar_matches_the_equivalent_36_value_list(self):
+        assert _format_building_keyword("STK1", "XBADJ", -12.5) == \
+            _format_building_keyword("STK1", "XBADJ", [-12.5] * 36)
 
     def test_36_value_list(self):
         values = [float(i) for i in range(36)]
@@ -623,7 +629,8 @@ class TestModuleLevelBuildingHelper:
 
     def test_integer_value_treated_as_scalar(self):
         lines = _format_building_keyword("STK1", "BUILDHGT", 25)
-        assert len(lines) == 1
+        assert len(lines) == 4
+        assert [v for line in lines for v in line.split()[2:]] == ["25.00"] * 36
 
 
 class TestBuildingDownwashLines:
@@ -641,13 +648,11 @@ class TestBuildingDownwashLines:
             building_length=30.0, building_x_offset=-5.0, building_y_offset=-3.0,
         )
         lines = _building_downwash_lines("STK1", src)
-        assert len(lines) == 5
+        # Each scalar is written as 36 values over four lines.
+        assert len(lines) == 20
         keywords = [l.split()[0] for l in lines]
-        assert "BUILDHGT" in keywords
-        assert "BUILDWID" in keywords
-        assert "BUILDLEN" in keywords
-        assert "XBADJ" in keywords
-        assert "YBADJ" in keywords
+        for kw in ("BUILDHGT", "BUILDWID", "BUILDLEN", "XBADJ", "YBADJ"):
+            assert keywords.count(kw) == 4
 
 
 class TestAreaSourceBuildingDownwash:
@@ -793,7 +798,7 @@ class TestPointSourceBuildingBackwardCompat:
             stack_height=30, stack_diameter=1, stack_temp=400, exit_velocity=10,
         )
         lines = src._format_building_keyword("BUILDHGT", 25.0)
-        assert len(lines) == 1
+        assert len(lines) == 4
         assert "STK1" in lines[0]
 
 

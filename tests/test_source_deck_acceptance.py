@@ -70,6 +70,11 @@ pytestmark = [
     ),
 ]
 
+_SCALAR_DOWNWASH = dict(
+    building_height=20.0, building_width=30.0, building_length=40.0,
+    building_x_offset=-15.0, building_y_offset=5.0,
+)
+
 # (label, source, needs_alpha)
 SOURCE_CASES = [
     ("point", PointSource(
@@ -131,6 +136,26 @@ SOURCE_CASES = [
         building_width=20.0, building_length=30.0, building_height=15.0,
         building_angle=90.0,
     ), True),
+    # Building downwash given as scalars rather than BPIP's 36 sectors.
+    # AERMOD has no scalar form: a POINT source with one BUILDHGT value is
+    # SO E236 (and E237/E241/E246/E247 for BUILDWID/BUILDLEN/XBADJ/YBADJ,
+    # soset.f SRCQA "Not Enough ... Specified"),
+    # so the writer repeats a scalar for all 36 sectors.
+    ("point-scalar-downwash", PointSource(
+        "SRC1", 0.0, 0.0, stack_height=50.0, stack_diameter=2.0,
+        stack_temp=400.0, exit_velocity=15.0, emission_rate=10.0,
+        **_SCALAR_DOWNWASH,
+    ), False),
+    ("area-scalar-downwash", AreaSource(
+        "SRC1", 0.0, 0.0, release_height=5.0,
+        initial_lateral_dimension=50.0, initial_vertical_dimension=60.0,
+        emission_rate=1e-4, **_SCALAR_DOWNWASH,
+    ), False),
+    ("volume-scalar-downwash", VolumeSource(
+        "SRC1", 0.0, 0.0, release_height=10.0,
+        initial_lateral_dimension=5.0, initial_vertical_dimension=4.0,
+        emission_rate=2.0, **_SCALAR_DOWNWASH,
+    ), False),
 ]
 
 # AERMOD stamps fatal errors as "<PATH> E<nnn>" in the message block.
