@@ -1,0 +1,106 @@
+name: GUI journeys with real AERMOD
+
+# The GUI's end-to-end journeys against a real AERMOD binary (PLAN-gui.md,
+# tier T3). The gui-e2e job in tests.yml runs the same journeys with AERMOD
+# replayed from recordings; this workflow checks that the recordings still
+# tell the truth about the binary the GUI will meet. AERMOD is compiled from
+# EPA's source exactly as real_aermod.yml does, sharing its source cache.
+
+on:
+  schedule:
+    - cron: "30 7 * * 1"  # Monday 07:30 UTC, after real_aermod.yml
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: "EPA SCRAM AERMOD source archive URL (override to try a new EPA release)"
+        required: false
+        default: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+  pull_request:
+    paths:
+      - "src/pyaermod/gui_v2/**"
+      - "src/pyaermod/runner.py"
+      - "src/pyaermod/output_parser.py"
+      - "tests/e2e/**"
+      - ".github/workflows/gui_e2e_real.yml"
+
+env:
+  # `inputs.source_url` is only set for workflow_dispatch; every other
+  # trigger falls through to the pinned default.
+  AERMOD_SOURCE_URL: ${{ inputs.source_url || 'https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip' }}
+
+jobs:
+  journeys:
+    runs-on: ubuntu-latest
+    # Downloads EPA source over gaftp (flaky, retried) and compiles it; cap
+    # the job so a stalled fetch cannot sit on a runner for the 6 h default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod with the GUI and Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,gui,e2e]"
+          python -m playwright install --with-deps chromium
+
+      - name: Compute EPA source cache key
+        id: src
+        # The same key as real_aermod.yml, so the two workflows share the
+        # archive: the URL (an override never reuses the default's archive)
+        # plus the calendar month.
+        run: |
+          echo "key=epa-aermod-source-$(printf '%s' "$AERMOD_SOURCE_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache EPA source archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/aermod_build/aermod_source.zip
+          key: ${{ steps.src.outputs.key }}
+
+      - name: Download + compile AERMOD from EPA source
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq gfortran
+          mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
+          # fetch_epa_source.sh reuses a cache-restored archive, prints the
+          # archive's top-level dir (EPA's version) and adds it to the job summary.
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" \
+            "$AERMOD_SOURCE_URL" \
+            aermod_source.zip
+          unzip -q aermod_source.zip
+          # EPA renamed the AERMOD source dir (aermod_source_code_24142 ->
+          # aermod_source_v26135); derive it from the archive instead of pinning.
+          topdir=$(unzip -Z1 aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          [ -n "$topdir" ] && cd "$topdir"
+          # EPA's v26135 archive extracts read-only; gfortran must write .mod files.
+          chmod -R u+w .
+          # modules.f must be compiled first (produces .mod files)
+          gfortran -c -O2 modules.f
+          gfortran -c -O2 grsm.f
+          gfortran -c -O2 aermod.f setup.f coset.f soset.f reset.f meset.f \
+            ouset.f inpsum.f metext.f iblval.f siggrid.f tempgrid.f \
+            windgrid.f calc1.f calc2.f prise.f arise.f prime.f sigmas.f \
+            pitarea.f uninam.f output.f evset.f evcalc.f evoutput.f \
+            rline.f bline.f
+          gfortran -O2 -o aermod *.o
+          chmod +x aermod
+          sudo cp aermod /usr/local/bin/aermod
+
+      - name: Run the GUI journeys against real AERMOD
+        # J9 needs the slow recording and skips here.
+        env:
+          PYAERMOD_E2E_REAL: "1"
+        run: pytest -o addopts="" -p no:cacheprovider -m e2e tests/e2e -rxX
+
+      - name: Upload the screenshot of every journey step
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-e2e-real-screenshots
+          path: test-artifacts/gui
+          if-no-files-found: warn

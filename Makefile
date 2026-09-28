@@ -6,6 +6,8 @@
 #                    then run the whole suite, slow tests included, with coverage
 #   make lint        ruff check src/ tests/
 #   make typecheck   mypy ratchet gate (scripts/mypy_gate.py vs mypy-baseline.txt)
+#   make test-gui-e2e       GUI journeys in Chromium, AERMOD replayed (tier T2)
+#   make test-gui-e2e-real  the same journeys against ./bin/aermod (tier T3)
 
 PYTHON ?= python
 PIP    ?= $(PYTHON) -m pip
@@ -13,12 +15,14 @@ PIP    ?= $(PYTHON) -m pip
 # (mypy-baseline.txt is authoritative for the `.[dev,all]` environment).
 MYPY_VERSION ?= 2.3.1
 
-.PHONY: help install install-full test test-full test-binaries lint typecheck benchmark clean
+.PHONY: help install install-full test test-full test-binaries test-gui-e2e test-gui-e2e-real lint typecheck benchmark clean
 
 help:
 	@echo "make test        - core suite (-m 'not slow', coverage per pytest.ini)"
 	@echo "make test-full   - pip install -e '.[dev,all]' then the full suite incl. slow tests"
 	@echo "make test-binaries - full suite with ./bin on PATH (real EPA binaries)"
+	@echo "make test-gui-e2e  - GUI journeys in Chromium with recorded AERMOD runs (tier T2)"
+	@echo "make test-gui-e2e-real - GUI journeys against ./bin/aermod (tier T3)"
 	@echo "make lint        - ruff check src/ tests/"
 	@echo "make typecheck   - mypy ratchet gate (fails only if the error count grows)"
 	@echo "make benchmark   - benchmarks/run_benchmarks.py -> benchmark_results.json"
@@ -55,6 +59,28 @@ test-binaries: install-full
 	@test -x bin/aerscreen || echo "note: bin/aerscreen missing (scripts/build_aerscreen.sh) - AERSCREEN reference runs will skip"
 	PATH="$(CURDIR)/bin:$$PATH" $(PYTHON) -m pytest -o addopts="" -q \
 	    -p no:cacheprovider --strict-markers --tb=short
+
+# The GUI's end-to-end journeys (tests/e2e, PLAN-gui.md). They need the
+# `e2e` extra and a Chromium: `pip install -e ".[dev,gui,e2e]"` and
+# `python -m playwright install --with-deps chromium`, or point
+# PYAERMOD_E2E_CHROMIUM at a Chromium you already have. Screenshots of
+# every step land in test-artifacts/gui/. Known gaps show as xfailed (-rxX
+# lists them with the gap they name). Same command as the gui-e2e CI job.
+E2E_PYTEST = $(PYTHON) -m pytest -o addopts="" -p no:cacheprovider \
+    --strict-markers --tb=short -m e2e tests/e2e -rxX
+
+# Tier T2: AERMOD is replayed from tests/fixtures/gui/aermod_recordings.
+test-gui-e2e:
+	$(E2E_PYTEST)
+
+# Tier T3: the same journeys against the real binary in ./bin
+# (scripts/build_aermod.sh aermod). J9 needs the slow recording and skips.
+test-gui-e2e-real:
+	@test -x bin/aermod || { \
+	    echo "bin/aermod not found -- run scripts/build_aermod.sh aermod first"; \
+	    exit 1; \
+	}
+	PATH="$(CURDIR)/bin:$$PATH" PYAERMOD_E2E_REAL=1 $(E2E_PYTEST)
 
 lint:
 	$(PYTHON) -m ruff check src/ tests/
