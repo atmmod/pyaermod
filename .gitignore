@@ -52,6 +52,9 @@ coverage.xml
 # (scripts/record_aermod_fixtures.py); every file is part of the fixture.
 !tests/fixtures/gui/aermod_recordings/**
 
+# Screenshots the GUI journeys save at every step (tests/e2e)
+test-artifacts/
+
 # Fortran source directories (download separately)
 aermod/
 aermap/

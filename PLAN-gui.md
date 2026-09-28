@@ -73,19 +73,19 @@ The tests have four tiers.
 1. **Assert what the user sees.** Every journey assertion reads rendered text or widget values. Assertions on the session may supplement these but never replace them. Tests may not call a page's `render()` directly. They also may not set up a scenario by mutating the session when a UI path exists; loading a saved project fixture through `Session.open_json` is acceptable.
 2. **Locate elements by role and accessible name** (`get_by_role` and `get_by_label` in Playwright, and `marker` or `content` in the `User` harness), never by Quasar CSS classes. If an element cannot be found that way, fix the UI.
 3. **Fakes are recordings.** The fake AERMOD replays the stdout, `.out` file, plot files and exit code that the real binary produced. `scripts/record_aermod_fixtures.py` captures them into `tests/fixtures/gui/aermod_recordings/<scenario>/`, alongside a README that names the AERMOD version and build flags. The minimum set of recordings is:
-   - a success, using the reference scenario below;
-   - a fatal error that still exits with code 0 (E480, from `1 ANNUAL` with four days of met data);
-   - a setup error, such as a missing met file;
-   - a slow run, in which the fake pauses between progress lines, for testing progress and cancellation.
+   - a success, using the reference scenario below (`albany_success`);
+   - a fatal error that still exits with code 0 (E480, from `1 ANNUAL` with four days of met data; `albany_e480`);
+   - a setup error, such as a missing met file (`missing_met`, which stops with fatal error E500 and also exits with code 0);
+   - a slow run, in which the fake pauses between progress lines, for testing progress and cancellation. This is an existing recording replayed with a delay between stdout lines (`PYAERMOD_E2E_DELAY`), not a recording of its own.
 
-   New tests may not use hand-written `.out` text.
+   WP-G0 also recorded `aertest`, EPA's AERTEST deck imported and written back by the library, for J5. Before replaying, the fake (`tests/e2e/fake_aermod.py`) checks that the deck the GUI wrote is the recorded deck. It ignores `TITLEONE` and `TITLETWO`, compares met file paths by base name and numbers by value, and otherwise prints a diff and exits with code 2, which fails the journey. New tests may not use hand-written `.out` text.
 4. **Every step leaves a screenshot.** T2 and T3 save a full-page screenshot at each journey step to `test-artifacts/gui/<journey>/NN_<step>.png`. CI uploads them as an artifact so reviewers can see the GUI on every PR. The screenshots in the GUI guide come from this artifact.
 5. **Hidden errors fail the test.** The end-to-end fixture records browser `pageerror` events and console errors, and scans the server log for Python tracebacks when the test ends. Defect D4 appeared only in the server log.
 6. **Every journey starts clean,** with a fresh browser context, a fresh server process and its own working directory.
 
 ### Infrastructure
 
-- `tests/e2e/conftest.py` starts the app on a free port in a subprocess, with `PATH` pointing at the chosen AERMOD (recorded or real) and a temporary home directory. It waits for the port, yields the base URL, and then stops the server and checks its log. It shares one Chromium instance per session. The environment variable `PYAERMOD_E2E_CHROMIUM` overrides the browser path for containers that ship their own Chromium, because Playwright's pinned browser build may not match.
+- `tests/e2e/conftest.py` starts the app on a free port in a subprocess, with `PATH` pointing at the chosen AERMOD (recorded or real) and a temporary home directory. It waits for the port, yields the base URL, and then stops the server and checks its log. It shares one Chromium instance per session. The environment variable `PYAERMOD_E2E_CHROMIUM` overrides the browser path for containers that ship their own Chromium, because Playwright's pinned browser build may not match. To stay within the time budget, the fixture launches the next journey's server while the current journey runs; each journey still gets a process of its own. A journey names the recording its fake AERMOD replays with `@pytest.mark.aermod_recording("albany_e480", delay=...)`, which tier T3 ignores.
 - Register an `e2e` marker in `pytest.ini` and deselect it by default, as `slow` already is. T3 tests skip when no `aermod` binary is on `PATH`, as `test_real_aermod.py` does.
 - Add an `e2e` extra to `pyproject.toml` with `playwright>=1.45`. CI installs the browser with `python -m playwright install --with-deps chromium`.
 - Put page objects in `tests/e2e/pages.py`, one class per step, so journeys read as user actions and survive layout changes. Layout work edits page objects, not journey bodies.
@@ -101,7 +101,9 @@ The tests have four tiers.
 - **Receptors:** polar grid `GRID1` centered at the origin, with 10 rings from 100 m to 1000 m in 100 m steps and 36 radials from 0° in 10° steps.
 - **Run options:** pollutant SO2; averaging periods 1, 3, 24 and PERIOD; `MODELOPT CONC FLAT DFAULT`.
 
-On 2026-09-28, a gfortran `-O2` build of v26135 ran this scenario with 0 fatal errors and 6 warnings. It produced maxima of 76.07952 µg/m³ (1-hour), 59.57654 µg/m³ (3-hour), 16.85665 µg/m³ (24-hour) and 5.40459 µg/m³ (PERIOD), all at receptor (519.62, −300.00). WP-G0 must reproduce these numbers from the binary before pinning them in tests.
+On 2026-09-28, a gfortran `-O2` build of v26135 ran this scenario with 0 fatal errors and 6 warnings. It produced maxima of 76.07952 µg/m³ (1-hour), 59.57654 µg/m³ (3-hour), 16.85665 µg/m³ (24-hour) and 5.40459 µg/m³ (PERIOD), all at receptor (519.62, −300.00). WP-G0 reproduced these numbers exactly from the binary, pinned them in `tests/e2e/reference.py`, and recorded the run in `tests/fixtures/gui/aermod_recordings/albany_success/`.
+
+The receptor grid is the GUI's default polar grid, so the user only adds it. The current GUI cannot set averaging periods (WP-G3), and its default is 1 and ANNUAL, which with four days of met data is the E480 scenario of J2. Until WP-G3 lands, J1 therefore stops at a known gap before its run, and the journeys that need a run through the current GUI use the default periods and the `albany_e480` recording.
 
 | ID | Journey | What the user must see | Tiers |
 |---|---|---|---|
@@ -120,8 +122,10 @@ On 2026-09-28, a gfortran `-O2` build of v26135 ran this scenario with 0 fatal e
 
 Every work package follows the standing rules in `PLAN-code.md`: tests pin the change, gates pass before merge, documentation moves with the code, and commit messages explain why. In addition:
 
-- Each PR flips named journeys from `xfail(strict=True)` to passing and lists them in its description.
-- No PR may add an `xfail` to a journey or loosen a journey's assertions.
+- Journeys mark each step the current GUI cannot perform as a known gap, rather than marking the whole test `xfail(strict=True)`. The step is wrapped in `with known_gap("D2", "Results tab never refreshes after a run"):`, which names a defect (D1 to D4) or the work package that will deliver the missing feature, for example `known_gap("WP-G4", "no pre-run ANNUAL warning")`. If the block fails with an assertion or a Playwright timeout, the journey stops there and is reported as xfailed with the gap's name and reason, so every step before the gap is still checked. If the block passes, the journey fails with "known gap … appears fixed", which obliges the PR that fixed it to remove the `known_gap`. A failure outside a gap block is a real failure. Steps inside a gap use short timeouts, `tests/e2e/harness.py` implements the mechanism, and `pytest -rxX` lists the gap at which each journey stopped.
+- A journey with several independent gaps is split into several tests in the same file, because a known gap stops its test and every gap must be exercised.
+- Each PR removes the known gaps it closes, lets those journeys pass, and lists them in its description.
+- No PR may add a known gap to a journey or loosen a journey's assertions.
 - Each PR description links the screenshot artifact from its CI run.
 
 ### WP-G0: Journey harness and failing specifications
@@ -130,10 +134,10 @@ This package comes first and blocks every other GUI package except WP-G1.
 
 1. Build the T2 infrastructure described above: the conftest, page objects, marker, extra, Makefile target and CI job with the screenshot upload.
 2. Build AERMOD with `scripts/build_aermod.sh`, write `scripts/record_aermod_fixtures.py`, and record the four scenarios. Reproduce the reference scenario's numbers from the binary.
-3. Write journeys J1 to J9 against the current GUI. Mark journeys that fail because of a known defect as `xfail(strict=True, reason="D2: ...")`, naming the defect. Page objects may be thin now and will be re-pointed when the layout changes; journey bodies should describe user intent and should not need rewriting later.
+3. Write journeys J1 to J9 against the current GUI. Wrap each step that the current GUI cannot perform in `known_gap(...)`, naming the defect or the work package, as described at the start of "Work packages." Every step before a journey's first gap must pass on the current GUI, which is what proves the harness works. Page objects may be thin now and will be re-pointed when the layout changes; journey bodies should describe user intent and should not need rewriting later.
 4. Delete `tests/test_gui_apptest.py`, which tests the removed Streamlit GUI.
 
-**Acceptance:** `make test-gui-e2e` runs the journeys in under three minutes. Each of D1 to D4 has at least one strict `xfail` that names it, and CI uploads the screenshots.
+**Acceptance:** `make test-gui-e2e` runs the journeys in under three minutes. Each of D1 to D4 has at least one known gap that names it and that the current GUI reaches, and CI uploads the screenshots.
 
 ### WP-G1: Honest run status in the library
 
@@ -158,7 +162,7 @@ This package starts after WP-G0. It is the foundation for everything that follow
 5. Keep the current tab layout for now so that the diff stays reviewable; the new layout is WP-G3's job.
 6. Remove `_render_results` and the state-only assertions from the T1 tests.
 
-**Acceptance:** J3, J4 and J8 pass, and J1's Results step passes with a recorded run. No test calls `render()` directly.
+**Acceptance:** J3, J4 and J8 pass, and J1's Results step passes with a recorded run (`test_j01_results_follow_the_latest_run`, whose D2 gap WP-G2 removes). No test calls `render()` directly.
 
 ### WP-G3: Workflow shell and forms
 
@@ -218,7 +222,7 @@ This table lets agents work in parallel without merge conflicts. Where two packa
 
 | Package | Owns | Leaves alone |
 |---|---|---|
-| WP-G0 | `tests/e2e/`, `tests/fixtures/gui/`, `scripts/record_aermod_fixtures.py`, the `pytest.ini` marker, the `e2e` extra, the Makefile targets and the `gui-e2e` CI job | Everything under `src/` |
+| WP-G0 | `tests/e2e/`, `tests/fixtures/gui/`, `scripts/record_aermod_fixtures.py`, the `pytest.ini` marker, the `e2e` extra, the Makefile targets, the `gui-e2e` CI job and `gui_e2e_real.yml` | Everything under `src/` |
 | WP-G1 | `runner.py`, the runner tests and `tests/test_real_aermod.py` | `gui_v2/` |
 | WP-G2 | `gui_v2/session.py`, `state.py`, `app.py`, `pages/project.py`, and the binding code in every page | The page layout |
 | WP-G3 | `app.py` (shell), `_form.py`, and `pages/` for Project, Sources, Receptors, Meteorology and Output; `tests/e2e/pages.py` | `pages/run.py` and `pages/results.py` |
@@ -242,7 +246,7 @@ WP-G1 must merge before WP-G4 and WP-G5, because both display its messages. The 
 ## Definition of done
 
 - All ten journeys pass on T2 in the default CI, and J1, J2 and J5 pass on T3.
-- No strict `xfail` remains in `tests/e2e/`.
+- No `known_gap` remains in `tests/e2e/`.
 - Each of D1 to D4 has a test that fails if the defect is reintroduced.
 - The GUI guide's screenshots come from the latest CI artifact.
 
@@ -255,3 +259,6 @@ These notes save the next agent time in a fresh container.
 - `pytest.ini` adds coverage flags, so run ad hoc selections with `-o addopts=""` when `pytest-cov` is not installed.
 - NiceGUI's `ui.upload` does not send a selected file until its upload button is clicked, unless `auto_upload=True` is set.
 - The run in the walkthrough finished in 0.1 s, so real-binary journeys are cheap. Their cost is building AERMOD; `real_aermod.yml` already caches the EPA source archive that the build downloads.
+- AERMOD also exits with code 0 when a met file is missing: it stops during setup with fatal error E500. Defect D1 therefore covers setup errors as well, and J2 checks both.
+- A GUI server started from a test must not inherit `PYTEST_CURRENT_TEST`, or NiceGUI switches to its own test mode and refuses to start. A temporary `HOME` also hides packages installed in the user site-packages unless `PYTHONUSERBASE` is kept. `tests/e2e/harness.py` handles both.
+- `AERMODOutputParser` reports an ANNUAL maximum for the reference run, which has no ANNUAL period, because it matches the word ANNUAL in warning W361 and then reads the PERIOD table. The Results step (WP-G5) must not show that entry, and the parser needs its own fix.

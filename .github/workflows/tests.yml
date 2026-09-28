@@ -112,3 +112,41 @@ jobs:
       - name: Run core test suite against minimum versions
         # Coverage is gated on the main matrix; here only pass/fail matters.
         run: pytest --tb=short -q -p no:cacheprovider --no-cov
+
+  gui-e2e:
+    # The GUI's end-to-end journeys (PLAN-gui.md, tier T2): Chromium drives
+    # a real GUI server, and AERMOD is replayed from the recordings in
+    # tests/fixtures/gui/aermod_recordings. A step the current GUI cannot
+    # do is a known gap and shows as xfailed; -rxX lists each one with the
+    # gap it names. A known gap that starts passing fails the job, so the
+    # PR that fixes it must flip the journey. Same as `make test-gui-e2e`.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod with the GUI and Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,gui,e2e]"
+
+      - name: Install Chromium for Playwright
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run the GUI journeys
+        run: pytest -o addopts="" -p no:cacheprovider -m e2e tests/e2e -rxX
+
+      - name: Upload the screenshot of every journey step
+        # Reviewers look at these on every PR, and the GUI guide's
+        # screenshots come from them (PLAN-gui.md, rule 4).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-e2e-screenshots
+          path: test-artifacts/gui
+          if-no-files-found: warn
