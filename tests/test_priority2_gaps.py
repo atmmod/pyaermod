@@ -12,6 +12,7 @@ Covers:
 
 import subprocess
 from concurrent.futures import Future
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import MagicMock, patch
 
@@ -426,9 +427,11 @@ class TestRunnerPathSearch:
         inp = tmp_path / "test.inp"
         inp.write_text("CO STARTING\nCO FINISHED")
 
-        # Create the output file that AERMOD would produce
+        # Create the output file that AERMOD would produce: that of a real,
+        # successful run (tests/fixtures/runner/README.md)
         out_file = tmp_path / "test.out"
-        out_file.write_text("AERMOD output")
+        success_out = Path(__file__).parent / "fixtures" / "runner" / "success" / "aermod.out"
+        out_file.write_bytes(success_out.read_bytes())
 
         runner = AERMODRunner(executable_path=str(fake_exe), log_level="DEBUG")
         with patch("pyaermod.runner.subprocess.run") as mock_run:

@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- **Runs that AERMOD aborted were reported as successful.** AERMOD
+  exits with code 0 even after a fatal error, and `AERMODRunner.run`
+  counted exit code 0 plus an `.out` file as success. A deck with
+  `AVERTIME 1 ANNUAL` and four days of met data stops with
+  `MX E480 ... Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave` and
+  came back with `success=True`, and the GUI said "Run succeeded"; a
+  met file that does not exist (`ME E500`, at setup) did the same.
+  `success` now also requires AERMOD's own
+  `*** AERMOD Finishes Successfully ***` line in the `.out` file and no
+  fatal errors in its message summary. `run_batch`, `BatchRunner`,
+  `pyaermod run` and `python -m pyaermod.runner` inherit the rule. **Code
+  that relied on the old rule will now see those runs as failures, which
+  they were.** The `error_message` of a failed run now names AERMOD's
+  first fatal error, such as `E480 MAIN: Less than 1yr for MULTYEAR,
+  MAXDCONT or ANNUAL Ave NUMYRS=0`, instead of a generic string.
+  `AERMODRunResult` now carries the parsed messages (`messages`, a list
+  of the new `AERMODMessage` with severity, pathway, code, line, routine,
+  text and detail), AERMOD's totals (`message_counts`, `fatal_count`,
+  `warning_count`, `informational_count`) and `finished_successfully`;
+  `parse_aermod_messages()` reads the same list from any `.out` file.
+  Counts come from AERMOD's "A Total of" lines because the lists stop at
+  999 entries. `tests/test_runner_status.py` pins the rule against three
+  runs of the real binary recorded in `tests/fixtures/runner/`, and
+  `tests/test_real_aermod.py` repeats it against the binary itself; all
+  53 `.out` files of EPA's v26135 reference set, written on Windows with
+  CRLF line ends, read as successes with no fatal errors. That
+  file's success check also looked for any `FINISHES SUCCESSFULLY`, which
+  the `*** SETUP Finishes Successfully ***` line of a failed run
+  satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
 
 ## [2.2.0] - YYYY-MM-DD
 
