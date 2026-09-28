@@ -140,6 +140,7 @@ from .input_generator import (
     LineSource,
     MaxDailyContribution,
     MaxDailyFile,
+    MaxiFile,
     MeteorologyPathway,
     MultiYear,
     NOxBackground,
@@ -162,6 +163,8 @@ from .input_generator import (
     StreetCanyon,
     TemporalValues,
     TerrainType,
+    UnparsedLine,
+    UrbanArea,
     VegetativeBarrier,
     VolumeSource,
 )
@@ -323,7 +326,7 @@ __all__ = [
     "SourceGroupDefinition", "ChemistryMethod", "ChemistryOptions", "OzoneData",
     "BackgroundSpec", "TemporalValues", "NOxBackground",
     "SaveFile", "InitFile", "MultiYear", "GasDepositionDefaults",
-    "MaxDailyFile", "MaxDailyContribution",
+    "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea", "UnparsedLine",
     "EmissionUnits", "SolidBarrier", "SolidBarrierSegment", "VegetativeBarrier",
     # validation
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",

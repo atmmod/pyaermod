@@ -107,16 +107,17 @@ class TestBgNo2OlmPpbInputFile:
         assert project.control.pollutant_id.value == "NO2"
 
     def test_polar_grid_captured(self):
-        """Note: AERMOD's GRIDPOLR DIST / GDIR have two syntactic forms
-        (init/num/delta vs. N/explicit-list); the EPA file uses a
-        terser variant. We assert the grid parses and we capture at
-        least the origin + name rather than exact field assignments."""
+        """GRIDPOLR POL1 DIST 10 100 / GDIR 36 10 10: two rings and 36
+        directions from 10 degrees every 10 (reset.f POLDST / GENPOL)."""
         project = read_aermod_input(self.INP)
         grids = project.receptors.polar_grids
         assert len(grids) == 1
         assert grids[0].grid_name == "POL1"
         assert grids[0].x_origin == 0.0
         assert grids[0].y_origin == 0.0
+        assert grids[0].distances == [10.0, 100.0]
+        assert (grids[0].dir_num, grids[0].dir_init, grids[0].dir_delta) == (36, 10.0, 10.0)
+        assert grids[0].receptor_count == 72
 
     def test_plotfile_captured(self):
         project = read_aermod_input(self.INP)

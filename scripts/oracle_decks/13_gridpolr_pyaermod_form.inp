@@ -1,0 +1,40 @@
+** Probe: the GRIDPOLR block pyaermod's PolarGrid writer emitted before
+** this branch (DIST init num delta, GDIR init num delta). Setup pass only.
+** AERMOD said: RE E185 (no receptors, NUMREC=0) and RE W250 (duplicate
+** DIST). GENPOL reads GDIR as num/init/delta, so 0.0 directions were
+** generated; POLDST reads every DIST field as a ring, so 100/10/100 was
+** three rings with a duplicate. The block pyaermod wrote had no receptors.
+CO STARTING
+   TITLEONE  oracle 13: GRIDPOLR as pyaermod 2.0 writes it
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  13_gridpolr_pyaermod_form.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  POL1     STA
+   GRIDPOLR  POL1     ORIG        0.00       0.00
+   GRIDPOLR  POL1     DIST      100.00    10   100.00
+   GRIDPOLR  POL1     GDIR     0.0    36   10.0
+   GRIDPOLR  POL1     END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

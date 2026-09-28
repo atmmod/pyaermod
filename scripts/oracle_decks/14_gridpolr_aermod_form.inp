@@ -1,0 +1,44 @@
+** Probe: the forms reset.f parses (POLDST list, GENPOL num/init/delta,
+** RADRNG list) with the network ID given on every line. Setup pass only.
+** AERMOD said: accepted, 120 receptors (3 x 36 + 3 x 4); RE W250 on POL2
+** because 100/10/100 is three rings of which two coincide. ORIG STACK1 is
+** a legal origin (POLORG resolves a source ID).
+CO STARTING
+   TITLEONE  oracle 14: GRIDPOLR DIST list, GDIR num init delta, DDIR list
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  14_gridpolr_aermod_form.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  POL1  STA
+   GRIDPOLR  POL1  ORIG  0.  0.
+   GRIDPOLR  POL1  DIST  100.  200.  300.
+   GRIDPOLR  POL1  GDIR  36  10.  10.
+   GRIDPOLR  POL1  END
+   GRIDPOLR  POL2  STA
+   GRIDPOLR  POL2  ORIG  STACK1
+   GRIDPOLR  POL2  DIST  100.  10  100.
+   GRIDPOLR  POL2  DDIR  0.  90.  180.  270.
+   GRIDPOLR  POL2  END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED

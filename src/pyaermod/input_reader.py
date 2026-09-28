@@ -7,41 +7,55 @@ so a round-trip is possible:
     >>> project = read_aermod_input("facility.inp")
     >>> project.write("facility_clone.inp")
 
-Supported pathway keywords:
-    CO: TITLEONE, TITLETWO, MODELOPT (incl. OLM/PVMRM/ARM2/GRSM/NOCHKD),
-        AVERTIME, POLLUTID, RUNORNOT, ELEVUNIT, FLAGPOLE, URBANOPT,
-        LOW_WIND, HALFLIFE, DCAYCOEF, NO2STACK, NO2EQUIL, OZONEVAL,
+Supported pathway keywords (stored on the project model and written back):
+    CO: TITLEONE, TITLETWO, MODELOPT (incl. OLM/PVMRM/ARM2/GRSM/TTRM/TTRM2,
+        ALPHA/BETA/PSDCREDIT, FLAT/ELEV and the FLAT ELEV pair, any other
+        option kept in ``extra_model_options``), AVERTIME, POLLUTID,
+        RUNORNOT, ELEVUNIT, FLAGPOLE, URBANOPT (one or several areas),
+        LOW_WIND, HALFLIFE, DCAYCOEF, NO2STACK, OZONEVAL,
         OZONEFIL, O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE,
         NOX_VALS, NOX_UNIT, NOXSECTR, GASDEPDF, GASDEPVD, GDSEASON,
-        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, ERRORFIL, DEBUGOPT
+        GDLANUSE, SAVEFILE, INITFILE, MULTYEAR, EVENTFIL (file only)
     SO: LOCATION (POINT/AREA/VOLUME/LINE/RLINE/RLINEXT/OPENPIT/AREACIRC/
         AREAPOLY/BUOYLINE), SRCPARAM, AREAVERT, BLPINPUT, BLPGROUP,
-        SRCGROUP, OLMGROUP, PSDGROUP, NO2RATIO, BACKGRND, BGSECTOR,
-        BACKUNIT, EMISUNIT, CONCUNIT, DEPOUNIT, GASDEPOS, PARTDIAM,
+        SRCGROUP, OLMGROUP, PSDGROUP, NO2RATIO, BACKGRND (value forms),
+        BGSECTOR, EMISUNIT, CONCUNIT, DEPOUNIT, GASDEPOS, PARTDIAM,
         MASSFRAX, PARTDENS, URBANSRC, BUILDHGT, BUILDWID, BUILDLEN,
-        XBADJ, YBADJ, RBARRIER, RDEPRESS, SBARRIER, VBARRIER, RLEMCONV,
-        EMISFACT, HOUREMIS, INCLUDED, ELEVUNIT
-    RE: GRIDCART (XYINC), GRIDPOLR, DISCCART, EVALCART, DISCPOLR,
-        ELEVUNIT, INCLUDED
-    ME: SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND,
-        WDROTATE, SITEDATA
+        XBADJ, YBADJ, RBARRIER, RDEPRESS, SBARRIER, VBARRIER, RLEMCONV
+    RE: GRIDCART (XYINC or XPNTS/YPNTS, ELEV/HILL/FLAG rows), GRIDPOLR
+        (ORIG by coordinates or source, DIST list, GDIR num/init/delta or
+        DDIR list, ELEV/HILL/FLAG rows), DISCCART, ELEVUNIT
+    ME: SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND (with
+        or without hours), WDROTATE
     OU: RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE, PLOTFILE,
         POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT
 
-Unknown keywords are collected in :attr:`AERMODProject.unparsed_lines`
-and preserved on write via the project's writer, but are not round-
-tripped structurally. Opening a file this reader doesn't fully
-understand therefore still succeeds; it just won't produce a
-byte-identical output when rewritten.
+Every other line -- a keyword with no field above (EMISFACT, HOUREMIS,
+INCLUDED, BACKUNIT, SO ELEVUNIT, EVALCART, DISCPOLR, SITEDATA, ERRORFIL,
+DEBUGOPT, NO2EQUIL, RANKFILE, SEASONHR, ...), a form of a known keyword
+the model cannot hold (a BACKGRND hourly file, a PLOTFILE with a lower
+rank or a unit, a second POSTFILE, the definition lines of a source type
+the reader does not construct), or an inline EV pathway -- is kept
+verbatim in :attr:`AERMODProject.unparsed_lines` (see
+:mod:`pyaermod.unparsed`), reported through :mod:`logging` as one
+warning per pathway and keyword, and written back into its pathway by
+:meth:`AERMODProject.to_aermod_input` unless ``preserve_unparsed=False``.
+Nothing is dropped silently, so a deck this reader does not fully
+understand still opens and, rewritten, still carries every line; what it
+does not do is produce byte-identical text.
 
-The reader is permissive about whitespace but strict about pathway
-order: each pathway must appear once, inside ``XX STARTING`` and
-``XX FINISHED`` markers.
+Layout follows AERMOD's ``setup.f``: the first line of the deck fixes
+the pathway column, the keyword occupies the eight columns after it, and
+a line blank through the keyword columns continues the previous keyword
+(``GRIDPOLR POL1 STA`` followed by ``POL1 DIST 100. 1000.``). The reader
+is otherwise permissive about whitespace but strict about pathway order:
+each pathway must appear once, inside ``XX STARTING`` and ``XX FINISHED``
+markers.
 """
-
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,6 +83,7 @@ from .input_generator import (
     LineSource,
     MaxDailyContribution,
     MaxDailyFile,
+    MaxiFile,
     MeteorologyPathway,
     MultiYear,
     NOxBackground,
@@ -89,10 +104,14 @@ from .input_generator import (
     SourcePathway,
     TemporalValues,
     TerrainType,
+    UrbanArea,
     VegetativeBarrier,
     VolumeSource,
 )
 from .pathways import TEMPORAL_FLAG_COUNTS
+from .unparsed import UnparsedLine, unparsed_summary
+
+logger = logging.getLogger(__name__)
 
 #: Leading digits of a rank token, so "8TH" reads as 8.
 _LEADING_DIGITS_RE = re.compile(r"\d+")
@@ -111,9 +130,59 @@ PATHWAYS = ("CO", "SO", "RE", "ME", "OU", "EV")
 
 
 @dataclass
+class _Record:
+    """One runstream line with its pathway/keyword columns resolved.
+
+    ``fields`` are the data tokens as written (no ``N*V`` expansion),
+    with a leading pathway code and the keyword removed; ``continuation``
+    marks a line whose keyword columns were blank, so ``keyword`` was
+    inherited from the previous record.
+    """
+    lineno: int
+    keyword: str
+    fields: List[str]
+    raw: str
+    continuation: bool = False
+
+
+@dataclass
 class _PathwayBlock:
     name: str
     lines: List[Tuple[int, str]] = field(default_factory=list)
+    records: List[_Record] = field(default_factory=list)
+
+    def record(self, lineno: int) -> _Record:
+        for rec in self.records:
+            if rec.lineno == lineno:
+                return rec
+        raise KeyError(lineno)
+
+
+def _keyword_column(text: str) -> int:
+    """0-based column where the pathway field starts.
+
+    AERMOD (setup.f DEFINE) fixes the layout from the first line of the
+    deck: the pathway field is the first non-blank column if that is one
+    of columns 1-4, the keyword field is the eight columns starting three
+    to its right, and the data fields begin twelve columns to its right.
+    """
+    for raw in text.splitlines():
+        if raw.strip():
+            indent = len(raw) - len(raw.lstrip())
+            return indent if indent <= 3 else 0
+    return 0
+
+
+def _is_continuation(raw: str, locb: int, pathway: str) -> bool:
+    """True when the keyword columns are blank (setup.f EXKEY inherits).
+
+    The pathway columns may repeat the pathway code or be blank as well.
+    A keyword written a column early (``' SUMMFILE'``) is *not* a
+    continuation: AERMOD reads it as a pathway (E100), and pyaermod's
+    tolerant tokenizer takes it as the keyword.
+    """
+    kw_field = raw[locb + 3:locb + 11]
+    return kw_field.strip() == "" and raw[:locb + 3].strip().upper() in ("", pathway)
 
 
 def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
@@ -124,6 +193,8 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
     """
     blocks: Dict[str, _PathwayBlock] = {}
     current: Optional[_PathwayBlock] = None
+    locb = _keyword_column(text)
+    prev_keyword: Optional[str] = None
 
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
@@ -139,6 +210,7 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
                     f"{current.name} FINISHED"
                 )
             current = _PathwayBlock(name=tokens[0])
+            prev_keyword = None
             continue
         if len(tokens) >= 2 and tokens[0] in PATHWAYS and tokens[1].upper() == "FINISHED":
             if current is None or current.name != tokens[0]:
@@ -154,6 +226,27 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
                 f"line {lineno}: content outside any pathway block: {line!r}"
             )
         current.lines.append((lineno, line))
+
+        # Resolve the keyword the way AERMOD does: strip a repeated
+        # pathway code, then inherit the previous keyword when the
+        # keyword columns are blank.
+        toks = tokens
+        if toks[0].upper() == current.name and len(toks) > 1:
+            toks = toks[1:]
+        continuation = (
+            prev_keyword is not None
+            and _is_continuation(raw.rstrip("\n"), locb, current.name)
+        )
+        if continuation:
+            keyword, fields = prev_keyword, toks
+        else:
+            keyword, fields = toks[0].upper(), toks[1:]
+        assert keyword is not None
+        current.records.append(_Record(
+            lineno=lineno, keyword=keyword, fields=fields,
+            raw=raw.rstrip(), continuation=continuation,
+        ))
+        prev_keyword = keyword
 
     if current is not None:
         raise ValueError(f"{current.name} STARTING without FINISHED")
@@ -185,25 +278,26 @@ def _expand_shorthand(tokens: List[str]) -> List[str]:
 def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
     """Return (keyword, tokens, lineno) tuples for a pathway block.
 
-    Handles two AERMOD conventions inside a block:
+    Handles three AERMOD conventions inside a block:
     - Lines may start with the pathway code (e.g. ``SO BUILDHGT ...``);
       the prefix is stripped so the canonical keyword is the first
       output token.
+    - A line whose keyword columns are blank continues the previous
+      keyword (``GRIDPOLR POL1 STA`` followed by ``POL1 DIST ...``); the
+      inherited keyword is reported.
     - Repeated values in shorthand form (``36*50.``) are expanded so
       downstream parsers see the full list.
     """
-    out: List[Tuple[str, List[str], int]] = []
-    pathway_upper = block.name.upper()
-    for lineno, line in block.lines:
-        toks = line.split()
-        if not toks:
-            continue
-        # Strip leading pathway code if present (e.g. "SO BUILDHGT ..." -> "BUILDHGT ...")
-        if toks[0].upper() == pathway_upper and len(toks) > 1:
-            toks = toks[1:]
-        toks = _expand_shorthand(toks)
-        out.append((toks[0].upper(), toks[1:], lineno))
-    return out
+    return [
+        (rec.keyword, _expand_shorthand(rec.fields), rec.lineno)
+        for rec in block.records
+    ]
+
+
+def _drop(dropped: Optional[List[int]], lineno: int) -> None:
+    """Record a line the parser could not represent structurally."""
+    if dropped is not None:
+        dropped.append(lineno)
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +309,8 @@ _CHEM_METHODS: Dict[str, ChemistryMethod] = {
     "PVMRM": ChemistryMethod.PVMRM,
     "ARM2": ChemistryMethod.ARM2,
     "GRSM": ChemistryMethod.GRSM,
+    "TTRM": ChemistryMethod.TTRM,
+    "TTRM2": ChemistryMethod.TTRM2,
 }
 
 
@@ -267,7 +363,8 @@ def _parse_background_keyword(
         spec.varying.values.extend(values)
 
 
-def _parse_control(block: _PathwayBlock) -> ControlPathway:
+def _parse_control(block: _PathwayBlock,
+                   dropped: Optional[List[int]] = None) -> ControlPathway:
     title_one = title_two = ""
     avertime: List[str] = []
     pollutant = "OTHER"
@@ -283,6 +380,11 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     urban_pop: Optional[float] = None
     urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
+    saw_terrain = False
+    extra_opts: List[str] = []
+    urban_lines: List[List[str]] = []
+    run_model = True
+    eventfil: Optional[str] = None
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
     chem_method: Optional[ChemistryMethod] = None
@@ -305,7 +407,7 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
     init_file: Optional[InitFile] = None
     multiyear: Optional[MultiYear] = None
 
-    for kw, toks, _ln in _group_keywords(block):
+    for kw, toks, ln in _group_keywords(block):
         # Titles: join tokens with a single space, mirroring AERMOD's
         # free-form field parsing (leading/trailing/duplicate whitespace
         # is not significant). The writer normalizes identically
@@ -326,11 +428,20 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                 elif up == "WDEP":
                     calc_wdep = True
                 elif up == "FLAT":
-                    terrain = TerrainType.FLAT
+                    # coset.f MODOPT: FLAT after ELEV is ignored (W206);
+                    # FLAT then ELEV means flat sources in elevated
+                    # terrain (FLATSRCS).
+                    if terrain == TerrainType.FLAT or not saw_terrain:
+                        terrain = TerrainType.FLAT
+                    saw_terrain = True
                 elif up in ("ELEV", "ELEVATED"):
-                    terrain = TerrainType.ELEVATED
+                    terrain = (TerrainType.FLATSRCS if saw_terrain and terrain == TerrainType.FLAT
+                               else TerrainType.ELEVATED)
+                    saw_terrain = True
                 elif up == "FLATSRCS":
+                    # pyaermod's own spelling (not an AERMOD token).
                     terrain = TerrainType.FLATSRCS
+                    saw_terrain = True
                 elif up == "DFAULT":
                     reg_default = True
                 elif up in _CHEM_METHODS:
@@ -341,14 +452,17 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                     beta = True
                 elif up == "PSDCREDIT":
                     psd_credit = True
-                elif up == "NOCHKD":
-                    pass  # Recognized; no structural field
+                else:
+                    # SCREEN, FASTALL, NOCHKD, ... have no field of
+                    # their own; kept so the deck rewrites with the
+                    # same options.
+                    extra_opts.append(up)
         elif kw == "AVERTIME":
             avertime = [t.upper() for t in toks]
         elif kw == "POLLUTID":
             pollutant = toks[0].upper() if toks else "OTHER"
         elif kw == "RUNORNOT":
-            pass  # Presence implies RUN; NOT means skip, handled implicitly
+            run_model = not (toks and toks[0].upper() == "NOT")
         elif kw == "HALFLIFE":
             half_life = float(toks[0])
         elif kw == "DCAYCOEF":
@@ -357,40 +471,15 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
             elev_units = toks[0].upper() if toks else "METERS"
         elif kw == "FLAGPOLE":
             flagpole = float(toks[0]) if toks else None
-        elif kw == "URBANOPT":
-            # coset.f URBOPT: "population [name] [roughness]" for a single
-            # urban area; "urbanid population [name] [roughness]" when the
-            # deck has several URBANOPT cards. A numeric first field is
-            # the population, otherwise it is the area ID, which is kept
-            # as urban_option in place of the descriptive name. Only one
-            # area is modelled; a later card overrides an earlier one.
-            fields = list(toks)
-            urban = None
-            urban_pop = None
-            urban_z0 = None
-            try:
-                urban_pop = float(fields[0])
-                fields = fields[1:]
-                if fields:
-                    urban = fields.pop(0)
-            except (ValueError, IndexError):
-                if fields:
-                    urban = fields.pop(0)
-                if fields:
-                    with contextlib.suppress(ValueError):
-                        urban_pop = float(fields.pop(0))
-                if fields:
-                    fields.pop(0)  # descriptive name; the ID is kept
-            if fields:
-                with contextlib.suppress(ValueError):
-                    urban_z0 = float(fields[0])
+        elif kw == "URBANOPT" and toks:
+            urban_lines.append(toks)
         elif kw == "LOW_WIND":
             low_wind = toks[0] if toks else None
         elif kw == "NO2STACK" and toks:
             with contextlib.suppress(ValueError):
                 no2_ratio = float(toks[0])
-        elif kw == "NO2EQUIL":
-            pass  # Recognized; equilibrium NO2/NOx ratio has no structural field yet
+        elif kw == "EVENTFIL" and len(toks) == 1:
+            eventfil = toks[0]
         elif kw == "O3VALUES" and toks and toks[0].upper() == "UNIFORM":
             # Not an AERMOD form (O3VALS rejects the flag, E203) but what
             # pyaermod < 2.1 wrote for a uniform value; read it as one.
@@ -456,8 +545,42 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
                     init_file=rest[1] if len(rest) > 1 else None,
                     h6h=h6h,
                 )
-        elif kw in ("ERRORFIL", "DEBUGOPT"):
-            pass  # Recognized; no structural field
+        else:
+            # ERRORFIL, DEBUGOPT, NO2EQUIL, ARMRATIO, an EVENTFIL with an
+            # output option, ... : kept verbatim in unparsed_lines.
+            _drop(dropped, ln)
+
+    # URBANOPT: coset.f decides the field layout from the number of
+    # cards (PREURB sets L_MULTURB when there is more than one):
+    #   one card:   pop [name [z0]]
+    #   several:    id pop [name [z0]]
+    # A single card written ID-first (what pyaermod < 2.1 emitted, E208
+    # in AERMOD) is still read; it is written back as pop name.
+    urban_areas: List[UrbanArea] = []
+    multi_urban = len(urban_lines) > 1
+    for fields in urban_lines:
+        uid: Optional[str] = None
+        rest = fields
+        if multi_urban or (len(fields) > 1 and not _is_number(fields[0])
+                           and _is_number(fields[1])):
+            uid, rest = fields[0], fields[1:]
+        if not rest:
+            continue
+        try:
+            population = float(rest[0])
+        except ValueError:
+            continue
+        area = UrbanArea(population=population, urban_id=uid,
+                         name=rest[1] if len(rest) > 1 else None)
+        if len(rest) > 2:
+            with contextlib.suppress(ValueError):
+                area.roughness = float(rest[2])
+        urban_areas.append(area)
+    if urban_areas:
+        first_area = urban_areas[0]
+        urban = first_area.urban_id or first_area.name
+        urban_pop = first_area.population
+        urban_z0 = first_area.roughness
 
     # Build ChemistryOptions if any chemistry-related keywords were found
     chemistry: Optional[ChemistryOptions] = None
@@ -516,10 +639,14 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         urban_option=urban,
         urban_population=urban_pop,
         urban_roughness=urban_z0,
+        urban_areas=urban_areas,
         low_wind_option=low_wind,
         alpha=alpha,
         beta=beta,
         psd_credit=psd_credit,
+        extra_model_options=extra_opts,
+        run_model=run_model,
+        eventfil=eventfil,
         chemistry=chemistry,
         gas_deposition_defaults=gas_defaults,
         gas_deposition_velocity=gas_vd,
@@ -529,6 +656,14 @@ def _parse_control(block: _PathwayBlock) -> ControlPathway:
         init_file=init_file,
         multiyear=multiyear,
     )
+
+
+def _is_number(tok: str) -> bool:
+    try:
+        float(tok)
+    except ValueError:
+        return False
+    return True
 
 
 def _coerce_pollutant(name: str) -> Union[PollutantType, str]:
@@ -607,7 +742,8 @@ def _floats(toks: List[str]) -> Optional[List[float]]:
         return None
 
 
-def _parse_sources(block: _PathwayBlock) -> SourcePathway:
+def _parse_sources(block: _PathwayBlock,
+                   dropped: Optional[List[int]] = None) -> SourcePathway:
     # LOCATION gives us each source's type and coordinates; SRCPARAM fills
     # in emission + physical parameters. Building-downwash keywords
     # (BUILDHGT, BUILDWID, ...) may appear on multiple lines per source
@@ -649,14 +785,19 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     bg_sectors: List[BackgroundSector] = []
     bg_sector_values: Dict[Tuple[int, str], float] = {}
 
-    for kw, toks, _ln in _group_keywords(block):
+    saw_srcgroup = False   # any SRCGROUP or PSDGROUP line
+    saw_all_group = False  # a SRCGROUP ALL line, bare or with members
+
+    for kw, toks, ln in _group_keywords(block):
         if kw == "LOCATION":
             if len(toks) < 4:
+                _drop(dropped, ln)
                 continue
             sid, stype = toks[0], toks[1].upper()
             x, y = float(toks[2]), float(toks[3])
             src_types[sid] = stype
             locs.setdefault(sid, {})
+            locs[sid].setdefault("_lines", []).append(ln)
             locs[sid]["x_coord"] = x
             locs[sid]["y_coord"] = y
             locs[sid]["z_elev"] = 0.0
@@ -687,12 +828,15 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                     locs[sid]["_flat_source"] = True
         elif kw == "SRCPARAM":
             if not toks:
+                _drop(dropped, ln)
                 continue
             sid = toks[0]
             params = _floats(toks[1:])
             if params is None:
+                _drop(dropped, ln)
                 continue
             locs.setdefault(sid, {})["params"] = params
+            locs[sid].setdefault("_lines", []).append(ln)
         elif kw in _BUILDING_KW_TO_FIELD:
             # Accumulate values across multiple BUILDHGT/WID/LEN/XBADJ/YBADJ lines
             if not toks:
@@ -704,6 +848,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             field_name = _BUILDING_KW_TO_FIELD[kw]
             bucket = locs.setdefault(sid, {}).setdefault("_building", {})
             bucket.setdefault(field_name, []).extend(values)
+            locs[sid].setdefault("_lines", []).append(ln)
         elif kw == "AREAVERT":
             # AREAVERT srcid x1 y1 x2 y2 ...  -- may repeat for one source,
             # any number of coordinate pairs to a line (ARVERT reads
@@ -750,6 +895,9 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             # writer from the sources list, and has no explicit members.
             # "SRCGROUP ALL BACKGROUND" is kept: the BACKGROUND flag is a
             # field of the ALL card itself.
+            saw_srcgroup = True
+            if grp_name.upper() == "ALL":
+                saw_all_group = True
             if grp_name.upper() == "ALL" and not members:
                 continue
             src_groups.setdefault(grp_name, []).extend(members)
@@ -757,6 +905,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             if toks:
                 olm_groups.setdefault(toks[0], []).extend(toks[1:])
         elif kw == "PSDGROUP":
+            saw_srcgroup = True
             if toks:
                 psd_groups.setdefault(toks[0].upper(), []).extend(toks[1:])
         elif kw == "NO2RATIO":
@@ -852,7 +1001,9 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                     value = float(toks[1])
                     bg_period_values[toks[0].upper()] = value
                 except (ValueError, IndexError):
-                    pass  # File-based background; not stored structurally
+                    # File-based background (BACKGRND HOURLY file): no
+                    # structural field, kept verbatim.
+                    _drop(dropped, ln)
         elif kw == "BGSECTOR":
             # BGSECTOR <dir1> <dir2> ...  — sector starting directions (degrees)
             for idx, tok in enumerate(toks, start=1):
@@ -861,7 +1012,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                         sector_id=idx, start_direction=float(tok)
                     ))
         elif kw == "BACKUNIT":
-            pass  # Recognized (PPB/UG/M3); no structural field
+            _drop(dropped, ln)  # Recognized (PPB/UG/M3); no structural field
 
         # ------------------------------------------------------------------
         # Deposition keywords
@@ -886,6 +1037,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             if diameters is None:
                 continue
             part_dep_data.setdefault(sid, {})["diameters"] = diameters
+            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
         elif kw == "MASSFRAX":
             # MASSFRAX srcid f1 f2 f3 ...
             if not toks:
@@ -895,6 +1047,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             if fractions is None:
                 continue
             part_dep_data.setdefault(sid, {})["mass_fractions"] = fractions
+            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
         elif kw == "PARTDENS":
             # PARTDENS srcid r1 r2 r3 ...
             if not toks:
@@ -904,6 +1057,7 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             if densities is None:
                 continue
             part_dep_data.setdefault(sid, {})["densities"] = densities
+            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
 
         # ------------------------------------------------------------------
         # Urban source designation
@@ -917,18 +1071,29 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             # urban ID.
             if not toks:
                 continue
+            urban_members: List[str] = []
             if len(toks) == 1 and toks[0].upper() == "ALL":
                 urban_all = True
             elif len(toks) > 1 and toks[0] not in locs and "-" not in toks[0]:
                 urban_tokens.append((toks[0], toks[1:]))
+                urban_members = toks[1:]
             else:
                 urban_tokens.append((None, toks))
+                urban_members = toks
+            # A source this reader does not construct, or one defined in
+            # an INCLUDED file, keeps its URBANSRC line with its other
+            # definition lines (see the construction loop).
+            for member in urban_members:
+                if "-" not in member:
+                    locs.setdefault(member, {}).setdefault("_lines", []).append(ln)
 
         # ------------------------------------------------------------------
-        # Recognized but not structurally stored
+        # Everything else -- EMISFACT, HOUREMIS, INCLUDED, ELEVUNIT and
+        # the keywords the reader has no branch for -- has no structural
+        # field in SourcePathway and is kept verbatim in unparsed_lines.
         # ------------------------------------------------------------------
-        elif kw in ("EMISFACT", "HOUREMIS", "INCLUDED", "ELEVUNIT"):
-            pass  # Recognized keyword; no structural field in SourcePathway
+        else:
+            _drop(dropped, ln)
 
     # Resolve the keywords whose source field may be a range, now that
     # every source ID is known. BUOYLINE segment IDs count as sources.
@@ -975,7 +1140,15 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     sources: List[Any] = []
     src: Any
     for sid, data in locs.items():
-        stype = src_types.get(sid, "POINT")
+        if sid not in src_types:
+            # SRCPARAM / building / deposition lines for a source this
+            # deck defines elsewhere (an INCLUDED file) or a source-ID
+            # range (PARTDIAM A-Z9999999): nothing to construct, so the
+            # lines are kept verbatim where AERMOD will still read them.
+            for lineno in data.get("_lines", []):
+                _drop(dropped, lineno)
+            continue
+        stype = src_types[sid]
         params = data.get("params", [])
         common = dict(
             source_id=sid,
@@ -1130,6 +1303,17 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
             continue
 
         if src is None:
+            # A LOCATION type this reader does not construct (POINTCAP,
+            # POINTHOR, SWPOINT, ...) or an incomplete definition: the
+            # source's own lines are kept verbatim so the deck still
+            # carries it.
+            for lineno in data.get("_lines", []):
+                _drop(dropped, lineno)
+            logger.warning(
+                "SO source %s (%s) is not modelled by pyaermod; its %d "
+                "definition lines are kept verbatim in unparsed_lines",
+                sid, stype, len(data.get("_lines", [])),
+            )
             continue
 
         # Apply accumulated BUILDHGT/WID/LEN/XBADJ/YBADJ arrays, if any
@@ -1225,6 +1409,11 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
                   for name, members in src_groups.items()]
     pathway = SourcePathway(
         sources=sources, group_definitions=group_defs, background=background,
+        # SRCGROUP ALL is written back when the deck had it, never when
+        # the deck grouped its sources without it, and as the writer
+        # sees fit when the deck defined no SRCGROUP at all.
+        include_all_group=(True if saw_all_group
+                           else False if saw_srcgroup else None),
         psd_groups=[SourceGroupDefinition(group_name=name, member_source_ids=members)
                     for name, members in psd_groups.items()],
         rline_moves_units=rline_moves_units,
@@ -1240,135 +1429,200 @@ def _parse_sources(block: _PathwayBlock) -> SourcePathway:
     return pathway
 
 
-def _parse_receptors(block: _PathwayBlock) -> ReceptorPathway:
+#: Secondary keywords of the two receptor networks (reset.f RECART / REPOLR).
+_CART_SUBKEYS = ("STA", "END", "XYINC", "XPNTS", "YPNTS", "ELEV", "HILL", "FLAG")
+_POLR_SUBKEYS = ("STA", "END", "ORIG", "DIST", "GDIR", "DDIR", "ELEV", "HILL", "FLAG")
+
+
+def _grid_record(
+    toks: List[str], subkeys: Tuple[str, ...], current: Optional[str],
+) -> Optional[Tuple[str, str, List[str]]]:
+    """Split a GRIDCART/GRIDPOLR line into (network, sub-keyword, data).
+
+    reset.f takes a bare sub-keyword in field 3 as belonging to the
+    network being defined (``NETIDT = PNETID``), so ``GRIDPOLR DIST
+    100. 200.`` and ``GRIDPOLR POL1 DIST 100. 200.`` are the same line.
+    """
+    if not toks:
+        return None
+    if toks[0].upper() in subkeys:
+        if current is None:
+            return None
+        return current, toks[0].upper(), toks[1:]
+    if len(toks) >= 2 and toks[1].upper() in subkeys:
+        return toks[0], toks[1].upper(), toks[2:]
+    return None
+
+
+def _rows_to_lists(rows: Dict[int, List[float]]) -> Optional[List[List[float]]]:
+    """``{row: values}`` (1-based rows, reset.f TERHGT) -> list of rows."""
+    if not rows:
+        return None
+    return [rows.get(i, []) for i in range(1, max(rows) + 1)]
+
+
+def _series_summary(values: List[float]) -> Tuple[float, int, float]:
+    """(first, count, mean spacing) describing an explicit list.
+
+    Fills the generator fields beside an explicit list so code that
+    only reads ``x_init``/``x_num``/``x_delta`` (the GUI summary row)
+    still sees the network's extent; the list itself is authoritative.
+    """
+    n = len(values)
+    spacing = (values[-1] - values[0]) / (n - 1) if n > 1 else 0.0
+    return values[0], n, spacing
+
+
+def _parse_receptors(block: _PathwayBlock,
+                     dropped: Optional[List[int]] = None) -> ReceptorPathway:
     carts: Dict[str, Dict[str, Any]] = {}
     polars: Dict[str, Dict[str, Any]] = {}
     discretes: List[DiscreteReceptor] = []
     elev_units = "METERS"
-    last_gridcart: Optional[str] = None
+    current_cart: Optional[str] = None
+    current_polar: Optional[str] = None
 
-    for kw, toks, _ln in _group_keywords(block):
+    for kw, toks, ln in _group_keywords(block):
         if kw == "ELEVUNIT":
             elev_units = toks[0].upper() if toks else "METERS"
 
         elif kw == "GRIDCART":
-            if len(toks) < 2:
+            rec = _grid_record(toks, _CART_SUBKEYS, current_cart)
+            if rec is None:
+                _drop(dropped, ln)
                 continue
-            name = toks[0]
-            action = toks[1].upper()
-            carts.setdefault(name, {"grid_name": name})
-            last_gridcart = name
-            if action == "XYINC" and len(toks) >= 8:
-                carts[name].update(
-                    x_init=float(toks[2]), x_num=int(toks[3]), x_delta=float(toks[4]),
-                    y_init=float(toks[5]), y_num=int(toks[6]), y_delta=float(toks[7]),
+            name, sub, data = rec
+            current_cart = name
+            grid = carts.setdefault(name, {"grid_name": name, "rows": {}})
+            if sub in ("STA", "END"):
+                continue
+            values = _floats(data)
+            if sub == "XYINC":
+                if values is None or len(values) < 6:
+                    _drop(dropped, ln)
+                    continue
+                grid.update(
+                    x_init=values[0], x_num=int(values[1]), x_delta=values[2],
+                    y_init=values[3], y_num=int(values[4]), y_delta=values[5],
                 )
-            elif action in ("STA", "END"):
-                pass  # just markers
-
-        elif kw == "XYINC" and last_gridcart is not None and len(toks) >= 6:
-            # AERMOD allows XYINC on a continuation line inside a GRIDCART block
-            carts[last_gridcart].update(
-                x_init=float(toks[0]), x_num=int(toks[1]), x_delta=float(toks[2]),
-                y_init=float(toks[3]), y_num=int(toks[4]), y_delta=float(toks[5]),
-            )
+            elif sub in ("XPNTS", "YPNTS"):
+                # Explicit coordinate lists; reset.f XYPNTS accumulates
+                # over repeated lines.
+                if not values:
+                    _drop(dropped, ln)
+                    continue
+                grid.setdefault("x_points" if sub == "XPNTS" else "y_points", []).extend(values)
+            else:  # ELEV / HILL / FLAG: row index then values for that row
+                if not values or len(values) < 2:
+                    _drop(dropped, ln)
+                    continue
+                grid["rows"].setdefault(sub, {}).setdefault(int(values[0]), []).extend(values[1:])
 
         elif kw == "GRIDPOLR":
-            if len(toks) < 2:
+            rec = _grid_record(toks, _POLR_SUBKEYS, current_polar)
+            if rec is None:
+                _drop(dropped, ln)
                 continue
-            name = toks[0]
-            action = toks[1].upper()
-            polars.setdefault(name, {"grid_name": name})
-            if action == "ORIG" and len(toks) >= 4:
-                polars[name].update(
-                    x_origin=float(toks[2]), y_origin=float(toks[3]),
-                )
-            elif action == "DIST" and len(toks) >= 4:
-                # Two AERMOD forms:
-                # (a) DIST init num delta  (3 args; num is integer)
-                # (b) DIST d1 d2 d3 ...   (explicit list of distances)
-                # Heuristic: if exactly 3 data args AND the 2nd looks
-                # like an integer, assume form (a); else form (b).
-                data_toks = toks[2:]
-                if len(data_toks) == 3 and "." not in data_toks[1]:
-                    with contextlib.suppress(ValueError):
-                        polars[name].update(
-                            dist_init=float(data_toks[0]),
-                            dist_num=int(data_toks[1]),
-                            dist_delta=float(data_toks[2]),
-                        )
+            name, sub, data = rec
+            current_polar = name
+            grid = polars.setdefault(name, {"grid_name": name, "rows": {}})
+            if sub in ("STA", "END"):
+                continue
+            values = _floats(data)
+            if sub == "ORIG":
+                # POLORG: two coordinates, or one source ID whose
+                # location is the origin.
+                if values is not None and len(values) == 2:
+                    grid.update(x_origin=values[0], y_origin=values[1])
+                elif len(data) == 1:
+                    grid["origin_source_id"] = data[0]
                 else:
-                    # Explicit distances: store num = len, init = first, delta = average spacing
-                    distances = [float(d) for d in data_toks]
-                    n = len(distances)
-                    polars[name].update(
-                        dist_init=distances[0],
-                        dist_num=n,
-                        dist_delta=(distances[-1] - distances[0]) / max(n - 1, 1),
-                    )
-            elif action == "GDIR" and len(toks) >= 4:
-                # Two AERMOD forms:
-                # (a1) GDIR init num delta — pyaermod writer (init first, float int float)
-                # (a2) GDIR num init delta — EPA convention (int first)
-                # (b)  GDIR d1 d2 d3 ...  — explicit direction list
-                # Heuristic: if exactly 3 args, check which position is the integer.
-                data_toks = toks[2:]
-                if len(data_toks) == 3:
-                    # Check position 1 (pyaermod convention: init num delta)
-                    if "." not in data_toks[1]:
-                        with contextlib.suppress(ValueError):
-                            polars[name].update(
-                                dir_init=float(data_toks[0]),
-                                dir_num=int(data_toks[1]),
-                                dir_delta=float(data_toks[2]),
-                            )
-                    # Else check position 0 (EPA convention: num init delta)
-                    elif "." not in data_toks[0]:
-                        with contextlib.suppress(ValueError):
-                            polars[name].update(
-                                dir_num=int(data_toks[0]),
-                                dir_init=float(data_toks[1]),
-                                dir_delta=float(data_toks[2]),
-                            )
-                    else:
-                        dirs = [float(d) for d in data_toks]
-                        polars[name].update(
-                            dir_init=dirs[0], dir_num=3,
-                            dir_delta=(dirs[-1] - dirs[0]) / 2,
-                        )
-                else:
-                    # Explicit directions list
-                    dirs = [float(d) for d in data_toks]
-                    n = len(dirs)
-                    polars[name].update(
-                        dir_init=dirs[0],
-                        dir_num=n,
-                        dir_delta=(dirs[-1] - dirs[0]) / max(n - 1, 1) if n > 1 else 10.0,
-                    )
+                    _drop(dropped, ln)
+            elif sub == "DIST":
+                # POLDST: every field is a ring distance, however many.
+                if not values:
+                    _drop(dropped, ln)
+                    continue
+                grid.setdefault("distances", []).extend(values)
+            elif sub == "GDIR":
+                # GENPOL: exactly num, init, delta -- in that order.
+                if values is None or len(values) != 3:
+                    _drop(dropped, ln)
+                    continue
+                grid.update(dir_num=round(values[0]), dir_init=values[1],
+                            dir_delta=values[2])
+            elif sub == "DDIR":
+                # RADRNG: an explicit direction list.
+                if not values:
+                    _drop(dropped, ln)
+                    continue
+                grid.setdefault("directions", []).extend(values)
+            else:  # ELEV / HILL / FLAG: direction index then one value per ring
+                if not values or len(values) < 2:
+                    _drop(dropped, ln)
+                    continue
+                grid["rows"].setdefault(sub, {}).setdefault(int(values[0]), []).extend(values[1:])
 
         elif kw == "DISCCART":
-            if len(toks) < 3:
+            values = _floats(toks)
+            if values is None or len(values) < 2:
+                _drop(dropped, ln)
                 continue
-            x, y, z = float(toks[0]), float(toks[1]), float(toks[2])
-            z_hill = float(toks[3]) if len(toks) > 3 else 0.0
-            z_flag = float(toks[4]) if len(toks) > 4 else 0.0
+            z = values[2] if len(values) > 2 else 0.0
+            z_hill = values[3] if len(values) > 3 else 0.0
+            z_flag = values[4] if len(values) > 4 else 0.0
             discretes.append(DiscreteReceptor(
-                x_coord=x, y_coord=y, z_elev=z,
+                x_coord=values[0], y_coord=values[1], z_elev=z,
                 z_hill=z_hill, z_flag=z_flag,
             ))
 
-        elif kw in ("EVALCART", "DISCPOLR", "INCLUDED"):
-            pass  # Recognized; no structural field in ReceptorPathway
+        else:
+            # EVALCART, DISCPOLR, INCLUDED and anything else: no
+            # structural field in ReceptorPathway; kept verbatim.
+            _drop(dropped, ln)
+
+    cartesian_grids: List[CartesianGrid] = []
+    for grid in carts.values():
+        rows = grid.pop("rows")
+        for sub, attr in (("ELEV", "grid_elevations"), ("HILL", "grid_hills"),
+                          ("FLAG", "grid_flags")):
+            if sub in rows:
+                grid[attr] = _rows_to_lists(rows[sub])
+        for axis in ("x", "y"):
+            points = grid.get(f"{axis}_points")
+            if points and f"{axis}_num" not in grid:
+                init, num, delta = _series_summary(points)
+                grid.update({f"{axis}_init": init, f"{axis}_num": num, f"{axis}_delta": delta})
+            elif points and f"{axis}_num" in grid:
+                # XYINC and XPNTS/YPNTS on one network is E180 in AERMOD;
+                # the generator wins, matching what AERMOD had set first.
+                grid.pop(f"{axis}_points")
+        cartesian_grids.append(CartesianGrid(**grid))
+
+    polar_grids: List[PolarGrid] = []
+    for grid in polars.values():
+        rows = grid.pop("rows")
+        for sub, attr in (("ELEV", "elevations"), ("HILL", "hills"), ("FLAG", "flags")):
+            if sub in rows:
+                grid[attr] = _rows_to_lists(rows[sub])
+        if grid.get("distances"):
+            init, num, delta = _series_summary(grid["distances"])
+            grid.update(dist_init=init, dist_num=num, dist_delta=delta)
+        if grid.get("directions"):
+            init, num, delta = _series_summary(grid["directions"])
+            grid.update(dir_init=init, dir_num=num, dir_delta=delta)
+        polar_grids.append(PolarGrid(**grid))
 
     return ReceptorPathway(
-        cartesian_grids=[CartesianGrid(**d) for d in carts.values()],
-        polar_grids=[PolarGrid(**d) for d in polars.values()],
+        cartesian_grids=cartesian_grids,
+        polar_grids=polar_grids,
         discrete_receptors=discretes,
         elevation_units=elev_units,
     )
 
 
-def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
+def _parse_meteorology(block: _PathwayBlock,
+                       dropped: Optional[List[int]] = None) -> MeteorologyPathway:
     kw_map: Dict[str, Any] = {
         "surface_file": "",
         "profile_file": "",
@@ -1380,7 +1634,7 @@ def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
     dates: Dict[str, Any] = {}
     wind_rotation = None
 
-    for kw, toks, _ln in _group_keywords(block):
+    for kw, toks, ln in _group_keywords(block):
         if kw == "SURFFILE" and toks:
             kw_map["surface_file"] = toks[0]
         elif kw == "PROFFILE" and toks:
@@ -1392,19 +1646,31 @@ def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
             kw_map["upper_air_station_id"] = int(toks[0])
         elif kw == "PROFBASE" and toks:
             kw_map["profile_base_elevation"] = float(toks[0])
-        elif kw == "STARTEND" and len(toks) >= 6:
-            dates.update(
-                start_year=int(toks[0]),
-                start_month=int(toks[1]),
-                start_day=int(toks[2]),
-                end_year=int(toks[3]),
-                end_month=int(toks[4]),
-                end_day=int(toks[5]),
-            )
+        elif kw == "STARTEND" and len(toks) in (6, 8):
+            # meset.f STAEND: yr mo dy yr mo dy, or with an hour after
+            # each date (eight fields).
+            try:
+                values = [int(float(t)) for t in toks]
+            except ValueError:
+                _drop(dropped, ln)
+                continue
+            if len(values) == 8:
+                dates.update(
+                    start_year=values[0], start_month=values[1], start_day=values[2],
+                    start_hour=values[3], end_year=values[4], end_month=values[5],
+                    end_day=values[6], end_hour=values[7],
+                )
+            else:
+                dates.update(
+                    start_year=values[0], start_month=values[1], start_day=values[2],
+                    end_year=values[3], end_month=values[4], end_day=values[5],
+                )
         elif kw == "WDROTATE" and toks:
             wind_rotation = float(toks[0])
-        elif kw == "SITEDATA":
-            pass  # Recognized; site-specific met data; no structural field
+        else:
+            # SITEDATA, DAYRANGE, SCIMBYHR, NUMYEARS, WINDCATS, the
+            # turbulence switches, ...: no structural field, kept verbatim.
+            _drop(dropped, ln)
 
     return MeteorologyPathway(
         **kw_map, **dates,
@@ -1412,14 +1678,24 @@ def _parse_meteorology(block: _PathwayBlock) -> MeteorologyPathway:
     )
 
 
-def _parse_output(block: _PathwayBlock) -> OutputPathway:
+def _rank_value(tok: str) -> Optional[int]:
+    """The rank a RECTABLE/PLOTFILE token names: 8, 8TH, EIGHTH -> 8."""
+    up = tok.upper()
+    if up in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[up]
+    digits = _LEADING_DIGITS_RE.match(up)
+    return int(digits.group()) if digits else None
+
+
+def _parse_output(block: _PathwayBlock,
+                  dropped: Optional[List[int]] = None) -> OutputPathway:
     receptor_table = False
     max_table = False
     day_table = False
     rect_rank = 10
     max_rank = 10
     summary_file: Optional[str] = None
-    max_file: Optional[str] = None
+    maxi_files: List[MaxiFile] = []
     plot_file: Optional[str] = None
     plot_file_averaging = "ANNUAL"
     plot_file_groups: List[Tuple[str, str, str]] = []
@@ -1432,7 +1708,7 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
     max_daily_by_year: List[MaxDailyFile] = []
     max_daily_contributions: List[MaxDailyContribution] = []
 
-    for kw, toks, _ln in _group_keywords(block):
+    for kw, toks, ln in _group_keywords(block):
         if kw == "RECTABLE" and len(toks) >= 2:
             receptor_table = True
             # AERMOD accepts a bare rank ("8"), a numeric range ("1-10"),
@@ -1456,34 +1732,56 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
             day_table = True
         elif kw == "SUMMFILE" and toks:
             summary_file = toks[0]
-        elif kw == "MAXIFILE" and toks:
-            max_file = toks[0]
+        elif kw == "MAXIFILE" and len(toks) >= 4:
+            # MAXIFILE <aveper> <grpid> <thresh> <filename> [unit]
+            # (ouset.f OUMXFL: fields 3-6, optional 7).
+            try:
+                maxi = MaxiFile(
+                    averaging_period=toks[0].upper(), source_group=toks[1],
+                    threshold=float(toks[2]), filename=toks[3],
+                )
+                if len(toks) > 4:
+                    maxi.file_unit = int(float(toks[4]))
+            except ValueError:
+                _drop(dropped, ln)
+                continue
+            maxi_files.append(maxi)
         elif kw == "PLOTFILE":
             # PLOTFILE PERIOD|ANNUAL <group> <filename> [unit]
             # PLOTFILE <hours>       <group> <rank> <filename> [unit]
             # The period forms carry no rank, so the filename is one
             # field earlier; taking a fixed position reads the rank as
             # the filename.
+            # The model holds no rank and no unit: a short-term line
+            # whose rank is not the highest value, or any line with a
+            # trailing unit, is kept verbatim instead.
             if len(toks) >= 3:
                 period, group = toks[0], toks[1]
                 is_period = period.strip().upper() in ("PERIOD", "ANNUAL")
                 fname = toks[2] if is_period else (
                     toks[3] if len(toks) >= 4 else None
                 )
-                if fname is None:
+                rank_ok = is_period or _rank_value(toks[2]) == 1
+                expected = 3 if is_period else 4
+                if fname is None or not rank_ok or len(toks) != expected:
+                    _drop(dropped, ln)
                     continue
                 if group.upper() == "ALL" and plot_file is None:
                     plot_file = fname
                     plot_file_averaging = period
                 else:
                     plot_file_groups.append((period, group, fname))
-        elif kw == "POSTFILE":
+            else:
+                _drop(dropped, ln)
+        elif kw == "POSTFILE" and len(toks) == 4 and postfile is None:
             # POSTFILE <avg_period> <group> <format> <filename> [unit]
-            if len(toks) >= 4:
-                postfile_averaging = toks[0]
-                postfile_source_group = toks[1]
-                postfile_format = toks[2].upper()
-                postfile = toks[3]
+            # OutputPathway models one POSTFILE without a unit; further
+            # lines (one per source group, as EPA's decks write them) and
+            # lines with a unit are kept verbatim.
+            postfile_averaging = toks[0]
+            postfile_source_group = toks[1]
+            postfile_format = toks[2].upper()
+            postfile = toks[3]
         elif kw == "FILEFORM" and toks:
             file_format = toks[0].upper()
         elif kw in ("MAXDAILY", "MXDYBYYR") and len(toks) >= 2:
@@ -1516,8 +1814,13 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
                 if unit_tok is not None:
                     contribution.file_unit = int(float(unit_tok))
             except ValueError:
+                _drop(dropped, ln)
                 continue
             max_daily_contributions.append(contribution)
+        else:
+            # RANKFILE, SEASONHR, TOXXFILE, EVALFILE, NOHEADER, a short
+            # or malformed line of a known keyword, ...: kept verbatim.
+            _drop(dropped, ln)
 
     return OutputPathway(
         receptor_table=receptor_table,
@@ -1526,7 +1829,7 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
         max_table_rank=max_rank,
         day_table=day_table,
         summary_file=summary_file,
-        max_file=max_file,
+        maxi_files=maxi_files,
         plot_file=plot_file,
         plot_file_averaging=plot_file_averaging,
         plot_file_groups=plot_file_groups,
@@ -1546,15 +1849,22 @@ def _parse_output(block: _PathwayBlock) -> OutputPathway:
 # ---------------------------------------------------------------------------
 
 def parse_aermod_input(text: str) -> AERMODProject:
-    """Parse the text of an AERMOD ``.inp`` file into an AERMODProject."""
+    """Parse the text of an AERMOD ``.inp`` file into an AERMODProject.
+
+    Every line the pathway parsers cannot represent on the model is
+    returned in :attr:`AERMODProject.unparsed_lines` (see
+    :mod:`pyaermod.unparsed`) and summarised in one warning per pathway
+    and keyword through :mod:`logging`; nothing is dropped silently.
+    """
     blocks = _split_pathways(text)
 
     for required in ("CO", "SO", "RE", "ME"):
         if required not in blocks:
             raise ValueError(f"AERMOD input is missing required pathway {required}")
 
-    control = _parse_control(blocks["CO"])
-    sources = _parse_sources(blocks["SO"])
+    dropped: Dict[str, List[int]] = {code: [] for code in PATHWAYS}
+    control = _parse_control(blocks["CO"], dropped["CO"])
+    sources = _parse_sources(blocks["SO"], dropped["SO"])
     olm_groups = sources.__dict__.pop("_olm_groups", [])
     if olm_groups:
         if control.chemistry is None:
@@ -1562,9 +1872,31 @@ def parse_aermod_input(text: str) -> AERMODProject:
             # the deck can be repaired and written back.
             control.chemistry = ChemistryOptions(method=ChemistryMethod.OLM)
         control.chemistry.olm_groups = olm_groups
-    receptors = _parse_receptors(blocks["RE"])
-    meteorology = _parse_meteorology(blocks["ME"])
-    output = _parse_output(blocks.get("OU", _PathwayBlock("OU")))
+    receptors = _parse_receptors(blocks["RE"], dropped["RE"])
+    meteorology = _parse_meteorology(blocks["ME"], dropped["ME"])
+    output = _parse_output(blocks.get("OU", _PathwayBlock("OU")), dropped["OU"])
+    if "EV" in blocks:
+        # An inline EV pathway has no model at all; keep it whole.
+        dropped["EV"] = [rec.lineno for rec in blocks["EV"].records]
+
+    unparsed: List[UnparsedLine] = []
+    for code, linenos in dropped.items():
+        block = blocks.get(code)
+        if block is None:
+            continue
+        for lineno in sorted(set(linenos)):
+            rec = block.record(lineno)
+            unparsed.append(UnparsedLine(
+                pathway=code, keyword=rec.keyword, fields=list(rec.fields),
+                lineno=lineno, raw=rec.raw,
+            ))
+    unparsed.sort(key=lambda u: u.lineno)
+    for (code, keyword), count in unparsed_summary(unparsed).items():
+        logger.warning(
+            "%s %s: %d line%s not modelled by pyaermod; kept verbatim in "
+            "AERMODProject.unparsed_lines and written back on output",
+            code, keyword, count, "" if count == 1 else "s",
+        )
 
     return AERMODProject(
         control=control,
@@ -1572,6 +1904,7 @@ def parse_aermod_input(text: str) -> AERMODProject:
         receptors=receptors,
         meteorology=meteorology,
         output=output,
+        unparsed_lines=unparsed,
     )
 
 
@@ -1617,7 +1950,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     - meteorology.surface_file / profile_file
     - control.chemistry.ozone_data.ozone_file (if chemistry is set)
     - control.chemistry.nox_file
-    - output.summary_file / max_file / plot_file / postfile
+    - output.summary_file / plot_file / postfile / maxi_files
     - output.plot_file_groups (per-group filenames)
     """
     base = base.resolve()
@@ -1665,8 +1998,10 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         _check("control.multiyear.init_file", control.multiyear.init_file)
 
     out = project.output
-    for attr in ("summary_file", "max_file", "plot_file", "postfile"):
+    for attr in ("summary_file", "plot_file", "postfile"):
         _check(f"output.{attr}", getattr(out, attr, None))
+    for mf in out.maxi_files:
+        _check(f"output.maxi_files[{mf.source_group}/{mf.averaging_period}]", mf.filename)
     for period, group, fname in (out.plot_file_groups or []):
         _check(f"output.plot_file_groups[{group}/{period}]", fname)
     for label, entries in (("max_daily_files", out.max_daily_files),

@@ -1,0 +1,36 @@
+** Probe: the MAXIFILE layout ouset.f OUMXFL reads (fields 3-6, optional
+** unit in field 7), one line per averaging period. Setup pass only.
+** AERMOD said: accepted; both files created at setup. The unit in field
+** 7 (45) is taken as given.
+CO STARTING
+   TITLEONE  oracle 17: MAXIFILE aveper grpid thresh filename [funit]
+   MODELOPT  CONC  FLAT
+   AVERTIME  1  24
+   POLLUTID  SO2
+   RUNORNOT  NOT
+   ERRORFIL  17_maxifile_full.err
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1  POINT  0.0  0.0  0.0
+   SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  500.  500.  0.
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+   MAXIFILE  1   ALL  30.0  probe17_maxi01.dat
+   MAXIFILE  24  ALL  12.5  probe17_maxi24.dat  45
+OU FINISHED

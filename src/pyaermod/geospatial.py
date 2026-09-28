@@ -387,10 +387,8 @@ class GeoDataFrameFactory:
 
         # Expand Cartesian grids
         for grid in receptors.cartesian_grids:
-            for i in range(grid.x_num):
-                for j in range(grid.y_num):
-                    x = grid.x_init + i * grid.x_delta
-                    y = grid.y_init + j * grid.y_delta
+            for x in grid.x_values():
+                for y in grid.y_values():
                     points.append(Point(x, y))
                     attrs.append({
                         "grid_name": grid.grid_name,
@@ -400,10 +398,8 @@ class GeoDataFrameFactory:
 
         # Expand Polar grids
         for grid in receptors.polar_grids:
-            for k in range(grid.dist_num):
-                dist = grid.dist_init + k * grid.dist_delta
-                for m in range(grid.dir_num):
-                    direction = grid.dir_init + m * grid.dir_delta
+            for dist in grid.ring_distances():
+                for direction in grid.direction_angles():
                     rad = math.radians(direction)
                     x = grid.x_origin + dist * math.sin(rad)
                     y = grid.y_origin + dist * math.cos(rad)

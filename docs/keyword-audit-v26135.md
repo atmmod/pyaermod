@@ -21,14 +21,21 @@ grep -E "^[^C!*]" coset.f \
 Only `soset.f` has such a branch; the other five files give the same total
 with or without the filter.
 
-"Handled" means the keyword appears as a string literal in
-`src/pyaermod/input_reader.py` and is either stored structurally or
-consciously recognised and passed through. "Tested" means a deck in
-`tests/test_input_reader.py` exercises that parse path. Unhandled
-keywords fall into the reader's generic path: the line is ignored without
-error (verified for every keyword below by the
-`test_unhandled_*_keywords_pass_through` parametrised tests), so decks
-that use them still open but do not round-trip those lines.
+"Handled" means the keyword is stored structurally on the
+`AERMODProject` by `src/pyaermod/input_reader.py` and written back by the
+writer. "Tested" means a deck in `tests/test_input_reader.py` or
+`tests/test_reader_roundtrip_fidelity.py` exercises that parse path.
+Every other line -- an unhandled keyword, or a form of a handled keyword
+the model cannot hold -- is kept verbatim in
+`AERMODProject.unparsed_lines` (pathway, keyword, fields, line number),
+reported through `logging`, and written back into its pathway on output
+(`pyaermod.unparsed`; the placement rules are in
+`input_generator._with_preserved`). Decks that use such keywords open,
+rewrite with every line present, and pass AERMOD's setup pass; what they
+do not get is structural access to those lines. The
+`test_unhandled_*_keywords_pass_through` parametrised tests still hold,
+and `tests/test_epa_deck_roundtrip.py::unaccounted_lines` asserts over
+all 53 EPA decks that no line is in neither category.
 
 **Parse rate on EPA's real decks.** All **53 / 53** `.inp` decks in the
 v26135 test-case archive (`test_cases/aermet26135_aermod26135/inputs/`;
@@ -88,6 +95,17 @@ decks that use these keywords with pyaermod's rewritten SO pathway and
 scores every POSTFILE against EPA's reference (all at slope 1.000000).
 Handled keywords now total 91 of 115.
 
+Reader completeness tranche 3 (`claude/wp3-audit-roundtrip`) changed no
+count in the table but closed the audit's items 1, 3,
+4 and 5 and, in doing so, re-read the RE and OU parsers and the CO writer
+against `reset.f`, `ouset.f`, `coset.f` and `setup.f`. What it found is
+in "Round-trip guarantee" and "Discrepancies and follow-ups" below; the
+short version is that four writer forms pyaermod had emitted since its
+first release were fatal in AERMOD (every polar grid, `ELEVATED`,
+`NO2STACK` under ARM2, a single name-first `URBANOPT`), and that EPA's
+own decks rely on a runstream feature the reader did not implement (a
+line blank through the keyword columns continues the previous keyword).
+
 (`STARTING`/`FINISHED` are structural and excluded from the counts.)
 `src/pyaermod/input_reader.py` statement coverage from its own test file:
 85.0 % before this audit, 99.8 % after (the single remaining miss,
@@ -101,6 +119,15 @@ GASDEPVD, GDLANUSE, GDSEASON, HALFLIFE, INITFILE, LOW_WIND, MODELOPT,
 MULTYEAR, NO2EQUIL, NO2STACK, NOXSECTR, NOXVALUE, NOX_FILE, NOX_UNIT,
 NOX_VALS, O3SECTOR, O3VALUES, OZONEFIL, OZONEVAL, OZONUNIT, POLLUTID,
 RUNORNOT, SAVEFILE, TITLEONE, TITLETWO, URBANOPT.
+Of these, DEBUGOPT, ERRORFIL and NO2EQUIL have no field and travel in
+`unparsed_lines`; RUNORNOT (`ControlPathway.run_model`), EVENTFIL with a
+single field (`.eventfil`; the two-field form is kept verbatim) and
+URBANOPT are stored. `URBANOPT` follows `coset.f` URBOPT: with one card
+the fields are `pop [name [z0]]`, with several `id pop [name [z0]]`
+(`ControlPathway.urban_areas`, a `UrbanArea` per line; PREURB counts the
+cards). The legacy `urban_option`/`urban_population` pair is written in
+the one-card layout, and the name-first line earlier releases wrote is
+still read.
 Field layouts, from `coset.f`: `MULTYEAR [H6H] savfil [initfil]` (H6H is
 optional and warned about, W352); `SAVEFILE [savfil [dayinc [savfl2]]]`
 and `INITFILE [inifil]` (a bare keyword means `SAVE.FIL`); the background
@@ -112,22 +139,23 @@ one of PPB, PPM, UG/M3; `GASDEPDF fo fseas2 fseas5 [refspe]`;
 `GASDEPVD uservd`; GDSEASON 12 categories in 1-5; GDLANUSE 36 categories
 in 1-9. Ozone and NOx sector forms are stored per sector
 (`OzoneData.by_sector`, `NOxBackground.by_sector`).
-MODELOPT options understood: CONC, DEPOS, DDEP, WDEP, FLAT, ELEV/ELEVATED,
-FLATSRCS, DFAULT, OLM, PVMRM, ARM2, GRSM, NOCHKD, and (tranche 2) ALPHA,
-BETA and PSDCREDIT, which are stored on `ControlPathway.alpha` / `.beta` /
-`.psd_credit` and written back; before tranche 2 they were dropped, so a
-rewritten RLINEXT, GASDEPOS or PSDGROUP deck failed E198 / E146. Any other
-option token (v26135 also accepts FASTALL, FASTAREA, SCREEN, TOXICS, TTRM,
-TTRM2, NOURBTRAN, NOWARN, WARNCHKD, VECTORWS, ROMBERG, AREADPLT,
-AREAMNDR, BAREDGE, RLINEFDH, AWMADW, DRYDPLT/NODRYDPLT, WETDPLT/NOWETDPLT,
-NOMINO3, HBP, PLATFORM, AIRCRAFT, SWPOINT, RLINE, LINE, AREA, SBARRIER,
-VBARRIER, SCIM, METEOR, URBANDB, BLPDBUG, HBPDBG, NOSTD, PRIME, PERIOD,
-ANNUAL, MODEL, DEFAULT) is ignored without error.
-`URBANOPT` is read in both of `coset.f` URBOPT's field orders
-(`population [name] [roughness]` for one urban area, `urbanid population
-[name] [roughness]` when a deck has several cards) and written in the
-single-area order; only one urban area is modelled, and a later card
-overrides an earlier one.
+MODELOPT options with a field: CONC, DEPOS, DDEP, WDEP, FLAT, ELEV,
+DFAULT, ALPHA, BETA, PSDCREDIT (tranche 2: `ControlPathway.alpha` /
+`.beta` / `.psd_credit`), OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2. Terrain follows
+`coset.f` MODOPT: `ELEV` is the token (the writer used to emit
+`ELEVATED`, which is E203), `FLAT` then `ELEV` on one line means flat
+sources in elevated terrain (`TerrainType.FLATSRCS`, which has no token
+of its own and is written as that pair), and a `FLAT` after `ELEV` is
+ignored (W206). Every other option token (FASTALL, SCREEN, TOXICS,
+PSDCREDIT, NOCHKD, NOURBTRAN, VECTORWS, SCIM, ...) is kept in
+`ControlPathway.extra_model_options` and written back as given.
+`URBANOPT` follows `coset.f` URBOPT: with one card the fields are
+`pop [name [z0]]`, with several `id pop [name [z0]]` (PREURB counts the
+cards). Every card is kept (`ControlPathway.urban_areas`, a `UrbanArea`
+per line, closing item 9 below); `urban_option` / `urban_population` /
+`urban_roughness` describe the first area and are written in the one-card
+layout when `urban_areas` is empty. The name-first single card earlier
+releases wrote (E208 in AERMOD) is still read.
 
 **SO (32):** AREAVERT, BACKGRND, BACKUNIT, BGSECTOR, BLPGROUP, BLPINPUT,
 BUILDHGT, BUILDLEN, BUILDWID, CONCUNIT, DEPOUNIT, ELEVUNIT, EMISFACT,
@@ -175,18 +203,39 @@ continuation lines are merged on read and each group is written on
 consecutive cards; and STODBL reads an exponent only after a mantissa
 with a decimal point (`1.0e+06`, not `1e+06`).
 
-**RE (7):** DISCCART, DISCPOLR, ELEVUNIT, EVALCART, GRIDCART (including
-the single-line `XYINC` form and the continuation-line form), GRIDPOLR
-(ORIG/DIST/GDIR in both the init/num/delta and explicit-list forms),
-INCLUDED.
+**RE (7):** DISCCART, DISCPOLR, ELEVUNIT, EVALCART, GRIDCART, GRIDPOLR,
+INCLUDED. DISCPOLR, EVALCART and INCLUDED have no field and travel in
+`unparsed_lines`. The network sub-keywords follow `reset.f`: GRIDCART
+takes `XYINC` (six fields) or explicit `XPNTS`/`YPNTS` lists
+(`CartesianGrid.x_points`/`.y_points`; the two forms are exclusive per
+network, E180) and `ELEV`/`HILL`/`FLAG` rows (`row v1 v2 ...`,
+accumulating; `.grid_elevations`/`.grid_hills`/`.grid_flags`). GRIDPOLR
+takes `ORIG x y` or `ORIG srcid` (POLORG; `PolarGrid.origin_source_id`),
+`DIST d1 d2 ...` -- POLDST reads every field as a ring distance, there is
+no init/num/delta form (`.distances`) -- `GDIR num init delta` (GENPOL,
+exactly three fields, count first) or `DDIR a1 a2 ...` (RADRNG;
+`.directions`), and the same three row keywords. On every one of these
+lines the network ID may be omitted (REPOLR/RECART take a bare
+sub-keyword as the current network), and the keyword columns may be
+blank (setup.f EXKEY inherits the previous keyword), which is how twenty
+EPA decks write their polar blocks. DISCCART takes `x y` alone in FLAT
+runs (a third field is W229 there) or `x y zelev [zhill [zflag]]`.
 
 **ME (8):** PROFBASE, PROFFILE, SITEDATA, STARTEND, SURFDATA, SURFFILE,
-UAIRDATA, WDROTATE.
+UAIRDATA, WDROTATE. SITEDATA has no field and travels in
+`unparsed_lines`. STARTEND takes six fields or eight (`meset.f` STAEND:
+an hour after each date; `MeteorologyPathway.start_hour`/`.end_hour`),
+which EPA's five-year PM10 chain uses.
 
 **OU (11):** DAYTABLE, FILEFORM, MAXDAILY, MAXDCONT, MAXIFILE, MAXTABLE,
 MXDYBYYR, PLOTFILE (ALL and per-group), POSTFILE, RECTABLE (numeric and
 `FIRST-THIRD` style ranks), SUMMFILE.
-Field layouts, from `ouset.f`: `MAXDAILY grpid filnam [funit]` and
+Field layouts, from `ouset.f`: `MAXIFILE aveper grpid thresh filnam
+[funit]` (OUMXFL, fields 3-6 with an optional unit in 7; fewer is E201,
+so there is no filename-only form; `OutputPathway.maxi_files`, a
+`MaxiFile` per line); a PLOTFILE whose rank is not the highest value or
+that carries a unit, and every POSTFILE after the first, have no place on
+the model and travel in `unparsed_lines`; `MAXDAILY grpid filnam [funit]` and
 `MXDYBYYR grpid filnam [funit]` (no averaging-period field; the period is
 implied by the NAAQS processing, and AERMOD rejects both unless
 NO2AVE/SO2AVE/PM25AVE is active, E162/E163); `MAXDCONT grpid upper lower
@@ -209,16 +258,15 @@ guards, the explicit-direction `GDIR` forms, short RE lines, `WDROTATE`,
 `MAXIFILE`, and the sandbox chemistry/per-group-plotfile checks) were
 uncovered.
 
-## Unhandled (pass-through only)
+## Unhandled (kept verbatim)
 
-Each of these is ignored by the reader; a deck using it parses, but the
-line is not represented on the `AERMODProject` and is lost on rewrite.
-None of the 53 EPA decks fail because of them (they are all in the
-pass-through path), but several are common in practice and are the
-natural next reader features.
+Each of these has no field on the `AERMODProject`; a deck using it
+parses, the line is kept in `unparsed_lines` and written back in its
+pathway. None of the 53 EPA decks fail because of them, but several are
+common in practice and are the natural next reader features.
 
-**CO (5):** ARCFTOPT, ARMRATIO, AWMADWNW, EVENTFIL, ORD_DWNW.
-(`EVENTFIL` is written by `ControlPathway.eventfil` but not read back.)
+**CO (4):** ARCFTOPT, ARMRATIO, AWMADWNW, ORD_DWNW. (EVENTFIL is now read
+into `ControlPathway.eventfil` when it has one field.)
 
 **SO (4):** ARCFTSRC, HBPSRCID, METHOD_2, PLATFORM.
 `METHOD_2` matters most: EPA's `testpart` and `testprt2` decks use it for
@@ -236,41 +284,106 @@ through the `KEYWRD .EQ.` pattern.
 
 **EV (4):** EVENTLOC, EVENTOUT, EVENTPER, FILEFORM.
 
+## Round-trip guarantee
+
+Two suites hold the guarantee, both over every deck in the v26135
+archive when it is unpacked under `test_cases/` and over eleven vendored
+decks otherwise:
+
+- `tests/test_epa_deck_roundtrip.py` parses each deck, writes it, parses
+  the result, and requires the CO, RE, ME and OU pathways equal field for
+  field, the SO group definitions and source IDs equal, the preserved
+  lines equal as (pathway, keyword, fields), the lines of the
+  token-compared keywords (the tranche-1 set plus MAXIFILE, URBANOPT,
+  STARTEND) equal as multisets, and every line of the original deck to be
+  either a modelled keyword or present in `unparsed_lines`. 53 of 53
+  decks pass.
+- `tests/test_epa_deck_acceptance.py` runs the deck pyaermod writes for
+  each EPA case through AERMOD's setup pass (`RUNORNOT NOT`) in a copy of
+  EPA's `inputs/` tree, next to EPA's original, and requires the same
+  fatal-error set. 49 decks are accepted clean. The other four
+  (`testpm10_1987` to `_1990`) are the chained MULTYEAR years, whose
+  MULTYEAR line names the previous year's save file; without a full run
+  of the year before, EPA's own deck reports CO E500 and so does ours.
+  The writer forms this tranche changed (polar and Cartesian grids,
+  MAXIFILE, URBANOPT, `ELEV`, STARTEND with hours, and the placement of
+  preserved lines) have setup-pass cases of their own in the same file.
+
+The first sweep of that acceptance test, before the fixes, is worth
+recording as the reason the guarantee needs the binary: 28 of 53 written
+decks were rejected. SO E152 on 25 (a preserved ELEVUNIT was not first),
+RE E185 on every polar grid (below), CO E203 for `ELEVATED`, CO E600 for
+NO2STACK under ARM2, CO E208 for one URBANOPT card written in the
+several-card layout, E105 for preserved lines whose short keyword was
+not padded to eight columns (`XBADJ  STACK1` reads as keyword `XBADJ  S`),
+E310 for a source defined in an INCLUDED file and re-defined at the
+origin from its inline SRCPARAM, OU E203 for PLOTFILE lines whose ranks
+had all become FIRST, and ME E203 for a STARTEND whose hours were read as
+the end date. Every one is now pinned by a test that fails without its
+fix.
+
+Probe decks 13-19 under `scripts/oracle_decks/` record what AERMOD said
+about the forms in question: 13 is the polar block pyaermod wrote before
+this tranche (E185, no receptors: GENPOL read `GDIR 0.0 36 10.0` as zero
+directions, POLDST read `DIST 100 10 100` as three rings), 14 the forms
+`reset.f` parses (120 receptors), 15 GRIDCART with XPNTS/YPNTS on
+continuation lines (16), 16 a filename-only MAXIFILE (E201), 17 the
+four-field MAXIFILE with a unit (accepted), 18 blank-keyword continuation
+lines with and without the network ID (60 receptors), 19 a keyword
+starting in column 2 (E100: columns 1-2 are the pathway field).
+
 ## Discrepancies and follow-ups
 
-1. **`MAXIFILE` argument order.** AERMOD's syntax is
-   `MAXIFILE <aveper> <grpid> <thresh> <filename>`; the reader stores the
-   *first* token as `OutputPathway.max_file`. The existing behaviour is
-   pinned by `test_maxifile_filename_captured` so the discrepancy is
-   visible; fixing it means teaching the writer the same four-field form.
+1. **`MAXIFILE` argument order.** Resolved. `OutputPathway.maxi_files`
+   holds `MaxiFile(averaging_period, source_group, threshold, filename,
+   file_unit)` in the layout `ouset.f` OUMXFL reads; the reader and the
+   writer agree, `tests/test_epa_deck_acceptance.py` runs the writer's
+   line through AERMOD, and EPA's `testpm10.inp`/`testpm25.inp` lines
+   round-trip token for token. `OutputPathway.max_file` is removed: the
+   one-field line it wrote was E201 in every AERMOD release (probe 16).
 2. **RLINEXT / AREAPOLY / BUOYLINE** — closed by tranche 2. All three are
    constructed from their multi-line companions and written back;
    `tests/regulatory/test_epa_rewritten_so.py` shows EPA's `allsrcs`,
    `blp_urban`, the three `aermod-baldwin*` and the four RLINEXT `Test*`
    decks at slope 1.000000 with pyaermod's SO pathway. Still dropped:
-   POINTCAP, POINTHOR, SWPOINT (see the SO section).
-3. **`GRIDPOLR DIST/GDIR` heuristics.** Three numeric tokens are
-   interpreted as init/num/delta when the integer-looking token is in the
-   expected position, otherwise as an explicit list; a three-distance
-   explicit list with an integer-looking middle value is misread.
-4. **No unknown-keyword report.** The module docstring promises unknown
-   keywords are "collected in `AERMODProject.unparsed_lines`"; the
-   current implementation silently drops them. Either implement the
-   collection or correct the docstring.
-5. **Pass-through tests pin behaviour, not support.** The
-   `test_unhandled_*_keywords_pass_through` cases assert only that the
-   deck still parses; when support for a keyword is added, replace the
-   corresponding parametrised entry with a structural assertion. (Done
-   for the 18 keywords of tranche 1: see `TestCORestartKeywords`,
-   `TestCONOxAndOzoneBackground`, `TestCOGasDepositionDefaults` and the
-   design-value cases in `TestMEOUKeywordsV26135`; and for the 14 SO
-   keywords of tranche 2 in `tests/test_so_source_construction.py`.)
-6. **Ozone writer forms.** Before tranche 1 the writer emitted every
-   ozone input as `O3VALUES` (`O3VALUES <file>`, `O3VALUES UNIFORM v`,
-   `O3VALUES SECTOR n v`) and the NOx file as `NOXVALUE <file>`; AERMOD
-   rejects all four (E201/E203/E208). Fixed: OZONEFIL, OZONEVAL,
-   `OZONEVAL SECTn`, NOX_FILE. The reader keeps accepting the two legacy
-   `O3VALUES` spellings so older pyaermod decks still open.
+   POINTCAP, POINTHOR, SWPOINT (see the SO section). Until they are, such a source's
+   definition lines (LOCATION, SRCPARAM, the downwash arrays, URBANSRC)
+   are kept verbatim and written back before the group keywords, so
+   EPA's `capped.inp` passes AERMOD's setup pass unchanged in meaning
+   and the reader logs which source it did not construct.
+3. **`GRIDPOLR DIST/GDIR` heuristics.** Resolved; there is no heuristic.
+   `reset.f` never has an init/num/delta form for DIST (POLDST reads a
+   list) and GDIR is always the three fields `num init delta` (GENPOL);
+   explicit directions are DDIR. The reader mirrors that, `PolarGrid`
+   carries `distances`/`directions` beside the generator fields, and the
+   writer emits the list and `GDIR num init delta`. This also fixed the
+   writer: the `DIST init num delta` / `GDIR init num delta` block every
+   earlier release wrote produced a network with no receptors (RE E185,
+   probe 13).
+4. **No unknown-keyword report.** Resolved as the module docstring
+   promised: `AERMODProject.unparsed_lines` (see "Round-trip guarantee"
+   and `pyaermod.unparsed`). Re-emission is on by default
+   (`to_aermod_input(preserve_unparsed=True)`): the lines were part of
+   the deck, and dropping them was the bug. Placement follows what
+   `soset.f`/`reset.f` enforce -- ELEVUNIT first in its pathway, SO lines
+   before SRCGROUP/OLMGROUP/PSDGROUP, everything else before FINISHED --
+   and a keyword shorter than eight characters is padded so the data
+   starts in column 13. When WP-2 gives a keyword a field, its lines stop
+   appearing here without any further change.
+5. **Pass-through tests pin behaviour, not support.** Resolved for this
+   tranche's keywords: MAXIFILE, the GRIDPOLR/GRIDCART forms, URBANOPT,
+   STARTEND, RUNORNOT and EVENTFIL have structural assertions in
+   `tests/test_reader_roundtrip_fidelity.py`; the remaining
+   `test_unhandled_*_keywords_pass_through` entries (the SO keywords, the
+   CO/ME/OU keywords in "Unhandled" above) now also imply the line is in
+   `unparsed_lines`, which `unaccounted_lines()` checks over the archive.
+   Replace an entry with a structural assertion when its keyword gains a
+   field.
+6. **Ozone writer forms.** Documented design decision, fixed in tranche 1:
+   OZONEFIL, OZONEVAL, `OZONEVAL SECTn` and NOX_FILE are the only spellings
+   the writer emits; the two legacy `O3VALUES` spellings (`O3VALUES
+   <file>`, `O3VALUES UNIFORM v`) stay readable so decks written by
+   pyaermod < 2.1 open, and are written back in the correct form.
 7. **`GasDepositionParams` field semantics** — closed by tranche 2. The
    dataclass is now `diffusivity`, `diffusivity_water`,
    `cuticular_resistance`, `henry_constant` (`GASDEPOS srcid Da Dw rcl
@@ -279,14 +392,27 @@ through the `KEYWRD .EQ.` pattern.
    required, GASDEPVD excluded), and EPA's `testgas` values validate and
    are written back unchanged (`tests/test_so_deck_acceptance.py`
    `gasdepos-epa-testgas`).
-8. **Rewriting whole EPA decks.** With the SO pathway complete for the
-   fourteen decks above, nine of them also reach parity as whole
-   rewritten decks; the other five are held back by receptor and output
-   forms outside this tranche — `GRIDPOLR DIST` explicit lists and
-   `ORIG` by source ID (item 3), two-field `DISCCART` lines, and more
-   than one `POSTFILE` or a multi-rank `RECTABLE` — which WP-3 owns.
-9. **Urban areas.** `ControlPathway` models one urban area. EPA's
-   `multurb` deck (four `URBANOPT` cards, `URBANSRC urbanid ids`) reads
-   the last card only; the multi-area `URBANSRC` form is parsed but the
-   writer emits the single-area form. A list of urban areas on the
-   control pathway would close this.
+8. **Rewriting whole EPA decks** -- closed by tranche 3 for the receptor
+   and output forms it named: `GRIDPOLR DIST` lists and `ORIG` by source
+   ID are modelled (item 3), two-field `DISCCART` lines are read as the
+   FLAT form, and further `POSTFILE` lines are kept verbatim. All 53
+   rewritten decks now pass AERMOD's setup pass ("Round-trip guarantee"
+   above). A multi-rank `RECTABLE` still collapses to one `ALLAVE` line
+   at the highest rank, which changes the tables printed, not the run.
+9. **Urban areas** -- closed by tranche 3: `ControlPathway.urban_areas`
+   keeps every `URBANOPT` card in the layout `coset.f` reads for the
+   number of cards; EPA's `multurb` deck round-trips all four areas and
+   passes the setup pass.
+
+Found by the acceptance sweep and fixed here rather than listed, because
+each made a written deck fatal: `ELEVATED` as a MODELOPT token, NO2STACK
+under ARM2, a single name-first URBANOPT, GRIDCART XPNTS/YPNTS read as
+the default grid, STARTEND with hours, sources defined in INCLUDED files
+re-defined from their inline SRCPARAM, and `SRCGROUP ALL` invented for a
+PSDCREDIT deck (`SourcePathway.include_all_group`).
+
+Still lossy on rewrite, by design of the model rather than the reader,
+and not fatal: several RECTABLE lines with different periods collapse to
+one `ALLAVE` line at the highest rank; SURFDATA/UAIRDATA drop the station
+name; `DiscreteReceptor` always writes an elevation, which is W229 in a
+FLAT run.

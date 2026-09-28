@@ -15,6 +15,37 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 
+def _num(value: float) -> str:
+    """Shortest rendering that reads back to the same value."""
+    return f"{value:.10g}"
+
+
+def _row_lines(keyword: str, grid_name: str, sub: str,
+               rows: List[List[float]]) -> List[str]:
+    """``KEYWORD name SUB row v1 v2 ...`` lines, six values to a line.
+
+    reset.f (TERHGT / HILHGT / FLGHGT) tags every value with the row in
+    the field after the sub-keyword and accumulates over records, so a
+    row may span lines.
+    """
+    out: List[str] = []
+    for row_idx, row in enumerate(rows, start=1):
+        for start in range(0, len(row), 6):
+            vals = " ".join(f"{v:8.1f}" for v in row[start:start + 6])
+            out.append(f"   {keyword}  {grid_name:<8} {sub}  {row_idx:5d}  {vals}")
+    return out
+
+
+def _list_lines(keyword: str, grid_name: str, sub: str,
+                values: List[float], per_line: int = 10) -> List[str]:
+    """``KEYWORD name SUB v1 v2 ...`` lines; AERMOD accumulates over lines."""
+    return [
+        f"   {keyword}  {grid_name:<8} {sub}  "
+        + "  ".join(_num(v) for v in values[start:start + per_line])
+        for start in range(0, len(values), per_line)
+    ]
+
+
 @dataclass
 class CartesianGrid:
     """
@@ -43,6 +74,31 @@ class CartesianGrid:
     # 2D arrays [row][col] where row = y-index, col = x-index
     grid_elevations: Optional[List[List[float]]] = None
     grid_hills: Optional[List[List[float]]] = None
+    # Per-receptor flagpole heights (GRIDCART FLAG rows), same shape.
+    grid_flags: Optional[List[List[float]]] = None
+
+    # Explicit receptor coordinates (GRIDCART XPNTS / YPNTS). When set
+    # they replace the x_init/x_num/x_delta (y_...) generator: AERMOD's
+    # XYINC and XPNTS/YPNTS forms are exclusive within one network
+    # (reset.f RECART, E180), and the writer emits whichever is in force.
+    x_points: Optional[List[float]] = None
+    y_points: Optional[List[float]] = None
+
+    def x_values(self) -> List[float]:
+        """The receptor x coordinates, explicit or generated."""
+        if self.x_points is not None:
+            return list(self.x_points)
+        return [self.x_init + i * self.x_delta for i in range(self.x_num)]
+
+    def y_values(self) -> List[float]:
+        """The receptor y coordinates, explicit or generated."""
+        if self.y_points is not None:
+            return list(self.y_points)
+        return [self.y_init + j * self.y_delta for j in range(self.y_num)]
+
+    @property
+    def receptor_count(self) -> int:
+        return len(self.x_values()) * len(self.y_values())
 
     @classmethod
     def from_bounds(cls, x_min: float, x_max: float, y_min: float, y_max: float,
@@ -69,36 +125,26 @@ class CartesianGrid:
                             XYINC  ...
             GRIDCART  name  END
         """
-        lines = [
-            f"   GRIDCART  {self.grid_name:<8} STA",
-            f"                       XYINC  "
-            f"{self.x_init:10.2f} {self.x_num:5d} {self.x_delta:8.2f}  "
-            f"{self.y_init:10.2f} {self.y_num:5d} {self.y_delta:8.2f}",
-        ]
-
-        # Per-receptor elevations (from AERMAP output)
+        lines = [f"   GRIDCART  {self.grid_name:<8} STA"]
+        if self.x_points is not None or self.y_points is not None:
+            # Explicit coordinate lists; a missing side falls back to
+            # the generator so the network is still complete.
+            lines += _list_lines("GRIDCART", self.grid_name, "XPNTS", self.x_values())
+            lines += _list_lines("GRIDCART", self.grid_name, "YPNTS", self.y_values())
+        else:
+            lines.append(
+                f"                       XYINC  "
+                f"{self.x_init:10.2f} {self.x_num:5d} {self.x_delta:8.2f}  "
+                f"{self.y_init:10.2f} {self.y_num:5d} {self.y_delta:8.2f}"
+            )
+        # Per-receptor elevations / hill heights (from AERMAP) and
+        # flagpole heights, one row (y index) per line group.
         if self.grid_elevations is not None:
-            for row_idx, row in enumerate(self.grid_elevations):
-                # AERMOD format: 6 values per line, F8.1
-                for chunk_start in range(0, len(row), 6):
-                    chunk = row[chunk_start : chunk_start + 6]
-                    val_str = " ".join(f"{v:8.1f}" for v in chunk)
-                    lines.append(
-                        f"   GRIDCART  {self.grid_name:<8} ELEV  "
-                        f"{row_idx + 1:5d}  {val_str}"
-                    )
-
-        # Per-receptor hill heights (from AERMAP output)
+            lines += _row_lines("GRIDCART", self.grid_name, "ELEV", self.grid_elevations)
         if self.grid_hills is not None:
-            for row_idx, row in enumerate(self.grid_hills):
-                for chunk_start in range(0, len(row), 6):
-                    chunk = row[chunk_start : chunk_start + 6]
-                    val_str = " ".join(f"{v:8.1f}" for v in chunk)
-                    lines.append(
-                        f"   GRIDCART  {self.grid_name:<8} HILL  "
-                        f"{row_idx + 1:5d}  {val_str}"
-                    )
-
+            lines += _row_lines("GRIDCART", self.grid_name, "HILL", self.grid_hills)
+        if self.grid_flags is not None:
+            lines += _row_lines("GRIDCART", self.grid_name, "FLAG", self.grid_flags)
         lines.append(f"   GRIDCART  {self.grid_name:<8} END")
         return "\n".join(lines)
 
@@ -126,21 +172,77 @@ class PolarGrid:
     dir_num: int = 36
     dir_delta: float = 10.0
 
+    # Explicit ring distances (GRIDPOLR DIST is only ever a list in
+    # AERMOD: reset.f POLDST reads every field as a distance) and
+    # explicit directions (GRIDPOLR DDIR). When set they replace the
+    # dist_*/dir_* generators; the generated distances are written out
+    # as the list AERMOD expects, and the generated directions as
+    # ``GDIR num init delta`` (GENPOL's field order).
+    distances: Optional[List[float]] = None
+    directions: Optional[List[float]] = None
+
+    # ``GRIDPOLR name ORIG srcid`` centres the network on a source
+    # instead of on x_origin/y_origin (POLORG accepts either form).
+    origin_source_id: Optional[str] = None
+
+    # Per-receptor elevations, hill heights and flagpole heights
+    # (GRIDPOLR ELEV / HILL / FLAG), one row per direction, one value
+    # per ring distance.
+    elevations: Optional[List[List[float]]] = None
+    hills: Optional[List[List[float]]] = None
+    flags: Optional[List[List[float]]] = None
+
+    def ring_distances(self) -> List[float]:
+        """The ring distances, explicit or generated."""
+        if self.distances is not None:
+            return list(self.distances)
+        return [self.dist_init + k * self.dist_delta for k in range(self.dist_num)]
+
+    def direction_angles(self) -> List[float]:
+        """The radial directions in degrees, explicit or generated."""
+        if self.directions is not None:
+            return list(self.directions)
+        return [self.dir_init + m * self.dir_delta for m in range(self.dir_num)]
+
+    @property
+    def receptor_count(self) -> int:
+        return len(self.ring_distances()) * len(self.direction_angles())
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD RE pathway text.
 
-        AERMOD requires GRIDPOLR blocks wrapped in STA/END.
+        AERMOD requires GRIDPOLR blocks wrapped in STA/END. The field
+        layouts are those of reset.f: ``ORIG x y`` or ``ORIG srcid``,
+        ``DIST d1 d2 ...`` (always a list), ``GDIR num init delta``
+        (count first) or ``DDIR a1 a2 ...``. Before pyaermod 2.1 the
+        writer emitted ``DIST init num delta`` and ``GDIR init num
+        delta``; AERMOD read the former as three rings and the latter
+        as zero directions, so the network had no receptors (RE E185).
         """
-        lines = [
-            f"   GRIDPOLR  {self.grid_name:<8} STA",
-            f"   GRIDPOLR  {self.grid_name:<8} ORIG  "
-            f"{self.x_origin:10.2f} {self.y_origin:10.2f}",
-            f"   GRIDPOLR  {self.grid_name:<8} DIST  "
-            f"{self.dist_init:10.2f} {self.dist_num:5d} {self.dist_delta:8.2f}",
-            f"   GRIDPOLR  {self.grid_name:<8} GDIR  "
-            f"{self.dir_init:6.1f} {self.dir_num:5d} {self.dir_delta:6.1f}",
-            f"   GRIDPOLR  {self.grid_name:<8} END",
-        ]
+        name = self.grid_name
+        lines = [f"   GRIDPOLR  {name:<8} STA"]
+        if self.origin_source_id:
+            lines.append(f"   GRIDPOLR  {name:<8} ORIG  {self.origin_source_id}")
+        else:
+            lines.append(
+                f"   GRIDPOLR  {name:<8} ORIG  "
+                f"{self.x_origin:10.2f} {self.y_origin:10.2f}"
+            )
+        lines += _list_lines("GRIDPOLR", name, "DIST", self.ring_distances())
+        if self.directions is not None:
+            lines += _list_lines("GRIDPOLR", name, "DDIR", self.directions)
+        else:
+            lines.append(
+                f"   GRIDPOLR  {name:<8} GDIR  "
+                f"{self.dir_num:d}  {_num(self.dir_init)}  {_num(self.dir_delta)}"
+            )
+        if self.elevations is not None:
+            lines += _row_lines("GRIDPOLR", name, "ELEV", self.elevations)
+        if self.hills is not None:
+            lines += _row_lines("GRIDPOLR", name, "HILL", self.hills)
+        if self.flags is not None:
+            lines += _row_lines("GRIDPOLR", name, "FLAG", self.flags)
+        lines.append(f"   GRIDPOLR  {name:<8} END")
         return "\n".join(lines)
 
 

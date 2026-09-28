@@ -1,19 +1,19 @@
-** To run the example, copy the ALLSRCS.INP file to AERMOD.INP and type:
-**
+** To run the example, copy the ALLSRCS.INP file to AERMOD.INP and type:                                                                                                        
+**                                                                                                                                  
 **    AERMOD
-**
+**                                                                                                                                  
 ** The results for this example problem are provided in file AERMOD.OUT.
-
-CO STARTING
+                                                                                                                                    
+CO STARTING                                                                                                                         
    TITLEONE A Simple Example Problem for the AERMOD Model with all Source Types
    TITLETWO All receptor types are also included
    MODELOPT  CONC   FLAT  WARNCHKD BETA  ALPHA
-   AVERTIME  1  3  8  24  PERIOD
-   POLLUTID  SO2
+   AVERTIME  1  3  8  24  PERIOD                                                                                                          
+   POLLUTID  SO2                                                                                                                    
    RUNORNOT RUN
    ERRORFIL  ../Outputs/ALLSRCS_ERRORS.OUT
-CO FINISHED
-
+CO FINISHED                                                                                                                         
+                                                                                                                                    
 SO STARTING
 ** Use all source types
    ELEVUNIT  METERS
@@ -25,7 +25,7 @@ SO STARTING
    LOCATION  STACK    POINT        10.0    10.0   0.0
    location  OPENPIT  OPENPIT   -100.0 -100.0   0.0
    LOCATION  BASE     RLINE       0.0   -100.0    0.0   100.0    0.0
-** RLINE Source              XSB     YSB     ZSB     XSE     YSE     ZSE     Zs
+** RLINE Source              XSB     YSB     ZSB     XSE     YSE     ZSE     Zs  
 ** Location Parameters:    ------  ------  ------  ------  ------  ------  ------
    LOCATION  BASE2  RLINEXT   0.0   -100.0    1.0     0.0   100.0     1.0     0.0
    LOCATION  BARR   RLINEXT   0.0    -50.0    1.0     0.0    50.0     1.0     0.0
@@ -35,7 +35,7 @@ SO STARTING
    LOCATION  BLINE2  BUOYLINE  300.0  1100.0  900.0  400.0  0.0
    LOCATION  BLINE3  BUOYLINE  300.0  1200.0  900.0  600.0  0.0
 
-
+                                                                                                                                    
 ** Point Source         QS      HS     TS    VS    DS
 ** Parameters:         ----    ----   ----  ----   ---
    SRCPARAM  STACKDW   500.0   65.00  425.  15.0   5.
@@ -81,7 +81,7 @@ SO STARTING
 
 ** RLINE Source            QEMIS    DCL      WIDTH  INIT_SIGMAZ
 **                        (g/m/s)   (m)        (m)        (m)
-** Release Parameters:    ------   ------  -----------  ------
+** Release Parameters:    ------   ------  -----------  ------ 
    SRCPARAM  BASE2           1.0      0.0       3.6       2.0
    SRCPARAM  BARR           1.0      0.0       1.0       2.0
    SRCPARAM  DEP            1.0      0.0       1.0       2.0
@@ -99,21 +99,21 @@ SO STARTING
 **           ------ ----- ------ ------- ------ --------
    BLPINPUT   848.0  20.0  100.0     2.0   37.5    300.0
 
-** RLINEXT Source         HTWALL    DCLWALL
-**                         (m)        (m)
-** SRC Config. Params:    ------    ------
-   RBARRIER  BARR          10.0       10.0
+** RLINEXT Source         HTWALL    DCLWALL   
+**                         (m)        (m)     
+** SRC Config. Params:    ------    ------   
+   RBARRIER  BARR          10.0       10.0   
 
 ** RLINE Source           DEPTH    WTOP    WBOTTOM
-**                         (m)        (m)      (m)
-** SRC Config. Params:    ------    ------    -------
-   RDEPRESS  DEP         -12.5      50.0     25.0
+**                         (m)        (m)      (m)    
+** SRC Config. Params:    ------    ------    -------  
+   RDEPRESS  DEP         -12.5      50.0     25.0   
 
    SRCGROUP  STACKDW  STACKDW
-   SRCGROUP  AREA     AREA
-   SRCGROUP  CIRC     CIRC
-   SRCGROUP  AREAP    AREAP
-   SRCGROUP  VOL      VOL
+   SRCGROUP  AREA     AREA   
+   SRCGROUP  CIRC     CIRC   
+   SRCGROUP  AREAP    AREAP  
+   SRCGROUP  VOL      VOL    
    SRCGROUP  STACK    STACK
    SRCGROUP  OPENPIT  OPENPIT
    SRCGROUP  LINE  LINE1
@@ -126,7 +126,7 @@ SO STARTING
    SRCGROUP  RLINEDE  DEP
 
 SO FINISHED
-
+                                                                                                                                    
 RE STARTING
 ** Use all receptor types
 
@@ -139,7 +139,7 @@ RE STARTING
                  DIST 175. 350. 500. 1000.
                  GDIR 36 15 10
    GRIDPOLR POL1 END
-
+   
    GRIDCART CAR2 STA
                  XPNTS  -1000. -500. 500. 1000.
                  YPNTS  -1000. -500. 500. 1000.
@@ -151,21 +151,21 @@ RE STARTING
 
    EVALCART 1000. 0. 0. 0. 0. ARC1
 
-RE FINISHED
-
-ME STARTING
+RE FINISHED                                                                                                                         
+                                                                                                                                    
+ME STARTING                                                                                                                         
    SURFFILE  ../meteorology/aermet2.sfc
    PROFFILE  ../meteorology/aermet2.pfl
    SURFDATA  14735  1988  ALBANY,NY
-   UAIRDATA  14735  1988  ALBANY,NY
+   UAIRDATA  14735  1988  ALBANY,NY                                                                                                 
    SITEDATA  99999  1988  HUDSON
    PROFBASE  0.0  METERS
-ME FINISHED
-
+ME FINISHED                                                                                                                         
+                                                                                                                                    
 OU STARTING
-   RECTABLE  ALLAVE  FIRST-SECOND
-   MAXTABLE  ALLAVE  50
-   SUMMFILE  ../Outputs/ALLSRCS.SUM
+   RECTABLE  ALLAVE  FIRST-SECOND                                                                                                   
+   MAXTABLE  ALLAVE  50                                                                                                                         
+   SUMMFILE  ../Outputs/ALLSRCS.SUM                                                                                                      
    POSTFILE   1  STACKDW   PLOT    ../postfiles/ALLSRCS_STACKDW_01H.PST 31
    POSTFILE   1  AREA      PLOT    ../postfiles/ALLSRCS_AREA_01H.PST 32
    POSTFILE   1  CIRC      PLOT    ../postfiles/ALLSRCS_CIRC_01H.PST 33
