@@ -4,6 +4,14 @@
 **Prepared:** 2026-09-28
 **Scope:** `src/pyaermod/gui_v2/`, its tests, the run-status logic in `src/pyaermod/runner.py`, and the GUI's documentation, packaging and CI.
 
+## Status
+
+| Package | State | Notes |
+|---|---|---|
+| WP-G0 | Done | `make test-gui-e2e` runs the journeys against recorded AERMOD runs in about 100 s. Every known gap listed below is reached on the current GUI. |
+| WP-G1 | Done | `AERMODRunner` requires AERMOD's completion banner and zero fatal errors, and results carry the parsed messages. Defect D1 is fixed: both J2 run tests now assert the failed status outright. |
+| WP-G2 to WP-G7 | Not started | WP-G2 is next. Its journeys stop at the D2, D3, D4 and WP-G2 gaps (`pytest -rxX` lists them). |
+
 ## Why a redesign
 
 A live walkthrough on 2026-09-28 found that the GUI can build a project but cannot carry a user from a run to its results. The walkthrough used NiceGUI 3.17.1, an AERMOD binary built from EPA's v26135 source with `scripts/build_aermod.sh`, and headless Chromium driven by Playwright. All 166 GUI tests passed at the same time. Four defects break the workflow, and each one escaped because the tests checked internal state rather than what a user sees.

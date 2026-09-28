@@ -6,9 +6,11 @@ reads "Failed", the message table lists E480 with its text, and Results
 does not present concentrations as valid.
 
 AERMOD aborts this run with fatal error E480 and still exits with code 0
-(recording ``albany_e480``), which the current GUI reports as a success:
-defect D1. The warning and the failed run are separate tests, so that D1
-is exercised whether or not the warning exists.
+(recording ``albany_e480``). The GUI used to report that as a success
+(defect D1); since WP-G1 the runner requires AERMOD's own completion
+banner and no fatal errors, so the failed status is asserted outright.
+The warning and the failed run are separate tests, so that the failed
+status is checked whether or not the warning exists.
 """
 
 from __future__ import annotations
@@ -45,9 +47,7 @@ def test_j02_run_anyway_reports_failure(gui, step, known_gap, run_dir):
     gui.run.wait_until_finished()
     step("run_finished")
 
-    with known_gap("D1", "a run AERMOD aborts with E480 (exit code 0) is "
-                         "reported as a success"):
-        gui.run.reports_failure()
+    gui.run.reports_failure()
     with known_gap("WP-G4", "no message table listing E480"):
         gui.run.expect_message("E480", "Less than 1yr")
 
@@ -67,8 +67,6 @@ def test_j02_setup_error_reports_failure(gui, step, known_gap, run_dir, tmp_path
     gui.run.wait_until_finished()
     step("run_finished")
 
-    with known_gap("D1", "a run AERMOD aborts in setup (E500, exit code 0) is "
-                         "reported as a success"):
-        gui.run.reports_failure()
+    gui.run.reports_failure()
     with known_gap("WP-G4", "no message table listing E500"):
         gui.run.expect_message("E500", "SURFFILE")
