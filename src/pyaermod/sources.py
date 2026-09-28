@@ -253,23 +253,31 @@ def _format_building_keyword(
     keyword : str
         AERMOD keyword (BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ).
     values : float or list of float
-        Scalar (single value for all directions) or 36-value list
-        (one per 10-degree wind sector).
+        Scalar (the same value for every direction) or 36-value list
+        (one per 10-degree wind sector, as BPIP-PRIME writes them).
 
     Returns
     -------
     list of str
-        Formatted AERMOD input lines.
+        Formatted AERMOD input lines: always 36 values, ten per line.
 
     Raises
     ------
     ValueError
         If values is a list with length other than 36.
+
+    Notes
+    -----
+    AERMOD has no scalar form of these keywords: soset.f reads exactly
+    36 values per source (DSBLDG, NSEC sectors) and SRCQA rejects a
+    POINT source with fewer
+    (E236, E237, E241, E246, E247). A scalar
+    is therefore written as the same value repeated for all 36 sectors.
     """
     kw = f"{keyword:<9}"
 
     if isinstance(values, (int, float)):
-        return [f"   {kw} {source_id:<8} {_f8_2(values)}"]
+        values = [float(values)] * 36
 
     if len(values) != 36:
         raise ValueError(
@@ -366,8 +374,9 @@ class PointSource:
     emission_rate: float = 1.0  # g/s
 
     # Building downwash (optional)
-    # Accepts either a single float (scalar, same for all directions) or
-    # a list of 36 floats (one per 10-degree wind sector, BPIP output).
+    # Accepts either a single float (the same for all directions, written
+    # as 36 repeated values because AERMOD has no scalar form) or a list
+    # of 36 floats (one per 10-degree wind sector, BPIP output).
     building_height: Optional[Union[float, List[float]]] = None
     building_width: Optional[Union[float, List[float]]] = None
     building_length: Optional[Union[float, List[float]]] = None

@@ -126,7 +126,7 @@ OEVENT, EV_OUCARD), `meset.f` (DAYRNG, NUMYR, WSCATS, SCIMIT, TURBOPT),
 PLATFM, AIRCRAFT, HBPSOURCE, PPARM, SWPARM, SOLOCA); probe decks 20-30
 record what AERMOD said, and the deck AERMOD wrote itself for EVENTFIL
 (29b) is the EV layout reference. What the tranche found on the way is
-in "Round-trip guarantee" and item 10 below: the writer's METHOD line
+in "Round-trip guarantee" and items 10 and 11 below: the writer's METHOD line
 was never a keyword (E105), its EVENTPER card never had the right field
 count (E201), the EV block went where PRESET never looks, an exit
 velocity of 0.001 m/s was rounded to 0.00 by the SRCPARAM column, and a
@@ -570,14 +570,17 @@ the default grid, STARTEND with hours, sources defined in INCLUDED files
 re-defined from their inline SRCPARAM, and `SRCGROUP ALL` invented for a
 PSDCREDIT deck (`SourcePathway.include_all_group`).
 
-10. **Scalar building-downwash values.** Found by the tranche-4 POINTCAP
-   acceptance case and left as is: a `PointSource` whose
-   `building_height` is a single float writes one BUILDHGT value, and
-   AERMOD wants 36 (E236). The reader always produces 36-value lists, so
-   no rewritten deck is affected; a project built in Python with scalar
-   downwash values has been fatal since the field existed and needs a
-   writer change (repeat the value 36 times) that belongs with a look at
-   `apply_bpip_to_project`, which fills the lists.
+10. **Scalar building-downwash values.** Resolved. A `PointSource`
+   (or area or volume source) whose `building_height`, `building_width`,
+   `building_length`, `building_x_offset` or `building_y_offset` is a
+   single float used to write one value per keyword; `soset.f` DSBLDG
+   reads one value per wind sector (NSEC = 36) and SRCQA rejects a POINT
+   source with fewer (SO E236, E237, E241, E246, E247 for the five
+   keywords). The writer now repeats a scalar for all 36 sectors, in the
+   same ten-per-line layout as BPIP output, and
+   `tests/test_source_deck_acceptance.py` runs the point, area and volume
+   forms through AERMOD's setup pass. The reader always produced 36-value
+   lists, so no rewritten EPA deck changes.
 11. **`deposition_method`** is kept on every source for compatibility but
    writes nothing: the `METHOD srcid option value` line it produced was
    never an AERMOD keyword (E105, probe 20) and `chemistry_presets`

@@ -334,8 +334,12 @@ class TestBPIPCalculatorResults:
 class TestPointSourceBuildingFormatting:
     """Test PointSource building keyword formatting"""
 
-    def test_scalar_building_single_line(self):
-        """Scalar building params produce single output lines"""
+    def test_scalar_building_written_for_all_36_sectors(self):
+        """Scalar building params are repeated for all 36 sectors.
+
+        AERMOD has no scalar form: one value per keyword is SO E236-E247
+        for a POINT source, so each scalar becomes four lines (10+10+10+6).
+        """
         src = PointSource(
             source_id="STK1",
             x_coord=0.0, y_coord=0.0,
@@ -353,9 +357,11 @@ class TestPointSourceBuildingFormatting:
         assert "XBADJ" in output
         assert "YBADJ" in output
 
-        # Each keyword should appear exactly once for scalar values
-        assert output.count("BUILDHGT") == 1
-        assert output.count("BUILDWID") == 1
+        for kw in ("BUILDHGT", "BUILDWID", "BUILDLEN", "XBADJ", "YBADJ"):
+            assert output.count(kw) == 4
+        hgt = [v for line in output.splitlines()
+               if line.split()[:1] == ["BUILDHGT"] for v in line.split()[2:]]
+        assert hgt == ["25.00"] * 36
 
     def test_36_value_multiline(self):
         """36-value arrays produce 4 continuation lines (10+10+10+6)"""
