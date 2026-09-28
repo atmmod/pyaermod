@@ -8,18 +8,213 @@ and batch processing capabilities.
 import contextlib
 import logging
 import platform
+import re
 import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+
+# ============================================================================
+# AERMOD'S MESSAGE SUMMARY
+# ============================================================================
+#
+# AERMOD reports whether a run worked only in its .out file. The process
+# exits with code 0 even when a fatal error stops the run: v26135 does so
+# for the runtime error E480 (ANNUAL averages with under a year of met
+# data) and for the setup error E500 (a met file that cannot be opened).
+# The recordings in tests/fixtures/runner/ show both.
+#
+# Near the end of the .out, AERMOD's SUMTBL routine (aermod.f) writes a
+# message summary, and the main program then writes one of two banners:
+#
+#     *** AERMOD Finishes Successfully ***
+#     *** AERMOD Finishes UN-successfully ***
+#
+# A run with setup messages also has an earlier summary, "Message Summary
+# For AERMOD Model Setup", followed by "*** SETUP Finishes Successfully
+# ***" even when the run fails later. That is why a search for "FINISHES
+# SUCCESSFULLY" is not a success test. The final summary re-reads every
+# message AERMOD recorded, including the setup messages, so it is the only
+# summary parsed here. SUMTBL lists fatal errors and warnings but only
+# counts informational messages.
+
+_SUMMARY_HEADING = re.compile(r"\*\*\* Message Summary", re.IGNORECASE)
+_FINISH_BANNER = re.compile(
+    r"^[ \t]*\*\*\*[ \t]*(?:SETUP|AERMOD) Finishes", re.IGNORECASE | re.MULTILINE
+)
+_FINISHED_SUCCESSFULLY = re.compile(
+    r"^[ \t]*\*\*\*[ \t]*AERMOD Finishes Successfully[ \t]*\*\*\*[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_MESSAGE_TOTAL = re.compile(
+    r"^[ \t]*A Total of[ \t]+(\d+)[ \t]+(Fatal Error|Warning|Informational) Message",
+    re.IGNORECASE | re.MULTILINE,
+)
+_TOTAL_SEVERITY = {"fatal error": "E", "warning": "W", "informational": "I"}
+# One message, as SUMTBL writes it:
+#     FORMAT(1X,A2,1X,A1,A3,I8,1X,A12,': ',A50,1X,A12)
+# i.e. pathway, severity, number, line, routine, text, detail.
+_MESSAGE_LINE = re.compile(
+    r"^ (?P<pathway>.{2}) (?P<severity>[EWI])(?P<number>\d{3})"
+    r"(?P<line>[ \d]{7}\d) (?P<module>.{12}): (?P<body>.*?)\s*$"
+)
+# The summary sits at the end of the file and holds at most 999 fatal
+# errors and 999 warnings of about 95 bytes each, so a 1 MB tail always
+# contains it when the run got as far as writing the final summary.
+_SUMMARY_TAIL_BYTES = 1_000_000
+
+
+@dataclass(frozen=True)
+class AERMODMessage:
+    """One message from the message summary in an AERMOD ``.out`` file.
+
+    AERMOD prints each message on one line with the Fortran format
+    ``(1X,A2,1X,A1,A3,I8,1X,A12,': ',A50,1X,A12)``, for example::
+
+         MX E480      97         MAIN: Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave     NUMYRS=0
+
+    Attributes:
+        severity: ``'E'`` (fatal error), ``'W'`` (warning) or ``'I'``
+            (informational).
+        pathway: The pathway that raised the message, such as ``'CO'``,
+            ``'SO'``, ``'RE'``, ``'ME'``, ``'OU'`` or ``'MX'`` (the
+            meteorological data). It is empty when AERMOD leaves it blank.
+        code: The severity and number together, such as ``'E480'``.
+        line: The line reference as AERMOD prints it. During setup this is
+            the line of the input deck. During the run it is the record of
+            the data file being read, such as the hour of met data for
+            ``MX`` messages.
+        module: The AERMOD routine that raised the message, such as
+            ``'MAIN'``.
+        text: The message text. AERMOD cuts it to 50 characters.
+        detail: The detail field of up to 12 characters that follows the
+            text, such as ``'NUMYRS=0'`` or ``'SURFFILE'``. It is empty when
+            AERMOD prints none.
+    """
+    severity: str
+    pathway: str
+    code: str
+    line: str
+    module: str
+    text: str
+    detail: str = ""
+
+    def __str__(self) -> str:
+        message = f"{self.code} {self.module}: {self.text}"
+        return f"{message} {self.detail}" if self.detail else message
+
+
+class _MessageSummary(NamedTuple):
+    """What the final message summary of a ``.out`` file says."""
+    messages: List[AERMODMessage]
+    # AERMOD's own "A Total of N ... Message(s)" lines, keyed by severity.
+    counts: Dict[str, int]
+    # True when the file carries the "*** AERMOD Finishes Successfully ***" banner.
+    finished_successfully: bool
+
+
+def _severity_count(messages: Sequence[AERMODMessage],
+                    counts: Dict[str, int], severity: str) -> int:
+    """AERMOD's own total for ``severity`` when it printed one, else the number listed.
+
+    The totals are the better count: AERMOD lists at most 999 messages of
+    each kind, omits the warning list under ``NOWARN``, and never lists
+    informational messages.
+    """
+    if severity in counts:
+        return counts[severity]
+    return sum(1 for m in messages if m.severity == severity)
+
+
+def _read_summary_text(path: Path) -> str:
+    """Return the end of ``path`` that holds AERMOD's final message summary.
+
+    Reads only the last ``_SUMMARY_TAIL_BYTES`` of a large file, falling
+    back to the whole file when that tail has no summary (a run that
+    stopped before writing its final one). AERMOD writes Latin-1, and
+    that decoding cannot fail. Windows builds end lines with CRLF (EPA's
+    own reference outputs do), so line ends are normalized to LF.
+    """
+    size = path.stat().st_size
+    with open(path, "rb") as fh:
+        if size > _SUMMARY_TAIL_BYTES:
+            fh.seek(size - _SUMMARY_TAIL_BYTES)
+            tail = fh.read().decode("latin-1")
+            if _SUMMARY_HEADING.search(tail):
+                return tail.replace("\r\n", "\n")
+            fh.seek(0)
+        return fh.read().decode("latin-1").replace("\r\n", "\n")
+
+
+def _read_message_summary(output_file: Union[str, Path]) -> _MessageSummary:
+    """Parse the final message summary and the completion banner of a ``.out`` file."""
+    text = _read_summary_text(Path(output_file))
+    finished = _FINISHED_SUCCESSFULLY.search(text) is not None
+
+    headings = list(_SUMMARY_HEADING.finditer(text))
+    if not headings:
+        return _MessageSummary([], {}, finished)
+    region = text[headings[-1].start():]
+    banner = _FINISH_BANNER.search(region)
+    if banner:
+        region = region[:banner.start()]
+
+    counts = {
+        _TOTAL_SEVERITY[m.group(2).lower()]: int(m.group(1))
+        for m in _MESSAGE_TOTAL.finditer(region)
+    }
+    messages = []
+    for raw in region.splitlines():
+        m = _MESSAGE_LINE.match(raw)
+        if m is None:
+            continue
+        body = m.group("body")
+        messages.append(AERMODMessage(
+            severity=m.group("severity"),
+            pathway=m.group("pathway").strip(),
+            code=m.group("severity") + m.group("number"),
+            line=m.group("line").strip(),
+            module=m.group("module").strip(),
+            # A50 then 1X then A12: the text and the detail sit at fixed columns.
+            text=body[:50].strip(),
+            detail=body[51:].strip(),
+        ))
+    return _MessageSummary(messages, counts, finished)
+
+
+def parse_aermod_messages(output_file: Union[str, Path]) -> List[AERMODMessage]:
+    """Read the fatal errors and warnings AERMOD lists in a ``.out`` file.
+
+    The messages come from the file's final message summary, which
+    includes the setup messages, in the order AERMOD lists them: fatal
+    errors first, then warnings. AERMOD counts informational messages
+    but does not list them in the ``.out`` file.
+
+    Args:
+        output_file: Path to an AERMOD ``.out`` file.
+
+    Returns:
+        The listed messages. The list is empty when the file has no
+        message summary.
+
+    Raises:
+        FileNotFoundError: If ``output_file`` does not exist.
+    """
+    return _read_message_summary(output_file).messages
 
 
 @dataclass
 class AERMODRunResult:
-    """Result from an AERMOD execution"""
+    """Result from an AERMOD execution.
+
+    ``success`` is True only when AERMOD exited with code 0, wrote its
+    ``.out`` file, printed ``*** AERMOD Finishes Successfully ***`` there
+    and reported no fatal errors. The exit code alone says nothing:
+    AERMOD exits with 0 after a fatal error.
+    """
     success: bool
     input_file: str
     return_code: Optional[int] = None
@@ -38,6 +233,36 @@ class AERMODRunResult:
     # Metadata
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+
+    # AERMOD's own verdict, read from the final message summary of the .out file
+    messages: List[AERMODMessage] = field(default_factory=list)
+    message_counts: Dict[str, int] = field(default_factory=dict)
+    finished_successfully: bool = False
+
+    @property
+    def fatal_messages(self) -> List[AERMODMessage]:
+        """The fatal errors AERMOD listed (severity ``'E'``)."""
+        return [m for m in self.messages if m.severity == "E"]
+
+    @property
+    def warning_messages(self) -> List[AERMODMessage]:
+        """The warnings AERMOD listed (severity ``'W'``)."""
+        return [m for m in self.messages if m.severity == "W"]
+
+    @property
+    def fatal_count(self) -> int:
+        """Number of fatal errors, from AERMOD's own total when it printed one."""
+        return _severity_count(self.messages, self.message_counts, "E")
+
+    @property
+    def warning_count(self) -> int:
+        """Number of warnings, from AERMOD's own total when it printed one."""
+        return _severity_count(self.messages, self.message_counts, "W")
+
+    @property
+    def informational_count(self) -> int:
+        """Number of informational messages. AERMOD counts these but does not list them."""
+        return _severity_count(self.messages, self.message_counts, "I")
 
     def __repr__(self) -> str:
         status = "SUCCESS" if self.success else "FAILED"
@@ -241,15 +466,41 @@ class AERMODRunner:
             # Check for output files
             has_output = output_files['output'].exists()
 
-            # Determine success
-            # AERMOD typically returns 0 on success, but we also check for output file
-            success = (result.returncode == 0 and has_output)
+            # AERMOD's verdict is in the .out file, not in its exit code,
+            # which is 0 even after a fatal error (see the comment above
+            # AERMODMessage).
+            summary = _MessageSummary([], {}, False)
+            if has_output:
+                try:
+                    summary = _read_message_summary(output_files['output'])
+                except OSError as exc:
+                    self.logger.warning(
+                        f"Could not read AERMOD output file {output_files['output']}: {exc}"
+                    )
+            fatal_count = _severity_count(summary.messages, summary.counts, "E")
 
+            # Determine success: exit code 0, an .out file, AERMOD's own
+            # completion banner and no fatal errors.
+            success = (
+                result.returncode == 0
+                and has_output
+                and summary.finished_successfully
+                and fatal_count == 0
+            )
+
+            error_msg = None
             if not success:
-                error_msg = self._extract_error_message(result, output_files)
+                error_msg = self._extract_error_message(
+                    result, output_files,
+                    messages=summary.messages,
+                    finished_successfully=summary.finished_successfully,
+                )
                 self.logger.error(f"AERMOD run failed: {error_msg}")
             else:
-                self.logger.info(f"AERMOD run succeeded ({runtime:.1f}s)")
+                warnings = _severity_count(summary.messages, summary.counts, "W")
+                self.logger.info(
+                    f"AERMOD run succeeded ({runtime:.1f}s, {warnings} warning(s))"
+                )
 
             return AERMODRunResult(
                 success=success,
@@ -261,9 +512,12 @@ class AERMODRunner:
                 summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
                 stdout=result.stdout if capture_output else None,
                 stderr=result.stderr if capture_output else None,
-                error_message=error_msg if not success else None,
+                error_message=error_msg,
                 start_time=start_time,
-                end_time=end_time
+                end_time=end_time,
+                messages=summary.messages,
+                message_counts=summary.counts,
+                finished_successfully=summary.finished_successfully,
             )
 
         except subprocess.TimeoutExpired:
@@ -311,8 +565,46 @@ class AERMODRunner:
 
     def _extract_error_message(self,
                                result: subprocess.CompletedProcess,
-                               output_files: Dict[str, Path]) -> str:
-        """Extract error message from AERMOD output"""
+                               output_files: Dict[str, Path],
+                               messages: Optional[Sequence[AERMODMessage]] = None,
+                               finished_successfully: Optional[bool] = None) -> str:
+        """Explain why a run failed, naming AERMOD's first fatal error when there is one.
+
+        Args:
+            result: The finished AERMOD process.
+            output_files: Paths of the run's ``output`` and ``error`` files.
+            messages: The messages parsed from the ``.out`` file, if any.
+            finished_successfully: Whether the ``.out`` file carries
+                AERMOD's completion banner; None when it was not checked.
+        """
+        fatal = [m for m in (messages or ()) if m.severity == "E"]
+        parts = []
+        if fatal:
+            first = str(fatal[0])
+            if len(fatal) > 1:
+                first += f" (and {len(fatal) - 1} more fatal error(s))"
+            parts.append(first)
+
+        parts.extend(self._error_context(result, output_files, scan_output=not fatal))
+
+        if (not fatal and finished_successfully is False
+                and output_files['output'].exists()):
+            parts.append(
+                "AERMOD did not report success: no '*** AERMOD Finishes "
+                f"Successfully ***' line in {output_files['output'].name}"
+            )
+
+        if parts:
+            return "; ".join(parts)
+        if result.returncode == 0 and not output_files['output'].exists():
+            return f"AERMOD exited with code 0 but wrote no {output_files['output'].name}"
+        return f"AERMOD failed with return code {result.returncode}"
+
+    def _error_context(self,
+                       result: subprocess.CompletedProcess,
+                       output_files: Dict[str, Path],
+                       scan_output: bool = True) -> List[str]:
+        """Collect stderr, the error file and an error line from the ``.out`` file."""
         messages = []
 
         # Check stderr
@@ -336,8 +628,10 @@ class AERMODRunner:
                     f"Could not read AERMOD error file {output_files['error']}: {exc}"
                 )
 
-        # Check output file for errors
-        if output_files['output'].exists():
+        # Check output file for errors. Parsed fatal messages make this
+        # unnecessary, and the "FATAL ERROR MESSAGES" heading of AERMOD's
+        # own summary is not an error, so skip it.
+        if scan_output and output_files['output'].exists():
             try:
                 with open(output_files['output'], encoding="latin-1", errors="replace") as f:
                     content = f.read()
@@ -345,6 +639,8 @@ class AERMODRunner:
                     if 'ERROR' in content or 'FATAL' in content:
                         # Extract relevant lines
                         for line in content.split('\n'):
+                            if 'ERROR MESSAGES' in line:
+                                continue
                             if 'ERROR' in line or 'FATAL' in line:
                                 messages.append(line.strip())
                                 break
@@ -353,10 +649,7 @@ class AERMODRunner:
                     f"Could not read AERMOD output file {output_files['output']}: {exc}"
                 )
 
-        if messages:
-            return "; ".join(messages)
-        else:
-            return f"AERMOD failed with return code {result.returncode}"
+        return messages
 
     def run_batch(self,
                   input_files: List[Union[str, Path]],
@@ -736,6 +1029,10 @@ if __name__ == "__main__":
         print("="*70)
         print(f"Status: {'SUCCESS' if result.success else 'FAILED'}")
         print(f"Runtime: {result.runtime_seconds:.2f} seconds")
+        print(f"Messages: {result.fatal_count} fatal error(s), "
+              f"{result.warning_count} warning(s)")
+        for msg in result.fatal_messages:
+            print(f"  {msg.pathway} {msg}")
 
         if result.output_file:
             print(f"Output file: {result.output_file}")

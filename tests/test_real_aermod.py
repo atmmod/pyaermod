@@ -11,6 +11,10 @@ Skips if `aermod` isn't on PATH. When it's present, this module:
    - the headline peak concentration is in the expected range, and
    - **every receptor** matches EPA's published reference plotfile
      (tests/fixtures/epa_official/AERTEST_01H.PLT) to a tight tolerance.
+5. Runs the three decks recorded in tests/fixtures/runner/ (a success,
+   fatal error E480 at run time and E500 at setup, both of which AERMOD
+   ends with exit code 0) and checks that the runner takes AERMOD's
+   verdict from the .out file and that the recordings still match.
 
 Step 4's full-field comparison is the regulatory-grade check: it proves
 pyaermod drives the real AERMOD Fortran to reproduce EPA's own published
@@ -37,7 +41,7 @@ from pathlib import Path
 
 import pytest
 
-from pyaermod import AERMODRunner, read_plotfile
+from pyaermod import AERMODRunner, parse_aermod_messages, read_plotfile
 
 FIXT = Path(__file__).parent / "fixtures" / "epa_official"
 
@@ -128,10 +132,14 @@ def test_aermod_runs_aertest_successfully(aertest_run):
         f"stderr={(result.stderr or '')[:500]}"
     )
 
-    # Main .out file must have the success marker
+    # Main .out file must have the success marker. "FINISHES SUCCESSFULLY"
+    # alone is not enough: a run that fails after setup still prints
+    # "*** SETUP Finishes Successfully ***".
     out_text = Path(result.output_file).read_text(encoding="latin-1")
-    assert "FINISHES SUCCESSFULLY" in out_text.upper(), \
+    assert "AERMOD FINISHES SUCCESSFULLY" in out_text.upper(), \
         "AERMOD .out missing success marker"
+    assert result.finished_successfully
+    assert result.fatal_count == 0
 
 
 def test_aermod_aertest_peak_concentration(aertest_run):
@@ -194,4 +202,72 @@ def test_aermod_aertest_matches_epa_reference(aertest_run):
         f"\nAERTEST vs EPA reference: {len(ref)} receptors, "
         f"max rel diff {worst[0]:.3e} at {worst[1]} "
         f"(got {worst[2]}, ref {worst[3]})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Run status: AERMOD's own verdict, not its exit code
+#
+# AERMOD exits with code 0 even when a fatal error stops the run. These
+# tests run the three decks recorded in tests/fixtures/runner/ (see its
+# README) and check that the runner reads the verdict from the .out file,
+# and that the recordings the default suite replays still match what the
+# binary prints.
+# ---------------------------------------------------------------------------
+
+RECORDINGS = Path(__file__).parent / "fixtures" / "runner"
+
+
+def _run_recorded_deck(case: str, work: Path):
+    """Run the deck of recording ``case`` with the Albany met files beside it."""
+    shutil.copy(FIXT / "AERMET2.SFC", work / "AERMET2.SFC")
+    shutil.copy(FIXT / "AERMET2.PFL", work / "AERMET2.PFL")
+    inp = work / f"{case}.inp"
+    shutil.copy(RECORDINGS / case / "aermod.inp", inp)
+    return AERMODRunner(log_level="WARNING").run(str(inp), working_dir=str(work), timeout=300)
+
+
+def test_run_status_success(tmp_path):
+    result = _run_recorded_deck("success", tmp_path)
+    assert result.success, result.error_message
+    assert result.return_code == 0
+    assert result.finished_successfully
+    assert result.fatal_count == 0
+    assert [m.code for m in result.warning_messages] == [
+        "W206", "W361", "W362", "W362", "W214", "W403",
+    ]
+    assert result.messages == parse_aermod_messages(RECORDINGS / "success" / "aermod.out")
+
+
+def test_run_status_e480_fails_despite_exit_code_zero(tmp_path):
+    """Defect D1: ANNUAL averages with four days of met data (E480)."""
+    result = _run_recorded_deck("runtime_error_e480", tmp_path)
+    assert result.return_code == 0
+    assert result.output_file is not None
+    assert result.success is False
+    assert not result.finished_successfully
+    assert [m.code for m in result.fatal_messages] == ["E480"]
+    e480 = result.fatal_messages[0]
+    assert e480.text == "Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave"
+    assert result.error_message.startswith(
+        "E480 MAIN: Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave"
+    )
+    assert result.messages == parse_aermod_messages(
+        RECORDINGS / "runtime_error_e480" / "aermod.out"
+    )
+
+
+def test_run_status_setup_error_e500(tmp_path):
+    """A surface file that does not exist stops AERMOD in setup (E500)."""
+    result = _run_recorded_deck("setup_error_e500", tmp_path)
+    assert result.return_code == 0
+    assert result.success is False
+    assert [(m.pathway, m.code, m.detail) for m in result.fatal_messages] == [
+        ("ME", "E500", "SURFFILE"),
+    ]
+    assert result.error_message == (
+        "E500 MEOPEN: Fatal Error Occurs Opening the Data File of SURFFILE"
+    )
+    assert result.messages == parse_aermod_messages(
+        RECORDINGS / "setup_error_e500" / "aermod.out"
     )

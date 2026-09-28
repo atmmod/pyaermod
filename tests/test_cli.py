@@ -12,18 +12,21 @@ from pyaermod import cli
 
 FIXT_STYLE = Path(__file__).parent / "fixtures" / "epa_style"
 FIXT_OFFICIAL = Path(__file__).parent / "fixtures" / "epa_official"
+# aermod.out of a real, successful AERMOD run (tests/fixtures/runner/README.md)
+SUCCESS_OUT = Path(__file__).parent / "fixtures" / "runner" / "success" / "aermod.out"
 
 
 @pytest.fixture()
 def fake_aermod_exe_with_output(tmp_path):
-    """Fake AERMOD that exits 0 *and* creates aermod.out so the runner
-    considers the run successful (success = returncode==0 AND output exists)."""
+    """Fake AERMOD that exits 0 *and* writes the aermod.out of a successful
+    run, so the runner considers the run successful (exit code 0, an .out
+    file with AERMOD's completion banner and no fatal errors)."""
     if platform.system() == "Windows":
         exe = tmp_path / "aermod_ok.bat"
-        exe.write_text("@echo off\necho. 2>aermod.out\nexit /b 0\n")
+        exe.write_text(f'@echo off\ncopy /y "{SUCCESS_OUT}" aermod.out >nul\nexit /b 0\n')
     else:
         exe = tmp_path / "aermod_ok"
-        exe.write_text("#!/bin/bash\ntouch aermod.out\nexit 0\n")
+        exe.write_text(f'#!/bin/bash\ncp "{SUCCESS_OUT}" aermod.out\nexit 0\n')
         exe.chmod(0o755)
     return exe
 

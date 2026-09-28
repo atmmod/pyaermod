@@ -16,6 +16,7 @@ PUBLIC_NAMES = [
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution
     "AERMODRunner", "BatchRunner", "run_aermod",
+    "AERMODMessage", "parse_aermod_messages",
     "NoOpProgress", "LoggingProgress", "TqdmProgress",
     "extract_errmsg", "summarize_failure", "resume_batch",
     "RunManifest", "generate_slurm_script",

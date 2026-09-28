@@ -46,6 +46,8 @@ coverage.xml
 !tests/fixtures/epa_aerscreen/**/*.inp
 !tests/fixtures/epa_aerscreen/**/*.out
 !tests/fixtures/epa_aerscreen/**/*.OUT
+!tests/fixtures/runner/**/*.inp
+!tests/fixtures/runner/**/*.out
 
 # Fortran source directories (download separately)
 aermod/
