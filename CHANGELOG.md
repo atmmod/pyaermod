@@ -647,6 +647,13 @@ number comes from:
   `make test-full` as the pre-PR check.
 
 ### Fixed
+- **The EPA parity workflow pruned the reference files the known-answer
+  suite compares against.** It kept only `inputs/`, `meteorology/` and
+  `postfiles/` of the parity set, so the PST/PLT rank comparisons, the
+  surfcoal `.DA1`-`.DA8` ranks and the AERTEST `.SUM` check had nothing to
+  read and the suite's non-empty guard failed the job. The set now also
+  keeps `plotfiles/` and `Outputs/` (about 32 MB), and the cache salt is
+  bumped so the previously pruned cache is not reused.
 - **`pyaermod.__version__` was `pyaermod.api`'s constant, not
   `__init__.py`'s.** `api.py` defines its own `__version__` and the
   package re-exports `api.*` after setting its own, so bumping the two
