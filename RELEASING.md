@@ -112,4 +112,9 @@ To attach macOS binaries to a release:
 ./scripts/build_aermod.sh all
 ```
 This builds `bin/aermod`, `bin/aermap` and `bin/aermet` from Fortran
-source (requires `gfortran` via `brew install gcc`).
+source (requires `gfortran` via `brew install gcc`). `BIN_DIR=<dir>`
+builds into another directory instead, and each binary's build record
+(SHA-256, compiler version, compile and link flags, and AERMOD's banner
+version) is printed as it is linked; quote the SHA-256 when attaching a
+binary to a release. The other `scripts/build_*.sh` scripts take the same
+`BIN_DIR` and print the same record.

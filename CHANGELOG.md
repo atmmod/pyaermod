@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The EPA build scripts build into a directory you choose and say what
+  they built.** `scripts/build_aermod.sh`, `build_bpip.sh`,
+  `build_aersurface.sh` and `build_aerscreen.sh` always wrote into the
+  checkout's `bin/`, so a second build of the same source (a diagnostic
+  variant, another compiler) could only be made by overwriting the
+  first, and nothing recorded which binary a run had used. They now
+  honour `BIN_DIR` (default `bin/`, unchanged; a relative path is taken
+  from the directory the script is run in, although the scripts `cd`
+  into scratch directories before linking) and print a build record
+  after each link: the binary's path and SHA-256, the compiler's
+  version, the compile and link flags actually passed to it (AERMET and
+  the AERSURFACE link use their own flags, not `FFLAGS`, and the record
+  says so), and for AERMOD the version in its usage banner. The shared
+  code is the new `scripts/build_common.sh`. The hash identifies the
+  binary, not the recipe: gfortran writes each source file's absolute
+  path into the binary, so a build from another source directory, or
+  from a downloaded archive (unpacked into a fresh temporary directory),
+  hashes differently. `tests/test_build_scripts.py` runs every script
+  against a stand-in compiler and pins the default, the override, a
+  relative override and the record; building AERMOD 26135 into a
+  scratch `BIN_DIR` with gfortran 15.2 gave the same SHA-256 as the
+  same source built into `bin/`, and banner 26135.
+
 ### Fixed
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`

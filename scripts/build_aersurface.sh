@@ -20,7 +20,10 @@
 #   ./scripts/build_aersurface.sh --with-testcase # also unpack EPA's
 #                                                 # RDU test case
 # Output:
-#   ./bin/aersurface
+#   ./bin/aersurface   (or $BIN_DIR/aersurface; BIN_DIR overrides ./bin,
+#                       and a relative path is taken from the current
+#                       directory)
+#   and a build record on stdout: SHA-256, compiler version and flags.
 #   ./test_cases/aersurface_testcase/   (with --with-testcase; ~30 MB)
 #
 # Note: AERSURFACE reads its control file from the first command-line
@@ -31,7 +34,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-BIN_DIR="$REPO_ROOT/bin"
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
 TESTCASE_DIR="$REPO_ROOT/test_cases"
 
 FC="${FC:-gfortran}"
@@ -57,7 +61,8 @@ if ! command -v "$FC" >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "$BIN_DIR"
+resolve_bin_dir "$REPO_ROOT"
+echo "Output:   $BIN_DIR"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -104,8 +109,10 @@ for m in "${MODULES[@]}" aersurface; do
     OBJECTS+=("$(basename "${f%.*}").o")
 done
 
-"$FC" -o "$BIN_DIR/aersurface" -O2 "${OBJECTS[@]}"
+LDFLAGS_AERSURFACE="-O2"
+"$FC" -o "$BIN_DIR/aersurface" $LDFLAGS_AERSURFACE "${OBJECTS[@]}"
 echo "  -> $BIN_DIR/aersurface"
+report_binary "$BIN_DIR/aersurface" "$FFLAGS" "$LDFLAGS_AERSURFACE"
 
 # NADCON datum-shift grids (conus/alaska/hawaii/prvi .las/.los). AERSURFACE
 # reads these from its working directory and fails with "NAD Grid Files

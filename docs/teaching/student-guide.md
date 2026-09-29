@@ -299,6 +299,19 @@ cp bin/aermet ~/bin/
 
 Then add `~/bin` to your PATH as described in Option A, step 5 above.
 
+To build straight into another directory instead of `bin/`, set `BIN_DIR`
+(a relative path is taken from the directory you run the script in):
+
+```bash
+BIN_DIR=~/bin ./scripts/build_aermod.sh all
+```
+
+After each executable the script prints a short build record: its path,
+its SHA-256 checksum, the compiler version and the compile and link
+flags, and for AERMOD the version number in its banner (26135 for the
+current EPA source). Keep it with your results if you need to say
+exactly which executable produced them.
+
 #### Option C: Windows
 
 The EPA provides official Windows executables:

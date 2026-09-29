@@ -20,7 +20,9 @@
 #   ./scripts/build_bpip.sh
 #
 # Output:
-#   ./bin/bpipprm
+#   ./bin/bpipprm   (or $BIN_DIR/bpipprm; BIN_DIR overrides ./bin, and a
+#                    relative path is taken from the current directory)
+#   and a build record on stdout: SHA-256, compiler version and flags.
 #
 # Two things about EPA's archive need handling and are the reason this
 # script exists rather than a one-line gfortran invocation:
@@ -42,7 +44,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-BIN_DIR="$REPO_ROOT/bin"
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
 
 FC="${FC:-gfortran}"
 FFLAGS="${FFLAGS:--O2 -std=legacy}"
@@ -64,7 +67,8 @@ if ! command -v "$FC" >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "$BIN_DIR"
+resolve_bin_dir "$REPO_ROOT"
+echo "Output:   $BIN_DIR"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -92,6 +96,7 @@ tr -d '\032\r' < "$SRC" > "$WORK/bpipprm.f"
 
 echo "Compiling $(basename "$SRC") ..."
 "$FC" $FFLAGS -o "$BIN_DIR/bpipprm" "$WORK/bpipprm.f"
+report_binary "$BIN_DIR/bpipprm" "$FFLAGS" "$FFLAGS"
 
 # Prove the build works before declaring success: run EPA's own first
 # example and check it produced the GEP table.

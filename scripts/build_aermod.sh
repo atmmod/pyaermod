@@ -22,9 +22,15 @@
 # Environment overrides (skip the download):
 #   AERMOD_SRC_DIR / AERMAP_SRC_DIR / AERMET_SRC_DIR   local source tree
 #   AERMOD_ZIP     / AERMAP_ZIP     / AERMET_ZIP       local archive
+# and:
+#   BIN_DIR   where the binaries go (default ./bin; relative paths are
+#             taken from the directory the script is run in)
+#   FC, FFLAGS   compiler and AERMOD/AERMAP flags (AERMET uses its own)
 #
 # Output:
-#   ./bin/aermod  ./bin/aermap  ./bin/aermet
+#   ./bin/aermod  ./bin/aermap  ./bin/aermet   (or $BIN_DIR/...)
+#   and, for each, a build record on stdout: SHA-256, compiler version,
+#   compile and link flags, and for AERMOD the version in its banner.
 #
 # Then:  make test-binaries      (puts ./bin on PATH and runs the suite)
 
@@ -32,7 +38,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-BIN_DIR="$REPO_ROOT/bin"
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
 
 # Compiler settings
 FC="${FC:-gfortran}"
@@ -49,7 +56,7 @@ echo "============================================"
 echo "  AERMOD/AERMAP Build Script"
 echo "  Platform: $PLATFORM ($(uname -m))"
 echo "  Compiler: $FC"
-echo "  Flags:    $FFLAGS"
+echo "  Flags:    $FFLAGS  (AERMOD, AERMAP; AERMET uses its own)"
 echo "============================================"
 echo
 
@@ -68,7 +75,9 @@ fi
 echo "Using: $($FC --version | head -1)"
 echo
 
-mkdir -p "$BIN_DIR"
+resolve_bin_dir "$REPO_ROOT"
+echo "Output:   $BIN_DIR"
+echo
 
 SCRAM="https://gaftp.epa.gov/Air/aqmg/SCRAM/models"
 AERMOD_URL="${AERMOD_URL:-$SCRAM/preferred/aermod/aermod_source.zip}"
@@ -150,6 +159,8 @@ build_aermod() {
 
     cd "$REPO_ROOT"
     echo "  -> $BIN_DIR/aermod"
+    report_binary "$BIN_DIR/aermod" "$FFLAGS" "$FFLAGS" \
+        "$(aermod_banner_version "$BIN_DIR/aermod")"
     echo "  AERMOD build successful!"
     echo
 }
@@ -200,6 +211,7 @@ build_aermap() {
 
     cd "$REPO_ROOT"
     echo "  -> $BIN_DIR/aermap"
+    report_binary "$BIN_DIR/aermap" "$FFLAGS" "$FFLAGS"
     echo "  AERMAP build successful!"
     echo
 }
@@ -223,6 +235,7 @@ build_aermet() {
         mod_misc.f90 aermet.f90
     )
     local AERMET_FLAGS="-O2 -std=f2008 -ffree-form"
+    local AERMET_LDFLAGS="-O2"
 
     cd "$BUILD_DIR"
     for src in "${SOURCES[@]}"; do
@@ -238,10 +251,11 @@ build_aermet() {
 
     echo "  Linking aermet..."
     local OBJECTS=(*.o)
-    "$FC" -O2 -o "$BIN_DIR/aermet" "${OBJECTS[@]}"
+    "$FC" $AERMET_LDFLAGS -o "$BIN_DIR/aermet" "${OBJECTS[@]}"
 
     cd "$REPO_ROOT"
     echo "  -> $BIN_DIR/aermet"
+    report_binary "$BIN_DIR/aermet" "$AERMET_FLAGS" "$AERMET_LDFLAGS"
     echo "  AERMET build successful!"
     echo
 }
