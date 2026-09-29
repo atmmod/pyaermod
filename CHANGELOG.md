@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and then ignoring case, and reported as spelled on disk. The result is
   the same on both kinds of filesystem, and on Linux an `.OUT` whose case
   differs from `output_file` is no longer reported missing.
+- **`test_archive_is_the_whole_v26135_set` failed when the archive found
+  was not v26135.** With only the pre-2026 `aermet_24142_aermod_24142`
+  set unpacked (46 decks), the 53-deck check failed although every deck
+  round-tripped. It now skips, naming the set it found, unless that set
+  is AERMOD v26135's, which must still have all 53 decks.
 
 ## [2.2.0] - YYYY-MM-DD
 
