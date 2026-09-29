@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -592,6 +593,71 @@ def test_deck_failure_raises_deck_error_without_record_or_events(tmp_path, monke
     with pytest.raises(DeckError, match="boom"):
         s.start_run(working_dir=tmp_path / "never")
     assert s.runs == [] and rec.events == [] and not (tmp_path / "never").exists()
+
+
+def test_a_deck_writer_bug_is_logged_with_its_traceback(tmp_path, monkeypatch, caplog):
+    s = Session()
+
+    def bug(self, **kwargs):
+        raise TypeError("'<' not supported between instances of 'tuple' and 'int'")
+
+    monkeypatch.setattr(type(s.project), "to_aermod_input", bug)
+    with caplog.at_level(logging.WARNING, logger="pyaermod.gui_v2.session"), \
+            pytest.raises(DeckError, match=r"^'<' not supported"):
+        s.start_run(working_dir=tmp_path / "never")
+    [logged] = caplog.records
+    assert logged.levelno == logging.ERROR and logged.getMessage() == "Writing the deck raised"
+    assert "TypeError" in (logged.exc_text or "")
+
+
+def test_a_deck_the_user_can_fix_is_refused_without_a_log_record(tmp_path, caplog):
+    s = Session()
+    s.project.meteorology.start_year = 12.5
+    with caplog.at_level(logging.DEBUG, logger="pyaermod.gui_v2.session"), \
+            pytest.raises(DeckError, match=(
+                r"^project\.meteorology\.start_year must be a whole number, not 12\.5$")):
+        s.start_run(working_dir=tmp_path / "never")
+    assert caplog.records == [] and s.runs == [] and not (tmp_path / "never").exists()
+
+
+def test_the_deck_is_written_with_whole_numbers_the_number_boxes_stored_as_floats(tmp_path):
+    """ui.number stores 2020.0; the deck writer formats STARTEND with "d"."""
+    s = Session()
+    s.add_source(PointSource(source_id="STACK1", x_coord=0.0, y_coord=0.0))
+    met = s.project.meteorology
+    met.start_year, met.start_month, met.start_day = 2020.0, 1.0, 1.0
+    met.end_year, met.end_month, met.end_day = 2020.0, 12.0, 31.0
+    met.surface_station_id, met.upper_air_station_id, met.data_start_year = 14735.0, 14735.0, 1988.0
+    record = s.start_run(working_dir=tmp_path, runner=_StubRunner(s, exc=FileNotFoundError("x")))
+    deck = record.deck_path.read_text(encoding="utf-8")
+    assert re.search(r"^\s*STARTEND\s+2020\s+1\s+1\s+2020\s+12\s+31\s*$", deck, re.M)
+    assert re.search(r"^\s*SURFDATA\s+14735\s+1988\s*$", deck, re.M)
+    assert met.start_year == 2020.0          # the session's own project is not replaced
+
+
+def test_a_decoder_bug_while_opening_is_logged_with_its_traceback(monkeypatch, caplog):
+    import pyaermod.gui_v2.session as session_module
+
+    def bug(data, *, origin):
+        raise TypeError("unhashable type: 'dict'")
+
+    monkeypatch.setattr(session_module, "project_from_json", bug)
+    s = Session()
+    with caplog.at_level(logging.WARNING, logger="pyaermod.gui_v2.session"), \
+            pytest.raises(ProjectFileError, match=r"^bad\.json: unhashable type: 'dict'$"):
+        s.open_json(b"{}", name="bad.json")
+    [logged] = caplog.records
+    assert logged.levelno == logging.ERROR
+    assert logged.getMessage() == "Reading project file bad.json raised"
+    assert "TypeError" in (logged.exc_text or "")
+
+
+def test_a_file_the_user_can_fix_is_refused_without_a_log_record(caplog):
+    s = Session()
+    with caplog.at_level(logging.DEBUG, logger="pyaermod.gui_v2.session"), \
+            pytest.raises(ProjectFileError, match=r"^bad\.json: not valid JSON"):
+        s.open_json(b"{nope", name="bad.json")
+    assert caplog.records == []
 
 
 def test_start_run_uses_a_temp_dir_when_none_given(tmp_path, monkeypatch):

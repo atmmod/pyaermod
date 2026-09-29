@@ -29,6 +29,7 @@ import asyncio
 import dataclasses
 import functools
 import gc
+import json
 import logging
 import os
 import platform
@@ -857,8 +858,12 @@ class TestProjectFiles:
          "project.sources.sources[0].x_coord must be a finite number, not nan"),
         (_saved_with(("sources", "sources", 0, "emission_rate"), float("inf")),
          "project.sources.sources[0].emission_rate must be a finite number, not inf"),
+        # Beyond 64 bits NiceGUI cannot send the value, and the page froze.
+        (_saved_with(("sources", "sources", 0, "x_coord"), 2**64),
+         "project.sources.sources[0].x_coord is too large: 18446744073709551616"),
     ], ids=["invalid-json", "project-list", "undecodable", "unknown-source-type",
-            "text-for-a-number", "unknown-pollutant", "nan-coordinate", "infinite-rate"])
+            "text-for-a-number", "unknown-pollutant", "nan-coordinate", "infinite-rate",
+            "huge-coordinate"])
     @pytest.mark.asyncio
     async def test_open_bad_file_reports_and_keeps_project(self, gui, tmp_path, payload, reason):
         from nicegui.elements.upload_files import SmallFileUpload
@@ -1530,6 +1535,52 @@ class TestEndToEnd:
         await gui.user.should_see("No 'aermod' binary on PATH. Install AERMOD and re-launch.")
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("No AERMOD binary; cannot run.")
+
+
+def _number_box(gui: GuiSession, label: str) -> UserInteraction:
+    """The number box labelled exactly ``label`` ("start year", not "data start year")."""
+    [box] = [e for e in gui.user.find(kind=ui.number, content=label).elements
+             if e.props.get("label") == label]
+    return UserInteraction(gui.user, {box}, None)
+
+
+class TestWholeNumbersReachTheDeck:
+    @pytest.mark.asyncio
+    async def test_start_and_end_dates_typed_into_number_boxes_reach_the_deck(
+            self, gui, fake_aermod_on_path, tmp_path):
+        """The number boxes store 2020.0; STARTEND is written with integers
+        (it once failed with "Unknown format code 'd' for object of type
+        'float'"), and so is the file Save As gives."""
+        from pyaermod.gui_v2.project_io import project_from_json
+        gui.expect_error_log("AERMOD run failed: AERMOD exited with code 0 but wrote no")
+        session = await _fill_minimal_project(gui)
+        dates = {"start year": 2020, "start month": 1, "start day": 1,
+                 "end year": 2020, "end month": 12, "end day": 31}
+        for label, value in dates.items():
+            _number_box(gui, label).clear().type(str(value))
+        end_day = session.project.meteorology.end_day
+        assert end_day == 31 and type(end_day) is float     # as the browser stores it
+        workdir = tmp_path / "run"
+        gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("Run reported FATAL or non-zero exit")
+        deck = (workdir / "pyaermod_gui.inp").read_text(encoding="utf-8")
+        assert re.search(r"^\s*STARTEND\s+2020\s+1\s+1\s+2020\s+12\s+31\s*$", deck, re.M), deck
+        saved = json.loads(await _save_as_download(gui, "dates.json"))
+        met = saved["project"]["meteorology"]
+        assert {k: met[k.replace(" ", "_")] for k in dates} == dates
+        assert all(type(met[k.replace(" ", "_")]) is int for k in dates)
+        assert project_from_json(json.dumps(saved)).meteorology.start_year == 2020
+
+    @pytest.mark.asyncio
+    async def test_a_fraction_in_an_integer_field_is_refused_by_name(self, gui, fake_aermod_on_path):
+        await _fill_minimal_project(gui)
+        _number_box(gui, "start year").clear().type("2020.5")
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see(
+            "Could not generate deck: project.meteorology.start_year must be a whole number, "
+            "not 2020.5")
+        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
 
 
 class TestRunPageFailurePaths:

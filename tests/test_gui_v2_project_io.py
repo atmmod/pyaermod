@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -593,3 +594,217 @@ class TestTheDecoderChecksEachKindOfType:
     def test_json_kind_names_a_value_json_cannot_hold(self):
         from pyaermod.gui_v2.project_io import _json_kind
         assert _json_kind(object()) == "object"
+
+
+class TestNumbersTheGuiCanCarry:
+    """Whole numbers fit the browser, and integer fields hold integers."""
+
+    @pytest.fixture
+    def saved(self):
+        return project_to_json(_full_project())
+
+    @pytest.mark.parametrize("value, shown", [
+        (2**64, "18446744073709551616"),
+        (-(2**53) - 1, "-9007199254740993"),
+        (10**400, "a 401-digit number"),
+    ])
+    def test_a_whole_number_beyond_2_53_is_refused_by_name(self, saved, value, shown):
+        text = _with(saved, ("sources", "sources", 0, "x_coord"), value)
+        with pytest.raises(ValueError, match=(
+                rf"^f\.json: project\.sources\.sources\[0\]\.x_coord is too large: {shown} "
+                r"\(the largest whole number a project can hold is 2\*\*53\)$")):
+            project_from_json(text, origin="f.json")
+
+    def test_2_53_itself_is_kept(self, saved):
+        text = _with(saved, ("sources", "sources", 0, "x_coord"), 2**53)
+        assert project_from_json(text).sources.sources[0].x_coord == 2**53
+
+    def test_a_huge_whole_number_in_an_untyped_value_is_refused(self, saved):
+        doc = json.loads(saved)
+        doc["project"]["sources"]["background"] = {
+            "_type": "BackgroundConcentration", "period_values": {"ANNUAL": 2**64}}
+        with pytest.raises(ValueError, match=(
+                r"background\.period_values\['ANNUAL'\] is too large: 18446744073709551616")):
+            project_from_json(json.dumps(doc))
+
+    def test_a_huge_whole_number_as_an_int_key_is_refused(self):
+        project = TestDictKeysAreChecked._ozone_project({1: 30.0})
+        doc = json.loads(project_to_json(project))
+        doc["project"]["control"]["chemistry"]["ozone_data"]["sector_values"] = {str(2**64): 1.0}
+        with pytest.raises(ValueError, match=r"ozone_data\.sector_values key is too large"):
+            project_from_json(json.dumps(doc))
+
+    def test_a_number_with_more_digits_than_python_reads_is_not_json(self, saved):
+        text = re.sub(r'"x_coord": [-0-9.e]+', '"x_coord": ' + "9" * 5000, saved, count=1)
+        assert "9" * 5000 in text
+        with pytest.raises(ValueError, match=r"^f\.json: not valid JSON"):
+            project_from_json(text, origin="f.json")
+
+    def test_saving_refuses_a_huge_whole_number(self, tmp_path):
+        project = _full_project()
+        project.sources.sources[0].x_coord = 2**64
+        with pytest.raises(ValueError, match=(
+                r"^cannot save the project: project\.sources\.sources\[0\]\.x_coord is too large")):
+            save_project(project, tmp_path / "p.json")
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_whole_float_in_an_integer_field_reads_as_the_integer(self, saved):
+        doc = json.loads(saved)
+        met = doc["project"]["meteorology"]
+        met.update(start_year=2020.0, start_month=1.0, surface_station_id=14735.0)
+        met = project_from_json(json.dumps(doc)).meteorology
+        assert (met.start_year, met.start_month, met.surface_station_id) == (2020, 1, 14735)
+        assert all(type(v) is int for v in (met.start_year, met.start_month, met.surface_station_id))
+
+    @pytest.mark.parametrize("path, value, message", [
+        (("meteorology", "start_year"), 12.5,
+         r"project\.meteorology\.start_year must be a whole number, not 12\.5"),
+        (("receptors", "polar_grids", 0, "dist_num"), 10.25,
+         r"project\.receptors\.polar_grids\[0\]\.dist_num must be a whole number, not 10\.25"),
+        (("meteorology", "surface_station_id"), float("nan"),
+         r"project\.meteorology\.surface_station_id must be a finite number, not nan"),
+        (("meteorology", "data_start_year"), 1e300,
+         r"project\.meteorology\.data_start_year is too large: a 301-digit number \(the "
+         r"largest whole number a project can hold is 2\*\*53\)"),
+    ])
+    def test_a_fraction_in_an_integer_field_is_refused(self, saved, path, value, message):
+        text = json.dumps(json.loads(_with(saved, path, 0)))  # the field exists
+        doc = json.loads(text)
+        node = doc["project"]
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+        with pytest.raises(ValueError, match=f"^f.json: {message}$"):
+            project_from_json(json.dumps(doc), origin="f.json")
+
+    def test_saving_repairs_whole_floats_in_integer_fields(self):
+        """The GUI's number boxes store 2020.0; the saved file says 2020."""
+        project = _full_project()
+        met = project.meteorology
+        met.start_year, met.start_month, met.start_day = 2020.0, 1.0, 1.0
+        met.end_year, met.end_month, met.end_day = 2020.0, 12.0, 31.0
+        met.surface_station_id, met.upper_air_station_id = 14735.0, 14735.0
+        met.data_start_year = 1988.0
+        saved = json.loads(project_to_json(project))["project"]["meteorology"]
+        assert saved["start_year"] == 2020 and type(saved["start_year"]) is int
+        assert saved["surface_station_id"] == 14735 and type(saved["surface_station_id"]) is int
+        deck = project_from_json(project_to_json(project)).to_aermod_input(validate=False)
+        assert re.search(r"^\s*STARTEND\s+2020\s+1\s+1\s+2020\s+12\s+31\s*$", deck, re.M)
+        assert re.search(r"^\s*SURFDATA\s+14735\s+1988\s*$", deck, re.M)
+
+    def test_saving_refuses_a_fraction_in_an_integer_field(self):
+        project = _full_project()
+        project.meteorology.start_year = 12.5
+        with pytest.raises(ValueError, match=(
+                r"^cannot save the project: project\.meteorology\.start_year must be a whole "
+                r"number, not 12\.5$")):
+            project_to_json(project)
+
+    def test_a_float_field_keeps_an_integer(self, saved):
+        text = _with(saved, ("sources", "sources", 0, "x_coord"), 5)
+        value = project_from_json(text).sources.sources[0].x_coord
+        assert value == 5 and type(value) is int
+
+
+class TestDictKeysAreChecked:
+    """A list key fills only a tuple-keyed (or untyped) dict."""
+
+    @staticmethod
+    def _ozone_project(sector_values):
+        from pyaermod.pathways import ChemistryMethod, ChemistryOptions, OzoneData
+        project = _full_project()
+        project.control.chemistry = ChemistryOptions(
+            method=ChemistryMethod.OLM,
+            ozone_data=OzoneData(sector_values=sector_values, sectors=[0.0, 180.0]))
+        return project
+
+    def _with_sector_values(self, items):
+        doc = json.loads(project_to_json(self._ozone_project({1: 30.0, 2: 40.0})))
+        doc["project"]["control"]["chemistry"]["ozone_data"]["sector_values"] = {"_items": items}
+        return json.dumps(doc)
+
+    WHAT = r"project\.control\.chemistry\.ozone_data\.sector_values"
+
+    @pytest.mark.parametrize("key, kind", [
+        ([1, 2], "a JSON list"),
+        ([{"a": 1}], "a JSON list"),
+        ({"a": 1}, "a JSON object"),
+    ], ids=["list-of-numbers", "list-holding-an-object", "object"])
+    def test_a_non_number_key_in_an_int_keyed_dict_is_refused_by_name(self, key, kind):
+        text = self._with_sector_values([[1, 30.0], [key, 40.0]])
+        with pytest.raises(ValueError, match=rf"^f\.json: {self.WHAT} key must be a number, not {kind}$"):
+            project_from_json(text, origin="f.json")
+
+    def test_whole_number_keys_still_load(self):
+        text = self._with_sector_values([[1, 30.0], [2.0, 40.0]])
+        values = project_from_json(text).control.chemistry.ozone_data.sector_values
+        assert values == {1: 30.0, 2: 40.0}
+        assert all(type(k) is int for k in values)
+
+    def test_a_tuple_keyed_dict_checks_each_part_of_the_key(self):
+        import typing
+
+        from pyaermod.gui_v2.project_io import _Decoder
+        decoder = _Decoder("f.json")
+        annotation = typing.Dict[typing.Tuple[int, str], float]
+        assert decoder.value({"_items": [[[1, "A"], 2.0]]}, annotation, "x") == {(1, "A"): 2.0}
+        with pytest.raises(ValueError, match=r"^f\.json: x key\[1\] must be text, not a number$"):
+            decoder.value({"_items": [[[1, 2], 2.0]]}, annotation, "x")
+        with pytest.raises(ValueError, match=r"^f\.json: x key must have 2 values, not 1$"):
+            decoder.value({"_items": [[[1], 2.0]]}, annotation, "x")
+
+    def test_an_untyped_key_that_cannot_be_looked_up_is_refused_by_name(self):
+        from pyaermod.gui_v2.project_io import _Decoder
+        with pytest.raises(ValueError, match=(
+                r"^f\.json: x has a key that cannot be looked up: a JSON list$")):
+            _Decoder("f.json").value({"_items": [[[{"a": 1}], 2.0]]}, dict, "x")
+
+    def test_saving_refuses_a_list_key_the_loader_would_refuse(self):
+        project = self._ozone_project({1: 30.0, (1, 2): 40.0})
+        with pytest.raises(ValueError, match=(
+                rf"^cannot save the project: {self.WHAT} key must be a number, not a JSON list$")):
+            project_to_json(project)
+
+
+class TestSavingIsAtomic:
+    def test_a_refused_save_creates_no_directory(self, tmp_path):
+        project = _full_project()
+        project.sources.sources[0].emission_rate = None
+        with pytest.raises(ValueError):
+            save_project(project, tmp_path / "new" / "deep" / "p.json")
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_failed_write_leaves_the_earlier_file_whole(self, tmp_path, monkeypatch):
+        target = save_project(_full_project(), tmp_path / "p.json")
+        before = target.read_bytes()
+        import pyaermod.gui_v2.project_io as project_io
+
+        def full_disk(src, dst):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(project_io.os, "replace", full_disk)
+        project = _full_project()
+        project.control.title_one = "Changed"
+        with pytest.raises(OSError, match="No space left"):
+            save_project(project, target)
+        assert target.read_bytes() == before
+        assert [p.name for p in tmp_path.iterdir()] == ["p.json"]   # no temp file left
+
+    def test_saving_over_a_file_keeps_its_mode(self, tmp_path):
+        import os
+        import stat
+        target = save_project(_full_project(), tmp_path / "p.json")
+        os.chmod(target, 0o640)
+        save_project(_full_project(), target)
+        assert stat.S_IMODE(target.stat().st_mode) == 0o640
+        assert [p.name for p in tmp_path.iterdir()] == ["p.json"]
+
+    def test_nesting_the_decoder_cannot_follow_is_not_saved(self, tmp_path):
+        project = _full_project()
+        nested: dict = {}
+        for _ in range(600):
+            nested = {"n": nested}
+        project.sources.background = BackgroundConcentration(period_values=nested)
+        with pytest.raises(ValueError, match=r"^cannot save the project: nested too deeply$"):
+            save_project(project, tmp_path / "p.json")
+        assert list(tmp_path.iterdir()) == []
