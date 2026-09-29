@@ -134,3 +134,36 @@ class TestSandboxCoversNewFilePaths:
         inp.write_text(text)
         with pytest.raises(PathTraversalError):
             read_aermod_input(inp, sandbox=True)
+
+
+class TestSandboxReportsEveryEscape:
+    """The error lists every escaping path, so a caller can report them all."""
+
+    def test_violations_name_each_field_and_path_as_written(self, tmp_path):
+        from pyaermod.input_reader import SandboxViolation
+
+        body = _MINIMAL_INP_TMPL.format(surf="../met/stn.sfc", prof="inside.pfl").replace(
+            "OU STARTING", "OU STARTING\n   POSTFILE  1 ALL PLOT  /tmp/escape.pst")
+        inp = tmp_path / "test.inp"
+        inp.write_text(body)
+        with pytest.raises(PathTraversalError, match="surface_file") as caught:
+            read_aermod_input(inp, sandbox=True)
+        violations = caught.value.violations
+        assert [(v.field, v.path) for v in violations] == [
+            ("meteorology.surface_file", "../met/stn.sfc"),
+            ("output.postfile", "/tmp/escape.pst"),
+        ]
+        assert all(isinstance(v, SandboxViolation) for v in violations)
+        assert violations[0].resolved == (tmp_path / ".." / "met" / "stn.sfc").resolve()
+
+    def test_the_message_still_names_the_first_escape(self, tmp_path):
+        inp = _write(tmp_path, "/etc/passwd", "../../shadow")
+        with pytest.raises(PathTraversalError) as caught:
+            read_aermod_input(inp, sandbox=True)
+        message = str(caught.value)
+        assert message.startswith("meteorology.surface_file resolves to ")
+        assert "profile_file" not in message
+        assert len(caught.value.violations) == 2
+
+    def test_a_bare_error_has_no_violations(self):
+        assert PathTraversalError("somewhere").violations == ()

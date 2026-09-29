@@ -2186,9 +2186,14 @@ def read_aermod_input(
         If True, validate that every absolute path referenced inside
         the .inp (SURFFILE, PROFFILE, OZONEFIL, etc.) and every
         resolved relative path stays inside the .inp's parent directory.
-        Raises :class:`PathTraversalError` on the first escape. Use this
-        when ingesting untrusted .inp files (third-party permits,
-        forwarded drafts) before passing the project to AERMOD.
+        Raises :class:`PathTraversalError` if any path escapes; its
+        message names the first and its ``violations`` list every one.
+        Use this when ingesting untrusted .inp files (third-party
+        permits, forwarded drafts) before passing the project to AERMOD.
+        Only paths stored on the project's fields are checked: a line
+        kept verbatim in ``unparsed_lines`` (``ERRORFIL``, ``INCLUDED``,
+        ``HOUREMIS`` ...) is written back as it stands, so show those
+        lines to whoever runs the deck.
 
         The default (False) preserves prior behavior: paths are stored
         as-is and AERMOD itself decides what to open at run time.
@@ -2200,8 +2205,32 @@ def read_aermod_input(
     return project
 
 
+@dataclass(frozen=True)
+class SandboxViolation:
+    """One path of a sandboxed deck that resolves outside the sandbox root.
+
+    ``field`` names the project field (``meteorology.surface_file``),
+    ``path`` is the path as the deck wrote it and ``resolved`` where it
+    would lead.
+    """
+
+    field: str
+    path: str
+    resolved: Path
+
+
 class PathTraversalError(ValueError):
-    """Raised when a sandboxed .inp references a path outside its base dir."""
+    """Raised when a sandboxed .inp references a path outside its base dir.
+
+    The message names the first such path. :attr:`violations` lists every
+    one of them in the order they were checked, so a caller can report
+    them all at once rather than one per attempt.
+    """
+
+    def __init__(self, message: str,
+                 violations: Tuple[SandboxViolation, ...] = ()) -> None:
+        super().__init__(message)
+        self.violations: Tuple[SandboxViolation, ...] = tuple(violations)
 
 
 def _validate_paths_within(project: AERMODProject, base: Path) -> None:
@@ -2217,6 +2246,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     - output.plot_file_groups (per-group filenames)
     """
     base = base.resolve()
+    violations: List[SandboxViolation] = []
 
     def _check(label: str, raw: Optional[str]) -> None:
         if not raw:
@@ -2226,10 +2256,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         try:
             full.relative_to(base)
         except ValueError:
-            raise PathTraversalError(
-                f"{label} resolves to {full} which is outside the sandbox "
-                f"root {base}. If this is intentional, pass sandbox=False."
-            ) from None
+            violations.append(SandboxViolation(field=label, path=raw, resolved=full))
 
     met = project.meteorology
     _check("meteorology.surface_file", getattr(met, "surface_file", None))
@@ -2285,9 +2312,18 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         for entry in entries:
             _check(f"output.{label}[{entry.source_group}]", entry.filename)
 
+    if violations:
+        first = violations[0]
+        raise PathTraversalError(
+            f"{first.field} resolves to {first.resolved} which is outside the "
+            f"sandbox root {base}. If this is intentional, pass sandbox=False.",
+            tuple(violations),
+        )
+
 
 __all__ = [
     "PathTraversalError",
+    "SandboxViolation",
     "parse_aermod_input",
     "read_aermod_input",
 ]
