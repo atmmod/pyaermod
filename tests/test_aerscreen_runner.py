@@ -11,11 +11,13 @@ from __future__ import annotations
 import os
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from pyaermod import AERSCREENConfig, AERSCREENRunner, AERSCREENSourceType
 from pyaermod.aerscreen import DISCRETE_RECEPTOR_FILE
+from pyaermod.aerscreen_runner import _written_file
 
 FAKE_OUTPUT = """\
  AERSCREEN 21112 / AERMOD 26135                                      01/01/26
@@ -254,6 +256,19 @@ class TestRun:
         assert result.log_file == str(work / "SiteA.log")
         assert result.max_conc_file == str(work / "SiteA_max_conc_distance.txt")
 
+    def test_files_are_reported_as_written(self, runner, tmp_path, cfg):
+        """Asked for SITEA.OUT, given SiteA.out: the run is found and reported
+        in AERSCREEN's spelling on a case-sensitive filesystem and a
+        case-insensitive one alike."""
+        cfg.output_file = "SITEA.OUT"
+        work = tmp_path / "wd"
+        result = runner(output="SiteA.out").run(cfg, working_dir=work, timeout=10)
+        assert result.success, result.error_message
+        assert result.output_file == str(work / "SiteA.out")
+        assert result.log_file == str(work / "SiteA.log")
+        assert result.max_conc_file == str(work / "SiteA_max_conc_distance.txt")
+        assert result.summary is not None
+
     def test_nonzero_exit_marks_failure(self, runner, cfg, tmp_path):
         result = runner(exit_code=1).run(cfg, working_dir=tmp_path / "wd", timeout=10)
         assert not result.success
@@ -287,3 +302,42 @@ class TestRun:
         assert result.success
         assert "processed" in result.stdout
         assert "cls: not found" in result.stderr
+
+
+class TestWrittenFile:
+    """How the runner finds the files AERSCREEN left, on either kind of filesystem."""
+
+    @staticmethod
+    def case_sensitive_listing(monkeypatch, *names):
+        """Make the directory hold `names`, as only a case-sensitive
+        filesystem can when two differ in case alone."""
+        class Listing(list):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(os, "scandir", lambda _directory: Listing(
+            SimpleNamespace(name=n, is_file=lambda: True) for n in names))
+
+    def test_the_spelling_on_disk_is_returned(self, tmp_path):
+        (tmp_path / "aerscreen.log").write_text("")
+        assert _written_file(tmp_path, "AERSCREEN.log") == tmp_path / "aerscreen.log"
+
+    def test_an_exact_match_beats_a_case_insensitive_one(self, tmp_path, monkeypatch):
+        self.case_sensitive_listing(monkeypatch, "aerscreen.log", "AERSCREEN.log")
+        assert _written_file(tmp_path, "aerscreen.log") == tmp_path / "aerscreen.log"
+        assert _written_file(tmp_path, "AERSCREEN.log") == tmp_path / "AERSCREEN.log"
+        # Neither is exact: the choice is still fixed, not directory order.
+        assert _written_file(tmp_path, "Aerscreen.log") == tmp_path / "AERSCREEN.log"
+
+    def test_earlier_names_win(self, tmp_path, monkeypatch):
+        self.case_sensitive_listing(monkeypatch, "aerscreen.log", "SITEA.LOG")
+        assert _written_file(tmp_path, "SiteA.log", "aerscreen.log") == tmp_path / "SITEA.LOG"
+        assert _written_file(tmp_path, "SiteB.log", "aerscreen.log") == tmp_path / "aerscreen.log"
+
+    def test_directories_and_absent_names_are_not_files(self, tmp_path):
+        (tmp_path / "aerscreen.log").mkdir()
+        assert _written_file(tmp_path, "aerscreen.log") is None
+        assert _written_file(tmp_path / "nowhere", "aerscreen.log") is None
