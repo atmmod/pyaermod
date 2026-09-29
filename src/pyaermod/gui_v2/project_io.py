@@ -27,8 +27,10 @@ Reading is driven by the dataclass annotations, not by the file: each
 value is checked against the type of the field it fills and nested
 dataclasses are rebuilt, so a file that loads is one the GUI and the deck
 writer can use. A value of the wrong type, an unknown ``_type`` or enum
-member, or a missing required field refuses the file with a
-:class:`ValueError` that names the file and the field. Files written
+member, a number that is NaN or infinite, or a missing required field
+refuses the file with a :class:`ValueError` that names the file and the
+field. Saving applies the same checks before anything is written, so
+pyaermod never writes a file it would refuse to open. Files written
 before the ``_type`` tags covered nested objects still load: an untagged
 object is built as the field's own class. Unknown keys are ignored.
 """
@@ -37,6 +39,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import typing
 from enum import Enum
 from pathlib import Path
@@ -165,7 +168,7 @@ def _expected(annotation: Any) -> str:
         return "true/false"
     if annotation in (int, float):
         return "a number"
-    if annotation is str:
+    if annotation in (str, Path):
         return "text"
     if origin in (list, tuple) or annotation in (list, tuple):
         return "a JSON list"
@@ -213,7 +216,7 @@ class _Decoder:
             # Either kind of number fills either kind of field, unchanged:
             # the GUI's number boxes store floats in integer fields.
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                return value
+                return self.finite(value, what)
             raise self.wrong_type(what, value, annotation)
         if annotation is str:
             if isinstance(value, str):
@@ -245,8 +248,12 @@ class _Decoder:
             if type(None) in members:
                 return None
             raise self.wrong_type(what, value, annotation)
-        classes = tuple(m for m in members if isinstance(m, type) and dataclasses.is_dataclass(m))
-        others = [m for m in members if m not in classes and m is not type(None)]
+        present = [m for m in members if m is not type(None)]
+        if len(present) == 1:
+            # Optional[X]: X's own check says what is wrong, down to the item.
+            return self.value(value, present[0], what)
+        classes = tuple(m for m in present if isinstance(m, type) and dataclasses.is_dataclass(m))
+        others = [m for m in present if m not in classes]
         if classes and not others:
             return self.dataclass_value(value, classes, what)  # dispatch on _type
         tagged_error = None
@@ -259,6 +266,12 @@ class _Decoder:
         if tagged_error is not None:
             raise tagged_error  # the member the tag names says what is wrong
         raise self.wrong_type(what, value, annotation)
+
+    def finite(self, value: Any, what: str) -> Any:
+        """``value``, unless it is a float AERMOD cannot use (NaN, +-Infinity)."""
+        if isinstance(value, float) and not math.isfinite(value):
+            raise self.fail(what, f" must be a finite number, not {value}")
+        return value
 
     @staticmethod
     def _tag_matches(value: Any, member: Any) -> bool:
@@ -369,7 +382,7 @@ class _Decoder:
         if isinstance(value, list):
             return [self.untyped(v, f"{what}[{i}]") for i, v in enumerate(value)]
         if not isinstance(value, dict):
-            return value
+            return self.finite(value, what)
         if "_enum" in value:
             tag = value["_enum"]
             cls_name = tag.split(".")[0] if isinstance(tag, str) else None
@@ -399,15 +412,28 @@ def _decode_project(project_raw: Any, origin: str) -> AERMODProject:
 # ---------------------------------------------------------------------
 
 def project_to_json(project: AERMODProject) -> str:
-    """Return ``project`` as the JSON text :func:`save_project` writes."""
+    """Return ``project`` as the JSON text :func:`save_project` writes.
+
+    Raises :class:`ValueError` naming the field when the project holds a
+    value :func:`project_from_json` would refuse (a missing number, text in
+    a list of objects, NaN ...): a file that cannot be opened again is
+    never produced. :class:`TypeError` means a value no project file can
+    hold.
+    """
     from .. import __version__
 
+    tree = _encode(project)
+    try:
+        _decode_project(tree, "cannot save the project")
+    except RecursionError:
+        raise ValueError("cannot save the project: nested too deeply") from None
     payload = {
         "pyaermod_version": __version__,
         "save_format_version": SAVE_FORMAT_VERSION,
-        "project": _encode(project),
+        "project": tree,
     }
-    return json.dumps(payload, indent=2)
+    # allow_nan=False: the check above already refuses NaN with its field.
+    return json.dumps(payload, indent=2, allow_nan=False)
 
 
 def save_project(

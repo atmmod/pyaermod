@@ -25,11 +25,12 @@ from __future__ import annotations
 import copy
 import dataclasses
 import logging
+import re
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -83,6 +84,9 @@ _RECEPTOR_LISTS = {
 DECK_NAME = "pyaermod_gui.inp"
 
 _DEFAULT_FILE_NAME = "project.json"
+
+#: Characters browsers and file systems replace in a download's name.
+_UNSAFE_NAME_CHARS = re.compile(r'[\x00-\x1f\x7f"*:<>?|]')
 
 
 @dataclass(frozen=True)
@@ -141,11 +145,15 @@ Observer = Callable[[Change], None]
 def clean_file_name(name: Optional[str]) -> str:
     """The file name a download is offered under.
 
-    Any directory part is dropped (POSIX or Windows spelling), an empty
-    name becomes ``project.json`` and a name without a ``.json`` suffix
-    gets one.
+    Any directory part is dropped (POSIX or Windows spelling), characters
+    a browser would rewrite (``"*:<>?|`` and control characters) become
+    ``_`` so the header names the file the browser saved, an empty name
+    becomes ``project.json`` and a name without a ``.json`` suffix gets one.
     """
-    base = PureWindowsPath(PurePosixPath(name or "").name).name.strip()
+    # The last part after either separator; "C:" is not a directory here.
+    parts = [p.strip() for p in re.split(r"[\\/]", name or "")]
+    parts = [p for p in parts if p not in ("", ".", "..")]
+    base = _UNSAFE_NAME_CHARS.sub("_", parts[-1]) if parts else ""
     if not base:
         return _DEFAULT_FILE_NAME
     if not base.lower().endswith(".json"):
@@ -373,7 +381,12 @@ class Session:
         self._replaced(project, path=path, name=file_name)
 
     def save(self) -> Path:
-        """Write the project to :attr:`project_path` and mark it saved."""
+        """Write the project to :attr:`project_path` and mark it saved.
+
+        Every save method raises :class:`ValueError` (nothing written, the
+        project stays dirty) when the project holds a value the file could
+        not be reopened with; see :func:`~.project_io.project_to_json`.
+        """
         if self.project_path is None:
             raise ValueError("the project has no file on disk yet; use save_as")
         save_project(self.project, self.project_path)
@@ -546,7 +559,15 @@ class Session:
 
                 runner = AERMODRunner(log_level="WARNING")
             result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+        except FileNotFoundError as exc:
+            # No AERMOD binary, or a file it needs: the user's setup, and the
+            # Run step says so. Logged without a traceback.
+            logger.warning("AERMOD run %d could not start: %s", record.number, exc)
+            error = str(exc) or type(exc).__name__
         except Exception as exc:
+            # Anything else is a bug: keep the traceback in the log, and show
+            # the message on the Run step.
+            logger.exception("AERMOD run %d raised", record.number)
             error = str(exc) or type(exc).__name__
 
         finished = replace(record, finished_at=datetime.now(), result=result, error=error)

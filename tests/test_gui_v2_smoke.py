@@ -853,8 +853,12 @@ class TestProjectFiles:
          "project.sources.sources[0].stack_height must be a number, not text 'tall'"),
         (_saved_with(("control", "pollutant_id"), {"_enum": "PollutantType.NOPE"}),
          "project.control.pollutant_id: unknown PollutantType member 'NOPE'"),
+        (_saved_with(("sources", "sources", 0, "x_coord"), float("nan")),
+         "project.sources.sources[0].x_coord must be a finite number, not nan"),
+        (_saved_with(("sources", "sources", 0, "emission_rate"), float("inf")),
+         "project.sources.sources[0].emission_rate must be a finite number, not inf"),
     ], ids=["invalid-json", "project-list", "undecodable", "unknown-source-type",
-            "text-for-a-number", "unknown-pollutant"])
+            "text-for-a-number", "unknown-pollutant", "nan-coordinate", "infinite-rate"])
     @pytest.mark.asyncio
     async def test_open_bad_file_reports_and_keeps_project(self, gui, tmp_path, payload, reason):
         from nicegui.elements.upload_files import SmallFileUpload
@@ -872,6 +876,48 @@ class TestProjectFiles:
         await gui.user.should_see("Loaded good.json")
         assert _open_dialogs(gui, "open-dialog") == []
 
+
+    @pytest.mark.asyncio
+    async def test_open_takes_any_file_name_and_refuses_a_non_project_by_name(self, gui, tmp_path):
+        """The chooser does not filter by extension: QUploader drops a file its
+        ``accept`` filters out without a word, and a project whose name lost
+        its .json (an e-mail attachment, a renamed download) must open."""
+        from nicegui.elements.upload_files import SmallFileUpload
+        await gui.open()
+        gui.user.find(kind=ui.button, marker="project-open").click()
+        await _dialog_opens(gui, "open-dialog")
+        with gui.user:
+            uploader = next(iter(ElementFilter(kind=ui.upload, local_scope=False)))
+        assert "accept" not in uploader.props
+        await _upload(gui, SmallFileUpload("notes.txt", "text/plain", b"shopping list"))
+        await gui.user.should_see("Load failed: notes.txt: not valid JSON")
+        good = save_project(_albany_project(["1", "ANNUAL"], "a.sfc"), tmp_path / "p.json")
+        await _upload(gui, SmallFileUpload("pit_project", "", good.read_bytes()))
+        await gui.user.should_see("Loaded pit_project")
+        await gui.user.should_see("PyAERMOD — pit_project")
+
+    @pytest.mark.asyncio
+    async def test_save_as_refuses_a_project_its_file_could_not_reopen(self, gui):
+        """An emptied number box leaves no number; saving says which field,
+        delivers no file and leaves the project marked modified."""
+        await gui.open()
+        _add_source(gui)
+        await gui.user.should_see("Edit PointSource")
+        _in_dialog(gui, "editor-dialog", ui.number, "emission rate").clear()
+        _editor_save(gui)
+        await gui.user.should_see("PyAERMOD — Untitled (modified)")
+        downloads_before = len(gui.user.download.http_responses)
+        gui.user.find(kind=ui.button, marker="project-save-as").click()
+        await _dialog_opens(gui, "save-as-dialog")
+        _in_dialog(gui, "save-as-dialog", ui.input, "Filename").clear().type("broken.json")
+        _in_dialog(gui, "save-as-dialog", ui.button, "Save").click()
+        await gui.user.should_see(
+            "Save failed: cannot save the project: "
+            "project.sources.sources[0].emission_rate must be a number, not null")
+        await _settle(gui)
+        assert len(gui.user.download.http_responses) == downloads_before
+        assert _open_dialogs(gui, "save-as-dialog") == []
+        await gui.user.should_see("PyAERMOD — Untitled (modified)")
 
     @pytest.mark.asyncio
     async def test_save_failure_is_reported(self, gui, tmp_path):
