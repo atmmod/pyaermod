@@ -86,6 +86,30 @@ exit $status
 _NAD_GRID_SUFFIXES = (".las", ".los")
 
 
+def _written_file(directory: Path, *names: str) -> Optional[Path]:
+    """The first of `names` in `directory`, spelled as it is on disk.
+
+    A name matches exactly or, failing that, ignoring case, so the answer
+    is the same on a case-sensitive filesystem (Linux) and a
+    case-insensitive one (macOS, Windows), where ``Path.is_file()``
+    accepts any spelling and hands back the one asked for. Earlier names
+    win; ``None`` when none of them is there.
+    """
+    try:
+        with os.scandir(directory) as entries:
+            on_disk = sorted(e.name for e in entries if e.is_file())
+    except OSError:
+        return None
+    for name in names:
+        if name in on_disk:
+            return directory / name
+        folded = name.casefold()
+        for entry in on_disk:
+            if entry.casefold() == folded:
+                return directory / entry
+    return None
+
+
 @dataclass
 class AERSCREENRunResult:
     """Outcome of an AERSCREEN execution."""
@@ -380,24 +404,24 @@ class AERSCREENRunner:
         out = _read_capped(stdout_path, 1_000_000)
         err = _read_capped(stderr_path, 1_000_000)
         stem = config.output_file[:-4]
-        output_path = work / config.output_file
+        # Each file is reported as AERSCREEN spelled it, whatever the case
+        # of the name asked for (see _written_file).
+        output_path = _written_file(work, config.output_file)
         # AERSCREEN writes aerscreen.log and, for a non-default output
         # name, copies it to <stem>.log on the way out (finalwrite).
-        log_path = work / (stem + ".log")
-        if not log_path.is_file():
-            log_path = work / "aerscreen.log"
+        log_path = _written_file(work, stem + ".log", "aerscreen.log")
         # AERSCREEN's own verdict is in its log; the exit code is 0 even
         # when it stops on a validation error.
         log_text = log_path.read_text(encoding="latin-1", errors="replace") \
-            if log_path.is_file() else ""
+            if log_path else ""
         finished = "AERSCREEN Finished Successfully" in log_text
-        success = proc.returncode == 0 and finished and output_path.is_file()
+        success = proc.returncode == 0 and finished and output_path is not None
         outputs = [
             str(p) for p in sorted(work.glob("*"))
             if p.is_file() and p.stat().st_mtime >= start.timestamp()
         ]
         summary: Optional[AERSCREENSummary] = None
-        if success:
+        if success and output_path is not None:
             try:
                 summary = parse_aerscreen_output(output_path)
             except ValueError as e:
@@ -410,9 +434,12 @@ class AERSCREENRunner:
             error = "AERSCREEN did not finish; see its log"
         else:
             error = f"AERSCREEN produced no {config.output_file}"
-        max_conc = work / (stem + "_max_conc_distance.txt")
-        if config.output_file.upper() == "AERSCREEN.OUT":
-            max_conc = work / "max_conc_distance.txt"
+        max_conc = _written_file(
+            work,
+            "max_conc_distance.txt" if config.output_file.upper() == "AERSCREEN.OUT"
+            else stem + "_max_conc_distance.txt",
+        )
+        restart = _written_file(work, "aerscreen.inp")
         return AERSCREENRunResult(
             success=success,
             input_file=str(input_path),
@@ -421,11 +448,10 @@ class AERSCREENRunner:
             stdout=out, stderr=err, output_files=outputs,
             error_message=error,
             start_time=start, end_time=end,
-            output_file=str(output_path) if output_path.is_file() else None,
-            log_file=str(log_path) if log_path.is_file() else None,
-            restart_file=str(work / "aerscreen.inp")
-            if (work / "aerscreen.inp").is_file() else None,
-            max_conc_file=str(max_conc) if max_conc.is_file() else None,
+            output_file=str(output_path) if output_path else None,
+            log_file=str(log_path) if log_path else None,
+            restart_file=str(restart) if restart else None,
+            max_conc_file=str(max_conc) if max_conc else None,
             summary=summary,
         )
 
