@@ -37,6 +37,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **GUI: Results now updates when a run finishes** (defect D2). The shell
+  built every tab once per page load, so Results kept saying "No run yet"
+  after a run. Results and the Run tab's status are now rebuilt from the
+  session's run history.
+- **GUI: New and Open show the project they load** (defect D3). Every
+  widget stayed bound to the replaced project, so the screen kept the
+  old values and later edits went to the discarded project; editing a
+  row of the old table after New also crashed the server. Every step is
+  now rebuilt from the session when the project is replaced.
+- **GUI: Open works on NiceGUI 3** (defect D4) and sends the file as soon
+  as it is chosen. A malformed project file is reported ("Load failed:
+  ...") instead of raising.
+- **GUI: Save As no longer writes to `/tmp`**, which does not exist on
+  Windows. It downloads the file in the browser and asks where to save it
+  through a native dialog in `pyaermod-desktop`.
+- GUI: opening the Meteorology tab no longer marks the project modified,
+  and neither does leaving a number field without editing it.
+- GUI: a browser reload keeps the project and the last run.
+- GUI: the "No sources yet" and "No receptors yet" messages now follow
+  the list.
+- The `pyaermod-desktop` PyInstaller bundle now starts from a launcher
+  script (`packaging/desktop_entry.py`). It used to run
+  `gui_v2/desktop.py` itself, whose relative imports fail when it is the
+  entry script, so the frozen app could not start.
+- `project_io.load_project` raises `ValueError` naming the file for every
+  malformed project file; a file such as `{"project": []}` used to escape
+  as `AttributeError`.
+
+### Changed
+- GUI: in the source and receptor editors, Close now discards changes,
+  and Add only adds the item on Save.
+- GUI: in the browser, Save on a project that has no file on disk opens
+  Save As.
+- GUI: the app keeps one `Session` per browser tab. A duplicated tab, or
+  a reload of the desktop window, gets its own copy.
+
+### Removed
+- `pyaermod.gui_v2.state.AppState`, replaced by
+  `pyaermod.gui_v2.session.Session`: `reset()` is now `new()`,
+  `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
+  `mark_clean()` are replaced by the operations that change or save the
+  project. `pyaermod.gui_v2.state._empty_project()` is still importable.
+
+### Added
+- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
+  UI-free session, with one method per user operation (`new`,
+  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
+  `update_source`, `delete_source`, the same for receptors,
+  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
+  for observers.
+- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
+  the project file format as text.
 
 ## [2.2.0] - YYYY-MM-DD
 
