@@ -158,6 +158,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GUI: cancelling Open while the file is still being sent no longer puts a
   `ClientDisconnect` traceback in the server log. Errors in the deck writer
   and in the project-file reader are logged with their traceback.
+- **`AERSCREENRunResult` named files in a spelling AERSCREEN had not
+  written, on macOS and Windows.** The runner found the log by checking
+  `<stem>.log` before `aerscreen.log`; a case-insensitive filesystem
+  answers yes to `AERSCREEN.log` when only `aerscreen.log` is there, so a
+  default run reported `log_file` as `AERSCREEN.log` where Linux reported
+  `aerscreen.log`. The output, log, max-concentration and restart files
+  are now looked up in a listing of the working directory, exactly first
+  and then ignoring case, and reported as spelled on disk. The result is
+  the same on both kinds of filesystem, and on Linux an `.OUT` whose case
+  differs from `output_file` is no longer reported missing.
+- **`test_archive_is_the_whole_v26135_set` failed when the archive found
+  was not v26135.** With only the pre-2026 `aermet_24142_aermod_24142`
+  set unpacked (46 decks), the 53-deck check failed although every deck
+  round-tripped. It now skips, naming the set it found, unless that set
+  is AERMOD v26135's, which must still have all 53 decks.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
