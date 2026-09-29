@@ -231,8 +231,7 @@ Enable dry or wet deposition for any source type:
 
 ```python
 from pyaermod import (
-    PointSource, DepositionMethod, GasDepositionParams,
-    ParticleDepositionParams,
+    PointSource, GasDepositionParams, ParticleDepositionParams,
 )
 
 stack = PointSource(
@@ -241,7 +240,6 @@ stack = PointSource(
     stack_height=50.0, stack_temp=400.0,
     exit_velocity=15.0, stack_diameter=2.0,
     emission_rate=1.5,
-    deposition_method=DepositionMethod.GASDEPVD,
     gas_deposition=GasDepositionParams(
         diffusivity=0.1112,          # cm^2/s in air (Da)
         diffusivity_water=1.83e-5,   # cm^2/s in water (Dw)
@@ -259,8 +257,17 @@ keyword: set `ControlPathway(alpha=True, regulatory_default=False)`,
 and give the run `gas_deposition_seasons` and `gas_deposition_land_use`
 (GDSEASON / GDLANUSE) or AERMOD stops with E244.
 
-Set `OutputPathway(output_type="DEPOS")` to get deposition flux instead of
-concentration in the output.
+Which quantities AERMOD calculates is set on MODELOPT through four
+`ControlPathway` flags: `calculate_concentration` (CONC, on by default),
+`calculate_deposition` (DEPOS, total), `calculate_dry_deposition` (DDEP)
+and `calculate_wet_deposition` (WDEP). Any combination can be on, and
+AERMOD writes one set of results per quantity. Deposition comes out in
+g/m², totalled over each averaging period (g/m²/yr for ANNUAL), not as a
+flux per second. `OutputPathway.output_type` selects nothing: a deck that
+sets only it calculates concentration alone. Once any deposition is on,
+every source needs particle or gas deposition inputs (E242).
+`examples/deposition_modeling.py` builds gas, particle and mixed decks
+that run with AERMOD.
 
 ### NO2 Chemistry Options
 
