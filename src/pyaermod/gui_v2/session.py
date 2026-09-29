@@ -44,7 +44,7 @@ from typing import (
 )
 
 from ..input_generator import AERMODProject, ControlPathway
-from .project_io import project_from_json, project_to_json, save_project
+from .project_io import check_project, project_from_json, project_to_json, save_project
 from .state import _empty_project
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -373,7 +373,9 @@ class Session:
         except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as exc:
             # project_from_json raises ValueError for every problem with the
             # file; the others are a second line of defence behind its
-            # checks.
+            # checks, so they are bugs: keep the traceback in the log.
+            if not isinstance(exc, (OSError, ValueError)):
+                logger.exception("Reading project file %s raised", origin)
             message = str(exc)
             if not message.startswith(origin):
                 message = f"{origin}: {message}"
@@ -526,7 +528,10 @@ class Session:
         """Write the deck, run AERMOD on it, and record the run.
 
         Raises :class:`DeckError` (nothing recorded, nothing emitted) when
-        the project cannot be written as a deck, and ``OSError`` when the
+        the project cannot be written as a deck, either because it holds a
+        value its file could not be reopened with (the message names the
+        field; see :func:`~.project_io.check_project`) or because the deck
+        writer refuses it, and ``OSError`` when the
         deck cannot be written to the working directory. Anything the
         runner raises, including a missing binary, is kept on the record
         as ``error``. Emits RUN_STARTED and then RUN_FINISHED.
@@ -534,9 +539,17 @@ class Session:
         The run is synchronous; WP-G4 moves it to the background.
         """
         try:
-            deck = self.project.to_aermod_input(validate=False)
+            # The deck is written from the project as a file would reopen it:
+            # a value the loader refuses is refused here by name, and whole
+            # numbers the number boxes stored as floats are integers again.
+            deck_project = check_project(self.project, origin="deck")
+            deck = deck_project.to_aermod_input(validate=False)
+        except ValueError as exc:
+            raise DeckError(str(exc).removeprefix("deck: ")) from exc
         except Exception as exc:
-            raise DeckError(str(exc)) from exc
+            # Anything else is a bug in the deck writer or the check.
+            logger.exception("Writing the deck raised")
+            raise DeckError(str(exc) or type(exc).__name__) from exc
 
         if working_dir is not None and str(working_dir).strip():
             wd = Path(working_dir).expanduser()

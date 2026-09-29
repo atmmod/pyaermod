@@ -4,8 +4,11 @@ What the user must see (PLAN-gui.md): table rows, the empty-state message,
 the plan-view plot and the step badges update after every action; integer
 fields show integers, and the deck contains ``SURFDATA  14735  1988``.
 
-The tables already follow every action. The other four behaviours are
-independent gaps, so each has its own test.
+The tables and the empty-state message follow every action. Integer
+fields were written as floats (``SURFDATA  14735.0  1988.0``) until WP-G2
+wrote the deck from the project as its file reads back, which turns the
+whole floats the number boxes store into integers. The plan view and the
+step badges are independent gaps, so each has its own test.
 """
 
 from __future__ import annotations
@@ -78,7 +81,7 @@ def test_j07_empty_state_message_follows_the_list(gui, step):
 
 
 @pytest.mark.aermod_recording("albany_e480")
-def test_j07_integer_fields_show_and_write_integers(gui, step, known_gap, run_dir):
+def test_j07_integer_fields_show_and_write_integers(gui, step, run_dir):
     gui.open()
     enter_reference_scenario(gui)
     gui.project.set_averaging_periods(*E480_AVERAGING_PERIODS)
@@ -89,10 +92,9 @@ def test_j07_integer_fields_show_and_write_integers(gui, step, known_gap, run_di
     surfdata = [ln.strip() for ln in deck.splitlines() if "SURFDATA" in ln]
     step("run_finished")
 
-    with known_gap("WP-G3", "integer fields written as floats"):
-        assert re.search(r"^\s*SURFDATA\s+14735\s+1988\s*$", deck, re.M), (
-            f"the deck the user gets says {surfdata}")
-        gui.meteorology.expect_station_ids("14735", "14735", "1988")
+    assert re.search(r"^\s*SURFDATA\s+14735\s+1988\s*$", deck, re.M), (
+        f"the deck the user gets says {surfdata}")
+    gui.meteorology.expect_station_ids("14735", "14735", "1988")
 
 
 def test_j07_plan_view_follows_the_project(gui, step, known_gap):

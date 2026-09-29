@@ -27,9 +27,12 @@ Reading is driven by the dataclass annotations, not by the file: each
 value is checked against the type of the field it fills and nested
 dataclasses are rebuilt, so a file that loads is one the GUI and the deck
 writer can use. A value of the wrong type, an unknown ``_type`` or enum
-member, a number that is NaN or infinite, or a missing required field
-refuses the file with a :class:`ValueError` that names the file and the
-field. Saving applies the same checks before anything is written, so
+member, a number that is NaN or infinite, a whole number beyond +-2**53
+(the browser cannot carry it), a fraction in an integer field, or a
+missing required field refuses the file with a :class:`ValueError` that
+names the file and the field. An integer field written as a whole float
+(``2020.0``, as the GUI's number boxes store it) reads as the integer.
+Saving applies the same checks and repairs before anything is written, so
 pyaermod never writes a file it would refuse to open. Files written
 before the ``_type`` tags covered nested objects still load: an untagged
 object is built as the field's own class. Unknown keys are ignored.
@@ -40,7 +43,10 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import os
+import shutil
 import typing
+import uuid
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type, Union
@@ -48,6 +54,11 @@ from typing import Any, Dict, Optional, Tuple, Type, Union
 from ..input_generator import AERMODProject
 
 SAVE_FORMAT_VERSION = 1
+
+#: The largest whole number a project may hold. The browser's numbers are
+#: doubles, exact to 2**53, and NiceGUI's JSON encoder refuses anything
+#: beyond 64 bits, which freezes the page that shows it.
+MAX_WHOLE_NUMBER = 2**53
 
 #: The pathways every project has; ``null`` or a missing one reads as ``{}``.
 _PATHWAYS = ("control", "sources", "receptors", "meteorology", "output")
@@ -212,9 +223,20 @@ class _Decoder:
             if isinstance(value, bool):
                 return value
             raise self.wrong_type(what, value, annotation)
-        if annotation in (int, float):
-            # Either kind of number fills either kind of field, unchanged:
-            # the GUI's number boxes store floats in integer fields.
+        if annotation is int:
+            if isinstance(value, float) and not isinstance(value, bool):
+                # The GUI's number boxes store floats; the deck writer
+                # formats integer fields with "d", which refuses a float.
+                value = self.finite(value, what)
+                if not value.is_integer():
+                    raise self.fail(what, f" must be a whole number, not {value}")
+                value = int(value)
+            if isinstance(value, int) and not isinstance(value, bool):
+                return self.finite(value, what)
+            raise self.wrong_type(what, value, annotation)
+        if annotation is float:
+            # An int fills a float field unchanged (JSON writes 5.0 as 5 in
+            # some tools).
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 return self.finite(value, what)
             raise self.wrong_type(what, value, annotation)
@@ -268,9 +290,19 @@ class _Decoder:
         raise self.wrong_type(what, value, annotation)
 
     def finite(self, value: Any, what: str) -> Any:
-        """``value``, unless it is a float AERMOD cannot use (NaN, +-Infinity)."""
+        """``value``, unless it is a number the GUI cannot carry.
+
+        That is a float AERMOD cannot use (NaN, +-Infinity), or a whole
+        number beyond +-:data:`MAX_WHOLE_NUMBER`.
+        """
         if isinstance(value, float) and not math.isfinite(value):
             raise self.fail(what, f" must be a finite number, not {value}")
+        if (isinstance(value, int) and not isinstance(value, bool)
+                and not -MAX_WHOLE_NUMBER <= value <= MAX_WHOLE_NUMBER):
+            digits = len(str(abs(value)))
+            shown = str(value) if digits <= 30 else f"a {digits}-digit number"
+            raise self.fail(what, f" is too large: {shown} (the largest whole number "
+                                  f"a project can hold is 2**53)")
         return value
 
     @staticmethod
@@ -310,16 +342,29 @@ class _Decoder:
         return dict(items)
 
     def key(self, key: Any, key_type: Any, what: str) -> Any:
+        result = self._key(key, key_type, what)
+        try:
+            hash(result)
+        except TypeError:
+            raise self.fail(what, f" has a key that cannot be looked up: {_json_kind(key)}") from None
+        return result
+
+    def _key(self, key: Any, key_type: Any, what: str) -> Any:
         if key_type is int and isinstance(key, str):
             # A JSON object's keys are text; an int-keyed dict written as one.
             try:
-                return int(key)
+                number = int(key)
             except ValueError:
                 raise self.fail(what, f" has key {key!r}, not a whole number") from None
-        if isinstance(key, list):
-            return tuple(self.key(k, Any, what) for k in key)
-        if key_type is Any:
+            return self.finite(number, f"{what} key")
+        if key_type is Any or key_type is object:
+            if isinstance(key, list):  # a tuple key, written as a list
+                return tuple(self._key(k, Any, what) for k in key)
             return self.untyped(key, what)
+        if isinstance(key, list) and (typing.get_origin(key_type) is tuple or key_type is tuple):
+            return self.tuple_value(key, typing.get_args(key_type), key_type, f"{what} key")
+        # Anything else is checked as the key type, which refuses a list
+        # where the field wants a number, naming the field.
         return self.value(key, key_type, f"{what} key")
 
     def enum(self, value: Any, cls: Type[Enum], what: str) -> Enum:
@@ -411,22 +456,33 @@ def _decode_project(project_raw: Any, origin: str) -> AERMODProject:
 # Public API
 # ---------------------------------------------------------------------
 
+def check_project(project: AERMODProject, *, origin: str = "the project") -> AERMODProject:
+    """Return a copy of ``project`` as :func:`project_from_json` would read it.
+
+    The copy has every value checked against its field's type and repaired
+    where the loader repairs it (``2020.0`` in an integer field becomes
+    ``2020``). Raises :class:`ValueError` starting with ``origin`` and
+    naming the field when the loader would refuse a value, and
+    :class:`TypeError` for a value no project file can hold.
+    """
+    try:
+        return _decode_project(_encode(project), origin)
+    except RecursionError:
+        raise ValueError(f"{origin}: nested too deeply") from None
+
+
 def project_to_json(project: AERMODProject) -> str:
     """Return ``project`` as the JSON text :func:`save_project` writes.
 
-    Raises :class:`ValueError` naming the field when the project holds a
-    value :func:`project_from_json` would refuse (a missing number, text in
-    a list of objects, NaN ...): a file that cannot be opened again is
-    never produced. :class:`TypeError` means a value no project file can
-    hold.
+    The project is written as :func:`check_project` reads it, so a file
+    that cannot be opened again is never produced: :class:`ValueError`
+    names the field holding a value :func:`project_from_json` would refuse
+    (a missing number, text in a list of objects, NaN ...), and
+    :class:`TypeError` means a value no project file can hold.
     """
     from .. import __version__
 
-    tree = _encode(project)
-    try:
-        _decode_project(tree, "cannot save the project")
-    except RecursionError:
-        raise ValueError("cannot save the project: nested too deeply") from None
+    tree = _encode(check_project(project, origin="cannot save the project"))
     payload = {
         "pyaermod_version": __version__,
         "save_format_version": SAVE_FORMAT_VERSION,
@@ -439,10 +495,29 @@ def project_to_json(project: AERMODProject) -> str:
 def save_project(
     project: AERMODProject, path: Union[str, Path],
 ) -> Path:
-    """Write ``project`` to ``path`` as JSON. Returns the path."""
+    """Write ``project`` to ``path`` as JSON. Returns the path.
+
+    Nothing is created when :func:`project_to_json` refuses the project.
+    The file is written beside ``path`` and then moved over it, so a
+    failed write leaves any earlier file at ``path`` whole.
+    """
     out = Path(path)
+    text = project_to_json(project)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(project_to_json(project), encoding="utf-8")
+    # open(..., "x") rather than mkstemp: the file gets the umask's mode,
+    # not 0600, and an existing file's mode is kept below.
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(tmp, "x", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if out.exists():
+            shutil.copymode(out, tmp)
+        os.replace(tmp, out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return out
 
 
@@ -464,7 +539,8 @@ def project_from_json(text: Union[str, bytes], *, origin: str = "<text>") -> AER
                              f"at byte {exc.start})") from None
     try:
         raw = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except ValueError as exc:
+        # JSONDecodeError, or a number with more digits than Python reads.
         raise ValueError(f"{origin}: not valid JSON ({exc})") from exc
     except RecursionError:
         raise ValueError(f"{origin}: nested too deeply to be a project file") from None
@@ -490,7 +566,9 @@ def load_project(path: Union[str, Path]) -> AERMODProject:
 
 
 __all__ = [
+    "MAX_WHOLE_NUMBER",
     "SAVE_FORMAT_VERSION",
+    "check_project",
     "load_project",
     "project_from_json",
     "project_to_json",
