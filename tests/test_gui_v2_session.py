@@ -288,6 +288,45 @@ def test_save_as_download_returns_loadable_bytes_and_writes_nothing(tmp_path, mo
     assert list(tmp_path.iterdir()) == []
 
 
+def _unreopenable(kind: str) -> Session:
+    """A session whose project holds a value its file could not be opened with."""
+    s = Session()
+    if kind == "empty-number":           # an emptied number box stores None
+        s.add_source(_point(emission_rate=None))
+    elif kind == "text-for-objects":     # the list text area over a List[BuoyLineSegment]
+        from pyaermod.input_generator import BuoyLineSegment, BuoyLineSource
+        seg = BuoyLineSegment("SEG1", 0.0, 0.0, 10.0, 0.0, 1.0, 5.0)
+        s.add_source(BuoyLineSource("BL", 100.0, 10.0, 20.0, 5.0, 2.0, 1000.0,
+                                    line_segments=[str(seg)]))
+    else:                                # "nan"
+        s.add_source(PointSource(source_id="STK1", x_coord=float("nan"), y_coord=0.0))
+    return s
+
+
+_UNREOPENABLE = {
+    "empty-number": r"sources\[0\]\.emission_rate must be a number, not null",
+    "text-for-objects": r"sources\[0\]\.line_segments\[0\] must be a JSON object, not text",
+    "nan": r"sources\[0\]\.x_coord must be a finite number, not nan",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_UNREOPENABLE))
+def test_every_save_refuses_a_project_its_file_could_not_reopen(kind, tmp_path):
+    s = _unreopenable(kind)
+    path = save_project(_empty_project(), tmp_path / "p.json")
+    before = path.read_bytes()
+    s.project_path, s.file_name = path, "p.json"
+    rec = Recorder(s)
+    message = f"^cannot save the project: project\\.sources\\.{_UNREOPENABLE[kind]}"
+    for save in (s.save, lambda: s.save_as(tmp_path / "other.json"),
+                 lambda: s.save_as_download("dl.json")):
+        with pytest.raises(ValueError, match=message):
+            save()
+    assert s.dirty is True and s.file_name == "p.json" and s.project_path == path
+    assert path.read_bytes() == before and not (tmp_path / "other.json").exists()
+    assert rec.events == []
+
+
 def test_save_as_download_same_name_when_clean_emits_nothing():
     s = Session()
     s.save_as_download("a.json")
@@ -309,6 +348,10 @@ def test_save_as_download_same_name_when_clean_emits_nothing():
     ("   ", "project.json"),
     (None, "project.json"),
     ("dir/", "dir.json"),
+    # What Chromium's download of each name is called: the header must agree.
+    ('résumé "q".json', "résumé _q_.json"),
+    ("a:b*c?d<e>f|g.json", "a_b_c_d_e_f_g.json"),
+    ("tab\tname", "tab_name.json"),
 ])
 def test_download_file_names_are_cleaned(given, cleaned):
     assert clean_file_name(given) == cleaned
@@ -508,6 +551,26 @@ def test_start_run_records_runner_exception(tmp_path):
     assert record.error == "no aermod" and record.result is None and not record.success
     assert s.last_run is record and s.last_completed_run is None
     assert rec.events == [E.RUN_STARTED, E.RUN_FINISHED]
+
+
+def test_a_runner_bug_is_logged_with_its_traceback(tmp_path, caplog):
+    s = Session()
+    with caplog.at_level(logging.WARNING, logger="pyaermod.gui_v2.session"):
+        record = s.start_run(working_dir=tmp_path,
+                             runner=_StubRunner(s, exc=AttributeError("'NoneType' has no x")))
+    assert record.error == "'NoneType' has no x"
+    [logged] = caplog.records
+    assert logged.levelno == logging.ERROR and logged.getMessage() == "AERMOD run 1 raised"
+    assert "AttributeError" in (logged.exc_text or "")
+
+
+def test_a_missing_binary_is_logged_without_a_traceback(tmp_path, caplog):
+    s = Session()
+    with caplog.at_level(logging.WARNING, logger="pyaermod.gui_v2.session"):
+        s.start_run(working_dir=tmp_path, runner=_StubRunner(s, exc=FileNotFoundError("no aermod")))
+    [logged] = caplog.records
+    assert logged.levelno == logging.WARNING and logged.exc_info is None
+    assert logged.getMessage() == "AERMOD run 1 could not start: no aermod"
 
 
 def test_start_run_without_a_binary_records_the_runner_construction_error(tmp_path, monkeypatch):

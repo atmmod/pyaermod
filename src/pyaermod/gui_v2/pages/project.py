@@ -55,7 +55,7 @@ def render(session: Session, *, dialogs: Any) -> None:
             return                                  # the user cancelled
         try:
             session.save_as(path)
-        except OSError as exc:
+        except _SAVE_ERRORS as exc:
             _notify(f"Save failed: {exc}", color="negative")
             return
         _notify(f"Saved {path.name}")
@@ -64,7 +64,7 @@ def render(session: Session, *, dialogs: Any) -> None:
         if session.project_path is not None:
             try:
                 session.save()
-            except OSError as exc:
+            except _SAVE_ERRORS as exc:
                 _notify(f"Save failed: {exc}", color="negative")
                 return
             _notify(f"Saved {session.project_path.name}")
@@ -128,16 +128,24 @@ def render(session: Session, *, dialogs: Any) -> None:
     with dialogs, ui.dialog().mark("open-dialog") as open_dialog, ui.card():
         ui.label("Select project JSON")
         # auto_upload sends the file as soon as it is chosen; the header's
-        # upload button (an unnamed icon) is hidden.
+        # upload button (an unnamed icon) is hidden. No ``accept`` filter:
+        # QUploader drops a file it filters out without a word, and a
+        # project whose name lost its .json must still open. Every file
+        # reaches _on_upload, which refuses a non-project by name.
         uploader = ui.upload(
             label="Project file (.json)", auto_upload=True, max_files=1,
             on_upload=_on_upload,
-        ).props("accept=.json hide-upload-btn")
+        ).props("hide-upload-btn")
         ui.button("Cancel", on_click=open_dialog.close).props("flat")
 
     # ----- Save As (browser) --------------------------------------------
     def _do_save() -> None:
-        data = session.save_as_download(name_input.value)
+        try:
+            data = session.save_as_download(name_input.value)
+        except _SAVE_ERRORS as exc:
+            save_as_dialog.close()
+            _notify(f"Save failed: {exc}", color="negative")
+            return
         # Bytes, and looked up on ``ui`` at call time (the T1 harness
         # replaces ui.download).
         ui.download(data, session.file_name, "application/json")
@@ -150,6 +158,11 @@ def render(session: Session, *, dialogs: Any) -> None:
         with ui.row():
             ui.button("Cancel", on_click=save_as_dialog.close).props("flat")
             ui.button("Save", on_click=_do_save).props("color=primary")
+
+
+#: What a save can raise: the disk (OSError), or a project holding a value
+#: its file could not be reopened with (ValueError, TypeError).
+_SAVE_ERRORS = (OSError, ValueError, TypeError)
 
 
 def _pollutant_name(pollutant: Any) -> str:

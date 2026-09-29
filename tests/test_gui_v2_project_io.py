@@ -400,3 +400,196 @@ class TestValuesAreChecked:
         deep = '{"project": ' + "[" * 100_000 + "]" * 100_000 + "}"
         with pytest.raises(ValueError, match=r"^<text>: nested too deeply"):
             project_from_json(deep)
+
+    @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+    def test_a_number_that_is_not_finite_is_refused_by_name(self, saved, token):
+        # Python's json reads these non-standard tokens; AERMOD cannot use them.
+        text = _with(saved, ("sources", "sources", 0, "x_coord"), 0.0).replace(
+            '"x_coord": 0.0', f'"x_coord": {token}', 1)
+        shown = {"NaN": "nan", "Infinity": "inf", "-Infinity": "-inf"}[token]
+        with pytest.raises(ValueError, match=(
+                rf"^f\.json: project\.sources\.sources\[0\]\.x_coord must be a finite "
+                rf"number, not {shown}$")):
+            project_from_json(text, origin="f.json")
+
+    def test_a_non_finite_number_in_an_untyped_value_is_refused(self, saved):
+        doc = json.loads(saved)
+        doc["project"]["sources"]["background"] = {
+            "_type": "BackgroundConcentration", "period_values": {"ANNUAL": 1.0}}
+        text = json.dumps(doc).replace('"ANNUAL": 1.0', '"ANNUAL": NaN')
+        with pytest.raises(ValueError, match=(
+                r"background\.period_values\['ANNUAL'\] must be a finite number, not nan")):
+            project_from_json(text)
+
+
+class TestSavingRefusesWhatOpeningWould:
+    """pyaermod never writes a project file it would refuse to open."""
+
+    @pytest.mark.parametrize("field, value, message", [
+        ("emission_rate", None, r"emission_rate must be a number, not null"),
+        ("x_coord", float("nan"), r"x_coord must be a finite number, not nan"),
+        ("y_coord", float("-inf"), r"y_coord must be a finite number, not -inf"),
+        ("source_id", 12, r"source_id must be text, not a number"),
+    ])
+    def test_a_value_the_loader_refuses_is_not_saved(self, tmp_path, field, value, message):
+        project = _full_project()
+        setattr(project.sources.sources[0], field, value)
+        pattern = rf"^cannot save the project: project\.sources\.sources\[0\]\.{message}"
+        with pytest.raises(ValueError, match=pattern):
+            project_to_json(project)
+        with pytest.raises(ValueError, match=pattern):
+            save_project(project, tmp_path / "p.json")
+        assert not (tmp_path / "p.json").exists()
+
+    def test_a_value_no_project_file_can_hold_is_a_type_error(self):
+        project = _full_project()
+        project.sources.sources[0].source_id = object()
+        with pytest.raises(TypeError, match="cannot save a object in a project file"):
+            project_to_json(project)
+
+    def test_numpy_values_and_paths_are_saved_as_plain_json(self):
+        import numpy as np
+        project = _full_project()
+        stack = project.sources.sources[0]
+        stack.x_coord, stack.stack_height = np.float64(100.5), np.int64(30)
+        project.sources.sources[2].vertices = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]])
+        project.meteorology.surface_file = Path("met") / "x.sfc"
+        project.control.elevation_units = project.control.elevation_units  # unchanged
+        reopened = project_from_json(project_to_json(project))
+        assert reopened.sources.sources[0].x_coord == 100.5
+        assert reopened.sources.sources[0].stack_height == 30
+        assert reopened.sources.sources[2].vertices == [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
+        assert reopened.meteorology.surface_file == str(Path("met") / "x.sfc")
+
+
+class TestEveryRefusalNamesTheField:
+    """Each way a document can be malformed gives its own message."""
+
+    @pytest.fixture
+    def saved(self):
+        return project_to_json(_deposition_project())
+
+    @pytest.mark.parametrize("edit, message", [
+        # a tuple of the wrong arity
+        (lambda p: p["control"].update(arm2_ratios=[0.5]),
+         r"project\.control\.arm2_ratios must have 2 values, not 1"),
+        (lambda p: p["control"].update(arm2_ratios="0.5 0.9"),
+         r"project\.control\.arm2_ratios must be a JSON list, not text '0\.5 0\.9'"),
+        # a dict whose non-text keys are not [key, value] pairs
+        (lambda p: p["sources"]["background"].update(sector_values={"_items": [[1, "ANNUAL", 3.0]]}),
+         r"project\.sources\.background\.sector_values must list \[key, value\] pairs"),
+        (lambda p: p["sources"]["background"].update(sector_values={"_items": "none"}),
+         r"project\.sources\.background\.sector_values must list \[key, value\] pairs"),
+        # an enum of another class, or text no member has as its value
+        (lambda p: p["sources"]["sources"][0].update(
+            deposition_method=[{"_enum": "PollutantType.NO2"}, 0.5]),
+         r"project\.sources\.sources\[0\]\.deposition_method\[0\] must be a DepositionMethod, "
+         r"not a PollutantType"),
+        (lambda p: p["sources"]["sources"][0].update(deposition_method=["METHOD9", 0.5]),
+         r"project\.sources\.sources\[0\]\.deposition_method\[0\]: unknown DepositionMethod "
+         r"value 'METHOD9'"),
+        # the class's own check (MaxDailyContribution needs a rank or a threshold)
+        (lambda p: p["output"].update(max_daily_contributions=[
+            {"_type": "MaxDailyContribution", "source_group": "ALL", "upper_rank": 1,
+             "filename": "m.dat"}]),
+         r"project\.output\.max_daily_contributions\[0\]: .*lower_rank"),
+        # an untyped value naming an enum class or a dataclass the model lacks
+        (lambda p: p["sources"]["background"].update(period_values={"A": {"_enum": "Nope.X"}}),
+         r"project\.sources\.background\.period_values\['A'\]: unknown enum 'Nope\.X'"),
+        (lambda p: p["sources"]["background"].update(period_values={"A": {"_type": "Nope"}}),
+         r"project\.sources\.background\.period_values\['A'\]: unknown type 'Nope'"),
+        # a field of the wrong kind of JSON value
+        (lambda p: p["sources"]["sources"][0].update(particle_deposition=[1, 2]),
+         r"project\.sources\.sources\[0\]\.particle_deposition must be a JSON object, "
+         r"not a JSON list"),
+        (lambda p: p["control"].update(gas_deposition_seasons={"a": 1}),
+         r"project\.control\.gas_deposition_seasons must be a JSON list, not a JSON object"),
+        (lambda p: p["control"].update(title_one=None),
+         r"project\.control\.title_one must be text, not null"),
+    ], ids=["tuple-arity", "tuple-not-a-list", "items-pair", "items-not-a-list",
+            "enum-class", "enum-value-text", "class-check", "untyped-enum", "untyped-type",
+            "object-as-list", "list-as-object", "null-for-text"])
+    def test_malformed_values_are_refused(self, saved, edit, message):
+        doc = json.loads(saved)
+        edit(doc["project"])
+        with pytest.raises(ValueError, match=f"^f.json: {message}"):
+            project_from_json(json.dumps(doc), origin="f.json")
+
+    def test_untyped_values_keep_their_enums_and_objects(self, saved):
+        doc = json.loads(saved)
+        doc["project"]["sources"]["background"]["period_values"] = {
+            "A": {"_enum": "PollutantType.NO2"},
+            "B": {"_type": "BackgroundSector", "sector_id": 1, "start_direction": 0.0},
+        }
+        values = project_from_json(json.dumps(doc)).sources.background.period_values
+        assert values == {"A": PollutantType.NO2, "B": BackgroundSector(1, 0.0)}
+
+    def test_nesting_the_decoder_cannot_follow_is_refused(self, saved):
+        # json.loads reads this; rebuilding it would overflow the stack.
+        doc = json.loads(saved)
+        nested: dict = {}
+        for _ in range(600):
+            nested = {"n": nested}
+        doc["project"]["sources"]["background"]["period_values"] = nested
+        with pytest.raises(ValueError, match=r"^f\.json: nested too deeply to be a project file$"):
+            project_from_json(json.dumps(doc), origin="f.json")
+
+
+class TestTheDecoderChecksEachKindOfType:
+    """``_Decoder.value`` for annotation kinds the model uses rarely or not yet."""
+
+    @staticmethod
+    def _value(value, annotation):
+        from pyaermod.gui_v2.project_io import _Decoder
+        return _Decoder("f.json").value(value, annotation, "x")
+
+    @pytest.mark.parametrize("value, annotation, expected", [
+        (None, type(None), None),
+        ("a", "typing.Literal", "a"),
+        ("dir/f.sfc", Path, Path("dir/f.sfc")),
+        ([1, 2, 3], "Tuple[int, ...]", (1, 2, 3)),
+        ([1, "a"], tuple, (1, "a")),
+        ({"1": 2.0, "3": 4.0}, "Dict[int, float]", {1: 2.0, 3: 4.0}),
+        ({"_items": [[[1, "A"], 2.0]]}, dict, {(1, "A"): 2.0}),
+        ([1, {"k": [2]}], list, [1, {"k": [2]}]),
+        (3, object, 3),
+        ({"k": 1}, "frozenset", {"k": 1}),
+    ])
+    def test_values_that_fit_are_kept(self, value, annotation, expected):
+        import typing
+        annotation = {"typing.Literal": typing.Literal["a", "b"],
+                      "Tuple[int, ...]": typing.Tuple[int, ...],
+                      "Dict[int, float]": typing.Dict[int, float],
+                      "frozenset": frozenset}.get(annotation, annotation)
+        assert self._value(value, annotation) == expected
+
+    @pytest.mark.parametrize("value, annotation, message", [
+        (1, type(None), "x must be null, not a number"),
+        ("c", "typing.Literal", r"x must be one of \['a', 'b'\], not 'c'"),
+        (1, bool, "x must be true/false, not a number"),
+        (1, Path, "x must be text, not a number"),
+        (1, "Path|None", "x must be text, not a number"),      # Optional: the inner check
+        ({"x": 1}, list, "x must be a JSON list, not a JSON object"),
+        ([1], dict, "x must be a JSON object, not a JSON list"),
+        ({"a": 1}, "Dict[int, float]", r"x has key 'a', not a whole number"),
+        ({"_items": [[True, 2.0]]}, "Dict[int, float]", r"x key must be a number, not true/false"),
+        (None, PollutantType, "x must be a PollutantType, not null"),
+        ({"_enum": "PollutantType.NO2"}, "Union[int, str]",
+         r"x must be a number or text, not a JSON object"),
+        ([1], "Point|Area", r"x must be a JSON object, not a JSON list"),
+        ({"source_id": "S"}, "Point|Area", r"x has no _type saying which kind"),
+        (None, "Point|Area", r"x must be a JSON object or a JSON object, not null"),
+    ])
+    def test_values_that_do_not_fit_are_refused(self, value, annotation, message):
+        import typing
+        annotation = {"typing.Literal": typing.Literal["a", "b"],
+                      "Path|None": typing.Optional[Path],
+                      "Dict[int, float]": typing.Dict[int, float],
+                      "Union[int, str]": typing.Union[int, str],
+                      "Point|Area": typing.Union[PointSource, AreaPolySource]}.get(annotation, annotation)
+        with pytest.raises(ValueError, match=f"^f.json: {message}"):
+            self._value(value, annotation)
+
+    def test_json_kind_names_a_value_json_cannot_hold(self):
+        from pyaermod.gui_v2.project_io import _json_kind
+        assert _json_kind(object()) == "object"
