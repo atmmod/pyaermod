@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...input_generator import PollutantType
-from .. import _native
+from .. import _native, files
 from .._live import live
 from ..session import ProjectFileError, Session
 
@@ -78,6 +78,8 @@ def render(session: Session, *, dialogs: Any) -> None:
         ui.button("Open...", on_click=lambda: open_dialog.open()).mark("project-open")
         ui.button("Save", on_click=_on_save).mark("project-save")
         ui.button("Save as...", on_click=_save_as_clicked).mark("project-save-as")
+
+    files.import_controls(session, dialogs=dialogs)     # WP-G6; WP-G3 places it
 
     ui.separator().classes("q-my-md")
 

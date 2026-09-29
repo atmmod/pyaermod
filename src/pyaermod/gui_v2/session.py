@@ -25,6 +25,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import logging
+import os
 import re
 import tempfile
 from dataclasses import dataclass, replace
@@ -49,6 +50,7 @@ from .state import _empty_project
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..runner import AERMODRunner, AERMODRunResult
+    from ..unparsed import UnparsedLine
     from ..validator import ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ logger = logging.getLogger(__name__)
 class SessionEvent(StrEnum):
     """What changed in a :class:`Session`."""
 
-    PROJECT_REPLACED = "project_replaced"      # new(), open_json()
+    PROJECT_REPLACED = "project_replaced"      # new(), open_json(), import_inp()
     PROJECT_CHANGED = "project_changed"        # any in-place change; Change.part names what
     DIRTY_CHANGED = "dirty_changed"            # the dirty flag or the file name changed
     VALIDATION_CHANGED = "validation_changed"  # validate()
@@ -139,7 +141,56 @@ class DeckError(ValueError):
     """The project could not be written as an AERMOD deck."""
 
 
+# --- WP-G6: deck import ---------------------------------------------------
+
+class DeckImportError(ValueError):
+    """:meth:`Session.import_inp` could not import the deck.
+
+    The message starts with the deck's name and says why, in words meant
+    for the user; nothing in the session has changed.
+    """
+
+
+#: The met file fields an imported deck names, and how the GUI calls them.
+MET_FILE_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("surface_file", "surface"),
+    ("profile_file", "profile"),
+)
+
+#: The name an uploaded deck is read under when it came without one.
+_DEFAULT_DECK_NAME = "deck.inp"
+
+
+@dataclass(frozen=True)
+class DeckImport:
+    """What :meth:`Session.import_inp` brought in, for the notice the GUI shows.
+
+    ``path`` is the deck's file on this computer, or None for an upload.
+    ``unparsed`` holds the lines the reader kept as written
+    (:attr:`AERMODProject.unparsed_lines`). ``met_found`` names the met
+    file fields whose relative path was found beside the deck and is now
+    a full path; ``met_needed`` lists ``(field, path as written)`` for
+    each met file the user still has to point at.
+    """
+
+    name: str
+    path: Optional[Path]
+    unparsed: Tuple[UnparsedLine, ...] = ()
+    met_found: Tuple[str, ...] = ()
+    met_needed: Tuple[Tuple[str, str], ...] = ()
+
+# --- end WP-G6 --------------------------------------------------------------
+
+
 Observer = Callable[[Change], None]
+
+
+def _last_name_part(name: Optional[str]) -> str:
+    """The last part of ``name`` after either separator, browser-safe; may be ''."""
+    # "C:" is not a directory here.
+    parts = [p.strip() for p in re.split(r"[\\/]", name or "")]
+    parts = [p for p in parts if p not in ("", ".", "..")]
+    return _UNSAFE_NAME_CHARS.sub("_", parts[-1]) if parts else ""
 
 
 def clean_file_name(name: Optional[str]) -> str:
@@ -150,10 +201,7 @@ def clean_file_name(name: Optional[str]) -> str:
     ``_`` so the header names the file the browser saved, an empty name
     becomes ``project.json`` and a name without a ``.json`` suffix gets one.
     """
-    # The last part after either separator; "C:" is not a directory here.
-    parts = [p.strip() for p in re.split(r"[\\/]", name or "")]
-    parts = [p for p in parts if p not in ("", ".", "..")]
-    base = _UNSAFE_NAME_CHARS.sub("_", parts[-1]) if parts else ""
+    base = _last_name_part(name)
     if not base:
         return _DEFAULT_FILE_NAME
     if not base.lower().endswith(".json"):
@@ -184,6 +232,13 @@ class Session:
         The run :meth:`start_run` is executing, or None.
     run_options
         The Run step's inputs.
+    last_import
+        What the latest :meth:`import_inp` brought in, until the project
+        is replaced again; the header names the deck while the project
+        has no file of its own.
+    show_import_notice
+        Whether the Project step still shows the import notice (the user
+        can dismiss it).
     tab_id
         Which browser tab owns this session. The GUI shell reads and
         writes it; the session never interprets it.
@@ -199,6 +254,8 @@ class Session:
         self.runs: List[RunRecord] = []
         self.run_in_progress: Optional[RunRecord] = None
         self.run_options = RunOptions()
+        self.last_import: Optional[DeckImport] = None
+        self.show_import_notice: bool = False
         self.tab_id: Optional[str] = tab_id
         self._observers: List[Tuple[frozenset, Observer]] = []
         # id(obj) -> (key, obj). Holding obj keeps its id from being reused
@@ -225,11 +282,16 @@ class Session:
     @property
     def title(self) -> str:
         """The header text: the file name, and whether it has unsaved changes."""
-        name = self.file_name or "Untitled"
-        return f"PyAERMOD — {name}{' (modified)' if self.dirty else ''}"
+        name = self.file_name or (self.last_import.name if self.last_import else None)
+        return f"PyAERMOD — {name or 'Untitled'}{' (modified)' if self.dirty else ''}"
 
     def suggested_file_name(self) -> str:
-        return self.file_name or _DEFAULT_FILE_NAME
+        if self.file_name:
+            return self.file_name
+        if self.last_import is not None:
+            # An imported deck is saved as a project named after it.
+            return clean_file_name(Path(self.last_import.name).stem)
+        return _DEFAULT_FILE_NAME
 
     def source_entries(self) -> List[Tuple[str, Any]]:
         """``(key, source)`` for every source, in the project's order."""
@@ -297,17 +359,22 @@ class Session:
             self._emit(Change(SessionEvent.DIRTY_CHANGED))
 
     def _replaced(self, project: AERMODProject, *, path: Optional[Path],
-                  name: Optional[str]) -> None:
-        was_dirty, old_name = self.dirty, self.file_name
+                  name: Optional[str], imported: Optional[DeckImport] = None) -> None:
+        # The header shows the name and the dirty flag: DIRTY_CHANGED says
+        # either changed.
+        old_title = self.title
         self.project = project
         self.project_path = path
         self.file_name = name
-        self.dirty = False
+        # An imported deck is not saved anywhere as a project yet.
+        self.dirty = imported is not None
+        self.last_import = imported
+        self.show_import_notice = imported is not None
         self.runs = []
         self.validation = None
         self._keys.clear()
         self._emit(Change(SessionEvent.PROJECT_REPLACED))
-        if was_dirty or old_name != name:
+        if self.title != old_title:
             self._emit(Change(SessionEvent.DIRTY_CHANGED))
 
     # ------------------------------------------------------------------
@@ -381,6 +448,79 @@ class Session:
                 message = f"{origin}: {message}"
             raise ProjectFileError(message) from exc
         self._replaced(project, path=path, name=file_name)
+
+    # --- WP-G6: deck import ------------------------------------------------
+    def import_inp(self, source: Union[str, bytes, Path], *,
+                   name: Optional[str] = None) -> DeckImport:
+        """Replace the project with one read from an AERMOD ``.inp`` deck.
+
+        A :class:`~pathlib.Path` is a deck on this computer that the user
+        chose (a native dialog, a path they typed, the recent-files list):
+        it is read as it stands, and a met file it names by a relative
+        path that exists beside it becomes a full path, so a run in any
+        working directory finds it. Text or bytes are an upload, whose
+        folder the server never sees: the deck is read with
+        ``read_aermod_input(..., sandbox=True)`` from a private temporary
+        folder, so it may name only files beside itself, and every met
+        file it names is one the user still has to supply.
+
+        The project has no file of its own afterwards and counts as
+        modified. Raises :class:`DeckImportError`, with nothing changed,
+        when the deck cannot be imported. Returns what came in, which is
+        also kept as :attr:`last_import`.
+        """
+        if isinstance(source, Path):
+            deck_name = source.name or _DEFAULT_DECK_NAME
+            project = self._read_deck(source, deck_name, sandbox=False)
+            met_found = _bring_met_files(project, source.parent)
+            path: Optional[Path] = source
+        else:
+            deck_name = _clean_deck_name(name)
+            data = source.encode("utf-8") if isinstance(source, str) else source
+            with tempfile.TemporaryDirectory(prefix="pyaermod_import_") as tmp:
+                deck = Path(tmp) / deck_name
+                deck.write_bytes(data)
+                project = self._read_deck(deck, deck_name, sandbox=True)
+            met_found, path = (), None
+        try:
+            # The project as its file would reopen it, like every project the
+            # session holds: a value the pages or the deck writer could not
+            # use is refused here, by field.
+            project = check_project(project, origin=deck_name)
+        except (ValueError, TypeError) as exc:
+            raise DeckImportError(str(exc)) from exc
+        report = DeckImport(
+            name=deck_name, path=path, unparsed=tuple(project.unparsed_lines),
+            met_found=met_found, met_needed=_met_needed(project),
+        )
+        self._replaced(project, path=None, name=None, imported=report)
+        return report
+
+    @staticmethod
+    def _read_deck(deck: Path, name: str, *, sandbox: bool) -> AERMODProject:
+        from ..input_reader import PathTraversalError, read_aermod_input
+
+        try:
+            return read_aermod_input(deck, sandbox=sandbox)
+        except PathTraversalError as exc:
+            outside = "; ".join(f"{v.path} ({v.field})" for v in exc.violations) or str(exc)
+            raise DeckImportError(
+                f"{name}: an uploaded deck may only name files in its own folder, and "
+                f"this one names {outside}. Import it from its path on this computer "
+                f"instead, or change those paths in the deck.") from exc
+        except UnicodeDecodeError as exc:
+            raise DeckImportError(f"{name}: not a UTF-8 text file") from exc
+        except OSError as exc:
+            raise DeckImportError(f"{name}: {exc.strerror or exc}") from exc
+        except ValueError as exc:
+            raise DeckImportError(f"{name}: not an AERMOD deck PyAERMOD can read: {exc}") from exc
+        except Exception as exc:
+            # The reader raised something it does not document: a bug in
+            # the reader, so the traceback goes to the log.
+            logger.exception("Reading deck %s raised", name)
+            raise DeckImportError(
+                f"{name}: could not be read ({type(exc).__name__}: {exc})") from exc
+    # --- end WP-G6 -----------------------------------------------------------
 
     def save(self) -> Path:
         """Write the project to :attr:`project_path` and mark it saved.
@@ -610,14 +750,58 @@ class Session:
         other.validation = self.validation
         other.runs = list(self.runs)
         other.run_options = replace(self.run_options)
+        other.last_import = self.last_import
+        other.show_import_notice = self.show_import_notice
         return other
+
+
+# --- WP-G6: deck import helpers ----------------------------------------------
+
+def _clean_deck_name(name: Optional[str]) -> str:
+    """An uploaded deck's file name, safe to create in a temporary folder."""
+    return _last_name_part(name) or _DEFAULT_DECK_NAME
+
+
+def _bring_met_files(project: AERMODProject, deck_dir: Path) -> Tuple[str, ...]:
+    """Make each relative met path that exists beside the deck a full path.
+
+    AERMOD reads a relative path from its working directory, which for a
+    GUI run is not the deck's folder. Returns the fields changed.
+    """
+    met = project.meteorology
+    found = []
+    for field_name, _label in MET_FILE_FIELDS:
+        raw = getattr(met, field_name, None)
+        if not raw or Path(raw).is_absolute():
+            continue
+        candidate = Path(os.path.normpath(deck_dir.absolute() / raw))
+        if candidate.is_file():
+            setattr(met, field_name, str(candidate))
+            found.append(field_name)
+    return tuple(found)
+
+
+def _met_needed(project: AERMODProject) -> Tuple[Tuple[str, str], ...]:
+    """``(field, path)`` for each met file that is not a file on this computer."""
+    met = project.meteorology
+    needed = []
+    for field_name, _label in MET_FILE_FIELDS:
+        raw = getattr(met, field_name, None) or ""
+        if not (raw and Path(raw).is_absolute() and Path(raw).is_file()):
+            needed.append((field_name, raw))
+    return tuple(needed)
+
+# --- end WP-G6 ----------------------------------------------------------------
 
 
 __all__ = [
     "DECK_NAME",
+    "MET_FILE_FIELDS",
     "PARTS",
     "Change",
     "DeckError",
+    "DeckImport",
+    "DeckImportError",
     "ProjectFileError",
     "RunOptions",
     "RunRecord",
