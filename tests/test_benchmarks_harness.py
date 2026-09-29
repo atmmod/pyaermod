@@ -159,9 +159,39 @@ from benchmarks import bench_aermod_runs as bar  # noqa: E402
 
 FAKE_AERMOD = """#!/bin/sh
 # Stand-in for AERMOD: `aermod` reads aermod.inp and writes aermod.out,
-# `aermod in out` writes out. Either way it must leave an output file.
+# `aermod in out` writes out. Either way it must leave an output file,
+# ending as a real v26135 run with no messages does: the runner calls a
+# run successful only with that summary and banner.
 if [ "$#" -ge 2 ]; then out="$2"; else out="aermod.out"; fi
 printf ' *** AERMOD - VERSION 26135 ***  fake\\n' > "$out"
+cat >> "$out" <<'EOF'
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+
+ A Total of            0 Fatal Error Message(s)
+ A Total of            0 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of           96 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+
+
+    ******** FATAL ERROR MESSAGES ********
+               ***  NONE  ***
+
+
+    ********   WARNING MESSAGES   ********
+               ***  NONE  ***
+
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+EOF
 exit 0
 """
 

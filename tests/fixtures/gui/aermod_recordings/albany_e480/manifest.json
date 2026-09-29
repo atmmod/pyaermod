@@ -1,0 +1,29 @@
+{
+  "scenario": "albany_e480",
+  "description": "The reference scenario with averaging periods 1 and ANNUAL, which are the GUI's defaults. Four days of met data are less than the year ANNUAL needs, so AERMOD stops with fatal error E480 after processing every hour, and still exits with code 0.",
+  "aermod_version": "26135",
+  "fatal_errors": 1,
+  "warnings": 5,
+  "informational": 0,
+  "finishes_successfully": false,
+  "exit_code": 0,
+  "build": "EPA AERMOD v26135 source compiled with gfortran -O2 by scripts/build_aermod.sh (FFLAGS -O2 -fbounds-check -Wuninitialized)",
+  "aermod_sha256": "4d7d4829b2fca38e1488fa0722397846f6b6efefaa02002f433eefc898d33435",
+  "recorded": "2026-09-28",
+  "command": "aermod",
+  "working_directory": "a fresh temporary directory holding aermod.inp and the met files it names",
+  "recorder": "python scripts/record_aermod_fixtures.py",
+  "deck": "aermod.inp",
+  "inputs": [],
+  "met_files": [
+    "AERMET2.SFC",
+    "AERMET2.PFL"
+  ],
+  "stdout": "stdout.txt",
+  "stderr": "stderr.txt",
+  "outputs": [
+    "aermod.out"
+  ],
+  "gzipped_outputs": [],
+  "maxima": {}
+}

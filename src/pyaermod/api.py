@@ -248,7 +248,14 @@ from .regulatory import (
 )
 
 # --- Execution ------------------------------------------------------------
-from .runner import AERMODRunner, AERMODRunResult, BatchRunner, run_aermod
+from .runner import (
+    AERMODMessage,
+    AERMODRunner,
+    AERMODRunResult,
+    BatchRunner,
+    parse_aermod_messages,
+    run_aermod,
+)
 from .runner_utils import (
     ERRMSGInfo,
     LoggingProgress,
@@ -346,6 +353,7 @@ __all__ = [
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution
     "AERMODRunner", "AERMODRunResult", "BatchRunner", "run_aermod",
+    "AERMODMessage", "parse_aermod_messages",
     "ProgressReporter", "NoOpProgress", "LoggingProgress", "TqdmProgress",
     "ERRMSGInfo", "RunManifestEntry",
     "extract_errmsg", "tail_output", "summarize_failure",

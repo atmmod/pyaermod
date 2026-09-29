@@ -60,7 +60,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 # Minimal AERMOD .OUT that the output parser turns into run_info,
-# one source, two receptors and one ANNUAL concentration table.
+# one source, two receptors and one ANNUAL concentration table. It ends
+# with the message summary and banner of a real AERMOD v26135 run with no
+# messages (trailing blanks dropped); without them the runner reports the
+# run as failed, as AERMOD exits 0 even after a fatal error.
 FAKE_AERMOD_OUT = textwrap.dedent("""\
     *** AERMOD - VERSION 24142 ***
 
@@ -85,6 +88,33 @@ FAKE_AERMOD_OUT = textwrap.dedent("""\
 
        100.00    200.00    5.432
        300.00    400.00    2.876
+
+     *** Message Summary : AERMOD Model Execution ***
+
+      --------- Summary of Total Messages --------
+
+     A Total of            0 Fatal Error Message(s)
+     A Total of            0 Warning Message(s)
+     A Total of            0 Informational Message(s)
+
+     A Total of           96 Hours Were Processed
+
+     A Total of            0 Calm Hours Identified
+
+     A Total of            0 Missing Hours Identified (  0.00 Percent)
+
+
+        ******** FATAL ERROR MESSAGES ********
+                   ***  NONE  ***
+
+
+        ********   WARNING MESSAGES   ********
+                   ***  NONE  ***
+
+
+        ************************************
+        *** AERMOD Finishes Successfully ***
+        ************************************
 """)
 
 

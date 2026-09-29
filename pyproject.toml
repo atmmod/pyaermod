@@ -85,6 +85,11 @@ all = [
     "ezdxf>=1.0.0",
     "nicegui>=3.0",
 ]
+# Browser journeys for the GUI (tests/e2e, `make test-gui-e2e`). Install the
+# browser once with `python -m playwright install --with-deps chromium`.
+e2e = [
+    "playwright>=1.45",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",

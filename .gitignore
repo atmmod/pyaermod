@@ -46,6 +46,14 @@ coverage.xml
 !tests/fixtures/epa_aerscreen/**/*.inp
 !tests/fixtures/epa_aerscreen/**/*.out
 !tests/fixtures/epa_aerscreen/**/*.OUT
+!tests/fixtures/runner/**/*.inp
+!tests/fixtures/runner/**/*.out
+# Recordings of a real AERMOD run that the GUI journeys replay
+# (scripts/record_aermod_fixtures.py); every file is part of the fixture.
+!tests/fixtures/gui/aermod_recordings/**
+
+# Screenshots the GUI journeys save at every step (tests/e2e)
+test-artifacts/
 
 # Fortran source directories (download separately)
 aermod/
