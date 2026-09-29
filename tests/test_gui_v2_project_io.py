@@ -24,6 +24,8 @@ from pyaermod import (
 from pyaermod.gui_v2.project_io import (
     SAVE_FORMAT_VERSION,
     load_project,
+    project_from_json,
+    project_to_json,
     save_project,
 )
 
@@ -156,3 +158,66 @@ class TestFileFormat:
         }))
         with pytest.raises(ValueError, match="format_version"):
             load_project(bogus)
+
+
+class TestTextRoundTrip:
+    """``project_to_json`` / ``project_from_json``: the file format as text.
+
+    The GUI opens uploaded files and delivers Save As as a browser
+    download, so it needs the format without a file on the server's disk.
+    """
+
+    def test_to_json_is_what_save_project_writes(self, tmp_path):
+        project = _full_project()
+        save_project(project, tmp_path / "out.json")
+        assert (tmp_path / "out.json").read_text(encoding="utf-8") == project_to_json(project)
+
+    def test_from_json_round_trips(self):
+        p1 = _full_project()
+        p2 = project_from_json(project_to_json(p1))
+        assert p2.to_aermod_input(validate=False) == p1.to_aermod_input(validate=False)
+        assert [type(s).__name__ for s in p2.sources.sources] == [
+            "PointSource", "LineSource", "AreaPolySource"]
+
+    def test_from_json_accepts_bytes(self):
+        p2 = project_from_json(project_to_json(_full_project()).encode("utf-8"))
+        assert p2.control.title_one == "Test run"
+
+    def test_errors_name_their_origin(self):
+        with pytest.raises(ValueError, match=r"^upload\.json: not valid JSON"):
+            project_from_json("{not json", origin="upload.json")
+        with pytest.raises(ValueError, match=r"^<text>: not a pyaermod project"):
+            project_from_json("{}")
+
+    def test_load_project_errors_name_the_file(self, tmp_path):
+        bogus = tmp_path / "bogus.json"
+        bogus.write_text("[]")
+        with pytest.raises(ValueError, match=str(bogus)):
+            load_project(bogus)
+
+    @pytest.mark.parametrize("text, message", [
+        ("[]", "not a pyaermod project"),
+        ('"project"', "not a pyaermod project"),
+        ('{"project": []}', "project must be a JSON object"),
+        ('{"project": {"control": []}}', "project.control must be a JSON object"),
+        ('{"project": {"sources": {"sources": {}}}}', "project.sources.sources must be a JSON list"),
+        ('{"project": {"sources": {"sources": [1]}}}', r"project.sources.sources\[0\] must be a JSON object"),
+        ('{"project": {"receptors": {"polar_grids": "x"}}}', "project.receptors.polar_grids must be a JSON list"),
+        ('{"project": {"meteorology": 3}}', "project.meteorology must be a JSON object"),
+        ('{"save_format_version": "1", "project": {}}', "is not a number"),
+    ])
+    def test_shape_errors_raise_value_error(self, text, message):
+        with pytest.raises(ValueError, match=message):
+            project_from_json(text)
+
+    def test_missing_required_field_raises_value_error(self):
+        with pytest.raises(ValueError, match=r"^<text>: project.control: .*title_one"):
+            project_from_json('{"project": {"control": null}}')
+
+    def test_missing_pathways_fall_back_to_defaults(self):
+        project = project_from_json(
+            '{"project": {"control": {"title_one": "T"}, "sources": null, '
+            '"meteorology": {"surface_file": "a", "profile_file": "b"}}}')
+        assert project.control.title_one == "T"
+        assert project.sources.sources == []
+        assert project.receptors.polar_grids == []

@@ -1,5 +1,5 @@
 """
-JSON save/load for the GUI v2 :class:`AppState`.
+JSON save/load for the project a GUI v2 :class:`~pyaermod.gui_v2.session.Session` edits.
 
 UI-framework-agnostic: the legacy Streamlit ``ProjectSerializer`` is
 tightly coupled to ``st.session_state`` and lives in :mod:`pyaermod.gui`.
@@ -194,79 +194,124 @@ def _enum_lookup() -> dict[str, Type[Enum]]:
 # Public API
 # ---------------------------------------------------------------------
 
-def save_project(
-    project: AERMODProject, path: Union[str, Path],
-) -> Path:
-    """Write ``project`` to ``path`` as JSON. Returns the path."""
+def project_to_json(project: AERMODProject) -> str:
+    """Return ``project`` as the JSON text :func:`save_project` writes."""
     from .. import __version__
 
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "pyaermod_version": __version__,
         "save_format_version": SAVE_FORMAT_VERSION,
         "project": _project_to_jsonable(project),
     }
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return json.dumps(payload, indent=2)
+
+
+def save_project(
+    project: AERMODProject, path: Union[str, Path],
+) -> Path:
+    """Write ``project`` to ``path`` as JSON. Returns the path."""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(project_to_json(project), encoding="utf-8")
     return out
 
 
-def load_project(path: Union[str, Path]) -> AERMODProject:
-    """Read an AERMODProject from a JSON file written by :func:`save_project`.
+def _mapping(value: Any, what: str, origin: str) -> dict:
+    """``value`` if it is a JSON object (``None`` reads as empty), else ValueError."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"{origin}: {what} must be a JSON object, not {type(value).__name__}"
+        )
+    return value
+
+
+def _items(value: Any, what: str, origin: str) -> list:
+    """``value`` if it is a JSON list of objects (``None`` reads as empty)."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(
+            f"{origin}: {what} must be a JSON list, not {type(value).__name__}"
+        )
+    for i, item in enumerate(value):
+        _mapping(item, f"{what}[{i}]", origin)
+    return value
+
+
+def project_from_json(text: Union[str, bytes], *, origin: str = "<text>") -> AERMODProject:
+    """Read an AERMODProject from JSON text written by :func:`project_to_json`.
 
     Tolerates older save formats by reading what's there and filling
-    missing fields with dataclass defaults.
+    missing fields with dataclass defaults. Every problem with the text
+    itself -- invalid JSON, a document of the wrong shape, a newer save
+    format -- raises :class:`ValueError` whose message starts with
+    ``origin`` (a file name, or ``"<text>"``).
     """
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    if "project" not in raw:
-        raise ValueError(f"{path}: not a pyaermod project file")
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{origin}: not valid JSON ({exc})") from exc
+    if not isinstance(raw, dict) or "project" not in raw:
+        raise ValueError(f"{origin}: not a pyaermod project file")
     sfv = raw.get("save_format_version")
+    if sfv is not None and not isinstance(sfv, int):
+        raise ValueError(f"{origin}: save_format_version={sfv!r} is not a number")
     if sfv is not None and sfv > SAVE_FORMAT_VERSION:
         raise ValueError(
-            f"{path}: save_format_version={sfv} is newer than this build "
+            f"{origin}: save_format_version={sfv} is newer than this build "
             f"supports (max {SAVE_FORMAT_VERSION}). Upgrade pyaermod."
         )
+    project_raw = _mapping(raw["project"], "project", origin)
     enums = _enum_lookup()
-    project_dict = _resolve_enums(raw["project"], enums)
+    project_dict = _resolve_enums(project_raw, enums)
+
+    def pathway(name: str) -> dict:
+        return _mapping(project_dict.get(name), f"project.{name}", origin)
+
+    def build(cls: Type, payload: dict, what: str) -> Any:
+        # A missing required field or a value the dataclass rejects is a
+        # problem with the file, not with the caller.
+        try:
+            return _build_dataclass(cls, _strip(payload))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{origin}: {what}: {exc}") from exc
+
+    # Check the shape of every pathway before building any of them.
+    control_d, src_payload, rec_payload, met_d, out_d = (
+        pathway(n) for n in ("control", "sources", "receptors", "meteorology", "output")
+    )
+    src_items = _items(src_payload.get("sources"), "project.sources.sources", origin)
+    rec_items = {
+        field: _items(rec_payload.get(field), f"project.receptors.{field}", origin)
+        for field in ("cartesian_grids", "polar_grids", "discrete_receptors")
+    }
 
     # Pathways
-    control_d = _strip(project_dict.get("control", {}))
-    control = _build_dataclass(ControlPathway, control_d)
+    control = build(ControlPathway, control_d, "project.control")
 
-    src_payload = project_dict.get("sources", {})
-    src_list_raw = src_payload.get("sources", []) if src_payload else []
     sources_list = []
-    for s in src_list_raw:
+    for i, s in enumerate(src_items):
         cls = _SOURCE_TYPES.get(s.get("_type", ""))
         if cls is None:
             continue
-        sources_list.append(_build_dataclass(cls, _strip(s)))
+        sources_list.append(build(cls, s, f"project.sources.sources[{i}]"))
     sources = SourcePathway(sources=sources_list)
 
-    rec_payload = project_dict.get("receptors", {}) or {}
-    cart = [
-        _build_dataclass(CartesianGrid, _strip(g))
-        for g in rec_payload.get("cartesian_grids", []) or []
-        if g.get("_type") == "CartesianGrid"
-    ]
-    pol = [
-        _build_dataclass(PolarGrid, _strip(g))
-        for g in rec_payload.get("polar_grids", []) or []
-        if g.get("_type") == "PolarGrid"
-    ]
-    disc = [
-        _build_dataclass(DiscreteReceptor, _strip(g))
-        for g in rec_payload.get("discrete_receptors", []) or []
-        if g.get("_type") == "DiscreteReceptor"
-    ]
+    def receptors_of(field: str, cls: Type) -> list:
+        return [build(cls, g, f"project.receptors.{field}[{i}]")
+                for i, g in enumerate(rec_items[field])
+                if g.get("_type") == cls.__name__]
+
     receptors = ReceptorPathway(
-        cartesian_grids=cart, polar_grids=pol, discrete_receptors=disc,
+        cartesian_grids=receptors_of("cartesian_grids", CartesianGrid),
+        polar_grids=receptors_of("polar_grids", PolarGrid),
+        discrete_receptors=receptors_of("discrete_receptors", DiscreteReceptor),
     )
 
-    met_d = _strip(project_dict.get("meteorology", {}) or {})
-    meteorology = _build_dataclass(MeteorologyPathway, met_d)
-    out_d = _strip(project_dict.get("output", {}) or {})
-    output = _build_dataclass(OutputPathway, out_d)
+    meteorology = build(MeteorologyPathway, met_d, "project.meteorology")
+    output = build(OutputPathway, out_d, "project.output")
 
     return AERMODProject(
         control=control, sources=sources, receptors=receptors,
@@ -274,8 +319,15 @@ def load_project(path: Union[str, Path]) -> AERMODProject:
     )
 
 
+def load_project(path: Union[str, Path]) -> AERMODProject:
+    """Read an AERMODProject from a JSON file written by :func:`save_project`."""
+    return project_from_json(Path(path).read_text(encoding="utf-8"), origin=str(path))
+
+
 __all__ = [
     "SAVE_FORMAT_VERSION",
     "load_project",
+    "project_from_json",
+    "project_to_json",
     "save_project",
 ]
