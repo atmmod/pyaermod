@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import gc
 import logging
 import os
 import platform
@@ -50,7 +51,7 @@ pytest.importorskip(
 )
 pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
-from nicegui import Client, ElementFilter, binding, ui  # noqa: E402
+from nicegui import Client, ElementFilter, binding, core, ui  # noqa: E402
 from nicegui.testing import User  # noqa: E402
 from nicegui.testing.user_interaction import UserInteraction  # noqa: E402
 from nicegui.testing.user_simulation import user_simulation  # noqa: E402
@@ -108,6 +109,56 @@ class GuiSession:
         self.expected_errors.append(re.compile(pattern))
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _cheap_garbage_collection():
+    """Keep NiceGUI's per-test ``gc.collect()`` from walking every module.
+
+    ``user_simulation`` collects garbage on exit, and with pyaermod, pandas
+    and matplotlib loaded that walk costs about 0.1 s per test. Freezing
+    the objects that exist now (imports, mostly) leaves them out of it.
+    """
+    gc.collect()
+    gc.freeze()
+    yield
+    gc.unfreeze()
+
+
+#: How often the fast ``should_see`` / ``should_not_see`` look again (s).
+_POLL_S = 0.01
+
+
+def _poll_faster(user: User) -> None:
+    """Make ``user.should_see`` / ``should_not_see`` look every 10 ms.
+
+    NiceGUI's versions look every 100 ms (50 ms for should_not_see), so
+    every element that appears a moment late costs a tenth of a second.
+    These wait just as long in total before failing, and fail with
+    NiceGUI's own message.
+    """
+    if not hasattr(user, "_sees"):              # a NiceGUI without the private helper
+        return
+    original_see, original_not_see = user.should_see, user.should_not_see
+
+    async def should_see(target=None, *, kind=None, marker=None, content=None, retries=3):
+        deadline = asyncio.get_running_loop().time() + retries * 0.1
+        while asyncio.get_running_loop().time() < deadline:
+            if user._sees(target, kind, marker, content):
+                return
+            await asyncio.sleep(_POLL_S)
+        await original_see(target, kind=kind, marker=marker, content=content, retries=1)
+
+    async def should_not_see(target=None, *, kind=None, marker=None, content=None, retries=3):
+        deadline = asyncio.get_running_loop().time() + retries * 0.05
+        while asyncio.get_running_loop().time() < deadline:
+            if not user._sees(target, kind, marker, content):
+                return
+            await asyncio.sleep(_POLL_S)
+        await original_not_see(target, kind=kind, marker=marker, content=content, retries=1)
+
+    user.should_see = should_see            # type: ignore[method-assign]
+    user.should_not_see = should_not_see    # type: ignore[method-assign]
+
+
 @pytest_asyncio.fixture
 async def gui(monkeypatch, caplog):
     """Register the app's pages on a fresh NiceGUI and yield a GuiSession."""
@@ -124,6 +175,10 @@ async def gui(monkeypatch, caplog):
     caplog.set_level(logging.INFO)
 
     async with user_simulation(root=None) as user:
+        # Bindings are polled; poll them ten times as often as NiceGUI's
+        # default, so a test waits 10 ms rather than 100 ms for one.
+        core.app.config.binding_refresh_interval = _POLL_S
+        _poll_faster(user)
         app_module.build_app()
         # Why relabel ``__module__``: ``nicegui/testing/general.py``
         # (``nicegui_reset_globals``, the ``finally`` block) pops every
@@ -243,10 +298,10 @@ async def _dialog_opens(gui: GuiSession, marker: str) -> None:
     The Open and Save As dialogs always exist, closed, so their text is
     on the page whether or not they are open.
     """
-    for _ in range(40):
+    for _ in range(200):
         if _open_dialogs(gui, marker):
             return
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(_POLL_S)
     raise AssertionError(f"the {marker!r} did not open")
 
 
@@ -290,24 +345,24 @@ async def _settle(gui: GuiSession) -> None:
     """
     for _ in range(3):
         await asyncio.sleep(0)
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(3 * _POLL_S)
 
 
 async def _rows_become(gui: GuiSession, table_of, key: str, expected: list) -> list:
     """Wait for a (possibly rebuilt) table to show ``expected`` in column ``key``."""
-    for _ in range(30):
+    for _ in range(150):
         rows = [r[key] for r in table_of(gui).rows]
         if rows == expected:
             return rows
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(_POLL_S)
     raise AssertionError(f"table shows {rows}, expected {expected}")
 
 
 async def _value_becomes(get, expected) -> None:
-    for _ in range(30):
+    for _ in range(150):
         if get() == expected:
             return
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(_POLL_S)
     raise AssertionError(f"shows {get()!r}, expected {expected!r}")
 
 

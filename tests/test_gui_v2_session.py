@@ -589,13 +589,82 @@ def test_fork_of_a_subclass_is_the_subclass():
     assert type(Tracked().fork("x")) is Tracked
 
 
+def _imports_run_at_import_time(path: Path, package: str):
+    """Module names ``path`` imports when it is imported.
+
+    Skips function bodies and ``if TYPE_CHECKING:`` blocks, which do not
+    run at import time; resolves relative imports against ``package``.
+    """
+    import ast
+
+    def walk(nodes):
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            if isinstance(node, ast.If) and "TYPE_CHECKING" in ast.unparse(node.test):
+                yield from walk(node.orelse)
+                continue
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    yield alias.name
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    base = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                    module = f"{base}.{node.module}" if node.module else base
+                else:
+                    module = node.module
+                yield module
+                for alias in node.names:        # "from . import x" may name a submodule
+                    yield f"{module}.{alias.name}"
+            yield from walk(ast.iter_child_nodes(node))
+
+    yield from walk(ast.parse(path.read_text(encoding="utf-8")).body)
+
+
+def _pyaermod_file(module: str):
+    """The source file of pyaermod module ``module``, or None if it is not one."""
+    if module != "pyaermod" and not module.startswith("pyaermod."):
+        return None
+    base = REPO / "src" / Path(*module.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def test_session_module_does_not_import_nicegui():
+    """Importing the session (and what it imports) never imports NiceGUI.
+
+    Read from the source rather than by importing in a fresh interpreter,
+    which takes most of a minute on a loaded machine.
+    """
+    start = ["pyaermod", "pyaermod.gui_v2", "pyaermod.gui_v2.session"]
+    todo, seen, imported = list(start), set(), set()
+    while todo:
+        module = todo.pop()
+        if module in seen:
+            continue
+        seen.add(module)
+        path = _pyaermod_file(module)
+        if path is None:
+            continue
+        package = module if path.name == "__init__.py" else module.rpartition(".")[0]
+        for name in _imports_run_at_import_time(path, package):
+            imported.add(name)
+            todo.append(name)
+    assert "pyaermod.gui_v2.project_io" in seen            # the scan follows imports
+    assert "pandas" in imported                              # and sees third-party ones
+    assert not [m for m in imported if m == "nicegui" or m.startswith("nicegui.")]
+
+
+@pytest.mark.slow
+def test_session_module_does_not_import_nicegui_in_a_fresh_interpreter():
     code = ("import sys; import pyaermod.gui_v2.session; "
             "print('nicegui' in sys.modules)")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(
         [str(REPO / "src")] + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else []))}
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                         env=env, check=True, timeout=60)
+                         env=env, check=True, timeout=600)
     assert out.stdout.strip() == "False"
 
 
