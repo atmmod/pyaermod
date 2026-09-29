@@ -360,12 +360,12 @@ class Session:
             origin = name or "<text>"
             path, file_name = None, name
         try:
-            text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
-            project = project_from_json(text, origin=origin)
-        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            # UnicodeDecodeError is a ValueError. AttributeError and
-            # TypeError are a second line of defence behind the shape
-            # checks in project_from_json.
+            data = source.read_bytes() if isinstance(source, Path) else source
+            project = project_from_json(data, origin=origin)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as exc:
+            # project_from_json raises ValueError for every problem with the
+            # file; the others are a second line of defence behind its
+            # checks.
             message = str(exc)
             if not message.startswith(origin):
                 message = f"{origin}: {message}"
