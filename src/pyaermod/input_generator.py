@@ -237,7 +237,9 @@ class AERMODProject:
                 event_output=self.output.event_output or self.control.eventfil_option,
             )))
         else:
-            pathways.append(("OU", self.output.to_aermod_input()))
+            pathways.append(("OU", self.output.to_aermod_input(
+                averaging_periods=self.control.averaging_periods,
+            )))
         kept = self.unparsed_lines if preserve_unparsed else []
         return "\n\n".join(_with_preserved(code, text, kept) for code, text in pathways)
 
