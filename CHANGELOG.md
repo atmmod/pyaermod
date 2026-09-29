@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
+  UI-free session, with one method per user operation (`new`,
+  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
+  `update_source`, `delete_source`, the same for receptors,
+  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
+  for observers.
+- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
+  the project file format as text.
+
+### Changed
+- GUI: in the source and receptor editors, Close now discards changes,
+  and Add only adds the item on Save.
+- GUI: in the browser, Save on a project that has no file on disk opens
+  Save As.
+- GUI: the app keeps one `Session` per browser tab. A duplicated tab, or
+  a reload of the desktop window, gets its own copy.
+- The GUI project file tags every nested object with `_type` and writes a
+  dict whose keys are not all strings (background `sector_values`) as
+  `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
+  files written before this change still open.
+
 ### Fixed
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
@@ -61,17 +83,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   script (`packaging/desktop_entry.py`). It used to run
   `gui_v2/desktop.py` itself, whose relative imports fail when it is the
   entry script, so the frozen app could not start.
-- `project_io.load_project` raises `ValueError` naming the file for every
-  malformed project file; a file such as `{"project": []}` used to escape
-  as `AttributeError`.
-
-### Changed
-- GUI: in the source and receptor editors, Close now discards changes,
-  and Add only adds the item on Save.
-- GUI: in the browser, Save on a project that has no file on disk opens
-  Save As.
-- GUI: the app keeps one `Session` per browser tab. A duplicated tab, or
-  a reload of the desktop window, gets its own copy.
+- **GUI project files kept only part of the project.** `project_io` rebuilt
+  sources, receptors and the top level of each pathway, and left every
+  nested object as a plain dict: a source's `particle_deposition` or
+  `gas_deposition`, background sectors, event periods and the like. It
+  also dropped the rest of `SourcePathway` (background, source groups,
+  emission units, barriers), `AERMODProject.events` and
+  `unparsed_lines`. A file pyaermod had written itself opened
+  "successfully" and then failed at Run with "Could not generate deck":
+  an open pit with size-resolved dry deposition could not survive a Save
+  and an Open. Reading is now driven by the model's type annotations, so
+  every nested object is rebuilt as its class, and every value is checked
+  against the field it fills. Of the 79 AERMOD decks in the repository,
+  4 survived a save and an open unchanged before; all 79 do now, field
+  for field and deck for deck, and the fixture decks are pinned by
+  `tests/test_gui_v2_project_io.py`.
+- **A project file with a value of the wrong type is refused**, naming the
+  file and the field ("Load failed: f.json:
+  project.sources.sources[0].stack_height must be a number, not text
+  'tall'"). Such a file used to load and then break the page, and, as
+  the GUI now keeps the session across reloads, every reload of that tab.
+  So is
+  a source or receptor whose `_type` is unknown (it used to be dropped
+  silently, and the next save lost it), an unknown enum member, a file
+  that is not UTF-8 text, and a document nested too deeply. `load_project`
+  and `project_from_json` raise `ValueError` naming the file for every
+  malformed file; `{"project": []}` used to escape as `AttributeError`.
+- **GUI number fields rounded the project's value to 4 decimals** when
+  they lost focus, and wrote the rounded value back: tabbing through an
+  open pit's emission rate of 1.5e-6 g/s/m² set it to 0.0. They now show
+  and keep the exact value.
+- GUI: a pollutant that AERMOD accepts but the Pollutant list does not
+  name (TSP, PB, NOX ... from a saved file) is shown and kept; it used to
+  stop the Project step from being built.
+- GUI: a part of a page that cannot show the project now says so in
+  place, and the rest of the page is built; one failing section used to
+  leave every later step and the footer empty.
+- GUI: Save reports a file that cannot be written ("Save failed: ...").
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
@@ -79,16 +127,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
   `mark_clean()` are replaced by the operations that change or save the
   project. `pyaermod.gui_v2.state._empty_project()` is still importable.
-
-### Added
-- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
-  UI-free session, with one method per user operation (`new`,
-  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
-  `update_source`, `delete_source`, the same for receptors,
-  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
-  for observers.
-- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
-  the project file format as text.
 
 ## [2.2.0] - YYYY-MM-DD
 
