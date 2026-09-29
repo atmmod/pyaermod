@@ -1753,8 +1753,9 @@ class Validator:
         periods = {str(p).upper() for p in control.averaging_periods} if control else None
         in_use = {
             "MAXIFILE": bool(output.maxi_files),
-            "POSTFILE": bool(output.postfile),
-            "PLOTFILE": bool(output.plot_file or output.plot_file_groups),
+            "POSTFILE": bool(output.postfile or (output.period_postfiles and periods)),
+            "PLOTFILE": bool(output.plot_file or output.plot_file_groups
+                             or (output.period_plot_files and periods)),
             "SEASONHR": bool(output.season_hour_files),
             "RANKFILE": bool(output.rank_files),
             "MAXDAILY": bool(output.max_daily_files),

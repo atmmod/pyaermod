@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple, Union
 
 from ._fields import described
 
@@ -980,6 +980,19 @@ class MeteorologyPathway:
 # OUTPUT PATHWAY
 # ============================================================================
 
+def period_file_name(stem: str, averaging: str, suffix: str) -> str:
+    """The name of a per-period output file: ``<stem>_<label><suffix>``.
+
+    The label follows EPA's own decks (``AERTEST_01H.PLT``): an hourly
+    period is its hours in two digits and ``H`` (``01H``, ``24H``); MONTH,
+    PERIOD and ANNUAL are themselves. ``period_file_name("run", "1",
+    ".plt")`` is ``"run_01H.plt"``.
+    """
+    token = str(averaging).strip().upper()
+    label = f"{int(token):02d}H" if token.isdigit() else token
+    return f"{stem}_{label}{suffix}"
+
+
 def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
     """PLOTFILE parameters for one averaging period.
 
@@ -1239,6 +1252,18 @@ class OutputPathway:
     # Per-group plot files: list of (averaging_period, source_group, filename)
     plot_file_groups: List[Tuple[str, str, str]] = field(default_factory=list)
 
+    # A PLOTFILE and a POSTFILE for every averaging period of the run,
+    # named by period_file_name(): "<stem>_01H.plt", "<stem>_PERIOD.plt",
+    # "<stem>_01H.pst". The plot files hold each receptor's highest value
+    # (FIRST for the short-term periods) for source group ALL, which is
+    # what a concentration map is drawn from; the POSTFILEs hold every
+    # averaged value, in postfile_format. None writes none. The periods
+    # are the control pathway's: AERMODProject.to_aermod_input passes them.
+    period_plot_files: Optional[str] = field(default=None, metadata=described(
+        None, "Write a plot file for every averaging period, named <stem>_<period>.plt"))
+    period_postfiles: Optional[str] = field(default=None, metadata=described(
+        None, "Write a POSTFILE for every averaging period, named <stem>_<period>.pst"))
+
     # Output type (CONC, DEPOS, DDEP, WDEP). Retained for callers that
     # set it, but AERMOD has no per-file output type: PLOTFILE and
     # POSTFILE take no such field, and writing one is a fatal "Too Many
@@ -1274,16 +1299,35 @@ class OutputPathway:
     max_daily_contributions: List[MaxDailyContribution] = field(
         default_factory=list)
 
+    def period_plot_file_names(self, averaging_periods: Iterable[str]) -> Dict[str, str]:
+        """``{period: file name}`` of the plot files :attr:`period_plot_files` writes."""
+        if not self.period_plot_files:
+            return {}
+        return {str(p): period_file_name(self.period_plot_files, p, ".plt")
+                for p in averaging_periods}
+
+    def period_postfile_names(self, averaging_periods: Iterable[str]) -> Dict[str, str]:
+        """``{period: file name}`` of the POSTFILEs :attr:`period_postfiles` writes."""
+        if not self.period_postfiles:
+            return {}
+        return {str(p): period_file_name(self.period_postfiles, p, ".pst")
+                for p in averaging_periods}
+
     def to_aermod_input(self, event_processing: bool = False,
-                        event_output: Optional[str] = None) -> str:
+                        event_output: Optional[str] = None,
+                        averaging_periods: Optional[Iterable[str]] = None) -> str:
         """Generate AERMOD OU pathway text.
 
         ``event_processing`` writes the OU pathway of an EVENT deck, which
         evset.f EV_OUCARD reads: FILEFORM and EVENTOUT, nothing else (a
         RECTABLE there is E110). ``event_output`` overrides
         :attr:`event_output` for that line; with neither, AERMOD's own
-        default ``DETAIL`` is written.
+        default ``DETAIL`` is written. ``averaging_periods`` are the run's
+        (``ControlPathway.averaging_periods``), for which
+        :attr:`period_plot_files` and :attr:`period_postfiles` write one
+        file each; without them those two write nothing.
         """
+        periods = [str(p) for p in (averaging_periods or [])]
         lines = ["OU STARTING"]
 
         # FILEFORM first: the POSTFILE header is written at setup with
@@ -1362,6 +1406,12 @@ class OutputPathway:
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
                 f"{self.postfile_format}  {self.postfile}"
             )
+
+        # One plot file and one POSTFILE per averaging period, group ALL.
+        for ave, name in self.period_plot_file_names(periods).items():
+            lines.append(f"   PLOTFILE  {_plotfile_fields(ave, 'ALL', name)}")
+        for ave, name in self.period_postfile_names(periods).items():
+            lines.append(f"   POSTFILE  {ave}  ALL  {self.postfile_format}  {name}")
 
         lines.extend(rf.to_aermod_line() for rf in self.rank_files)
         lines.extend(sh.to_aermod_line() for sh in self.season_hour_files)
