@@ -16,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- GUI: **Import deck...** on the Project step imports an AERMOD `.inp`
+  deck (`Session.import_inp`). In a browser the deck is uploaded and read
+  with `read_aermod_input(..., sandbox=True)` from a private temporary
+  folder, so it may name only files beside itself; a deck that names
+  others is refused with every such path listed. In `pyaermod-desktop` a
+  native dialog chooses the deck, and a **Deck file path** field imports
+  a deck on this computer in either mode; such a deck is read as it
+  stands, and the met files it names beside itself come along as full
+  paths. A notice lists the lines PyAERMOD keeps as written
+  (`unparsed_lines`) and asks for the met files not yet found, through
+  path fields that say when a file does not exist (with **Browse...** in
+  desktop mode). Every deck under `tests/fixtures/epa_official/` either
+  imports or says why not.
+- GUI: a **Recent files** list on the Project step: projects opened or
+  saved through a path on this computer and decks imported from one,
+  newest first, kept in `~/.pyaermod/recent_files.json`
+  (`$PYAERMOD_RECENT_FILES` overrides it).
+- `PathTraversalError.violations` lists every path of a sandboxed deck
+  that escapes its folder (`SandboxViolation`: the field, the path as
+  the deck wrote it and where it resolves), not only the first, which
+  the message still names.
 
 ### Changed
 - GUI: in the source and receptor editors, Close now discards changes,
