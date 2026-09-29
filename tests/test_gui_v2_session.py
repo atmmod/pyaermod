@@ -15,6 +15,9 @@ import platform
 import re
 import subprocess
 import sys
+import threading
+import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -25,6 +28,8 @@ from pyaermod.gui_v2.session import (
     Change,
     DeckError,
     ProjectFileError,
+    RunInProgressError,
+    RunRecord,
     Session,
     SessionEvent,
     clean_file_name,
@@ -527,14 +532,14 @@ class _StubRunner:
         self.calls.append(kwargs)
         assert self.session.run_in_progress is not None
         assert self.session.run_in_progress.in_progress
-        with pytest.raises(NotImplementedError, match="WP-G4"):
-            self.session.cancel_run()
+        # A synchronous run cannot be interrupted.
+        assert self.session.cancel_run() is False
         if self.exc is not None:
             raise self.exc
         return self.result
 
 
-def test_start_run_is_in_progress_during_the_run_and_cancel_is_not_yet_supported(tmp_path):
+def test_a_synchronous_run_is_in_progress_during_the_run_and_cannot_be_cancelled(tmp_path):
     from pyaermod.runner import AERMODRunResult
     s = Session()
     runner = _StubRunner(s, result=AERMODRunResult(success=True, input_file="x"))
@@ -676,6 +681,204 @@ def test_start_run_uses_a_temp_dir_when_none_given(tmp_path, monkeypatch):
 
 def test_cancel_run_without_run_returns_false():
     assert Session().cancel_run() is False
+
+
+# ---------------------------------------------------------------------
+# Background runs (WP-G4)
+# ---------------------------------------------------------------------
+
+ALBANY_SFC = str(REPO / "tests" / "fixtures" / "epa_official" / "AERMET2.SFC")
+
+
+class _Loop:
+    """A stand-in for the GUI's event loop: callbacks queue until pumped."""
+
+    def __init__(self) -> None:
+        self.queue: list = []
+        self.lock = threading.Lock()
+
+    def __call__(self, callback) -> None:           # Session.dispatch
+        with self.lock:
+            self.queue.append(callback)
+
+    def pump(self) -> int:
+        with self.lock:
+            callbacks, self.queue = self.queue, []
+        for callback in callbacks:
+            callback()
+        return len(callbacks)
+
+    def run_until(self, done, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        while not done():
+            assert time.monotonic() < deadline, "timed out"
+            self.pump()
+            time.sleep(0.01)
+
+
+@pytest.fixture
+def albany_fake(tmp_path, monkeypatch):
+    """A session holding the E480 scenario, a fake AERMOD replaying it, and a loop."""
+    from pyaermod.runner import AERMODRunner
+
+    exe = install_fake_aermod(tmp_path / "bin")
+    monkeypatch.setenv("PYAERMOD_E2E_RECORDING", str(RECORDINGS / "albany_e480"))
+    monkeypatch.delenv("PYAERMOD_E2E_DELAY", raising=False)
+    monkeypatch.delenv("PYAERMOD_E2E_FAKE_LOG", raising=False)
+    s = Session(_albany_project(["1", "ANNUAL"], ALBANY_SFC))
+    loop = _Loop()
+    s.dispatch = loop
+    return s, loop, AERMODRunner(executable_path=exe, log_level="WARNING"), tmp_path / "run"
+
+
+@posix_only
+def test_a_background_run_reports_progress_on_the_owners_thread(albany_fake):
+    s, loop, runner, work = albany_fake
+    rec = Recorder(s)
+    record = s.start_run(working_dir=work, runner=runner, background=True)
+    assert record is s.run_in_progress and record.in_progress and record.status == "Running"
+    assert record.expected_days == 4                    # AERMET2.SFC: 1 to 4 March 1988
+    assert rec.events == [E.RUN_STARTED]                # the rest waits for the loop
+    loop.run_until(lambda: s.run_in_progress is None)
+    events = rec.events
+    assert events[0] is E.RUN_STARTED and events[-1] is E.RUN_FINISHED
+    progress = [c.run.progress for c in rec.changes if c.event is E.RUN_PROGRESS]
+    assert progress and all(p is not None for p in progress)
+    days = [p.days_processed for p in progress]
+    assert days == sorted(days)                          # bursts are coalesced, never reordered
+    [finished] = s.runs
+    assert finished.status == "Failed" and "E480" in [m.code for m in finished.result.messages]
+    assert finished.progress.stage == "output" and finished.progress.day == 64
+    assert finished.fraction_done == 1.0
+    assert s.last_completed_run is finished
+
+
+@posix_only
+def test_a_burst_of_progress_is_one_event(albany_fake):
+    s, loop, runner, work = albany_fake
+    rec = Recorder(s)
+    s.start_run(working_dir=work, runner=runner, background=True)
+    handle = s._run_handle
+    handle.wait(30)                                      # every line arrived; nothing pumped
+    loop.run_until(lambda: s.run_in_progress is None)
+    assert rec.events == [E.RUN_STARTED, E.RUN_PROGRESS, E.RUN_FINISHED]
+    assert rec.changes[1].run.progress.stage == "output"
+
+
+@posix_only
+def test_a_second_run_while_one_runs_is_refused(albany_fake, monkeypatch):
+    s, loop, runner, work = albany_fake
+    monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.2")
+    s.start_run(working_dir=work, runner=runner, background=True)
+    rec = Recorder(s)
+    with pytest.raises(RunInProgressError, match="already running"):
+        s.start_run(working_dir=work, runner=runner, background=True)
+    assert rec.events == []
+    assert s.cancel_run() is True
+    loop.run_until(lambda: s.run_in_progress is None)
+
+
+@posix_only
+def test_cancel_run_stops_aermod_and_records_a_cancelled_run(albany_fake, monkeypatch):
+    s, loop, runner, work = albany_fake
+    monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.5")
+    s.start_run(working_dir=work, runner=runner, background=True)
+    loop.run_until(lambda: s.run_in_progress.progress is not None)
+    pid = s._run_handle.pid
+    assert s.cancel_run() is True
+    assert s.cancel_run() is False                       # already asked
+    loop.run_until(lambda: s.run_in_progress is None)
+    [record] = s.runs
+    assert record.status == "Cancelled" and record.cancelled and not record.success
+    assert s.last_run is record and s.last_completed_run is None
+    from tests.e2e.harness import process_running
+    assert not process_running(pid)
+    assert s.cancel_run() is False
+
+
+@posix_only
+def test_new_during_a_run_stops_it_and_forgets_it(albany_fake, monkeypatch):
+    s, loop, runner, work = albany_fake
+    monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.5")
+    s.start_run(working_dir=work, runner=runner, background=True)
+    handle = s._run_handle
+    rec = Recorder(s)
+    s.new()
+    assert s.run_in_progress is None and s.runs == []
+    assert handle.cancel_requested
+    handle.wait(20)
+    loop.pump()
+    assert s.runs == [] and E.RUN_FINISHED not in rec.events
+    # The next run is recorded as usual.
+    s2_record = s.start_run(working_dir=work, runner=_StubRunner(
+        s, exc=FileNotFoundError("no aermod")))
+    assert s.runs == [s2_record]
+
+
+def test_a_runner_that_cannot_start_in_the_background_finishes_at_once(tmp_path):
+    class _Broken:
+        def start(self, **kwargs):
+            raise FileNotFoundError("no aermod")
+
+    s = Session()
+    rec = Recorder(s)
+    record = s.start_run(working_dir=tmp_path, runner=_Broken(), background=True)
+    assert record.status == "Failed" and record.error == "no aermod"
+    assert s.run_in_progress is None and s.runs == [record]
+    assert rec.events == [E.RUN_STARTED, E.RUN_FINISHED]
+
+
+def test_a_synchronous_run_cannot_be_cancelled(tmp_path):
+    assert Session().cancel_run() is False
+
+
+def test_record_status_and_fraction():
+    from datetime import datetime
+
+    from pyaermod.runner import AERMODProgress, AERMODRunResult
+
+    base = RunRecord(number=1, work_dir=Path("w"), deck_path=Path("w/d.inp"),
+                     started_at=datetime(2026, 1, 1), expected_days=4)
+    assert base.status == "Running" and base.fraction_done is None
+    half = replace(base, progress=AERMODProgress(stage="day", day=62, year=1988,
+                                                 days_processed=2))
+    assert half.fraction_done == 0.5
+    done = replace(half, finished_at=datetime(2026, 1, 1, 0, 1))
+    assert replace(done, result=AERMODRunResult(success=True, input_file="x")).status == "Succeeded"
+    assert replace(done, result=AERMODRunResult(success=False, input_file="x",
+                                                cancelled=True)).status == "Cancelled"
+    assert replace(done, error="boom").status == "Failed"
+    assert replace(base, expected_days=None, progress=half.progress).fraction_done is None
+
+
+def test_deck_text_is_the_deck_start_run_writes(tmp_path):
+    s = Session(_albany_project(["1", "ANNUAL"], "AERMET2.SFC"))
+    record = s.start_run(working_dir=tmp_path, runner=_StubRunner(s, exc=FileNotFoundError("x")))
+    assert record.deck_path.read_text(encoding="utf-8") == s.deck_text()
+    s.project.meteorology.start_year = 12.5
+    with pytest.raises(DeckError, match="start_year must be a whole number"):
+        s.deck_text()
+
+
+def test_met_period_reads_and_caches_the_surface_file(tmp_path, monkeypatch):
+    from pyaermod import aermet
+
+    s = Session(_albany_project(["1", "ANNUAL"], ALBANY_SFC))
+    path, period, problem = s.met_period()
+    assert path == Path(ALBANY_SFC) and problem is None and period.days == 4
+    calls = []
+    monkeypatch.setattr(aermet, "read_surface_period", lambda p: calls.append(p))
+    assert s.met_period()[1] == period and calls == []   # cached by mtime
+    s.project.meteorology.surface_file = "AERMET2.SFC"         # relative: the same file
+    assert s.met_period(REPO / "tests" / "fixtures" / "epa_official")[1] == period
+    monkeypatch.undo()
+    s.project.meteorology.surface_file = "missing.sfc"
+    assert s.met_period(tmp_path) == (tmp_path / "missing.sfc", None,
+                                      f"{tmp_path / 'missing.sfc'} does not exist")
+    s.project.meteorology.surface_file = str(tmp_path)
+    assert "is a directory" in s.met_period()[2]
+    s.project.meteorology.surface_file = ""
+    assert s.met_period() == (None, None, None)
 
 
 # ---------------------------------------------------------------------
