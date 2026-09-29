@@ -4,8 +4,9 @@ What the user must see (PLAN-gui.md): every step shows the saved values
 again, the header shows the file name, and no exception appears in the
 server log.
 
-Defect D4: Open crashes on NiceGUI 3, whose upload event has no ``name``
-or ``content``; the traceback appears only in the server log.
+Defect D4 (fixed in WP-G2): Open crashed on NiceGUI 3, whose upload event
+has no ``name`` or ``content``; the traceback appeared only in the server
+log.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from .reference import GRID, PROFILE_FILE, STACK, STATIONS, SURFACE_FILE
 pytestmark = pytest.mark.e2e
 
 
-def test_j04_save_as_new_open_restores_the_project(gui, step, known_gap):
+def test_j04_save_as_new_open_restores_the_project(gui, step):
     gui.open()
     gui.project.set_titles("Saved project", "Reopened by journey J4")
     gui.project.set_pollutant("NO2")
@@ -37,9 +38,8 @@ def test_j04_save_as_new_open_restores_the_project(gui, step, known_gap):
 
     gui.project.new()
     step("after_new")
-    with known_gap("D4", "Open crashes on NiceGUI 3's upload API"):
-        gui.project.open_file(saved)
-        gui.expect_server_log_clean()
+    gui.project.open_file(saved)
+    gui.expect_server_log_clean()
     step("reopened")
 
     gui.expect_header_names(name)

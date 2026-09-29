@@ -61,13 +61,12 @@ def test_j07_tables_follow_add_edit_and_delete(gui, step):
     step("receptors_edited")
 
 
-def test_j07_empty_state_message_follows_the_list(gui, step, known_gap):
+def test_j07_empty_state_message_follows_the_list(gui, step):
     gui.open()
     gui.sources.expect_empty_state(True)
     gui.sources.add_point_source(**STACK)
     step("one_source")
-    with known_gap("WP-G3", "empty-state message persists after an item is added"):
-        gui.sources.expect_empty_state(False)
+    gui.sources.expect_empty_state(False)
     gui.sources.delete_source("STACK1")
     gui.sources.expect_empty_state(True)
 
