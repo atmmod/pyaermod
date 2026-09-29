@@ -349,6 +349,19 @@ async def _settle(gui: GuiSession) -> None:
     await asyncio.sleep(3 * _POLL_S)
 
 
+async def _run_ends(gui: GuiSession, status: str) -> None:
+    """Wait for a background run to end with ``status`` on the Run step.
+
+    Runs happen in the background, so the status appears once AERMOD (the
+    fake) has exited and the run's thread has reported back.
+    """
+    await gui.user.should_see(status, retries=300)
+
+
+def _run_button(gui: GuiSession) -> ui.button:
+    return _one(gui, kind=ui.button, content="Run AERMOD")
+
+
 async def _rows_become(gui: GuiSession, table_of, key: str, expected: list) -> list:
     """Wait for a (possibly rebuilt) table to show ``expected`` in column ``key``."""
     for _ in range(150):
@@ -389,6 +402,9 @@ async def _fill_minimal_project(gui: GuiSession) -> Session:
     await _rows_become(gui, _receptors_table, "kind", ["CartesianGrid"])
     gui.user.find(kind=ui.input, content="surface file").type("met.sfc")
     gui.user.find(kind=ui.input, content="profile file").type("met.pfl")
+    # The Review & Run step rebuilds its checklist and Run button after each
+    # edit, in a task of its own; let it, so a test clicks the rebuilt button.
+    await _settle(gui)
     return session
 
 
@@ -488,12 +504,12 @@ class TestSessionPerTab:
     @pytest.mark.asyncio
     async def test_reload_restores_last_run_status(self, gui, fake_aermod_on_path, tmp_path):
         gui.expect_error_log("AERMOD run failed: AERMOD exited with code 0 but wrote no")
-        await gui.open()
+        await _fill_minimal_project(gui)
         gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Run reported FATAL or non-zero exit")
+        await _run_ends(gui, "Failed: ")
         await gui.open()                                   # reload
-        await gui.user.should_see("Run reported FATAL or non-zero exit")
+        await _run_ends(gui, "Failed: ")
         await gui.user.should_see(f"Last run directory: {tmp_path / 'run'}")
         assert _one(gui, kind=ui.input, content="Working directory").value == str(tmp_path / "run")
 
@@ -1484,7 +1500,7 @@ class TestEndToEnd:
         gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("AERMOD started")
-        await gui.user.should_see("Run reported FATAL or non-zero exit")
+        await _run_ends(gui, "Failed: ")
         # The deck is written under its own name; the runner points the
         # fixed aermod.inp symlink at it (a deck *named* aermod.inp would
         # be unlinked and replaced by a self-referencing symlink).
@@ -1509,7 +1525,7 @@ class TestEndToEnd:
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         # A deck the recording does not match makes the fake exit 2: it
         # would show here as a failure.
-        await gui.user.should_see("Run succeeded")
+        await _run_ends(gui, "Succeeded in")
         await gui.user.should_see("Output file: pyaermod_gui.out")
         await gui.user.should_see("Max concentrations")
         tables = gui.user.find(kind=ui.table).elements
@@ -1533,8 +1549,20 @@ class TestEndToEnd:
         monkeypatch.setenv("PATH", str(tmp_path))  # nothing on PATH
         await gui.open()
         await gui.user.should_see("No 'aermod' binary on PATH. Install AERMOD and re-launch.")
+        # A missing binary is a checklist item: Run stays disabled.
+        assert _run_button(gui).enabled is False
+
+    @pytest.mark.asyncio
+    async def test_a_binary_gone_when_run_is_clicked_is_reported(
+            self, gui, fake_aermod_on_path, monkeypatch, tmp_path):
+        await _fill_minimal_project(gui)
+        # The binary was on PATH when the checklist was built, and the
+        # button checks again when it is clicked.
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        assert _run_button(gui).enabled is True
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("No AERMOD binary; cannot run.")
+        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
 
 
 def _number_box(gui: GuiSession, label: str) -> UserInteraction:
@@ -1563,7 +1591,7 @@ class TestWholeNumbersReachTheDeck:
         workdir = tmp_path / "run"
         gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Run reported FATAL or non-zero exit")
+        await _run_ends(gui, "Failed: ")
         deck = (workdir / "pyaermod_gui.inp").read_text(encoding="utf-8")
         assert re.search(r"^\s*STARTEND\s+2020\s+1\s+1\s+2020\s+12\s+31\s*$", deck, re.M), deck
         saved = json.loads(await _save_as_download(gui, "dates.json"))
@@ -1576,29 +1604,33 @@ class TestWholeNumbersReachTheDeck:
     async def test_a_fraction_in_an_integer_field_is_refused_by_name(self, gui, fake_aermod_on_path):
         await _fill_minimal_project(gui)
         _number_box(gui, "start year").clear().type("2020.5")
-        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        # The checklist names the field, and Run is disabled until it is fixed.
         await gui.user.should_see(
-            "Could not generate deck: project.meteorology.start_year must be a whole number, "
+            "The deck cannot be written: project.meteorology.start_year must be a whole number, "
             "not 2020.5")
+        assert _run_button(gui).enabled is False
         await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
 
 
 class TestRunPageFailurePaths:
     @pytest.mark.asyncio
     async def test_deck_generation_failure_is_reported(self, gui, fake_aermod_on_path, monkeypatch):
-        session = await gui.open()
+        session = await _fill_minimal_project(gui)
+        assert _run_button(gui).enabled is True
 
         def _boom(self, **kwargs):
             raise ValueError("boom")
 
         monkeypatch.setattr(type(session.project), "to_aermod_input", _boom)
-        gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Could not generate deck: boom")
+        # Any edit rebuilds the review, whose deck preview now fails.
+        _interact(gui, _title_input(gui)).clear().type("Boom")
+        await gui.user.should_see("The deck cannot be written: boom")
+        assert _run_button(gui).enabled is False
         await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
 
     @pytest.mark.asyncio
     async def test_deck_write_failure_is_reported(self, gui, fake_aermod_on_path, tmp_path):
-        await gui.open()
+        await _fill_minimal_project(gui)
         blocker = tmp_path / "file"
         blocker.write_text("not a directory")
         gui.user.find(kind=ui.input, content="Working directory").type(str(blocker))
@@ -1607,12 +1639,18 @@ class TestRunPageFailurePaths:
 
     @pytest.mark.asyncio
     async def test_runner_exception_is_reported(self, gui, fake_aermod_on_path, monkeypatch, tmp_path):
+        from pyaermod.runner import AERMODRunner
+
+        gui.expect_error_log("AERMOD run 1 raised")
+
+        def _broken(self, *args, **kwargs):
+            raise RuntimeError("the runner broke")
+
+        monkeypatch.setattr(AERMODRunner, "start", _broken)
         await _fill_minimal_project(gui)
-        # binary was on PATH at render time but is gone when Run is clicked
-        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
         gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Run failed:")
+        await _run_ends(gui, "Failed: the runner broke")
         await gui.user.should_see("Run failed; see log")
         # A run that never started leaves Results as it was.
         await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
@@ -1634,7 +1672,7 @@ class TestResultsPageMore:
         await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
         gui.user.find(kind=ui.input, content="Working directory").type(str(wd))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Run succeeded")
+        await _run_ends(gui, "Succeeded in")
         await gui.user.should_see("Output file: pyaermod_gui.out")
         await gui.user.should_see("POSTFILE outputs")
         await gui.user.should_see("RUN1.PST  (2.0 KiB)")
@@ -1657,10 +1695,163 @@ class TestResultsPageMore:
         await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
         gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Run succeeded")
+        await _run_ends(gui, "Succeeded in")
         await gui.user.should_see("Could not parse pyaermod_gui.out: boom")
 
     def test_ensure_path_helper(self):
         assert results_page._ensure_path("a/b") == Path("a/b")
         p = Path("c")
         assert results_page._ensure_path(p) is p
+
+
+# ---------------------------------------------------------------------
+# Review & Run (WP-G4): checklist, deck preview, background runs
+# ---------------------------------------------------------------------
+
+ALBANY_SFC = str(Path(__file__).parent / "fixtures" / "epa_official" / "AERMET2.SFC")
+
+
+async def _open_albany(gui: GuiSession, tmp_path: Path, periods: List[str]) -> Session:
+    path = save_project(_albany_project(periods, ALBANY_SFC), tmp_path / "albany.json")
+    session = await gui.open()
+    session.open_json(path)
+    await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
+    await _settle(gui)
+    gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+    return session
+
+
+def _fake_starts(log: Path) -> List[dict]:
+    if not log.exists():
+        return []
+    return [e for e in map(json.loads, log.read_text().splitlines()) if e["event"] == "start"]
+
+
+class TestReviewAndRun:
+    @pytest.mark.asyncio
+    async def test_a_blank_project_lists_what_blocks_the_run(self, gui, fake_aermod_on_path):
+        await gui.open()
+        await gui.user.should_see("Readiness checklist")
+        await gui.user.should_see("Sources must contain at least one source")
+        await gui.user.should_see("Must have at least one receptor grid or discrete receptor")
+        await gui.user.should_see("Surface file must not be empty")
+        await gui.user.should_see(kind=ui.link, content="Go to Sources")
+        assert _run_button(gui).enabled is False
+        await gui.user.should_not_see("Nothing blocks the run.")
+
+    @pytest.mark.asyncio
+    async def test_the_deck_preview_shows_and_downloads_the_deck(self, gui, fake_aermod_on_path):
+        session = await _fill_minimal_project(gui)
+        await gui.user.should_see("Nothing blocks the run.")
+        preview = _one(gui, kind=ui.textarea, content="Deck preview")
+        assert preview.value == session.deck_text() and "STK1" in preview.value
+        gui.user.find(kind=ui.button, content="Download deck").click()
+        response = await gui.user.download.next()
+        assert response.content == session.deck_text().encode("utf-8")
+        gui.user.find(kind=ui.button, content="Copy deck").click()
+        await gui.user.should_see("Deck copied")
+
+    @pytest.mark.asyncio
+    async def test_annual_with_short_met_is_warned_about_before_the_run(
+            self, gui, recorded_aermod, tmp_path):
+        recorded_aermod("albany_e480")
+        await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        await gui.user.should_see("Before you run")
+        await gui.user.should_see("ANNUAL averages need at least one full year of met data")
+        await gui.user.should_see("AERMET2.SFC holds 1988-03-01 to 1988-03-04 (4 days, 96 hours).")
+        assert _run_button(gui).enabled is True          # a warning does not block
+
+    @pytest.mark.asyncio
+    async def test_a_finished_run_lists_aermods_messages(self, gui, recorded_aermod, tmp_path):
+        gui.expect_error_log("AERMOD run failed: E480")
+        recorded_aermod("albany_e480")
+        await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await _run_ends(gui, "Failed: E480")
+        await gui.user.should_see("AERMOD reported 1 fatal error, 5 warnings and 0 "
+                                  "informational messages.")
+        await gui.user.should_see("AERMOD messages")
+        await gui.user.should_see("Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave NUMYRS=0")
+        link = _one(gui, kind=ui.link, content="About E480")
+        assert link.props["href"].endswith("common-errors/#e480")
+        await gui.user.should_see("Day 64 of 1988 (4 of 4 days), writing the results")
+        await gui.user.should_see("Run failed; see log")
+        assert _run_button(gui).enabled is True          # ready for the next run
+
+    @pytest.mark.asyncio
+    async def test_progress_follows_the_day_count_and_cancel_stops_aermod(
+            self, gui, recorded_aermod, tmp_path, monkeypatch):
+        recorded_aermod("albany_e480")
+        monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
+        log = tmp_path / "fake.jsonl"
+        monkeypatch.setenv("PYAERMOD_E2E_FAKE_LOG", str(log))
+        session = await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("AERMOD started")
+        await gui.user.should_see("Day 61 of 1988 (1 of 4 days)", retries=50)
+        assert _run_button(gui).enabled is False
+        # The newest "Cancel" is the run's (the dialogs' were built first).
+        cancel = _one(gui, kind=ui.button, content="Cancel")
+        assert cancel.enabled is True and cancel.visible is True
+        _click(gui, cancel)
+        await _run_ends(gui, "Cancelled after")
+        await gui.user.should_see("AERMOD run stopped")
+        assert session.last_run.status == "Cancelled"
+        [start] = _fake_starts(log)
+        from tests.e2e.harness import process_running
+        assert not process_running(start["pid"])
+        # A cancelled run is not a result.
+        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+
+    @pytest.mark.asyncio
+    async def test_a_double_click_starts_one_aermod(self, gui, recorded_aermod, tmp_path,
+                                                    monkeypatch):
+        gui.expect_error_log("AERMOD run failed: E480")
+        recorded_aermod("albany_e480")
+        log = tmp_path / "fake.jsonl"
+        monkeypatch.setenv("PYAERMOD_E2E_FAKE_LOG", str(log))
+        session = await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        button = _run_button(gui)
+        _click(gui, button)
+        _click(gui, button)                    # before the page has caught up
+        await _run_ends(gui, "Failed: E480")
+        assert len(_fake_starts(log)) == 1 and len(session.runs) == 1
+
+    @pytest.mark.asyncio
+    async def test_new_during_a_run_stops_the_run(self, gui, recorded_aermod, tmp_path,
+                                                  monkeypatch):
+        recorded_aermod("albany_e480")
+        monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
+        log = tmp_path / "fake.jsonl"
+        monkeypatch.setenv("PYAERMOD_E2E_FAKE_LOG", str(log))
+        session = await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("Day 61 of 1988", retries=50)
+        gui.user.find(kind=ui.button, marker="project-new").click()
+        await gui.user.should_see("AERMOD has not been run for this project yet.")
+        assert session.run_in_progress is None and session.runs == []
+        from tests.e2e.harness import process_running
+        for _ in range(200):
+            starts = _fake_starts(log)
+            if starts and not process_running(starts[0]["pid"]):
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("AERMOD still runs after New")
+        await _settle(gui)
+        assert session.runs == []
+
+    @pytest.mark.asyncio
+    async def test_a_successful_run_says_so_with_aermods_counts(self, gui, recorded_aermod,
+                                                                tmp_path):
+        """J1's run step, which the journey reaches only once periods can be set (WP-G3)."""
+        recorded_aermod("albany_success")
+        await _open_albany(gui, tmp_path, ["1", "3", "24", "PERIOD"])
+        await gui.user.should_see("Nothing blocks the run.")
+        await gui.user.should_not_see("Before you run")      # no ANNUAL, no warning
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await _run_ends(gui, "Succeeded in")
+        await gui.user.should_see("AERMOD reported 0 fatal errors, 6 warnings and 0 "
+                                  "informational messages.")
+        await gui.user.should_see("AERMOD finished")
+        await gui.user.should_see("Output file: pyaermod_gui.out")    # Results followed

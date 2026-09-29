@@ -179,12 +179,24 @@ def build_app() -> None:
         # ----- tabs + panels -----------------------------------------
         with ui.tabs() as tab_bar:
             tab_handles = [ui.tab(name) for name, _ in _TABS]
+
+        # --- WP-G4: Review & Run's checklist links to other steps. The
+        # step ids are run.STEP_IDS, in the order of _TABS; the integrator
+        # re-points this at WP-G3's navigation.
+        def goto(step_id: str) -> None:
+            if step_id in run.STEP_IDS:
+                tab_bar.set_value(tab_handles[run.STEP_IDS.index(step_id)])
+        # --- end WP-G4
+
         with ui.tab_panels(tab_bar, value=tab_handles[0]).classes("w-full"):
             for (_name, render), handle in zip(
                 _TABS, tab_handles, strict=False,
             ):
                 with ui.tab_panel(handle):
-                    render(session, dialogs=page_dialogs)
+                    if render is run.render:    # WP-G4
+                        run.render(session, dialogs=page_dialogs, goto=goto)
+                    else:
+                        render(session, dialogs=page_dialogs)
 
         # ----- footer / status bar (built last: tests wait for it) ----
         with ui.footer().classes("bg-grey-3 text-grey-9"):
