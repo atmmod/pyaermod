@@ -11,17 +11,23 @@ binary. Hand-written `.out` text is not allowed in new GUI tests
 
 - **AERMOD version:** 26135 (EPA's v26135 source, as printed in every `.out`).
 - **Build:** gfortran 13.3 at `-O2` via `scripts/build_aermod.sh aermod`
-  (its default flags, `-O2 -fbounds-check -Wuninitialized`), on Linux x86_64.
-  Each `manifest.json` also records the binary's SHA-256.
-- **Recorded:** 2026-09-28, with `scripts/record_aermod_fixtures.py`.
+  (its default flags, `-O2 -fbounds-check -Wuninitialized`), on Linux x86_64,
+  for `aertest`. The three Albany scenarios were recorded again on
+  2026-09-29, when the GUI's decks began to ask for a plot file per
+  averaging period, with the same flags and GNU Fortran 15.2.0 (Homebrew
+  GCC) on macOS arm64; that binary reproduces the earlier Linux
+  `albany_success` run line for line, apart from the run date. Each
+  `manifest.json` records its binary's build and SHA-256.
+- **Recorded:** 2026-09-28 (`aertest`) and 2026-09-29 (the Albany
+  scenarios), with `scripts/record_aermod_fixtures.py`.
 
 ## Scenarios
 
 | Directory | Deck | What AERMOD did |
 |---|---|---|
-| `albany_success` | The reference scenario of PLAN-gui.md ("Albany stack") with averaging periods 1, 3, 24 and PERIOD | Finished successfully: 0 fatal errors, 6 warnings. Maxima 76.07952 (1-hour), 59.57654 (3-hour), 16.85665 (24-hour) and 5.40459 µg/m³ (PERIOD), all at (519.62, −300.00). |
-| `albany_e480` | The same scenario with the GUI's default averaging periods, 1 and ANNUAL | Processed all 96 hours, then stopped with fatal error E480 (less than a year of data for ANNUAL). Exit code 0. |
-| `missing_met` | The same scenario with the default periods and a surface file, `MISSING.SFC`, that does not exist | Stopped during setup with fatal error E500. Exit code 0. |
+| `albany_success` | The reference scenario of PLAN-gui.md ("Albany stack") with averaging periods 1, 3, 24 and PERIOD | Finished successfully: 0 fatal errors, 6 warnings. Maxima 76.07952 (1-hour), 59.57654 (3-hour), 16.85665 (24-hour) and 5.40459 µg/m³ (PERIOD), all at (519.62, −300.00). Wrote a plot file for each period (`pyaermod_gui_01H.PLT`, `_03H`, `_24H`, `_PER`), 360 receptors each. |
+| `albany_e480` | The same scenario with the GUI's default averaging periods, 1 and ANNUAL | Processed all 96 hours, then stopped with fatal error E480 (less than a year of data for ANNUAL). Exit code 0. Its two plot files are empty. |
+| `missing_met` | The same scenario with the default periods and a surface file, `MISSING.SFC`, that does not exist | Stopped during setup with fatal error E500. Exit code 0. Its two plot files are empty. |
 | `aertest` | EPA's `tests/fixtures/epa_official/aertest.inp` with its paths flattened as `tests/test_real_aermod.py` does (`aertest.inp` here), imported with `read_aermod_input` and written back (`aermod.inp`) | Finished successfully. Its `AERTEST_01H.PLT` equals EPA's published reference for all 144 receptors. |
 
 Every scenario's deck is built with the library exactly as the GUI writes
