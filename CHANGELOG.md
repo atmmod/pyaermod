@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- `AERMODResults.summaries` (every summary table of the `.out` file, in
+  order) and `AERMODResults.deposition` (deposition tables by output type
+  and averaging period); `ConcentrationResult.output_type`, `.title` (the
+  table's own heading) and `.max_row`. Rows read from AERMOD's summary
+  tables now also carry `rank`, `group`, `date`, `flag`, `value_text`,
+  `zelev`, `zhill`, `zflag`, `receptor_type` and `grid_id`.
 
 ### Changed
 - GUI: in the source and receptor editors, Close now discards changes,
@@ -30,6 +36,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files written before this change still open.
 
 ### Fixed
+- **The output parser dropped short-term values that AERMOD flags for
+  calm or missing hours.** AERMOD prints such a value with a `c`, `m` or
+  `b` right after the number (`15.94753b`; FORMAT `F14.5,A1` in
+  `output.f` PRTSUM), the parser read `15.94753b` as the number, and the
+  row was skipped. When the highest value of a period was flagged, the
+  parser reported a lower one as the maximum, and a period whose values
+  were all flagged (every 24-hour value of a run with a calm hour each
+  day) was missing from `concentrations`. The
+  number is now read and the flag kept in the row's `flag` column.
+  `AERMODOutputParser` now reads AERMOD's summary tables by their
+  headings, so also:
+  - a run without ANNUAL averages no longer reports an `ANNUAL` result
+    (the word ANNUAL in warning W361, "Multiyear PERIOD/ANNUAL values for
+    NO2/SO2 require MULTYEAR Opt", led to a copy of the PERIOD table), and
+    an ANNUAL run no longer reports a `PERIOD` result;
+  - deposition tables (`TOTAL DEPO`, `DRY DEPO`, `WET DEPO`) go to
+    `AERMODResults.deposition`, in AERMOD's units (`g/m^2`), instead of
+    being reported in `concentrations` as `ug/m^3`, and in a run with
+    both, the concentration tables are the ones in `concentrations`;
+  - a summary table that continues on later pages (more source groups
+    than fit a page) is read to its end; ALLSRCS's PERIOD maximum is
+    88881.24949 (group RLINEB2), not the 11819.89828 of the first page.
+  `tests/test_output_parser_real_runs.py` pins each case against runs of
+  the real binary recorded in `tests/fixtures/output_parser/`.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
