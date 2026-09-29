@@ -246,11 +246,6 @@ def resolve_annotation(obj: Any, fmeta) -> Any:
     return _type_hints(type(obj)).get(fmeta.name, fmeta.type)
 
 
-# ``emit_field`` shows numbers with ``%.4f``; a change smaller than half of
-# the last digit shown is not an edit the user could see.
-_SHOWN_DECIMALS = 4
-
-
 def _notify_on_edit(widget, on_change: Optional[Callable[[], None]]) -> None:
     """Call ``on_change()`` whenever the user changes ``widget``'s value.
 
@@ -260,33 +255,6 @@ def _notify_on_edit(widget, on_change: Optional[Callable[[], None]]) -> None:
     if on_change is None:
         return
     widget.on_value_change(lambda _e: on_change())
-
-
-def _notify_on_number_edit(widget, on_change: Optional[Callable[[], None]]) -> None:
-    """Like :func:`_notify_on_edit`, for a ``ui.number`` shown to 4 decimals.
-
-    ``ui.number`` rewrites its value to the precision it shows when the
-    field loses focus, so leaving a field that holds 12.345678 without
-    typing anything changes the value. Only a change the user could see
-    (more than half of the last digit shown), or a change to or from
-    empty, counts as an edit.
-    """
-    if on_change is None:
-        return
-    last = {"value": widget.value}
-    tolerance = 0.5 * 10 ** -_SHOWN_DECIMALS
-
-    def handler(e) -> None:
-        old, new = last["value"], e.value
-        last["value"] = new
-        if old is None or new is None:
-            edited = (old is None) != (new is None)
-        else:
-            edited = abs(float(new) - float(old)) > tolerance
-        if edited:
-            on_change()
-
-    widget.on_value_change(handler)
 
 
 def emit_field(parent, obj: Any, fmeta, *,
@@ -403,14 +371,17 @@ def emit_field(parent, obj: Any, fmeta, *,
                 # ``value=cur`` only states that intent -- bind_value()
                 # back-syncs obj -> widget at construction, so the
                 # argument itself is inert for the None case.
-                _notify_on_number_edit(ui.number(
-                    label=label, value=cur, format="%.4f",
+                _notify_on_edit(ui.number(
+                    label=label, value=cur,
                 ).props("clearable").bind_value(obj, fname), on_change)
     elif is_numeric(annotation):   # int/float, optionally | None
+        # No display ``format``: ui.number rewrites its value to the format
+        # when it loses focus, and bind_value writes that back, so "%.4f"
+        # turned an emission rate of 1.5e-6 g/s/m^2 into 0.0 when the user
+        # merely tabbed through the field.
         with parent:
-            _notify_on_number_edit(ui.number(
+            _notify_on_edit(ui.number(
                 label=label, value=cur if cur is not None else 0,
-                format="%.4f",
             ).bind_value(obj, fname), on_change)
     else:
         # Escape hatch (Enums, nested dataclasses)
