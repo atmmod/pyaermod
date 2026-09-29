@@ -63,3 +63,28 @@ class TestLookup:
     def test_unknown_period_lists_alternatives(self):
         with pytest.raises(KeyError, match="available"):
             get_naaqs("PM2.5", "minutely")
+
+
+class TestAveragingPeriods:
+    """naaqs_averaging_periods: the AVERTIME tokens a pollutant's NAAQS need."""
+
+    @pytest.mark.parametrize(("pollutant", "periods"), [
+        ("SO2", ["1"]),
+        ("NO2", ["1", "ANNUAL"]),
+        ("PM25", ["24", "ANNUAL"]),       # POLLUTID spelling
+        ("PM2.5", ["24", "ANNUAL"]),      # table spelling
+        ("PM10", ["24"]),
+        ("CO", ["1", "8"]),
+        ("O3", ["8"]),
+        ("PB", ["MONTH"]),
+        (" no2 ", ["1", "ANNUAL"]),
+        ("OTHER", []),
+    ])
+    def test_periods(self, pollutant, periods):
+        from pyaermod.naaqs import naaqs_averaging_periods
+        assert naaqs_averaging_periods(pollutant) == periods
+
+    def test_every_table_period_has_a_token(self):
+        from pyaermod.naaqs import NAAQS_TABLE, naaqs_averaging_periods
+        for key, rows in NAAQS_TABLE.items():
+            assert len(naaqs_averaging_periods(key)) == len({r.averaging_period for r in rows})

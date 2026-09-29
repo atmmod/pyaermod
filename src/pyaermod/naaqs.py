@@ -134,4 +134,36 @@ def get_naaqs(pollutant: str, averaging_period: str) -> NAAQSStandard:
     )
 
 
-__all__ = ["NAAQS_TABLE", "NAAQSStandard", "get_naaqs"]
+#: The AERMOD ``AVERTIME`` token for each NAAQS averaging period.
+_AVERTIME_TOKENS = {
+    "1-hour": "1",
+    "3-hour": "3",
+    "8-hour": "8",
+    "24-hour": "24",
+    "annual": "ANNUAL",
+    "rolling 3-month": "MONTH",
+}
+
+#: AERMOD's ``POLLUTID`` spellings that differ from the table's keys.
+_POLLUTID_KEYS = {"PM25": "PM2.5", "PB": "Pb"}
+
+
+def naaqs_averaging_periods(pollutant: str) -> list[str]:
+    """The AERMOD averaging periods (``AVERTIME`` tokens) of a pollutant's NAAQS.
+
+    ``pollutant`` is a ``POLLUTID`` (``SO2``, ``PM25``, ...) or a table key
+    (``PM2.5``). The periods come in the order AERMOD lists them, short
+    ones first: ``["1"]`` for SO2, ``["1", "ANNUAL"]`` for NO2 and
+    ``["24", "ANNUAL"]`` for PM2.5. The Pb rolling three-month standard
+    maps to ``MONTH``, AERMOD's calendar-month average, which is the input
+    to the rolling mean. A pollutant without a NAAQS (``OTHER``) has none.
+    """
+    key = pollutant.strip().upper()
+    key = _POLLUTID_KEYS.get(key, key)
+    rows = next((v for k, v in NAAQS_TABLE.items() if k.upper() == key.upper()), [])
+    order = list(_AVERTIME_TOKENS.values())
+    tokens = {_AVERTIME_TOKENS[r.averaging_period] for r in rows}
+    return [t for t in order if t in tokens]
+
+
+__all__ = ["NAAQS_TABLE", "NAAQSStandard", "get_naaqs", "naaqs_averaging_periods"]
