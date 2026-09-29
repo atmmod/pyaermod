@@ -14,6 +14,7 @@ Processing stages:
 
 import re
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -596,6 +597,169 @@ def read_profile_file(filepath: Union[str, Path]) -> Dict:
         header.num_levels = len(header.heights)
 
     return {"header": header, "data": df}
+
+
+# ============================================================================
+# THE PERIOD A SURFACE FILE COVERS
+# ============================================================================
+#
+# AERMOD counts the years of met data it has processed (NUMYRS) in
+# CHK_ENDYR (aermod.f): a year ends at the hour before the first hour of
+# data, one year on. MESET/METEXT (meset.f, metext.f) set that hour from
+# the first hour read (IENDMN, IENDDY, IENDHOUR: hour 1 of 1 March gives
+# hour 24 of the last day of February, taken as 29 and read as 28 in a
+# year that is not a leap year). ANNUAL averages divide by NUMYRS, and a
+# run that ends with NUMYRS = 0 stops with fatal error E480 ("Less than
+# 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave") after processing every hour.
+# Two-digit years are windowed as AERMOD does: 50-99 are 19xx, 00-49 20xx.
+
+_DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)   # IDYMAX
+
+
+def _is_leap(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _four_digit_year(year: int) -> int:
+    if year >= 100:
+        return year
+    return 1900 + year if year >= 50 else 2000 + year
+
+
+@dataclass(frozen=True)
+class SurfaceFilePeriod:
+    """The hours of met data an AERMET ``.SFC`` file holds.
+
+    Read by :func:`read_surface_period`. Times are the start of the first
+    hour and the end of the last one, so a file of the 96 hours of 1 to 4
+    March 1988 has ``first = 1988-03-01 00:00`` and ``last = 1988-03-05
+    00:00``. AERMET's hour 24 is the hour that ends at midnight.
+
+    Attributes
+    ----------
+    first, last
+        The start of the first hour and the end of the last hour of data.
+    hours
+        The number of hourly records in the file.
+    days
+        The number of distinct days with at least one hour of data; AERMOD
+        prints one "Now Processing Data For Day No." line for each.
+    surface_station, upper_air_station
+        The station IDs from the file's header (``SF_ID``, ``UA_ID``).
+    """
+
+    first: datetime
+    last: datetime
+    hours: int
+    days: int
+    surface_station: str = ""
+    upper_air_station: str = ""
+
+    @property
+    def first_year(self) -> int:
+        return self.first.year
+
+    @property
+    def first_day(self) -> date:
+        return self.first.date()
+
+    @property
+    def last_day(self) -> date:
+        """The day of the last hour (not the midnight that ends it)."""
+        return (self.last - timedelta(hours=1)).date()
+
+    @property
+    def complete_years(self) -> int:
+        """How many years of data AERMOD counts in a run over the whole file.
+
+        This is AERMOD's ``NUMYRS`` at the end of such a run: the number of
+        times the data reach the end of a year, which is the hour before the
+        first hour, one year on (see the comment above this class). ANNUAL
+        averages need at least one; with none AERMOD stops with E480.
+        Assumes the hours between the first and the last are all present,
+        as AERMET writes them.
+        """
+        start_hour = self.first.hour + 1           # AERMET's hour 1..24
+        if start_hour > 1:
+            end_month, end_day, end_hour = self.first.month, self.first.day, start_hour - 1
+        else:
+            end_hour = 24
+            if self.first.day > 1:
+                end_month, end_day = self.first.month, self.first.day - 1
+            else:
+                end_month = self.first.month - 1 or 12
+                end_day = _DAYS_IN_MONTH[end_month - 1]
+        count = 0
+        for year in range(self.first.year, self.last.year + 1):
+            day = end_day
+            if end_month == 2 and end_day == 29 and not _is_leap(year):
+                day = 28
+            year_end = datetime(year, end_month, day) + timedelta(hours=end_hour)
+            if self.first < year_end <= self.last:
+                count += 1
+        return count
+
+    def describe(self) -> str:
+        """``"1988-03-01 to 1988-03-04 (4 days, 96 hours)"``."""
+        days = f"{self.days} day{'s' if self.days != 1 else ''}"
+        hours = f"{self.hours} hour{'s' if self.hours != 1 else ''}"
+        return f"{self.first_day.isoformat()} to {self.last_day.isoformat()} ({days}, {hours})"
+
+
+def read_surface_period(filepath: Union[str, Path]) -> SurfaceFilePeriod:
+    """Read which hours of met data an AERMET ``.SFC`` file holds.
+
+    Reads the header's station IDs and the date and hour of every data
+    record, without loading the data into a DataFrame, so it is quick
+    even for a five-year file.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the ``.SFC`` file.
+
+    Returns
+    -------
+    SurfaceFilePeriod
+
+    Raises
+    ------
+    OSError
+        If the file cannot be read.
+    ValueError
+        If the file holds no data record (a line starting with year,
+        month, day, Julian day and hour).
+    """
+    filepath = Path(filepath)
+    first: Optional[datetime] = None
+    last: Optional[datetime] = None
+    hours = 0
+    days = set()
+    with open(filepath, encoding="latin-1") as f:
+        header = parse_sfc_header(f.readline())
+        for line in f:
+            parts = line.split(None, 5)
+            if len(parts) < 5:
+                continue
+            try:
+                year, month, day, _jday, hour = (int(p) for p in parts[:5])
+                start = datetime(_four_digit_year(year), month, day) + timedelta(hours=hour - 1)
+            except ValueError:
+                continue
+            if not 1 <= hour <= 24:
+                continue
+            hours += 1
+            days.add(start.date())
+            if first is None or start < first:
+                first = start
+            if last is None or start > last:
+                last = start
+    if first is None or last is None:
+        raise ValueError(f"{filepath.name}: no hourly records in the surface file")
+    return SurfaceFilePeriod(
+        first=first, last=last + timedelta(hours=1), hours=hours, days=len(days),
+        surface_station=header.sf_id, upper_air_station=header.ua_id,
+    )
 
 
 # Example usage
