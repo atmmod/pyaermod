@@ -130,3 +130,51 @@ def test_the_page_leaves_no_observers_behind():
     for c in clients:
         c.delete()
     assert s._observers == [] and app_module._OWNERS == {}
+
+
+def _raised_in(filename: str, exc: BaseException) -> BaseException:
+    """``exc`` with a traceback whose innermost frame is in ``filename``."""
+    try:
+        exec(compile("raise exc", filename, "exec"), {"exc": exc})
+    except BaseException as caught:
+        return caught
+    raise AssertionError("not raised")  # pragma: no cover
+
+
+def _record(exc):
+    import logging
+    return logging.LogRecord("uvicorn.error", logging.ERROR, __file__, 1,
+                             "Exception in ASGI application\n", None,
+                             (type(exc), exc, exc.__traceback__) if exc else None)
+
+
+UPLOAD_PY = "/site-packages/nicegui/elements/upload.py"
+
+
+def test_a_cancelled_upload_is_dropped_from_uvicorns_log():
+    """Closing the Open dialog mid-upload is not an error (NiceGUI 3.17)."""
+    from starlette.requests import ClientDisconnect
+    keep = app_module._UPLOAD_FILTER.filter
+    cancelled = _raised_in(UPLOAD_PY, ClientDisconnect())
+    assert keep(_record(cancelled)) is False
+    # Starlette's middleware wraps it in an exception group.
+    assert keep(_record(BaseExceptionGroup("unhandled errors in a TaskGroup", [cancelled]))) is False
+
+
+def test_every_other_error_record_is_kept():
+    from starlette.requests import ClientDisconnect
+    keep = app_module._UPLOAD_FILTER.filter
+    assert keep(_record(None))
+    assert keep(_record(_raised_in("/site-packages/nicegui/page.py", ClientDisconnect())))
+    assert keep(_record(_raised_in(UPLOAD_PY, AttributeError("no attribute 'name'"))))
+    two = BaseExceptionGroup("two", [_raised_in(UPLOAD_PY, ClientDisconnect()), ValueError("x")])
+    assert keep(_record(two))
+
+
+def test_the_filter_is_installed_once(monkeypatch):
+    import logging
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    monkeypatch.setattr(uvicorn_error, "filters", [])
+    app_module._quiet_cancelled_uploads()
+    app_module._quiet_cancelled_uploads()
+    assert uvicorn_error.filters == [app_module._UPLOAD_FILTER]
