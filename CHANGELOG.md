@@ -120,6 +120,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   place, and the rest of the page is built; one failing section used to
   leave every later step and the footer empty.
 - GUI: Save reports a file that cannot be written ("Save failed: ...").
+- **Saving no longer writes a project file that cannot be opened again.**
+  `project_to_json` (and so `save_project` and every GUI Save) checks the
+  project with the loader first and raises `ValueError` naming the field,
+  such as "cannot save the project:
+  project.sources.sources[0].emission_rate must be a number, not null"
+  after a number box was emptied. The GUI reports "Save failed: ...",
+  delivers no file and keeps the project marked modified; it used to say
+  "Saved" and hand over a file that "Load failed" refused.
+- **Numbers that are NaN or infinite are refused** when a project file is
+  read or written. Python's `json` accepts `NaN` and `Infinity`; such a
+  file loaded, the source editor could not open, and the deck AERMOD ran
+  said `LOCATION PIT1 OPENPIT nan ...`.
+- GUI: Open accepts a file whatever its name ends in. The file chooser
+  filtered on `.json`, and a file it filtered out was dropped without a
+  message; a project whose name lost its extension would not open.
+- GUI: a Save As name with characters a browser rewrites (`"*:<>?|`) is
+  cleaned the same way, so the header names the file the browser saved.
+- GUI: a run whose runner raises an unexpected exception logs the
+  traceback; a missing AERMOD binary is logged as a warning.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
