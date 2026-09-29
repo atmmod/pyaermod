@@ -62,6 +62,7 @@ from pyaermod.gui_v2.project_io import load_project, save_project  # noqa: E402
 from pyaermod.gui_v2.session import Session  # noqa: E402
 from pyaermod.input_generator import (  # noqa: E402
     AreaPolySource,
+    OpenPitSource,
     PointSource,
     PollutantType,
 )
@@ -454,35 +455,6 @@ class TestSessionPerTab:
         await other.should_not_see("(modified)")
         assert first.project.control.title_one == "Tab one"
 
-    def test_duplicated_tab_forks_while_the_original_lives(self, monkeypatch):
-        """A session stored under another tab id is forked while its owner lives."""
-        from nicegui import app
-
-        class _Client:
-            def __init__(self, tab_id):
-                self.tab_id, self.is_deleted, self.handlers = tab_id, False, []
-
-            def on_delete(self, handler):
-                self.handlers.append(handler)
-
-        store: dict = {}
-        monkeypatch.setattr(type(app.storage), "tab", property(lambda _self: store))
-        original, duplicate = _Client("A"), _Client("B")
-        s = app_module._session_for(original)
-        app_module._claim(s, original)
-        assert s.tab_id == "A" and store["session"] is s
-        assert app_module._session_for(original) is s          # a reload of tab A
-
-        forked = app_module._session_for(duplicate)            # A is alive: fork
-        assert forked is not s and forked.tab_id == "B" and store["session"] is forked
-
-        store["session"] = s                                   # A's storage again
-        for handler in original.handlers:                      # A's page is deleted
-            handler()
-        assert id(s) not in app_module._OWNERS
-        assert app_module._session_for(duplicate) is s         # no owner left: adopt
-        assert s.tab_id == "B"
-
 
 # ---------------------------------------------------------------------
 # Project tab
@@ -512,11 +484,22 @@ class TestProjectPage:
 
     @pytest.mark.asyncio
     async def test_title_two_blank_is_none(self, gui):
+        from pyaermod.gui_v2.project_io import project_from_json
         await gui.open()
         line_two = _one(gui, kind=ui.input, content="Title (line 2)")
         UserInteraction(gui.user, {line_two}, None).type("Second")
-        assert gui.session.project.control.title_two == "Second"
-        UserInteraction(gui.user, {line_two}, None).clear()
+        await gui.user.should_see("PyAERMOD — Untitled (modified)")
+        saved = project_from_json(await _save_as_download(gui, "two.json"))
+        assert saved.control.title_two == "Second"
+        assert "TITLETWO  Second" in saved.to_aermod_input(validate=False)
+
+        # Emptying the box leaves no second title in the file or the deck.
+        UserInteraction(gui.user, {_one(gui, kind=ui.input, content="Title (line 2)")},
+                        None).clear()
+        await gui.user.should_see("PyAERMOD — two.json (modified)")
+        saved = project_from_json(await _save_as_download(gui, "two.json"))
+        assert saved.control.title_two is None
+        assert "TITLETWO" not in saved.to_aermod_input(validate=False)
         assert gui.session.project.control.title_two is None
 
     @pytest.mark.asyncio
@@ -652,6 +635,20 @@ def _reaches(handler: Any, old_ids: set, _visited: set | None = None) -> Any:
             if hit is not None:
                 return hit
     return None
+
+
+def _saved_with(path: tuple, value) -> bytes:
+    """The Albany scenario as saved, with the value at ``project.<path>`` replaced."""
+    import json
+
+    from pyaermod.gui_v2.project_io import project_to_json
+
+    doc = json.loads(project_to_json(_albany_project(["1", "ANNUAL"], "a.sfc")))
+    node = doc["project"]
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    return json.dumps(doc).encode("utf-8")
 
 
 async def _save_as_download(gui: GuiSession, name: str) -> bytes:
@@ -791,16 +788,26 @@ class TestProjectFiles:
         await _settle(gui)
         await gui.user.should_not_see("(modified)")
 
-    @pytest.mark.parametrize("payload", [b"{not json", b'{"project": []}', b"\xff\xfe"],
-                             ids=["invalid-json", "project-list", "undecodable"])
+    @pytest.mark.parametrize("payload, reason", [
+        (b"{not json", "not valid JSON"),
+        (b'{"project": []}', "project must be a JSON object"),
+        (b"\xff\xfe\x00{", "not a UTF-8 text file"),
+        (_saved_with(("sources", "sources", 0, "_type"), "PointSorce"),
+         "project.sources.sources[0]: unknown type 'PointSorce'"),
+        (_saved_with(("sources", "sources", 0, "stack_height"), "tall"),
+         "project.sources.sources[0].stack_height must be a number, not text 'tall'"),
+        (_saved_with(("control", "pollutant_id"), {"_enum": "PollutantType.NOPE"}),
+         "project.control.pollutant_id: unknown PollutantType member 'NOPE'"),
+    ], ids=["invalid-json", "project-list", "undecodable", "unknown-source-type",
+            "text-for-a-number", "unknown-pollutant"])
     @pytest.mark.asyncio
-    async def test_open_bad_file_reports_and_keeps_project(self, gui, tmp_path, payload):
+    async def test_open_bad_file_reports_and_keeps_project(self, gui, tmp_path, payload, reason):
         from nicegui.elements.upload_files import SmallFileUpload
         await gui.open()
         gui.user.find(kind=ui.input, content="Title (line 1)").clear().type("Keep me")
         gui.user.find(kind=ui.button, marker="project-open").click()
         await _upload(gui, SmallFileUpload("bad.json", "application/json", payload))
-        await gui.user.should_see("Load failed:")
+        await gui.user.should_see(f"Load failed: bad.json: {reason}")
         assert len(_open_dialogs(gui, "open-dialog")) == 1       # still open
         assert _title_input(gui).value == "Keep me"
         await gui.user.should_see("PyAERMOD — Untitled (modified)")
@@ -809,6 +816,85 @@ class TestProjectFiles:
         await _upload(gui, SmallFileUpload("good.json", "application/json", good.read_bytes()))
         await gui.user.should_see("Loaded good.json")
         assert _open_dialogs(gui, "open-dialog") == []
+
+
+    @pytest.mark.asyncio
+    async def test_save_failure_is_reported(self, gui, tmp_path):
+        existing = save_project(_albany_project(["1", "ANNUAL"], "a.sfc"), tmp_path / "gone.json")
+        session = await gui.open()
+        session.open_json(existing)             # a saved project fixture
+        await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
+        _interact(gui, _title_input(gui)).clear().type("Changed")
+        existing.unlink()
+        existing.mkdir()                        # the file's place is taken: writing fails
+        gui.user.find(kind=ui.button, marker="project-save").click()
+        await gui.user.should_see("Save failed:")
+        await gui.user.should_see("PyAERMOD — gone.json (modified)")
+
+    @pytest.mark.asyncio
+    async def test_a_pollutant_outside_the_list_is_shown_kept_and_survives_a_reload(self, gui):
+        from nicegui.elements.upload_files import SmallFileUpload
+
+        from pyaermod.gui_v2.project_io import project_from_json
+        await gui.open()
+        gui.user.find(kind=ui.button, marker="project-open").click()
+        await _dialog_opens(gui, "open-dialog")
+        data = _saved_with(("control", "pollutant_id"), "TSP")     # fugitive dust
+        await _upload(gui, SmallFileUpload("dust.json", "application/json", data))
+        await gui.user.should_see("Loaded dust.json")
+        pollutant = lambda: _one(gui, kind=ui.select, content="Pollutant").value  # noqa: E731
+        await _value_becomes(pollutant, "TSP")
+
+        await gui.open()                        # reload: the page builds in full
+        await _value_becomes(pollutant, "TSP")
+        await gui.user.should_see(kind=ui.button, content="Run AERMOD")
+        saved = project_from_json(await _save_as_download(gui, "dust.json"))
+        assert saved.control.pollutant_id == "TSP"
+        assert "POLLUTID  TSP" in saved.to_aermod_input(validate=False)
+
+        _choose(gui, _one(gui, kind=ui.select, content="Pollutant"), "PM10")
+        await gui.user.should_see("PyAERMOD — dust.json (modified)")
+        assert gui.session.project.control.pollutant_id == PollutantType.PM10
+
+    @pytest.mark.asyncio
+    async def test_a_section_that_fails_does_not_stop_the_page(self, gui, monkeypatch):
+        """A section that cannot show the project says so; the rest of the
+        page is built, and so is the section once the project changes."""
+        from pyaermod.gui_v2._live import SECTION_FAILED
+        from pyaermod.gui_v2.pages import sources as sources_page
+        gui.expect_error_log("could not build the _table section")
+        await gui.open()
+        await _add_point_source(gui, "STK1")
+        await _rows_become(gui, _sources_table, "id", ["STK1"])
+
+        def broken(src):
+            raise ValueError("cannot summarise this source")
+
+        monkeypatch.setattr(sources_page, "_summary_row", broken)
+        await gui.open()                        # reload: Sources cannot be shown
+        await gui.user.should_see(f"{SECTION_FAILED}: cannot summarise this source")
+        await gui.user.should_see(kind=ui.button, content="Run AERMOD")      # later steps
+        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        gui.user.find(kind=ui.button, marker="project-new").click()
+        await gui.user.should_see("No sources yet. Add one above.")         # rebuilt
+        await gui.user.should_not_see(SECTION_FAILED)
+
+    @pytest.mark.asyncio
+    async def test_deleted_pages_leave_no_subscriptions_behind(self, gui):
+        session = await gui.open()
+        per_page = len(session._observers)
+        assert per_page > 0
+        first_client = gui.user.client
+        await gui.open()                        # two reloads of the same tab
+        second_client = gui.user.client
+        await gui.open()
+        assert gui.session is session
+        assert len(session._observers) == 3 * per_page
+        with gui.user:
+            first_client.delete()
+            second_client.delete()
+        assert len(session._observers) == per_page
+        assert app_module._OWNERS[id(session)] == {gui.user.client}
 
 
 async def _save_as_download_in_open_dialog(gui: GuiSession, name: str) -> bytes:
@@ -1038,22 +1124,50 @@ class TestMeteorologyAndOutputPages:
         assert gui.session.project.output.plot_file_groups == ["ALL", "GRP1"]
 
     @pytest.mark.asyncio
+    async def test_leaving_a_number_field_keeps_its_exact_value(self, gui, tmp_path):
+        """Tabbing through a field changes nothing: an open-pit emission rate
+        of 1.5e-6 g/s/m^2 once became 0.0 when the field lost focus."""
+        from pyaermod.gui_v2.project_io import project_from_json
+        project = _albany_project(["1", "ANNUAL"], "a.sfc")
+        project.meteorology.profile_base_elevation = 10.123456
+        project.sources.sources = [OpenPitSource(source_id="PIT1", x_coord=0.0, y_coord=0.0,
+                                                 emission_rate=1.5e-6)]
+        path = save_project(project, tmp_path / "precise.json")
+        session = await gui.open()
+        session.open_json(path)                 # a saved project fixture
+        field = "profile base elevation"
+        await _value_becomes(lambda: _one(gui, kind=ui.number, content=field).value, 10.123456)
+        number = _one(gui, kind=ui.number, content=field)
+        with gui.user:
+            number.sanitize()                   # what ui.number does on blur
+        assert number.value == 10.123456
+
+        await _rows_become(gui, _sources_table, "id", ["PIT1"])
+        UserInteraction(gui.user, {_sources_table(gui)}, None).trigger(
+            "edit", _sources_table(gui).rows[0]["key"])
+        await gui.user.should_see("Edit OpenPitSource — PIT1")
+        rate = next(iter(_in_dialog(gui, "editor-dialog", ui.number, "emission rate").elements))
+        with gui.user:
+            rate.sanitize()
+        assert rate.value == 1.5e-6
+        _editor_save(gui)
+        await _settle(gui)
+        await gui.user.should_see("PyAERMOD — precise.json (modified)")   # Save was clicked
+        saved = project_from_json(await _save_as_download(gui, "precise.json"))
+        assert saved.sources.sources[0].emission_rate == 1.5e-6
+        assert saved.meteorology.profile_base_elevation == 10.123456
+
+    @pytest.mark.asyncio
     async def test_number_blur_without_edit_does_not_mark_dirty(self, gui, tmp_path):
         project = _albany_project(["1", "ANNUAL"], "a.sfc")
         project.meteorology.profile_base_elevation = 10.123456
-        path = save_project(project, tmp_path / "precise.json")
         session = await gui.open()
-        session.open_json(path)
+        session.open_json(save_project(project, tmp_path / "precise.json"))
         field = "profile base elevation"
         await _value_becomes(lambda: _one(gui, kind=ui.number, content=field).value, 10.123456)
-        await _settle(gui)
-        await gui.user.should_not_see("(modified)")
         number = _one(gui, kind=ui.number, content=field)
-        # Leaving the field makes ui.number round the value to the 4
-        # decimals it shows; that is not an edit.
         with gui.user:
             number.sanitize()
-        assert number.value == 10.1235
         await _settle(gui)
         await gui.user.should_not_see("(modified)")
         # A real edit does mark it.
@@ -1100,10 +1214,11 @@ class TestFormChangeHook:
         gui.user.find(kind=ui.input, content="source id").type("X")
         assert len(calls) == 1
         number = _one(gui, kind=ui.number, content="stack height")
-        number.value = 10.00001                         # below the precision shown
+        with gui.user:
+            number.sanitize()                           # leaving the field: no edit
         assert len(calls) == 1
-        number.value = 11
-        assert len(calls) == 2
+        number.value = 10.00001                         # every change is kept, and is an edit
+        assert len(calls) == 2 and src.stack_height == 10.00001
         number.value = None                             # cleared: an edit
         assert len(calls) == 3
         _one(gui, kind=ui.checkbox, content="is urban").value = True

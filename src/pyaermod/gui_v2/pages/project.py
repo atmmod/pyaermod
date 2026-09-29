@@ -62,7 +62,11 @@ def render(session: Session, *, dialogs: Any) -> None:
 
     async def _on_save() -> None:
         if session.project_path is not None:
-            session.save()
+            try:
+                session.save()
+            except OSError as exc:
+                _notify(f"Save failed: {exc}", color="negative")
+                return
             _notify(f"Saved {session.project_path.name}")
         else:
             # Browser: the dialog opens pre-filled, never a silent second
@@ -91,11 +95,16 @@ def render(session: Session, *, dialogs: Any) -> None:
                 "Title (line 2)", value=control.title_two or "",
                 on_change=lambda e: session.set_control(title_two=e.value or None),
             )
-        pollutant = control.pollutant_id
+        current = _pollutant_name(control.pollutant_id)
+        options = [p.value for p in PollutantType]
+        if current not in options:
+            # A pollutant AERMOD accepts but the enum does not list (TSP,
+            # PB, NOX ... from an imported deck or a saved file) stays a
+            # choice, so the select can show it.
+            options.append(current)
         ui.select(
-            options=[p.value for p in PollutantType], label="Pollutant",
-            value=pollutant.value if isinstance(pollutant, PollutantType) else pollutant,
-            on_change=lambda e: session.set_control(pollutant_id=PollutantType(e.value)),
+            options=options, label="Pollutant", value=current,
+            on_change=lambda e: session.set_control(pollutant_id=_pollutant_value(e.value)),
         ).classes("w-48")
 
     # ----- Open ---------------------------------------------------------
@@ -103,10 +112,11 @@ def render(session: Session, *, dialogs: Any) -> None:
         name = e.file.name
         try:
             # Read inside the handler: an upload over 1 MiB is a temporary
-            # file that goes away with the event.
-            text = await e.file.text()
-            session.open_json(text, name=name)
-        except (ProjectFileError, UnicodeDecodeError) as exc:
+            # file that goes away with the event. Bytes, so that a file that
+            # is not UTF-8 text is refused with its name like any other.
+            data = await e.file.read()
+            session.open_json(data, name=name)
+        except ProjectFileError as exc:
             _notify(f"Load failed: {exc}", color="negative")
             return                                  # the dialog stays open
         finally:
@@ -140,6 +150,19 @@ def render(session: Session, *, dialogs: Any) -> None:
         with ui.row():
             ui.button("Cancel", on_click=save_as_dialog.close).props("flat")
             ui.button("Save", on_click=_do_save).props("color=primary")
+
+
+def _pollutant_name(pollutant: Any) -> str:
+    """What the Pollutant select shows for ``control.pollutant_id``."""
+    return pollutant.value if isinstance(pollutant, PollutantType) else str(pollutant)
+
+
+def _pollutant_value(name: str) -> Any:
+    """The ``pollutant_id`` for a choice: the enum member, or the text itself."""
+    try:
+        return PollutantType(name)
+    except ValueError:
+        return name
 
 
 def _notify(msg: str, *, color: str = "positive") -> None:

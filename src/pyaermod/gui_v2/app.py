@@ -20,15 +20,22 @@ alive; otherwise the new tab gets a fork, an independent copy. A page
 counts as alive from when it is built until NiceGUI deletes its client,
 which is some seconds after its socket closes. The decision is recorded
 in PLAN-gui.md ("Reload decision").
+
+NiceGUI frees a tab's storage ``app.storage.max_tab_storage_age`` (30
+days) after the storage itself last changed. The session changes in
+place, so every page also records in the tab's storage when its session
+was last used (:data:`LAST_USED_KEY`); a tab in daily use keeps its
+session.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Set
+import time
+from typing import TYPE_CHECKING, Any, Dict, MutableMapping, Optional, Set
 
 from .pages import meteorology, output, project, receptors, results, run, sources
-from .session import Session
+from .session import Session, SessionEvent
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from nicegui import Client
@@ -45,6 +52,12 @@ _TABS = [
     ("Run",        run.render),
     ("Results",    results.render),
 ]
+
+#: The tab-storage key holding when the tab's session was last used.
+LAST_USED_KEY = "session_last_used"
+
+#: How often (seconds) a page records that its session is in use.
+_TOUCH_INTERVAL_S = 60.0
 
 # id(session) -> the clients whose pages were built on it and are not yet
 # deleted (connected, or disconnected and lingering until NiceGUI reaps them).
@@ -64,22 +77,40 @@ def _claim(session: Session, client: Client) -> None:
     client.on_delete(release)
 
 
-def _session_for(client: Client) -> Session:
-    """The session this tab works on: its own, an adopted one, or a fork.
+def _is_deleted(client: Client) -> bool:
+    """Whether NiceGUI has deleted ``client``.
 
-    Must run after the client's socket connected (``app.storage.tab``
-    needs it).
+    ``Client.is_deleted`` exists from NiceGUI 3.13; the package allows 3.0,
+    whose clients have only the private flag behind it.
     """
+    flag = getattr(client, "is_deleted", None)
+    if flag is None:
+        flag = getattr(client, "_deleted", False)
+    return bool(flag)
+
+
+def _tab_storage() -> MutableMapping[str, Any]:
     from nicegui import app
 
-    tab = app.storage.tab
+    return app.storage.tab
+
+
+def _session_for(client: Client, tab: Optional[MutableMapping[str, Any]] = None) -> Session:
+    """The session this tab works on: its own, an adopted one, or a fork.
+
+    ``tab`` is the tab's storage, ``app.storage.tab`` by default, which
+    needs the client's socket to be connected.
+    """
+    if tab is None:
+        tab = _tab_storage()
     session = tab.get("session")
     if not isinstance(session, Session):
         session = tab["session"] = Session(tab_id=client.tab_id)
         return session
     if session.tab_id == client.tab_id:
         return session                      # the same tab, reloaded
-    others = [c for c in _OWNERS.get(id(session), ()) if c is not client and not c.is_deleted]
+    others = [c for c in _OWNERS.get(id(session), ())
+              if c is not client and not _is_deleted(c)]
     if others:
         # Another page is still built on it (the original of a duplicated
         # tab, or the lingering page of a desktop reload): copy it.
@@ -87,6 +118,24 @@ def _session_for(client: Client) -> Session:
         return session
     session.tab_id = client.tab_id          # every owner is gone: adopt it
     return session
+
+
+def _keep_in_use(session: Session, client: Client, tab: MutableMapping[str, Any]) -> None:
+    """Record in ``tab`` that ``session`` is in use: now, and as it changes.
+
+    Writing a key is what moves the storage's modification time, which is
+    what NiceGUI prunes on. At most one write per ``_TOUCH_INTERVAL_S``.
+    """
+    last = {"at": time.time()}
+    tab[LAST_USED_KEY] = last["at"]
+
+    def touch(_change: Any) -> None:
+        now = time.time()
+        if now - last["at"] >= _TOUCH_INTERVAL_S:
+            last["at"] = now
+            tab[LAST_USED_KEY] = now
+
+    client.on_delete(session.subscribe(set(SessionEvent), touch))
 
 
 def _warn_if_redis() -> None:
@@ -109,10 +158,12 @@ def build_app() -> None:
         # app.storage.tab exists only once the socket is connected; what is
         # built after this await is sent over the socket.
         await client.connected()
-        if client.is_deleted:
+        if _is_deleted(client):
             return
+        tab = _tab_storage()
         session = _session_for(client)      # looked up at call time (tests wrap it)
         _claim(session, client)
+        _keep_in_use(session, client, tab)
 
         # Every dialog a page creates lives here, outside any live section,
         # so no rebuild can delete an open dialog.
