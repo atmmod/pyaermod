@@ -15,12 +15,19 @@ the three types.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
-from typing import Any, Dict, Type
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
 
-from ...input_generator import CartesianGrid, DiscreteReceptor, PolarGrid
+from ...input_generator import (
+    CartesianGrid,
+    DiscreteReceptor,
+    PolarGrid,
+    ReceptorPathway,
+)
 from .._form import emit_field
-from ..state import AppState
+from .._live import live
+from ..session import Session, SessionEvent
 
 _RECEPTOR_TYPES: Dict[str, Type] = {
     "CartesianGrid":     CartesianGrid,
@@ -61,9 +68,8 @@ def _new_receptor(type_name: str) -> Any:
     return cls(**kwargs)
 
 
-def _receptor_lists(state: AppState):
-    """Return (key, target_attr_name, list_ref) triples for each type."""
-    rp = state.project.receptors
+def _receptor_lists(rp: ReceptorPathway):
+    """Return (kind, target_attr_name, list_ref) triples for each type."""
     return [
         ("CartesianGrid",    "cartesian_grids",    rp.cartesian_grids),
         ("PolarGrid",        "polar_grids",        rp.polar_grids),
@@ -89,37 +95,40 @@ def _summary_row(rec: Any, *, kind: str, idx: int) -> Dict[str, Any]:
             "summary": f"({rec.x_coord:.1f}, {rec.y_coord:.1f})"}
 
 
-def _all_rows(state: AppState):
+def _all_rows(entries: Iterable[Tuple[str, str, Any]]) -> List[Dict[str, Any]]:
+    """Table rows for ``Session.receptor_entries()``, keyed by session key.
+
+    Receptors are numbered within their kind (``DISC0``, ``DISC1``, ...)
+    in the order the session lists them.
+    """
     rows = []
-    for kind, _attr, lst in _receptor_lists(state):
-        for i, rec in enumerate(lst):
-            rows.append(_summary_row(rec, kind=kind, idx=i))
+    counts: Dict[str, int] = {}
+    for key, kind, rec in entries:
+        idx = counts.get(kind, 0)
+        counts[kind] = idx + 1
+        rows.append({**_summary_row(rec, kind=kind, idx=idx), "key": key})
     return rows
-
-
-def _find(state: AppState, key: str):
-    """Resolve a 'kind:idx' key to (receptor, list_ref, idx, kind)."""
-    kind, idx_s = key.split(":", 1)
-    idx = int(idx_s)
-    for k, _attr, lst in _receptor_lists(state):
-        if k == kind:
-            return lst[idx], lst, idx, kind
-    raise KeyError(key)
 
 
 # ---------------------------------------------------------------------
 # Page render
 # ---------------------------------------------------------------------
 
-def render(state: AppState) -> None:
+_COLUMNS = [
+    {"name": "key",     "label": "",        "field": "key",
+     "align": "left", "classes": "hidden", "headerClasses": "hidden"},
+    {"name": "label",   "label": "Name",    "field": "label",
+     "align": "left"},
+    {"name": "kind",    "label": "Type",    "field": "kind",
+     "align": "left"},
+    {"name": "summary", "label": "Summary", "field": "summary",
+     "align": "left"},
+]
+
+
+def render(session: Session, *, dialogs: Any) -> None:
+    """Render the Receptors tab (the same pattern as the Sources tab)."""
     from nicegui import ui
-
-    table_ref: Dict[str, Any] = {"obj": None}
-
-    def _refresh_table():
-        if table_ref["obj"] is not None:
-            table_ref["obj"].rows[:] = _all_rows(state)
-            table_ref["obj"].update()
 
     with ui.row().classes("items-center q-gutter-md"):
         ui.label("Receptors").classes("text-h6")
@@ -128,83 +137,79 @@ def render(state: AppState) -> None:
             value="CartesianGrid", label="Type",
         ).classes("w-48")
 
-        def _on_add():
-            new_rec = _new_receptor(type_select.value)
-            attr = {
-                "CartesianGrid":    "cartesian_grids",
-                "PolarGrid":        "polar_grids",
-                "DiscreteReceptor": "discrete_receptors",
-            }[type_select.value]
-            getattr(state.project.receptors, attr).append(new_rec)
-            state.mark_dirty()
-            _refresh_table()
-            _open_editor(new_rec)
+        def _on_add() -> None:
+            _open_editor(None, _new_receptor(type_select.value))
 
         ui.button("Add", on_click=_on_add).props("color=primary")
 
     ui.separator().classes("q-my-md")
 
-    columns = [
-        {"name": "key",     "label": "",        "field": "key",
-         "align": "left", "classes": "hidden", "headerClasses": "hidden"},
-        {"name": "label",   "label": "Name",    "field": "label",
-         "align": "left"},
-        {"name": "kind",    "label": "Type",    "field": "kind",
-         "align": "left"},
-        {"name": "summary", "label": "Summary", "field": "summary",
-         "align": "left"},
-    ]
-    table = ui.table(
-        columns=columns, rows=_all_rows(state), row_key="key",
-    ).classes("w-full")
-    table_ref["obj"] = table
-
-    table.add_slot(
-        "body-cell-label",
-        '''
-        <q-td :props="props">
-          <q-btn dense flat icon="edit"
-                 @click="$parent.$emit(`edit`, props.row.key)" />
-          <q-btn dense flat icon="delete" color="negative"
-                 @click="$parent.$emit(`delete`, props.row.key)" />
-          {{ props.row.label }}
-        </q-td>
-        ''',
-    )
-
-    def _open_editor(rec: Any):
-        with ui.dialog() as dialog, ui.card().classes("min-w-[600px]"):
-            ui.label(f"Edit {type(rec).__name__}").classes("text-h6")
+    def _open_editor(key: Optional[str], draft: Any) -> None:
+        with dialogs, ui.dialog().mark("editor-dialog") as dialog, \
+                ui.card().classes("min-w-[600px]"):
+            ui.label(f"Edit {type(draft).__name__}").classes("text-h6")
             with ui.column().classes("w-full q-gutter-sm"):
-                for fmeta in dataclasses.fields(rec):
-                    emit_field(ui.row().classes("w-full"), rec, fmeta)
+                for fmeta in dataclasses.fields(draft):
+                    emit_field(ui.row().classes("w-full"), draft, fmeta)
             with ui.row().classes("justify-end q-gutter-sm q-mt-md"):
                 ui.button("Close", on_click=dialog.close).props("flat")
 
-                def _on_save():
-                    state.mark_dirty()
-                    _refresh_table()
+                def _on_save() -> None:
+                    if key is None:
+                        session.add_receptor(draft)
+                    elif not session.update_receptor(key, draft):
+                        dialog.close()
+                        ui.notify("That receptor was removed", color="warning")
+                        return
                     dialog.close()
+
                 ui.button(
                     "Save", on_click=_on_save,
                 ).props("color=primary")
+        dialog.on_value_change(lambda e: None if e.value else dialog.delete())
         dialog.open()
 
-    table.on("edit", lambda e: _open_editor(_find(state, e.args)[0]))
+    def _on_edit(e) -> None:
+        for key, _kind, rec in session.receptor_entries():
+            if key == e.args:
+                _open_editor(key, copy.deepcopy(rec))
+                return
 
-    def _on_delete(e):
-        _rec, lst, idx, kind = _find(state, e.args)
-        del lst[idx]
-        state.mark_dirty()
-        _refresh_table()
-        ui.notify(f"Deleted {kind}[{idx}]", color="warning")
+    def _on_delete(e) -> None:
+        # Today's wording: the kind and the item's position within its kind.
+        positions: Dict[str, str] = {}
+        counts: Dict[str, int] = {}
+        for key, kind, _rec in session.receptor_entries():
+            positions[key] = f"{kind}[{counts.get(kind, 0)}]"
+            counts[kind] = counts.get(kind, 0) + 1
+        removed = session.delete_receptor(e.args)
+        if removed is not None:      # None: an event from a row already gone
+            ui.notify(f"Deleted {positions[e.args]}", color="warning")
 
-    table.on("delete", _on_delete)
-
-    if not _all_rows(state):
-        ui.label("No receptors yet. Add one above.").classes(
-            "text-grey q-mt-sm",
+    @live(session, SessionEvent.PROJECT_CHANGED, parts={"receptors"})
+    def _table() -> None:
+        rows = _all_rows(session.receptor_entries())
+        table = ui.table(
+            columns=_COLUMNS, rows=rows, row_key="key",
+        ).classes("w-full").mark("receptors-table")
+        table.add_slot(
+            "body-cell-label",
+            '''
+            <q-td :props="props">
+              <q-btn dense flat icon="edit"
+                     @click="$parent.$emit(`edit`, props.row.key)" />
+              <q-btn dense flat icon="delete" color="negative"
+                     @click="$parent.$emit(`delete`, props.row.key)" />
+              {{ props.row.label }}
+            </q-td>
+            ''',
         )
+        table.on("edit", _on_edit)
+        table.on("delete", _on_delete)
+        if not rows:
+            ui.label("No receptors yet. Add one above.").classes(
+                "text-grey q-mt-sm",
+            )
 
 
 __all__ = ["render"]
