@@ -41,6 +41,20 @@ class NAAQSStandard:
     cfr_reference: str
     percentile: float | None = None
 
+    @property
+    def level_ugm3(self) -> float:
+        """The level in µg/m³, the unit AERMOD reports concentrations in.
+
+        Standards set in ppb are converted with :func:`ppb_to_ugm3` at the
+        reference conditions of 40 CFR 50.3 (25 °C, 760 mm Hg): 75 ppb of
+        SO2 is 196.4 µg/m³ and 100 ppb of NO2 is 188.0 µg/m³.
+        """
+        if self.units == "ug/m3":
+            return self.level
+        if self.units == "ppb":
+            return ppb_to_ugm3(self.pollutant, self.level)
+        raise ValueError(f"cannot convert {self.units!r} to ug/m3")
+
     def design_rank(self, n_days: int = 366) -> int:
         """Rank (1 = highest) of this standard's percentile in a year.
 
@@ -105,6 +119,36 @@ NAAQS_TABLE: dict[str, list[NAAQSStandard]] = {
 }
 
 
+#: Molecular weights (g/mol) of the gaseous NAAQS pollutants.
+MOLECULAR_WEIGHTS: dict[str, float] = {
+    "SO2": 64.064,
+    "NO2": 46.0055,
+    "CO": 28.010,
+    "O3": 47.997,
+}
+
+#: Volume of a mole of ideal gas (litres) at the reference conditions of
+#: 40 CFR 50.3, 25 °C and 760 mm Hg: R * 298.15 K / 101.325 kPa.
+MOLAR_VOLUME_L = 24.465
+
+
+def ppb_to_ugm3(pollutant: str, ppb: float) -> float:
+    """Convert a mixing ratio in ppb to a concentration in µg/m³.
+
+    ``µg/m³ = ppb * M / 24.465`` with the molecular weight ``M`` from
+    :data:`MOLECULAR_WEIGHTS` and the molar volume at 25 °C and 1 atm
+    (40 CFR 50.3). Raises ``KeyError`` for a pollutant that is not a gas
+    in the table (particulate matter and lead are set in µg/m³ already).
+    """
+    key = pollutant.strip().upper()
+    if key not in MOLECULAR_WEIGHTS:
+        raise KeyError(
+            f"no molecular weight for {pollutant!r}; "
+            f"available: {sorted(MOLECULAR_WEIGHTS)}"
+        )
+    return ppb * MOLECULAR_WEIGHTS[key] / MOLAR_VOLUME_L
+
+
 def get_naaqs(pollutant: str, averaging_period: str) -> NAAQSStandard:
     """Look up the NAAQS for a (pollutant, averaging_period) pair.
 
@@ -134,4 +178,11 @@ def get_naaqs(pollutant: str, averaging_period: str) -> NAAQSStandard:
     )
 
 
-__all__ = ["NAAQS_TABLE", "NAAQSStandard", "get_naaqs"]
+__all__ = [
+    "MOLAR_VOLUME_L",
+    "MOLECULAR_WEIGHTS",
+    "NAAQS_TABLE",
+    "NAAQSStandard",
+    "get_naaqs",
+    "ppb_to_ugm3",
+]
