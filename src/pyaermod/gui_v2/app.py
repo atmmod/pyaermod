@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import logging
 import time
+import traceback
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, Dict, MutableMapping, Optional, Set
 
 from .pages import meteorology, output, project, receptors, results, run, sources
@@ -189,6 +191,48 @@ def build_app() -> None:
             ui.label("PyAERMOD GUI v2 (NiceGUI)")
 
 
+class _CancelledUploadFilter(logging.Filter):
+    """Drop uvicorn's traceback for an upload the browser cancelled.
+
+    Closing the Open dialog while a file is still being sent aborts the
+    request; NiceGUI 3.17's upload route lets Starlette's
+    ``ClientDisconnect`` escape, and uvicorn logs it as "Exception in ASGI
+    application" with a traceback. Nothing went wrong: the project is
+    untouched. Every other record passes.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        if exc is None or not _is_cancelled_upload(exc):
+            return True
+        logger.info("An upload was cancelled before it finished")
+        return False
+
+
+def _is_cancelled_upload(exc: BaseException) -> bool:
+    """True if ``exc`` is a client disconnect raised inside NiceGUI's upload route."""
+    try:
+        from starlette.requests import ClientDisconnect
+    except ImportError:  # pragma: no cover - starlette ships with nicegui
+        return False
+    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+        exc = exc.exceptions[0]
+    if not isinstance(exc, ClientDisconnect):
+        return False
+    return any(PurePath(frame.filename).parts[-3:] == ("nicegui", "elements", "upload.py")
+               for frame in traceback.extract_tb(exc.__traceback__))
+
+
+_UPLOAD_FILTER = _CancelledUploadFilter()
+
+
+def _quiet_cancelled_uploads() -> None:
+    """Install :class:`_CancelledUploadFilter` on uvicorn's error log (once)."""
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    if _UPLOAD_FILTER not in uvicorn_error.filters:
+        uvicorn_error.addFilter(_UPLOAD_FILTER)
+
+
 def build_and_run(
     *,
     host: str = "127.0.0.1",
@@ -216,6 +260,7 @@ def build_and_run(
     from nicegui import ui
 
     build_app()
+    _quiet_cancelled_uploads()
     ui.run(
         host=host,
         port=port,
