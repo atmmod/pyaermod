@@ -139,6 +139,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cleaned the same way, so the header names the file the browser saved.
 - GUI: a run whose runner raises an unexpected exception logs the
   traceback; a missing AERMOD binary is logged as a warning.
+- **Integer fields reach the deck as integers.** The GUI's number boxes
+  store `2020.0`; STARTEND dates typed on the Meteorology step made Run fail
+  with "Unknown format code 'd' for object of type 'float'", and SURFDATA
+  was written `14735.0  1988.0`. The deck is now written from the project
+  as its file reads back (`project_io.check_project`), which turns whole
+  floats in integer fields into integers and refuses a fraction by field
+  name ("start_year must be a whole number, not 12.5"). Saved files get
+  the integers too.
+- **Whole numbers beyond `2**53` in size are refused** when a project file is read
+  or written. A file with a coordinate of `2**64` loaded, then froze the tab:
+  NiceGUI could not send the value to the browser, and every reload of the
+  tab came back blank.
+- Project files: a list used as the key of an integer-keyed dict (OZONEVAL
+  sector values) is refused naming the field; it used to load and then
+  break the deck writer. `save_project` creates no directory for a
+  refused project and replaces an existing file atomically.
+- GUI: cancelling Open while the file is still being sent no longer puts a
+  `ClientDisconnect` traceback in the server log. Errors in the deck writer
+  and in the project-file reader are logged with their traceback.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
