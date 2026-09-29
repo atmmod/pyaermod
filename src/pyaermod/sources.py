@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
+from ._fields import described
 from .pathways import ChemistryOptions
 
 # ============================================================================
@@ -356,42 +357,42 @@ class PointSource:
 
     Represents an elevated point source with emission parameters.
     """
-    source_id: str
-    x_coord: float
-    y_coord: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_coord: float = field(metadata=described("m", "East (x) coordinate of the source location"))
+    y_coord: float = field(metadata=described("m", "North (y) coordinate of the source location"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Stack parameters
-    stack_height: float = 0.0  # meters above base
-    stack_temp: float = 293.15  # Kelvin (default 20C)
-    exit_velocity: float = 0.0  # m/s
-    stack_diameter: float = 0.0  # meters
+    stack_height: float = field(default=0.0, metadata=described("m", "Stack height above the base elevation"))  # meters above base
+    stack_temp: float = field(default=293.15, metadata=described("K", "Stack gas exit temperature"))  # Kelvin (default 20C)
+    exit_velocity: float = field(default=0.0, metadata=described("m/s", "Stack gas exit velocity"))  # m/s
+    stack_diameter: float = field(default=0.0, metadata=described("m", "Inside diameter of the stack"))  # meters
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s
+    emission_rate: float = field(default=1.0, metadata=described("g/s", "Emission rate"))  # g/s
 
     # Building downwash (optional)
     # Accepts either a single float (the same for all directions, written
     # as 36 repeated values because AERMOD has no scalar form) or a list
     # of 36 floats (one per 10-degree wind sector, BPIP output).
-    building_height: Optional[Union[float, List[float]]] = None
-    building_width: Optional[Union[float, List[float]]] = None
-    building_length: Optional[Union[float, List[float]]] = None
-    building_x_offset: Optional[Union[float, List[float]]] = None
-    building_y_offset: Optional[Union[float, List[float]]] = None
+    building_height: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDHGT)"))
+    building_width: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDWID)"))
+    building_length: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDLEN)"))
+    building_x_offset: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (XBADJ)"))
+    building_y_offset: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (YBADJ)"))
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source NO2/NOx ratio (optional, overrides default)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -510,25 +511,25 @@ class SidewashPointSource:
     zero or less is reset to 1 m by AERMOD.
     """
     location_type: ClassVar[str] = "SWPOINT"
-    source_id: str
-    x_coord: float
-    y_coord: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_coord: float = field(metadata=described("m", "East (x) coordinate of the source location"))
+    y_coord: float = field(metadata=described("m", "North (y) coordinate of the source location"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
-    emission_rate: float = 1.0  # g/s
-    release_height: float = 0.0  # m
-    building_width: float = 1.0  # m
-    building_length: float = 1.0  # m
-    building_height: float = 1.0  # m
-    building_angle: float = 0.0  # degrees
+    emission_rate: float = field(default=1.0, metadata=described("g/s", "Emission rate"))  # g/s
+    release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # m
+    building_width: float = field(default=1.0, metadata=described("m", "Width of the building the stack stands on"))  # m
+    building_length: float = field(default=1.0, metadata=described("m", "Length of the building"))  # m
+    building_height: float = field(default=1.0, metadata=described("m", "Height of the building"))  # m
+    building_angle: float = field(default=0.0, metadata=described("deg", "Orientation of the building, clockwise from north"))  # degrees
 
-    source_groups: List[str] = field(default_factory=list)
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
-    no2_ratio: Optional[float] = None
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
@@ -556,41 +557,41 @@ class AreaSource:
 
     Represents a rectangular area source with uniform emissions.
     """
-    source_id: str
-    x_coord: float
-    y_coord: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_coord: float = field(metadata=described("m", "x coordinate of the south-west corner"))
+    y_coord: float = field(metadata=described("m", "y coordinate of the south-west corner"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Area parameters
-    release_height: float = 0.0  # meters above ground
-    initial_lateral_dimension: float = 10.0  # meters (half-width in y-direction)
-    initial_vertical_dimension: float = 10.0  # meters (half-width in x-direction)
+    release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # meters above ground
+    initial_lateral_dimension: float = field(default=10.0, metadata=described("m", "Xinit: length of the X side (east-west before rotation)"))  # SRCPARAM Xinit (soset.f ARPARM)
+    initial_vertical_dimension: float = field(default=10.0, metadata=described("m", "Yinit: length of the Y side (north-south before rotation)"))  # SRCPARAM Yinit
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s/m^2
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m²)", "Emission rate per unit area"))  # g/s/m^2
 
     # Orientation
-    angle: float = 0.0  # degrees from north (optional)
+    angle: float = field(default=0.0, metadata=described("deg", "Rotation clockwise from north about the south-west corner"))  # degrees from north (optional)
 
     # Building downwash (optional)
-    building_height: Optional[Union[float, List[float]]] = None
-    building_width: Optional[Union[float, List[float]]] = None
-    building_length: Optional[Union[float, List[float]]] = None
-    building_x_offset: Optional[Union[float, List[float]]] = None
-    building_y_offset: Optional[Union[float, List[float]]] = None
+    building_height: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDHGT)"))
+    building_width: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDWID)"))
+    building_length: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDLEN)"))
+    building_x_offset: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (XBADJ)"))
+    building_y_offset: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (YBADJ)"))
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -654,33 +655,33 @@ class AreaCircSource:
 
     Represents a circular area source with uniform emissions.
     """
-    source_id: str
-    x_coord: float
-    y_coord: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_coord: float = field(metadata=described("m", "x coordinate of the centre"))
+    y_coord: float = field(metadata=described("m", "y coordinate of the centre"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Area parameters
-    release_height: float = 0.0  # meters above ground
-    radius: float = 100.0  # meters
+    release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # meters above ground
+    radius: float = field(default=100.0, metadata=described("m", "Radius of the circle"))  # meters
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s/m^2
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m²)", "Emission rate per unit area"))  # g/s/m^2
 
     # Discretization
-    num_vertices: int = 20  # Number of vertices for approximation
+    num_vertices: int = field(default=20, metadata=described("", "Sides of the equal-area polygon AERMOD models the circle with"))  # Number of vertices for approximation
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -734,31 +735,31 @@ class AreaPolySource:
 
     Represents an irregular polygonal area source defined by vertices.
     """
-    source_id: str
-    vertices: List[Tuple[float, float]]  # List of (x, y) coordinates
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    vertices: List[Tuple[float, float]] = field(metadata=described("m", "Vertices as x, y pairs, one per line"))  # List of (x, y) coordinates
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Area parameters
-    release_height: float = 0.0  # meters above ground
+    release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # meters above ground
     # Optional initial vertical dimension (SRCPARAM field 4, ``szinit``,
     # metres). ``None`` writes the three-field form; AERMOD then uses 0.
-    initial_vertical_dimension: Optional[float] = None
+    initial_vertical_dimension: Optional[float] = field(default=None, metadata=described("m", "Initial vertical dimension σz0 (optional)"))
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s/m^2
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m²)", "Emission rate per unit area"))  # g/s/m^2
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -831,38 +832,38 @@ class VolumeSource:
     Useful for modeling emissions from buildings, structures, or areas
     with significant initial mixing.
     """
-    source_id: str
-    x_coord: float
-    y_coord: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_coord: float = field(metadata=described("m", "East (x) coordinate of the source location"))
+    y_coord: float = field(metadata=described("m", "North (y) coordinate of the source location"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Volume parameters
-    release_height: float = 0.0  # meters above ground (centroid height)
-    initial_lateral_dimension: float = 10.0  # meters (initial sigma_y)
-    initial_vertical_dimension: float = 10.0  # meters (initial sigma_z)
+    release_height: float = field(default=0.0, metadata=described("m", "Height of the centre of the volume above ground"))  # meters above ground (centroid height)
+    initial_lateral_dimension: float = field(default=10.0, metadata=described("m", "Initial lateral dimension σy0"))  # meters (initial sigma_y)
+    initial_vertical_dimension: float = field(default=10.0, metadata=described("m", "Initial vertical dimension σz0"))  # meters (initial sigma_z)
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s
+    emission_rate: float = field(default=1.0, metadata=described("g/s", "Emission rate"))  # g/s
 
     # Building downwash (optional)
-    building_height: Optional[Union[float, List[float]]] = None
-    building_width: Optional[Union[float, List[float]]] = None
-    building_length: Optional[Union[float, List[float]]] = None
-    building_x_offset: Optional[Union[float, List[float]]] = None
-    building_y_offset: Optional[Union[float, List[float]]] = None
+    building_height: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDHGT)"))
+    building_width: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDWID)"))
+    building_length: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (BUILDLEN)"))
+    building_x_offset: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (XBADJ)"))
+    building_y_offset: Optional[Union[float, List[float]]] = field(default=None, metadata=described("m", "Building downwash (BPIP): one value for every wind direction, or 36, one per 10° sector (YBADJ)"))
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -925,35 +926,35 @@ class LineSource:
     Useful for modeling roads, conveyor belts, pipelines, or any
     linear emission feature.
     """
-    source_id: str
-    x_start: float
-    y_start: float
-    x_end: float
-    y_end: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_start: float = field(metadata=described("m", "x coordinate of the line's start"))
+    y_start: float = field(metadata=described("m", "y coordinate of the line's start"))
+    x_end: float = field(metadata=described("m", "x coordinate of the line's end"))
+    y_end: float = field(metadata=described("m", "y coordinate of the line's end"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Line parameters
-    release_height: float = 0.0  # meters above ground
-    initial_lateral_dimension: float = 1.0  # meters (initial sigma_y perpendicular to line)
+    release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # meters above ground
+    initial_lateral_dimension: float = field(default=1.0, metadata=described("m", "Width of the line source"))  # SRCPARAM Width (soset.f LPARM)
     # Optional initial vertical dimension (SRCPARAM field 4, ``szinit``,
     # metres; soset.f LPARM). ``None`` writes the three-field form.
-    initial_vertical_dimension: Optional[float] = None
+    initial_vertical_dimension: Optional[float] = field(default=None, metadata=described("m", "Initial vertical dimension σz0 (optional)"))
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s/m (per unit length)
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m²)", "Emission rate per unit area"))  # soset.f LPARM: AQS, per unit area
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -1073,36 +1074,36 @@ class RLineSource:
     Specialized source for modeling mobile emissions on roadways.
     More sophisticated than basic LINE source with road-specific parameters.
     """
-    source_id: str
-    x_start: float
-    y_start: float
-    x_end: float
-    y_end: float
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_start: float = field(metadata=described("m", "x coordinate of the line's start"))
+    y_start: float = field(metadata=described("m", "y coordinate of the line's start"))
+    x_end: float = field(metadata=described("m", "x coordinate of the line's end"))
+    y_end: float = field(metadata=described("m", "y coordinate of the line's end"))
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Roadway parameters
-    release_height: float = 0.0  # meters above ground (typically vehicle exhaust height)
-    initial_lateral_dimension: float = 3.0  # meters (lane width / 2)
-    initial_vertical_dimension: float = 1.5  # meters (initial mixing height)
+    release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # meters above ground (typically vehicle exhaust height)
+    initial_lateral_dimension: float = field(default=3.0, metadata=described("m", "Width of the road"))  # meters (lane width / 2)
+    initial_vertical_dimension: float = field(default=1.5, metadata=described("m", "Initial vertical dispersion σz0"))  # meters (initial mixing height)
 
     # Emission parameters
-    emission_rate: float = 1.0  # g/s/m (per unit length)
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m²)", "Emission rate per unit area; AERMOD multiplies it by the width"))  # soset.f RLPARM: QEMIS = Lnemis * Width
 
     # Street canyon (optional)
     street_canyon: Optional[StreetCanyon] = None
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -1166,34 +1167,34 @@ class RLineExtSource:
     and depressed roadway modeling. Requires ALPHA model option for
     barrier/depression features.
     """
-    source_id: str
-    x_start: float
-    y_start: float
-    z_start: float  # source height at start endpoint (meters)
-    x_end: float
-    y_end: float
-    z_end: float    # source height at end endpoint (meters)
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_start: float = field(metadata=described("m", "x coordinate of the line's start"))
+    y_start: float = field(metadata=described("m", "y coordinate of the line's start"))
+    z_start: float = field(metadata=described("m", "Source height above ground at the start"))  # source height at start endpoint (meters)
+    x_end: float = field(metadata=described("m", "x coordinate of the line's end"))
+    y_end: float = field(metadata=described("m", "y coordinate of the line's end"))
+    z_end: float = field(metadata=described("m", "Source height above ground at the end"))    # source height at end endpoint (meters)
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # SRCPARAM fields
-    emission_rate: float = 1.0           # g/(m*s) per unit length of road
-    dcl: float = 0.0                     # offset distance from centerline (meters)
-    road_width: float = 30.0             # width of roadway (meters)
-    init_sigma_z: float = 1.5            # initial vertical dispersion (meters)
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m)", "Emission rate per unit length of road"))           # g/(m*s) per unit length of road
+    dcl: float = field(default=0.0, metadata=described("m", "Offset of the source from the road's centre line"))                     # offset distance from centerline (meters)
+    road_width: float = field(default=30.0, metadata=described("m", "Width of the road"))             # width of roadway (meters)
+    init_sigma_z: float = field(default=1.5, metadata=described("m", "Initial vertical dispersion σz0"))            # initial vertical dispersion (meters)
 
     # Barrier fields (optional, requires ALPHA + FLAT)
-    barrier_height_1: Optional[float] = None   # height of barrier 1 (meters, >= 0)
-    barrier_dcl_1: Optional[float] = None      # barrier 1 distance from centerline (meters)
-    barrier_height_2: Optional[float] = None   # height of barrier 2 (meters, >= 0)
-    barrier_dcl_2: Optional[float] = None      # barrier 2 distance from centerline (meters)
+    barrier_height_1: Optional[float] = field(default=None, metadata=described("m", "Height of the first barrier (RBARRIER)"))   # height of barrier 1 (meters, >= 0)
+    barrier_dcl_1: Optional[float] = field(default=None, metadata=described("m", "Distance of the first barrier from the centre line"))      # barrier 1 distance from centerline (meters)
+    barrier_height_2: Optional[float] = field(default=None, metadata=described("m", "Height of the second barrier"))   # height of barrier 2 (meters, >= 0)
+    barrier_dcl_2: Optional[float] = field(default=None, metadata=described("m", "Distance of the second barrier from the centre line"))      # barrier 2 distance from centerline (meters)
 
     # Depression fields (optional, requires ALPHA + FLAT)
-    depression_depth: Optional[float] = None   # depth of depression (meters, <= 0)
-    depression_wtop: Optional[float] = None    # top width of depression (meters, >= 0)
-    depression_wbottom: Optional[float] = None  # bottom width of depression (meters, [0, wtop])
+    depression_depth: Optional[float] = field(default=None, metadata=described("m", "Depth of a depressed road (RDEPRESS), zero or negative"))   # depth of depression (meters, <= 0)
+    depression_wtop: Optional[float] = field(default=None, metadata=described("m", "Width of the top of the depression"))    # top width of depression (meters, >= 0)
+    depression_wbottom: Optional[float] = field(default=None, metadata=described("m", "Width of the bottom of the depression"))  # bottom width of depression (meters, [0, wtop])
 
     # Vegetative barriers (VBARRIER, v26135; at most two, requires
     # ALPHA + FLAT). AERMOD keeps only the barrier nearer the road when
@@ -1204,14 +1205,14 @@ class RLineExtSource:
     street_canyon: Optional[StreetCanyon] = None
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -1306,16 +1307,16 @@ class RLineExtSource:
 @dataclass
 class BuoyLineSegment:
     """A single line segment within a BUOYLINE source group."""
-    source_id: str
-    x_start: float
-    y_start: float
-    x_end: float
-    y_end: float
-    emission_rate: float = 1.0       # g/s (average emission release rate)
-    release_height: float = 10.0     # meters
+    source_id: str = field(metadata=described(None, "AERMOD source ID of this line, up to 12 characters"))
+    x_start: float = field(metadata=described("m", "x coordinate of the line's start"))
+    y_start: float = field(metadata=described("m", "y coordinate of the line's start"))
+    x_end: float = field(metadata=described("m", "x coordinate of the line's end"))
+    y_end: float = field(metadata=described("m", "y coordinate of the line's end"))
+    emission_rate: float = field(default=1.0, metadata=described("g/s", "Emission rate of this line"))       # g/s (average emission release rate)
+    release_height: float = field(default=10.0, metadata=described("m", "Release height above ground"))     # meters
     # Base elevation on this segment's LOCATION line; ``None`` uses the
     # group's :attr:`BuoyLineSource.base_elevation`.
-    base_elevation: Optional[float] = None
+    base_elevation: Optional[float] = field(default=None, metadata=described("m", "Terrain elevation at the line (blank: the source's)"))
 
 
 @dataclass
@@ -1327,33 +1328,33 @@ class BuoyLineSource:
     potroom roof vents. Consists of multiple line segments sharing
     common plume rise parameters defined via BLPINPUT.
     """
-    source_id: str  # Group identifier for BLPGROUP
+    source_id: str = field(metadata=described(None, "Buoyant line group ID (BLPGROUP), up to 8 characters"))  # Group identifier for BLPGROUP
 
     # Average plume rise parameters (BLPINPUT)
-    avg_line_length: float           # meters
-    avg_building_height: float       # meters
-    avg_building_width: float        # meters
-    avg_line_width: float            # meters
-    avg_building_separation: float   # meters
-    avg_buoyancy_parameter: float    # m^4/s^3
+    avg_line_length: float = field(metadata=described("m", "Average length of the lines (BLPINPUT)"))           # meters
+    avg_building_height: float = field(metadata=described("m", "Average height of the buildings"))       # meters
+    avg_building_width: float = field(metadata=described("m", "Average width of the buildings"))        # meters
+    avg_line_width: float = field(metadata=described("m", "Average width of the lines"))            # meters
+    avg_building_separation: float = field(metadata=described("m", "Average separation between the buildings"))   # meters
+    avg_buoyancy_parameter: float = field(metadata=described("m⁴/s³", "Average buoyancy parameter"))    # m^4/s^3
 
     # Line segments
-    line_segments: List[BuoyLineSegment] = field(default_factory=list)
+    line_segments: List[BuoyLineSegment] = field(default_factory=list, metadata=described(None, "The individual buoyant lines"))
 
-    base_elevation: float = 0.0
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
@@ -1445,31 +1446,31 @@ class OpenPitSource:
     is computed internally by AERMOD based on pit geometry and wind speed.
     Coordinates specify the SW corner of the pit.
     """
-    source_id: str
-    x_coord: float        # SW corner x-coordinate
-    y_coord: float        # SW corner y-coordinate
-    base_elevation: float = 0.0
+    source_id: str = field(metadata=described(None, "AERMOD source ID, up to 12 characters"))
+    x_coord: float = field(metadata=described("m", "x coordinate of the south-west corner"))        # SW corner x-coordinate
+    y_coord: float = field(metadata=described("m", "y coordinate of the south-west corner"))        # SW corner y-coordinate
+    base_elevation: float = field(default=0.0, metadata=described("m", "Terrain elevation at the source base, used with ELEV terrain"))
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
-    flat_source: bool = False
+    flat_source: bool = field(default=False, metadata=described(None, "Model this source as in flat terrain (FLAT on its LOCATION card)"))
 
     # SRCPARAM fields
-    emission_rate: float = 1.0       # g/(s*m^2)
-    release_height: float = 0.0      # meters above pit base
-    x_dimension: float = 100.0       # meters (pit length in x-direction)
-    y_dimension: float = 100.0       # meters (pit width in y-direction)
-    pit_volume: float = 100000.0     # m^3 (must be > 0)
-    angle: float = 0.0               # rotation angle from north (degrees)
+    emission_rate: float = field(default=1.0, metadata=described("g/(s·m²)", "Emission rate per unit area"))       # g/(s*m^2)
+    release_height: float = field(default=0.0, metadata=described("m", "Average release height above the pit floor"))      # meters above pit base
+    x_dimension: float = field(default=100.0, metadata=described("m", "Length of the pit's X side (east-west before rotation)"))       # meters (pit length in x-direction)
+    y_dimension: float = field(default=100.0, metadata=described("m", "Length of the pit's Y side (north-south before rotation)"))       # meters (pit width in y-direction)
+    pit_volume: float = field(default=100000.0, metadata=described("m³", "Volume of the pit"))     # m^3 (must be > 0)
+    angle: float = field(default=0.0, metadata=described("deg", "Rotation clockwise from north about the south-west corner"))               # rotation angle from north (degrees)
 
     # Source groups
-    source_groups: List[str] = field(default_factory=list)
+    source_groups: List[str] = field(default_factory=list, metadata=described(None, "Source groups (SRCGROUP) this source joins besides ALL, one per line"))
 
     # Urban source
-    is_urban: bool = False
-    urban_area_name: Optional[str] = None
+    is_urban: bool = field(default=False, metadata=described(None, "Model this source with urban dispersion (URBANSRC)"))
+    urban_area_name: Optional[str] = field(default=None, metadata=described(None, "The URBANOPT area this source belongs to, when there are several"))
 
     # Per-source in-stack NO2/NOx ratio (NO2RATIO; OLM/PVMRM/GRSM/TTRM)
-    no2_ratio: Optional[float] = None
+    no2_ratio: Optional[float] = field(default=None, metadata=described("", "In-stack NO2/NOx ratio (NO2RATIO), from 0 to 1"))
 
     # Deposition parameters (optional)
     gas_deposition: Optional[GasDepositionParams] = None
