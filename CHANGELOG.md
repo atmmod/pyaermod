@@ -326,9 +326,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the class attribute `entry_type`, so a subclass can store richer
   entries, and it ignores keys the entry type does not have.
 - `BatchRunner.parameter_sweep` makes these changes:
-  - **Return value.** It returns a `SweepResults`, a read-only mapping
-    from each sweep value, in sweep order, to its result. Looking a
-    value up compares by `==`, so the values need not be hashable.
+  - **Return value (breaking).** It returns a `SweepResults`, a
+    read-only mapping from each sweep value, in sweep order, to its
+    result, instead of a `dict`. Looking a value up compares by `==`, so
+    the values need not be hashable, and `keys()`, `items()` and
+    `values()` are mapping views in sweep order. What worked on the dict
+    and no longer does: `isinstance(results, dict)` is False,
+    `results[value] = ...` raises `TypeError`, and `json.dumps(results)`
+    raises `TypeError`. `dict(results)` gives the old dict back when the
+    values are hashable.
   - **Deck names.** A value that is not a short plain number, string or
     boolean now names its deck by its position and a hash, as in
     `run_particle_deposition_001_3fa9c0d27e41.inp`. Two values whose
@@ -337,6 +343,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Output names.** Each deck's output files are renamed
     `<deck stem>_<file name>`, in the sweep's directory.
   - **Equal values** are refused with `ValueError`.
+  - **Outputs that would become one file** are refused with
+    `ValueError` before any deck is written: two output files with the
+    same file name in different directories (`annual/result.plt` and
+    `hourly/result.plt`, compared ignoring case), which the sweep ran
+    before. So is a renamed file name longer than AERMOD's 200
+    characters (E291).
 
 ### Fixed
 - **Receptor elevations were not written under elevated terrain, so

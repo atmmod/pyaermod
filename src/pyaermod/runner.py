@@ -14,7 +14,7 @@ import re
 import shutil
 import signal
 import subprocess
-from collections.abc import Mapping
+from collections.abc import ItemsView, Mapping, ValuesView
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1089,14 +1089,30 @@ def _values_equal(a: Any, b: Any) -> bool:
         return False
 
 
+class _SweepItemsView(ItemsView):
+    def __iter__(self):
+        return iter(self._mapping._pairs)
+
+
+class _SweepValuesView(ValuesView):
+    def __iter__(self):
+        return (result for _, result in self._mapping._pairs)
+
+
 class SweepResults(Mapping):
     """The results of :meth:`BatchRunner.parameter_sweep`, by sweep value.
 
     A read-only mapping from each value of the sweep, in sweep order, to
     its :class:`AERMODRunResult`. Values need not be hashable: looking
     one up compares by ``==``, so ``results[psd]`` works for a
-    :class:`~pyaermod.sources.ParticleDepositionParams`. ``items()`` and
-    ``values()`` come in sweep order.
+    :class:`~pyaermod.sources.ParticleDepositionParams`. ``keys()``,
+    ``items()`` and ``values()`` are the usual mapping views, in sweep
+    order.
+
+    It is not a ``dict``: ``isinstance(results, dict)`` is False, it
+    cannot be changed, and ``json.dumps`` does not take it. When the
+    values are hashable, ``dict(results)`` gives the dict
+    ``parameter_sweep`` returned in pyaermod 2.2 and earlier.
     """
 
     def __init__(self, pairs: Sequence[Tuple[Any, AERMODRunResult]]):
@@ -1114,13 +1130,13 @@ class SweepResults(Mapping):
     def __len__(self) -> int:
         return len(self._pairs)
 
-    def items(self):
+    def items(self) -> ItemsView:
         """``(value, result)`` pairs in sweep order."""
-        return list(self._pairs)
+        return _SweepItemsView(self)
 
-    def values(self):
+    def values(self) -> ValuesView:
         """Results in sweep order."""
-        return [result for _, result in self._pairs]
+        return _SweepValuesView(self)
 
     def __repr__(self) -> str:
         return f"SweepResults({self._pairs!r})"
@@ -1203,6 +1219,12 @@ class BatchRunner:
         ------
         ValueError
             When two values are equal: they would make the same run.
+            Also when two of the deck's output files would get the same
+            name once their directories are dropped (compared ignoring
+            case), such as ``annual/result.plt`` and
+            ``hourly/result.plt``, or when a renamed file name is longer
+            than AERMOD's 200 characters
+            (:func:`pyaermod.ensemble.rewrite_output_names`).
         """
         import copy
 

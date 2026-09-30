@@ -278,10 +278,17 @@ overlap (see above). Use `run_design` for parallel runs.
   value, in sweep order, to its `AERMODRunResult`. Values need not be
   hashable, and a lookup compares with `==`, so a sweep over
   `ParticleDepositionParams` works and `results[psd]` finds its run.
+  It is not a `dict`, as the sweep returned before: it cannot be
+  changed or given to `json.dumps`. `dict(results)` gives a dict when
+  the values are hashable.
 - **Deck names.** A deck keeps the value's text in its name
   (`run_emission_rate_0.5.inp`) when the value is a short plain number,
   string or boolean. Any other value is named by its position and a hash,
   such as `run_particle_deposition_001_3fa9c0d27e41.inp`.
 - **Output names.** Each deck's output files are prefixed with the
-  deck's stem, so the runs do not overwrite each other's PLOTFILEs.
+  deck's stem, so the runs do not overwrite each other's PLOTFILEs. As
+  they all land in the sweep's directory, two outputs with the same file
+  name in different directories (`annual/result.plt` and
+  `hourly/result.plt`, compared ignoring case) are refused with
+  `ValueError`, as is a new name longer than 200 characters.
 - **Equal values** are refused, because they would be the same run.

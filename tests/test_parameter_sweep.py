@@ -246,8 +246,27 @@ class TestSweepLabels:
         assert len(results) == 2
         with pytest.raises(KeyError):
             results[np.array([1.0, 2.0])]
-        assert results.values() == ["a", "b"]
+        assert list(results.values()) == ["a", "b"]
         assert "SweepResults" in repr(results)
+
+    def test_items_and_values_are_mapping_views_in_sweep_order(self):
+        from collections.abc import ItemsView, KeysView, ValuesView
+
+        results = SweepResults([(2.5, "a"), (0.5, "b")])
+        assert isinstance(results.keys(), KeysView) and list(results.keys()) == [2.5, 0.5]
+        assert isinstance(results.items(), ItemsView)
+        assert list(results.items()) == [(2.5, "a"), (0.5, "b")]
+        assert (0.5, "b") in results.items() and (0.5, "a") not in results.items()
+        assert isinstance(results.values(), ValuesView) and "b" in results.values()
+        assert len(results.items()) == len(results.values()) == 2
+
+    def test_not_a_dict_but_dict_gives_one_back(self):
+        results = SweepResults([(2.5, "a"), (0.5, "b")])
+        assert not isinstance(results, dict)
+        with pytest.raises(TypeError):
+            results[2.5] = "c"
+        assert dict(results) == {2.5: "a", 0.5: "b"}
+        assert results == {2.5: "a", 0.5: "b"}
 
 
 class TestSweepOutputs:
@@ -256,6 +275,18 @@ class TestSweepOutputs:
         with pytest.raises(ValueError, match="are equal"):
             BatchRunner(runner).parameter_sweep(
                 base_project, "emission_rate", [1, 1.0], tmp_path / "sweep", n_workers=1)
+        assert not list((tmp_path / "sweep").glob("*.inp"))
+
+    def test_output_files_whose_names_differ_only_in_directory_are_refused(
+            self, base_project, fake_aermod_exe, tmp_path):
+        """The sweep writes every output beside the decks, so two outputs
+        with one file name in different directories would be one file."""
+        base_project.output.plot_file = "annual/result.plt"
+        base_project.output.postfile = "hourly/RESULT.plt"
+        runner = AERMODRunner(executable_path=fake_aermod_exe, log_level="WARNING")
+        with pytest.raises(ValueError, match="would both be written"):
+            BatchRunner(runner).parameter_sweep(
+                base_project, "emission_rate", [1.0], tmp_path / "sweep", n_workers=1)
         assert not list((tmp_path / "sweep").glob("*.inp"))
 
     def test_output_files_are_named_per_run(self, base_project, fake_aermod_exe, tmp_path):
