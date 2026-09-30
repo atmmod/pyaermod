@@ -28,9 +28,9 @@ from pyaermod.input_generator import (
     OutputPathway,
     SourcePathway,
 )
-from pyaermod.pathways import ControlPathway, TerrainType
+from pyaermod.pathways import ChemistryMethod, ChemistryOptions, ControlPathway, TerrainType
 from pyaermod.receptors import CartesianGrid, DiscreteReceptor, ReceptorPathway
-from pyaermod.sources import OpenPitSource, ParticleDepositionParams, PointSource
+from pyaermod.sources import AreaSource, OpenPitSource, ParticleDepositionParams, PointSource
 
 from .test_source_deck_acceptance import (
     PROFILE,
@@ -64,9 +64,10 @@ def _pit() -> OpenPitSource:
 
 
 def _deck(control: ControlPathway, receptors: ReceptorPathway, source=None) -> str:
+    sources = source if isinstance(source, list) else [source or _stack()]
     project = AERMODProject(
         control=control,
-        sources=SourcePathway(sources=[source or _stack()]),
+        sources=SourcePathway(sources=sources),
         receptors=receptors,
         meteorology=MeteorologyPathway(
             surface_file=SURFACE.name, profile_file=PROFILE.name,
@@ -133,6 +134,53 @@ def test_pilot_debugopt_deck_needs_no_text_patch(tmp_path):
     errors = run_setup_check(deck, tmp_path)
     assert not errors, "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
     assert not (_messages(tmp_path) & UNWANTED)
+
+
+def test_tiny_uniform_heights_are_read(tmp_path):
+    """``3*1e-05`` was STODBL's E208 (an exponent needs a decimal point)."""
+    grid = CartesianGrid(**GRID, z_elev=1e-05, z_hill=2e-05)
+    deck = _deck(_ctl(terrain_type=TerrainType.ELEVATED), ReceptorPathway(cartesian_grids=[grid]))
+    assert "3*0.00001" in deck
+    assert not run_setup_check(deck, tmp_path), deck
+    assert not (_messages(tmp_path) & (UNWANTED | {"E208"}))
+
+
+def test_elev_rows_without_hill_rows_still_stop_aermod(tmp_path):
+    """One row set given is written as given: E218, as on the original deck."""
+    grid = CartesianGrid(**GRID, grid_elevations=[[50.0, 120.0, 200.0]] * 3)
+    deck = _deck(_ctl(terrain_type=TerrainType.ELEVATED), ReceptorPathway(cartesian_grids=[grid]))
+    assert any("E218" in e for e in run_setup_check(deck, tmp_path)), deck
+
+
+def test_debug_options_over_eleven_fields_go_on_several_cards(tmp_path):
+    """v26135 pools repeated DEBUGOPT cards; one card of 12 fields is E202.
+
+    Every option here has the model feature DEBOPT checks for (E194), and
+    ARM2's file name is on the second card, so AERMOD opening a2.dbg
+    shows it read that card. The last step joins the cards into one and
+    expects E202, so the check can fail. VBARRIER is left out: its debug
+    header FORMAT (coset.f 4710) stops v26135 with a runtime error.
+    """
+    options = ["MODEL", "m.dbg", "METEOR", "me.dbg", "AREA", "ar.dbg", "PLATFORM", "pl.dbg",
+               "URBANDB", "ub.dbg", "ARM2", "a2.dbg"]
+    control = _ctl(terrain_type=TerrainType.ELEVATED, regulatory_default=False, pollutant_id="NO2",
+                   chemistry=ChemistryOptions(method=ChemistryMethod.ARM2),
+                   urban_population=100000.0, debug_options=options)
+    stack = _stack()
+    stack.is_urban = True
+    receptors = ReceptorPathway(discrete_receptors=[DiscreteReceptor(1000.0, 0.0)])
+    deck = _deck(control, receptors, source=[stack, AreaSource("A1", 100.0, 100.0)])
+    cards = [ln.split()[1:] for ln in deck.splitlines() if ln.split()[:1] == ["DEBUGOPT"]]
+    assert [len(c) for c in cards] == [10, 2]
+    assert not run_setup_check(deck, tmp_path), deck
+    # A crash before the message summary also returns no fatal errors.
+    assert "Message Summary" in (tmp_path / "aermod.out").read_text(encoding="latin-1", errors="replace")
+    assert {f"{o}" for o in options[1::2]} <= {p.name for p in tmp_path.glob("*.dbg")}
+
+    joined = re.sub(r"(   DEBUGOPT .*)\n   DEBUGOPT  (.*)", r"\1  \2", deck)
+    one_card = tmp_path / "one_card"
+    one_card.mkdir()
+    assert any("E202" in e for e in run_setup_check(joined, one_card))
 
 
 @pytest.mark.parametrize(("dry", "wet", "header"), [

@@ -231,8 +231,7 @@ Enable dry or wet deposition for any source type:
 
 ```python
 from pyaermod import (
-    PointSource, DepositionMethod, GasDepositionParams,
-    ParticleDepositionParams,
+    PointSource, GasDepositionParams, ParticleDepositionParams,
 )
 
 stack = PointSource(
@@ -241,7 +240,6 @@ stack = PointSource(
     stack_height=50.0, stack_temp=400.0,
     exit_velocity=15.0, stack_diameter=2.0,
     emission_rate=1.5,
-    deposition_method=DepositionMethod.GASDEPVD,
     gas_deposition=GasDepositionParams(
         diffusivity=0.1112,          # cm^2/s in air (Da)
         diffusivity_water=1.83e-5,   # cm^2/s in water (Dw)
@@ -258,6 +256,13 @@ deposition_defaults_for("SO2")` returns them). GASDEPOS is an ALPHA
 keyword: set `ControlPathway(alpha=True, regulatory_default=False)`,
 and give the run `gas_deposition_seasons` and `gas_deposition_land_use`
 (GDSEASON / GDLANUSE) or AERMOD stops with E244.
+
+A source's `deposition_method` (and the `DepositionMethod` enum) writes
+nothing: AERMOD has no METHOD keyword. Plume depletion is set on the
+run with `ControlPathway(dry_depletion=..., wet_depletion=...)`
+(MODELOPT DRYDPLT / NODRYDPLT / WETDPLT / NOWETDPLT; `None` leaves
+AERMOD's default, depletion on), and a user-specified gas deposition
+velocity with `ControlPathway.gas_deposition_velocity` (CO GASDEPVD).
 
 Set `OutputPathway(output_type="DEPOS")` to get deposition flux instead of
 concentration in the output.
@@ -444,8 +449,9 @@ RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND,
 EVENTFIL (file and SOCONT/DETAIL option), NO2STACK, OZONEVAL, OZONEFIL,
 O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT,
 NOXSECTR, ARMRATIO, GASDEPDF, GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE,
-INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT. (DEBUGOPT, ERRORFIL and
-NO2EQUIL have no field and travel in `unparsed_lines`.)
+INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT, DEBUGOPT
+(`ControlPathway.debug_options`). (ERRORFIL and NO2EQUIL have no field
+and travel in `unparsed_lines`.)
 
 ### Source Pathway (SO)
 

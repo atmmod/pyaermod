@@ -65,6 +65,41 @@ class TestDebugOptions:
         project = parse_aermod_input(_deck(co="   DEBUGOPT  MODEL\n   DEBUGOPT  DEPOS\n"))
         assert project.control.debug_options == ["MODEL", "DEPOS"]
 
+    def test_eleven_fields_stay_on_one_card(self):
+        # v24142 takes a single DEBUGOPT card (E135 on a repeat).
+        options = ["MODEL", "m.dbg", "METEOR", "me.dbg", "AREA", "ar.dbg", "PRIME", "p.dbg",
+                   "URBANDB", "ub.dbg", "DEPOS"]
+        assert _lines(_ctl(debug_options=options).to_aermod_input(), "DEBUGOPT") == ["  ".join(options)]
+
+    def test_over_eleven_fields_split_between_options(self):
+        # DEBOPT: a card of more than 11 fields is E202; v26135 pools
+        # the cards, so the list goes on several, each option kept with
+        # its file name.
+        options = ["MODEL", "m.dbg", "METEOR", "me.dbg", "AREA", "ar.dbg", "PLATFORM", "pl.dbg",
+                   "URBANDB", "ub.dbg", "ARM2", "a2.dbg"]
+        control = _ctl(debug_options=options)
+        assert control.debug_cards() == [options[:10], options[10:]]
+        assert _lines(control.to_aermod_input(), "DEBUGOPT") == ["  ".join(options[:10]), "ARM2  a2.dbg"]
+
+    def test_a_card_break_never_separates_an_option_from_its_file(self):
+        options = ["DEPOS", "MODEL", "m.dbg", "METEOR", "me.dbg", "AREA", "ar.dbg", "PRIME", "p.dbg",
+                   "URBANDB", "ub.dbg", "ARM2", "a2.dbg", "OLM"]
+        cards = _ctl(debug_options=options).debug_cards()
+        assert [len(c) for c in cards] == [11, 3]
+        assert [tok for card in cards for tok in card] == options
+        assert all(card[0] in DEBUG_OPTIONS for card in cards)
+
+    def test_two_cards_of_twelve_fields_rewrite_as_cards_aermod_takes(self):
+        # Review deck dbg_orig: pooled into one 12-field card, the
+        # rewrite stopped with E202.
+        co = ("   DEBUGOPT  MODEL m.dbg METEOR me.dbg AREA ar.dbg\n"
+              "   DEBUGOPT  PLATFORM pl.dbg URBANDB ub.dbg ARM2 a2.dbg\n")
+        project = parse_aermod_input(_deck(co=co))
+        assert len(project.control.debug_options) == 12
+        cards = _lines(project.to_aermod_input(validate=False), "DEBUGOPT")
+        assert len(cards) == 2 and all(len(c.split()) <= 11 for c in cards)
+        assert " ".join(cards).split() == project.control.debug_options
+
     def test_bare_debugopt_is_kept_verbatim(self):
         project = parse_aermod_input(_deck(co="   DEBUGOPT\n"))
         assert project.control.debug_options == []
@@ -139,6 +174,31 @@ def test_deposition_method_enum_is_documented_as_inert():
 def test_elevated_terrain(terrain, dfault, elevated):
     control = _ctl(terrain_type=terrain, regulatory_default=dfault)
     assert control.elevated_terrain is elevated
+
+
+@pytest.mark.parametrize(("modelopt", "terrain"), [
+    ("CONC", TerrainType.ELEVATED),       # MODOPT leaves ELEV only for FLAT
+    ("CONC DFAULT", TerrainType.ELEVATED),
+    ("CONC FLAT", TerrainType.FLAT),
+    ("CONC ELEV", TerrainType.ELEVATED),
+    ("CONC FLAT ELEV", TerrainType.FLATSRCS),
+])
+def test_reader_terrain_is_what_modopt_runs(modelopt, terrain):
+    project = parse_aermod_input(_deck(modelopt=modelopt))
+    assert project.control.terrain_type == terrain
+    assert project.control.elevated_terrain is (terrain != TerrainType.FLAT)
+
+
+def test_modelopt_without_a_terrain_token_keeps_its_disccart_heights():
+    # Review deck noterr: read as FLAT, the rewrite added FLAT, dropped
+    # the receptor's 80 m elevation and 150 m hill (W229) and changed
+    # the concentration from 0.00564 to 0.03199.
+    project = parse_aermod_input(_deck(modelopt="CONC", re="   DISCCART  1000.0  0.0  80.0  150.0\n"))
+    receptor = project.receptors.discrete_receptors[0]
+    assert (receptor.z_elev, receptor.z_hill) == (80.0, 150.0)
+    rewritten = project.to_aermod_input(validate=False)
+    assert "FLAT" not in _lines(rewritten, "MODELOPT")[0].split()
+    assert _lines(rewritten, "DISCCART")[0].split()[2:] == ["80.00", "150.00"]
 
 
 def _deck(*, modelopt: str = "CONC FLAT", co: str = "", re: str = "   DISCCART  0.0  100.0\n") -> str:

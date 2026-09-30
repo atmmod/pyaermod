@@ -110,6 +110,10 @@ DEBUG_OPTIONS = (
     "BAREDGE", "VBARRIER",
 )
 
+#: The most fields one DEBUGOPT card takes (coset.f DEBOPT: IFC > 13,
+#: counting the pathway and keyword, is E202).
+DEBUGOPT_MAX_FIELDS = 11
+
 #: NO2 methods that take the NO2STACK in-stack ratio; with any other
 #: (ARM2, or none) the keyword is E600 in coset.f.
 NO2STACK_METHODS = ("OLM", "PVMRM", "GRSM", "TTRM", "TTRM2")
@@ -577,8 +581,12 @@ class ControlPathway:
     # option whose model feature is missing (E194: DEPOS without
     # DEPOS/DDEP/WDEP, AREA without an AREA, LINE or OPENPIT source),
     # and it checks DEPOS against MODELOPT, so the writer puts the line
-    # after MODELOPT. At most 11 fields fit on the line (E202). The
-    # recognised option names are DEBUG_OPTIONS; see debug_files().
+    # after MODELOPT. At most 11 fields fit on one card (DEBOPT E202);
+    # v26135 pools repeated DEBUGOPT cards in order (coset.f D144), so
+    # the writer puts a longer list on several cards, split between
+    # options. v24142 takes one card only (E135), so there a list
+    # cannot exceed 11 fields. The recognised option names are
+    # DEBUG_OPTIONS; see debug_files() and debug_cards().
     debug_options: List[str] = field(default_factory=list)
 
     # ARMRATIO min max (coset.f ARM2_Ratios): the ARM2 ratio bounds; needs
@@ -629,6 +637,30 @@ class ControlPathway:
     def debug_files(self) -> List[str]:
         """The file names on the DEBUGOPT line (fields that are not options)."""
         return [tok for tok in self.debug_options if tok.upper() not in DEBUG_OPTIONS]
+
+    def debug_cards(self) -> List[List[str]]:
+        """``debug_options`` as the DEBUGOPT cards the writer puts out.
+
+        coset.f DEBOPT rejects a card of more than 11 fields (E202) and,
+        since v26135 (D144), pools every DEBUGOPT card in order before
+        reading the options, so a longer list goes on several cards.
+        A card break falls only before an option name, keeping each
+        option with its file name. A list of 11 fields or fewer stays on
+        one card, which v24142 (no repeated DEBUGOPT, E135) also reads.
+        """
+        groups: List[List[str]] = []
+        for tok in self.debug_options:
+            if not groups or tok.upper() in DEBUG_OPTIONS:
+                groups.append([tok])
+            else:
+                groups[-1].append(tok)
+        cards: List[List[str]] = []
+        for group in groups:
+            if cards and len(cards[-1]) + len(group) <= DEBUGOPT_MAX_FIELDS:
+                cards[-1].extend(group)
+            else:
+                cards.append(list(group))
+        return cards
 
     @property
     def elevated_terrain(self) -> bool:
@@ -846,8 +878,8 @@ class ControlPathway:
 
         # Debug output. After MODELOPT, which DEBOPT checks DEPOS against
         # (E194 otherwise); AERMOD reads the fields as written.
-        if self.debug_options:
-            lines.append("   DEBUGOPT  " + "  ".join(self.debug_options))
+        for card in self.debug_cards():
+            lines.append("   DEBUGOPT  " + "  ".join(card))
 
         # Run command
         lines.append(f"   RUNORNOT  {'RUN' if self.run_model else 'NOT'}")

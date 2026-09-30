@@ -402,6 +402,7 @@ def _parse_control(block: _PathwayBlock,
     urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
     saw_terrain = False
+    saw_modelopt = False
     extra_opts: List[str] = []
     urban_lines: List[List[str]] = []
     run_model = True
@@ -447,6 +448,7 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "TITLETWO":
             title_two = " ".join(toks)
         elif kw == "MODELOPT":
+            saw_modelopt = True
             for opt in toks:
                 up = opt.upper()
                 if up == "CONC":
@@ -681,6 +683,11 @@ def _parse_control(block: _PathwayBlock,
             nox_file=nox_background.hourly_file if nox_background else None,
             nox_background=nox_background,
         )
+
+    if saw_modelopt and not saw_terrain:
+        # coset.f MODOPT starts from elevated terrain and leaves it only
+        # for a FLAT token, so ``MODELOPT CONC`` runs with ELEV.
+        terrain = TerrainType.ELEVATED
 
     return ControlPathway(
         title_one=title_one,

@@ -58,12 +58,43 @@ class TestCartesianGridRows:
         text = CartesianGrid(**GRID).to_aermod_input(elevated=True)
         assert "GRID1    ELEV      1  3*0" in text and "GRID1    HILL      2  3*0" in text
 
-    def test_given_rows_win_and_the_missing_set_is_filled(self):
-        # grid_elevations alone was E218 ZHILL: RECART needs both sets.
-        grid = CartesianGrid(**GRID, z_hill=7.0, grid_elevations=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-        text = grid.to_aermod_input(elevated=True)
+    def test_one_given_set_is_not_completed_from_the_grid_wide_value(self):
+        # ELEV rows without HILL rows are RECART's E218 on the original
+        # deck; filling HILL with z_hill made the rewrite run with every
+        # hill height 0 (review case g1_elev_only_rows).
+        elevations = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        text = CartesianGrid(**GRID, z_hill=7.0, grid_elevations=elevations).to_aermod_input(elevated=True)
         assert "GRID1    ELEV      1       1.0      2.0      3.0" in text
-        assert "GRID1    HILL      1  3*7" in text
+        assert "HILL" not in text
+        text = CartesianGrid(**GRID, z_elev=7.0, grid_hills=elevations).to_aermod_input(elevated=True)
+        assert "HILL" in text and "ELEV" not in text
+
+    def test_elev_rows_without_hill_rows_read_back_without_hill_rows(self):
+        re_block = ("   GRIDCART  G1 STA\n      XYINC  0.0 3 100.0  0.0 1 100.0\n"
+                    "   GRIDCART  G1 ELEV 1 50.0 120.0 200.0\n   GRIDCART  G1 END\n")
+        project = parse_aermod_input(_deck(modelopt="CONC ELEV", re=re_block))
+        rewritten = project.to_aermod_input(validate=False)
+        assert [ln for ln in rewritten.splitlines() if " ELEV " in ln]
+        assert not [ln for ln in rewritten.splitlines() if " HILL " in ln]
+
+    @pytest.mark.parametrize(("value", "literal"), [
+        (1e-05, "0.00001"),              # .10g gave 1e-05: STODBL E208
+        (1e-12, "0.000000000001"),
+        (2e10, "20000000000"),
+        (1.5e15, "1500000000000000"),
+        (123.456789012345, "123.456789012345"),  # .10g cut it to 123.456789
+        (-3.25, "-3.25"),
+        (10.0, "10"),
+    ])
+    def test_uniform_row_literal_is_fixed_point_and_exact(self, value, literal):
+        text = CartesianGrid(**GRID, z_elev=value).to_aermod_input(elevated=True)
+        assert f"GRID1    ELEV      1  3*{literal}" in text
+        assert float(literal) == value
+
+    def test_coordinate_lists_have_no_exponent_and_ten_digits(self):
+        grid = CartesianGrid(x_points=[1e-05, 2e10, 0.30000000000000004, 500000.123456789], y_points=[0.0])
+        assert _lines(grid.to_aermod_input(), "GRIDCART")[1] == (
+            "GRID1    XPNTS  0.00001  20000000000  0.3  500000.1235")
 
     @pytest.mark.parametrize("elevated", [False, None])
     def test_flat_or_unknown_writes_only_given_rows(self, elevated):

@@ -152,7 +152,9 @@ Of these, ERRORFIL and NO2EQUIL have no field and travel in
 (`ControlPathway.debug_options`, the fields as written: options and the
 file names after them, which keep their case; coset.f DEBOPT pools the
 fields of repeated cards and checks DEPOS against MODELOPT, so the writer
-puts the line after MODELOPT), RUNORNOT
+puts the line after MODELOPT, and one card takes at most 11 fields,
+E202, so a longer list goes on several cards split between options;
+v24142 takes one card only, E135), RUNORNOT
 (`ControlPathway.run_model`), EVENTFIL (`.eventfil` and
 `.eventfil_option`, coset.f EVNTFL: `evfile [SOCONT|DETAIL]`; the bare
 form, AERMOD's EVENTS.INP with W207, is kept verbatim) and URBANOPT are
@@ -192,8 +194,10 @@ the rewrite fails the same way). Terrain follows
 `coset.f` MODOPT: `ELEV` is the token (the writer used to emit
 `ELEVATED`, which is E203), `FLAT` then `ELEV` on one line means flat
 sources in elevated terrain (`TerrainType.FLATSRCS`, which has no token
-of its own and is written as that pair), and a `FLAT` after `ELEV` is
-ignored (W206). Every other option token (FASTALL, SCREEN, TOXICS,
+of its own and is written as that pair), a `FLAT` after `ELEV` is
+ignored (W206), and a MODELOPT with no terrain token runs with ELEV
+(MODOPT leaves ELEV only for FLAT), so the reader reads it as
+`TerrainType.ELEVATED`. Every other option token (FASTALL, SCREEN, TOXICS,
 PSDCREDIT, NOCHKD, NOURBTRAN, VECTORWS, SCIM, ...) is kept in
 `ControlPathway.extra_model_options` and written back as given.
 `URBANOPT` follows `coset.f` URBOPT: with one card the fields are
@@ -287,9 +291,11 @@ do the reader and the writer (`ControlPathway.elevated_terrain`,
 `.flag_pole_height`). A bare `FLAGPOLE` still switches flagpole receptors
 on (coset.f FLAGDF, height 0, W205) and is read as `flag_pole_height=0.0`.
 Under elevated terrain a Cartesian grid without ELEV and HILL rows is
-W214 (E218 with only one set), so the writer fills them from
-`CartesianGrid.z_elev` / `.z_hill`, a row of one value as `N*value`,
-which STODBL reads as N copies.
+W214, so the writer fills both from `CartesianGrid.z_elev` / `.z_hill`;
+a grid given only one set is written as given and stays E218. A row of
+one value is written as `N*value`, which STODBL reads as N copies, in
+plain fixed-point: STODBL reads an exponent only after a decimal point
+(`3*1e-05` is E208).
 
 **ME (14):** DAYRANGE, NUMYEARS, PROFBASE, PROFFILE, SCIMBYHR, SITEDATA,
 STARTEND, SURFDATA, SURFFILE, UAIRDATA, WDROTATE, WINDCATS, and the nine

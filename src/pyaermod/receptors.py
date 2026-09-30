@@ -12,12 +12,30 @@ or :mod:`pyaermod.api`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import List, Optional
 
 
+def _fixed(number: str) -> str:
+    """``number`` written out without an exponent or trailing zeros.
+
+    setup.f STODBL takes an exponent only after a decimal point and only
+    up to 30 in magnitude, so ``1e-05`` is E208; ``0.00001`` is read.
+    """
+    text = format(Decimal(number), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
 def _num(value: float) -> str:
-    """Shortest rendering that reads back to the same value."""
-    return f"{value:.10g}"
+    """Ten significant digits, never in exponent form (see :func:`_fixed`)."""
+    return _fixed(f"{value:.10g}")
+
+
+def _exact(value: float) -> str:
+    """The shortest text that reads back to the same float, no exponent."""
+    return _fixed(repr(float(value)))
 
 
 def _row_lines(keyword: str, grid_name: str, sub: str,
@@ -27,13 +45,14 @@ def _row_lines(keyword: str, grid_name: str, sub: str,
     reset.f (TERHGT / HILHGT / FLGHGT) tags every value with the row in
     the field after the sub-keyword and accumulates over records, so a
     row may span lines. A row of one repeated value is written as
-    ``N*value`` on one line, which STODBL reads as N copies, at full
-    precision: a grid of one elevation then takes a line per row.
+    ``N*value`` on one line, which STODBL reads as N copies, with the
+    value exact (:func:`_exact`): a grid of one elevation then takes a
+    line per row. Other rows keep the one-decimal ``8.1f`` fields.
     """
     out: List[str] = []
     for row_idx, row in enumerate(rows, start=1):
         if len(row) > 1 and all(v == row[0] for v in row):
-            out.append(f"   {keyword}  {grid_name:<8} {sub}  {row_idx:5d}  {len(row)}*{_num(row[0])}")
+            out.append(f"   {keyword}  {grid_name:<8} {sub}  {row_idx:5d}  {len(row)}*{_exact(row[0])}")
             continue
         for start in range(0, len(row), 6):
             vals = " ".join(f"{v:8.1f}" for v in row[start:start + 6])
@@ -71,11 +90,11 @@ class CartesianGrid:
     y_delta: float = 100.0
 
     # One terrain elevation, hill height and flagpole height for every
-    # receptor of the grid. Under elevated terrain a grid without
-    # grid_elevations / grid_hills gets GRIDCART ELEV / HILL rows filled
-    # with z_elev / z_hill (reset.f RECART otherwise warns W214 and uses
-    # zero, or stops with E218 when only one of the two row sets is
-    # there). With CO FLAGPOLE a non-zero z_flag fills FLAG rows for a
+    # receptor of the grid. Under elevated terrain a grid with neither
+    # grid_elevations nor grid_hills gets GRIDCART ELEV and HILL rows
+    # filled with z_elev and z_hill (reset.f RECART otherwise warns W214
+    # and uses zero); with only one of the two row sets it is written
+    # as given and AERMOD stops with E218. With CO FLAGPOLE a non-zero z_flag fills FLAG rows for a
     # grid without grid_flags; 0 leaves them out, and AERMOD gives every
     # receptor the FLAGPOLE height (W216), as for a DiscreteReceptor.
     # See to_aermod_input.
@@ -147,10 +166,12 @@ class CartesianGrid:
         ``elevated`` is whether the run uses elevated terrain
         (:attr:`ControlPathway.elevated_terrain`) and ``flagpole`` the
         run's ``CO FLAGPOLE`` height (:attr:`ControlPathway.flag_pole_height`).
-        Under elevated terrain a grid without ``grid_elevations`` or
-        ``grid_hills`` gets ELEV or HILL rows of ``z_elev`` or ``z_hill``,
-        because reset.f RECART needs both (W214 when both are missing,
-        E218 when one is). With a flagpole height, a grid without
+        Under elevated terrain a grid with neither ``grid_elevations``
+        nor ``grid_hills`` gets ELEV and HILL rows of ``z_elev`` and
+        ``z_hill``, because reset.f RECART needs both (W214 and zero
+        heights when both are missing). A grid with only one of the two
+        is written as given, and AERMOD stops with E218, as it does for
+        a deck with ELEV rows and no HILL rows. With a flagpole height, a grid without
         ``grid_flags`` gets FLAG rows of a non-zero ``z_flag``; with
         ``z_flag`` 0 they are left out and AERMOD uses the FLAGPOLE
         height for every receptor (W216, the same heights), which keeps
@@ -174,11 +195,12 @@ class CartesianGrid:
         # flagpole heights, one row (y index) per line group; the
         # grid-wide values fill the rows AERMOD needs and was not given.
         elevations, hills, flags = self.grid_elevations, self.grid_hills, self.grid_flags
-        if elevated:
-            if elevations is None:
-                elevations = self._filled(self.z_elev)
-            if hills is None:
-                hills = self._filled(self.z_hill)
+        if elevated and elevations is None and hills is None:
+            # Only when both sets are missing: with one given (say from
+            # AERMAP) the other is not made up from z_elev / z_hill, and
+            # AERMOD stops with E218 as it does on the original deck.
+            elevations = self._filled(self.z_elev)
+            hills = self._filled(self.z_hill)
         if flagpole is not None and flags is None and self.z_flag != 0.0:
             flags = self._filled(self.z_flag)
         for sub, rows in (("ELEV", elevations), ("HILL", hills), ("FLAG", flags)):
