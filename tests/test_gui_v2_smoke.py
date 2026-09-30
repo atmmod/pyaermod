@@ -1616,8 +1616,10 @@ class TestRunPageFailurePaths:
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("Run failed:")
         await gui.user.should_see("Run failed; see log")
-        # A run that never started leaves Results as it was.
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        # Results shows the attempt as the latest run, and why it failed.
+        await gui.user.should_see("Run 1 failed")
+        await gui.user.should_see("AERMOD could not be run: AERMOD executable not found in PATH")
+        await gui.user.should_not_see("No run yet. Use the Run tab to dispatch AERMOD.")
 
 
 class TestResultsPageMore:
