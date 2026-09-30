@@ -80,6 +80,8 @@ def _lon(value: float) -> str:
     return f"{_num(abs(value))}{'E' if value >= 0 else 'W'}"
 
 
+# AERMET reads file names of up to 300 characters (flength in mod_file_units.f90).
+_MAX_FILENAME = 300
 # getloc stores a LOCATION station ID in character(len=8) (sfid, upid, osid,
 # pblid), so a longer ID is cut to its first eight characters.
 _MAX_STATION_ID = 8
@@ -782,22 +784,34 @@ def write_aermet_runfile(stage: int, input_file: str, output_path: str = "."):
 
     AERMET reads the runstream named on its command line (or ``aermet.inp``
     in the working directory); it does not read standard input. The script
-    names the deck by its absolute path, resolved when the script is
-    written, so it runs from any directory but only in this checkout.
+    changes to ``output_path`` and runs AERMET there, so the REPORT,
+    MESSAGES and output files land there and the data files the deck
+    names by relative path are looked up there. Both the deck and
+    ``output_path`` are written into the script as absolute paths,
+    resolved when the script is written (``output_path`` defaults to the
+    current directory at that time), so the script behaves the same from
+    any directory, but only in this checkout.
 
     Args:
         stage: Stage label for the script's name and messages.
         input_file: Path to the runstream file.
-        output_path: Directory AERMET runs in (its outputs land there).
+        output_path: Directory AERMET runs in.
+
+    Raises:
+        ValueError: if the deck's absolute path is longer than the 300
+            characters AERMET reads for a file name.
     """
     deck = Path(input_file).resolve()
+    if len(str(deck)) > _MAX_FILENAME:
+        raise ValueError(f"AERMET reads file names of up to {_MAX_FILENAME} characters: {deck}")
+    run_dir = Path(output_path).resolve()
     script = f"""#!/bin/bash
 # AERMET Stage {stage} Run Script
 
 # Set paths
 AERMET_EXE="aermet"
 INPUT_FILE="{deck}"
-OUTPUT_PATH="{output_path}"
+OUTPUT_PATH="{run_dir}"
 
 # Create output directory
 mkdir -p "$OUTPUT_PATH"

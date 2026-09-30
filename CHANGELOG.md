@@ -177,9 +177,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cordero comparisons, against the binary itself (the Real AERMET
   workflow now runs it). `write_aermet_runfile` scripts pass the deck as
   an argument (AERMET never read standard input) and fail unless AERMET
-  prints its success banner; the script now names the deck by its
-  absolute path, resolved when the script is written, so it runs from
-  any directory but only on the machine and checkout that wrote it.
+  prints its success banner. The script runs AERMET in `output_path`,
+  where the data files the deck names by relative path are looked up;
+  it now writes both the deck and `output_path` (by default the directory
+  it was written from) as absolute paths, so it does the same from any
+  directory, but only on the machine and checkout that wrote it.
 - **GUI: Results now updates when a run finishes** (defect D2). The shell
   built every tab once per page load, so Results kept saying "No run yet"
   after a run. Results and the Run tab's status are now rebuilt from the

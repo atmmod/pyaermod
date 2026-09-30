@@ -16,7 +16,7 @@ Typical usage::
     result = runner.run(cfg, working_dir="/tmp/aersurface_salem")
     if result.success:
         # result.output_files contains the .sfc characteristic table
-        # which can be plugged into AERMETStage3.surface_characteristics
+        # which METPREP reads through AERMETStage3.aersurf_file
         pass
 """
 

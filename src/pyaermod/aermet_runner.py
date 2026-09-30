@@ -51,7 +51,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Union
 
-from .aermet import AERMETStage1, AERMETStage2, AERMETStage3
+from .aermet import _MAX_FILENAME, AERMETStage1, AERMETStage2, AERMETStage3
 from .runner import _read_capped
 
 _FINISHED_SUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED SUCCESSFULLY[ \t]*$", re.MULTILINE)
@@ -64,8 +64,6 @@ _SUMMARY_COUNT = re.compile(
 _SUMMARY_SEVERITY = {"ERROR": "E", "WARNING": "W", "INFORMATION": "I", "QA": "Q"}
 # msg_form in mod_main1.f90: '(1x,a10,1x,a3,5x,a10,1x,' followed by the text.
 _MESSAGE_LINE = re.compile(r"^ (?P<pathway>.{10}) (?P<code>[EWIQ]\d\d) {5}(?P<rest>.*)$")
-# AERMET reads file names of up to 300 characters (flength in mod_file_units.f90).
-_MAX_FILENAME = 300
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,11 @@
 Unit tests for PyAERMOD AERMET input generator
 """
 
+import os
+import platform
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from pyaermod.aermet import (
@@ -551,6 +556,40 @@ class TestWriteAERMETRunfile:
         assert '"$AERMET_EXE" "$INPUT_FILE"' in content
         assert "< " not in content
         assert 'grep -q "AERMET FINISHED SUCCESSFULLY"' in content
+
+    def test_script_names_its_run_directory_by_absolute_path(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        content = Path(write_aermet_runfile(1, "stage1.inp")).read_text()
+        assert f'OUTPUT_PATH="{tmp_path.resolve()}"' in content
+        content = Path(write_aermet_runfile(1, "stage1.inp", "out")).read_text()
+        assert f'OUTPUT_PATH="{(tmp_path / "out").resolve()}"' in content
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="the script and fake aermet are bash")
+    def test_script_runs_from_another_directory(self, tmp_path, monkeypatch):
+        """AERMET looks up the deck's relative DATA files in the directory it runs
+        in, so the script must run it there wherever the script is started from."""
+        deck_dir, elsewhere, bin_dir = tmp_path / "A", tmp_path / "B", tmp_path / "bin"
+        for d in (deck_dir, elsewhere, bin_dir):
+            d.mkdir()
+        (deck_dir / "stage1.inp").write_text("SURFACE\n   DATA       s.ish ISHD\n")
+        (deck_dir / "s.ish").write_text("data\n")
+        fake = bin_dir / "aermet"
+        fake.write_text('#!/bin/bash\n[ -f s.ish ] && echo " AERMET FINISHED SUCCESSFULLY"\nexit 0\n')
+        fake.chmod(0o755)
+        monkeypatch.chdir(deck_dir)
+        script = (deck_dir / write_aermet_runfile(1, "stage1.inp")).resolve()
+        env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+        proc = subprocess.run(["bash", str(script)], cwd=elsewhere, env=env,
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert "AERMET Stage 1 complete" in proc.stdout
+        assert (deck_dir / "aermet_stage1.log").is_file()
+        assert not (elsewhere / "aermet_stage1.log").exists()
+
+    def test_deck_path_longer_than_aermet_reads_raises(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(ValueError, match="300 characters"):
+            write_aermet_runfile(1, "d" * 300 + ".inp")
 
     def test_file_is_executable(self, tmp_path):
         """Test that the created script file is executable"""
