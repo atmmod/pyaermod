@@ -59,7 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upper-air one is unset); SCRAM and GHCN surface data need
   `surface_time_adjustment`, since no EPA deck shows which time basis
   AERMET reads them in; an unknown data format or a station ID with a
-  blank raises `ValueError`. The integer `messages` level is ignored with a
+  blank raises `ValueError`. So does a Stage 1 SURFACE station ID that is
+  not a number, normally the station's WBAN (`13874`, not `KATL`): Stage 1
+  accepts `KATL`, but METPREP reads the ID back as an integer and stops
+  with "Bad integer for item 1 in list input" (AERMET 24142 and 26135).
+  A station ID longer than the 8 characters AERMET keeps also raises. The
+  tutorials and the student guide now use WBAN numbers. The integer `messages` level is ignored with a
   `DeprecationWarning` (`message_file` names the MESSAGES file), and
   `AERMETStage3.merge_file` is ignored (METPREP's DATA keyword is
   obsolete). `AERMETStage3.num_sectors` other than 1 needs `site_char`

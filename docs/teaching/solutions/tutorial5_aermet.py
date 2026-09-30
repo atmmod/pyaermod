@@ -29,7 +29,7 @@ from pyaermod.aermet import (
 def create_atlanta_surface_station() -> AERMETStation:
     """Atlanta Hartsfield-Jackson Airport (KATL) surface station."""
     return AERMETStation(
-        station_id="KATL",
+        station_id="13874",  # WBAN: METPREP reads the SURFACE ID as an integer
         station_name="Atlanta Hartsfield",
         latitude=33.6300,
         longitude=-84.4400,
@@ -127,7 +127,7 @@ def main(output_dir: str = ".") -> None:
     print("\n--- Verification ---")
 
     # Stage 1 checks
-    assert "KATL" in s1_text, "Surface station ID KATL missing"
+    assert "LOCATION   13874 " in s1_text, "Surface station WBAN 13874 missing"
     assert "72215" in s1_text, "Upper air station ID 72215 missing"
     assert "ISHD" in s1_text, "Surface format ISHD missing"
     assert "2020/01/01" in s1_text, "Start date missing"
@@ -135,7 +135,7 @@ def main(output_dir: str = ".") -> None:
     assert "72219013874.dat" in s1_text, "Surface data file missing"
     assert "72215.dat" in s1_text, "Upper air data file missing"
     print("  Stage 1: all checks passed")
-    print("    Surface: KATL (Atlanta Hartsfield, 33.63N 84.44W, 315m)")
+    print("    Surface: WBAN 13874 / KATL (Atlanta Hartsfield, 33.63N 84.44W, 315m)")
     print("    Upper Air: 72215 (Peachtree City, 33.36N 84.57W)")
     print("    Period: 2020/01/01 - 2020/12/31, Format: ISHD")
 

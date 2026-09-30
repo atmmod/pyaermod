@@ -384,7 +384,7 @@ class TestAERMETInputGeneration:
     def test_stage1_generates_complete_input(self, temp_workspace):
         """Test Stage 1 input generation with all components"""
         station = AERMETStation(
-            station_id="KORD",
+            station_id="94846",
             station_name="Chicago O'Hare",
             latitude=41.98,
             longitude=-87.90,
@@ -423,7 +423,7 @@ class TestAERMETInputGeneration:
         assert "DATA       ua_2020.fsl FSL" in output
         assert "QAOUT      stage1.qa" in output
         assert "QAOUT      stage1_ua.qa" in output
-        assert "LOCATION   KORD 41.98N 87.9W 6 200" in output
+        assert "LOCATION   94846 41.98N 87.9W 6 200" in output
         assert "LOCATION   72451 37.77N 99.97W 6 790" in output
 
     def test_stage2_is_deprecated(self):
@@ -492,7 +492,7 @@ class TestAERMETInputGeneration:
 
         # Test elevation=0.0 (sea level)
         station_sealevel = AERMETStation(
-            station_id="TEST",
+            station_id="99999",
             station_name="Sea Level",
             latitude=0.0,
             longitude=0.0,
@@ -507,7 +507,7 @@ class TestAERMETInputGeneration:
         output = stage1.to_aermet_input()
 
         # Should include elevation=0.0, as LOCATION's fifth field
-        assert "LOCATION   TEST 0N 0E 0 0" in output
+        assert "LOCATION   99999 0N 0E 0 0" in output
 
 
 # ============================================================================
@@ -549,7 +549,7 @@ class TestAERMETExecution:
     def test_aermet_stage1_can_be_generated(self, temp_workspace):
         """Test that Stage 1 input can be generated (execution requires data)"""
         station = AERMETStation(
-            station_id="TEST",
+            station_id="99999",
             station_name="Test",
             latitude=40.0,
             longitude=-100.0,

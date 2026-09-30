@@ -1087,7 +1087,7 @@ values. Example for Atlanta, GA:
 
 | Parameter | Example Value | What It Means |
 |---|---|---|
-| Station ID | `KATL` | ICAO airport code or WBAN number |
+| Station ID | `13874` | The station's WBAN number (Atlanta Hartsfield, ICAO `KATL`). AERMET reads it as a number, so an ICAO code such as `KATL` makes the METPREP stage stop |
 | Station Name | `Atlanta Hartsfield` | Descriptive name (for your reference) |
 | Latitude | `33.6300` | Station latitude (decimal degrees, negative = south) |
 | Longitude | `-84.4400` | Station longitude (decimal degrees, negative = west) |

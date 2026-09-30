@@ -307,7 +307,7 @@ def test_tutorial5():
     print("\n═══ Tutorial 5: AERMET Atlanta ═══")
 
     station = AERMETStation(
-        station_id="KATL", station_name="Atlanta Hartsfield",
+        station_id="13874", station_name="Atlanta Hartsfield",  # WBAN of KATL
         latitude=33.63, longitude=-84.44, time_zone=-5,
         elevation=315.0, anemometer_height=10.0,
     )
@@ -323,7 +323,7 @@ def test_tutorial5():
         start_date="2020/01/01", end_date="2020/12/31",
     )
     s1 = stage1.to_aermet_input()
-    check("KATL" in s1, "KATL station ID")
+    check("LOCATION   13874 " in s1, "WBAN 13874 surface station ID")
     check("72215" in s1, "72215 upper air ID")
     check("ISHD" in s1, "ISHD format")
     check("2020/01/01" in s1, "Start date")
@@ -360,7 +360,7 @@ def test_tutorial6():
     print("\n═══ Tutorial 6: AERMET Houston ═══")
 
     station = AERMETStation(
-        station_id="KHOU", station_name="Houston Hobby",
+        station_id="12918", station_name="Houston Hobby",  # WBAN of KHOU
         latitude=29.6454, longitude=-95.2789, time_zone=-6,
         elevation=14.0, anemometer_height=10.0,
     )
@@ -376,7 +376,7 @@ def test_tutorial6():
         start_date="2019/01/01", end_date="2023/12/31",
     )
     s1 = stage1.to_aermet_input()
-    check("KHOU" in s1, "KHOU station ID")
+    check("LOCATION   12918 " in s1, "WBAN 12918 surface station ID")
     check("72240" in s1, "72240 upper air ID")
 
     houston_albedo = [0.18, 0.18, 0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.15, 0.16, 0.17, 0.18]

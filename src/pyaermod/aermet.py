@@ -80,11 +80,39 @@ def _lon(value: float) -> str:
     return f"{_num(abs(value))}{'E' if value >= 0 else 'W'}"
 
 
+# getloc stores a LOCATION station ID in character(len=8) (sfid, upid, osid,
+# pblid), so a longer ID is cut to its first eight characters.
+_MAX_STATION_ID = 8
+
+
 def _station_id(station_id: str) -> str:
     sid = str(station_id).strip()
     if not sid or any(ch.isspace() for ch in sid):
         raise ValueError(
             f"AERMET station IDs are one word (LOCATION reads the first field), got {station_id!r}"
+        )
+    if len(sid) > _MAX_STATION_ID:
+        raise ValueError(
+            f"AERMET keeps {_MAX_STATION_ID} characters of a LOCATION station ID "
+            f"(character(len=8) in getloc), got {sid!r}"
+        )
+    return sid
+
+
+def _surface_station_id(station_id: str) -> str:
+    """The SURFACE LOCATION ID, which METPREP reads back as an integer (WBAN).
+
+    read_ext in mod_surface.f90 (24142 and 26135) reads the ID in the
+    Stage 1 QAOUT file with ``read(sfid,*)iwban`` and no iostat, so an ID
+    such as ``KATL`` passes Stage 1 but crashes METPREP with "Bad integer
+    for item 1 in list input".
+    """
+    sid = _station_id(station_id)
+    if not (sid.isascii() and sid.isdigit()):
+        raise ValueError(
+            "the SURFACE station ID must be a number, normally the station's WBAN "
+            "(13874 for Atlanta, not KATL): METPREP reads it back as an integer "
+            f"(read_ext in mod_surface.f90) and stops on anything else, got {sid!r}"
         )
     return sid
 
@@ -153,6 +181,11 @@ class AERMETStation:
     (``-5`` for Eastern Standard Time). AERMET wants the opposite sign
     (hours to subtract from GMT), and only for data recorded in GMT; the
     writers convert it (see :class:`AERMETStage1`).
+
+    ``station_id`` is the station's WBAN number (``13874`` for Atlanta
+    Hartsfield, not the ICAO code ``KATL``) when the station is Stage 1's
+    SURFACE station: METPREP reads that ID back as an integer and stops on
+    anything else. AERMET keeps at most 8 characters of any station ID.
     """
     station_id: str
     station_name: str
@@ -422,7 +455,7 @@ class AERMETStage1:
             # LOCATION's fifth field and the anemometer height is METPREP's
             # NWS_HGT (written by AERMETStage3).
             lines.append("   LOCATION   " + _location(
-                sf.station_id, sf.latitude, sf.longitude,
+                _surface_station_id(sf.station_id), sf.latitude, sf.longitude,
                 self._surface_adjustment(fmt), sf.elevation))
             if self.surface_audit:
                 lines.append("   AUDIT      " + " ".join(self.surface_audit))
@@ -1053,7 +1086,7 @@ if __name__ == "__main__":
 
     # Example: Create Stage 3 input (most common use case)
     station = AERMETStation(
-        station_id="KORD",
+        station_id="94846",  # WBAN of Chicago O'Hare (KORD)
         station_name="Chicago O'Hare",
         latitude=41.98,
         longitude=-87.90,

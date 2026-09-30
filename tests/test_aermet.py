@@ -70,7 +70,7 @@ class TestUpperAirStation:
 
 
 def _chicago(**kw):
-    return AERMETStation(station_id="KORD", station_name="Chicago", latitude=41.98,
+    return AERMETStation(station_id="94846", station_name="Chicago", latitude=41.98,
                          longitude=-87.90, time_zone=-6, **kw)
 
 
@@ -110,7 +110,7 @@ class TestAERMETStage1:
             "QAOUT      stage1.qa",
             "XDATES     2020/01/01 TO 2020/12/31",
             # ISHD is in GMT: adjustment 6 for UTC-6; the elevation is field 5.
-            "LOCATION   KORD 41.98N 87.9W 6 200",
+            "LOCATION   94846 41.98N 87.9W 6 200",
         ]
         # AERMET rejects these keywords on SURFACE (E01) and has no QA pathway.
         for rejected in ("ANEMHGT", "ELEVATION", "QA"):
@@ -173,7 +173,7 @@ class TestAERMETStage1:
     def test_surface_time_adjustment_follows_the_format(self, fmt, adjustment):
         stage1 = AERMETStage1(surface_station=_chicago(), surface_data_file="s.dat",
                               surface_format=fmt)
-        assert f"LOCATION   KORD 41.98N 87.9W {adjustment}\n" in stage1.to_aermet_input()
+        assert f"LOCATION   94846 41.98N 87.9W {adjustment}\n" in stage1.to_aermet_input()
 
     @pytest.mark.parametrize("fmt", ["SCRAM", "GHCN"])
     def test_surface_time_adjustment_is_asked_for_when_unknown(self, fmt):
@@ -182,7 +182,7 @@ class TestAERMETStage1:
         with pytest.raises(ValueError, match="surface_time_adjustment"):
             stage1.to_aermet_input()
         stage1.surface_time_adjustment = 0
-        assert "LOCATION   KORD 41.98N 87.9W 0" in stage1.to_aermet_input()
+        assert "LOCATION   94846 41.98N 87.9W 0" in stage1.to_aermet_input()
 
     def test_stage1_no_data_no_sections(self):
         lines = _lines(AERMETStage1().to_aermet_input())
@@ -221,12 +221,61 @@ class TestAERMETStage1:
         with pytest.raises(ValueError, match="one word"):
             stage1.to_aermet_input()
 
-    def test_southern_and_eastern_coordinates(self):
+    @pytest.mark.parametrize("sid", ["KATL", "K13874", "13874A", "-13874"])
+    def test_surface_station_id_must_be_a_number(self, sid):
+        """METPREP reads the SURFACE ID back with read(sfid,*)iwban (read_ext in
+        mod_surface.f90) and crashes on KATL, after Stage 1 accepted it."""
         stage1 = AERMETStage1(
-            surface_station=AERMETStation("SYD", "Sydney", -33.95, 151.18, 10),
+            surface_station=AERMETStation(sid, "Atlanta", 33.63, -84.44, -5),
             surface_data_file="s.ish",
         )
-        assert "LOCATION   SYD 33.95S 151.18E -10" in stage1.to_aermet_input()
+        with pytest.raises(ValueError, match="WBAN"):
+            stage1.to_aermet_input()
+
+    def test_surface_station_id_may_have_leading_zeros(self):
+        stage1 = AERMETStage1(
+            surface_station=AERMETStation("00013874", "Atlanta", 33.63, -84.44, -5),
+            surface_data_file="s.ish",
+        )
+        assert "LOCATION   00013874 33.63N 84.44W 5" in stage1.to_aermet_input()
+
+    def test_upper_air_and_metprep_ids_need_not_be_numbers(self):
+        """Only the SURFACE ID is read back as an integer."""
+        stage1 = AERMETStage1(
+            upper_air_station=UpperAirStation("FFC", "Peachtree City", 33.36, -84.57,
+                                              elevation=245.0, time_zone=-5),
+            upper_air_data_file="ua.fsl",
+        )
+        assert "LOCATION   FFC 33.36N 84.57W 5 245" in stage1.to_aermet_input()
+        stage3 = AERMETStage3(station=AERMETStation("KATL", "Atlanta", 33.63, -84.44, -5))
+        assert "LOCATION   KATL 33.63N 84.44W 5" in stage3.to_aermet_input()
+
+    def test_station_ids_longer_than_eight_characters_raise(self):
+        """getloc keeps a station ID in character(len=8)."""
+        long_surface = AERMETStage1(
+            surface_station=AERMETStation("123456789", "x", 33.63, -84.44, -5),
+            surface_data_file="s.ish",
+        )
+        with pytest.raises(ValueError, match="8 characters"):
+            long_surface.to_aermet_input()
+        long_upper_air = AERMETStage1(
+            upper_air_station=UpperAirStation("PEACHTREE", "x", 33.36, -84.57,
+                                              elevation=245.0, time_zone=-5),
+            upper_air_data_file="ua.fsl",
+        )
+        with pytest.raises(ValueError, match="8 characters"):
+            long_upper_air.to_aermet_input()
+        assert "LOCATION   12345678 " in AERMETStage1(
+            surface_station=AERMETStation("12345678", "x", 33.63, -84.44, -5),
+            surface_data_file="s.ish",
+        ).to_aermet_input()
+
+    def test_southern_and_eastern_coordinates(self):
+        stage1 = AERMETStage1(
+            surface_station=AERMETStation("947670", "Sydney", -33.95, 151.18, 10),
+            surface_data_file="s.ish",
+        )
+        assert "LOCATION   947670 33.95S 151.18E -10" in stage1.to_aermet_input()
 
     def test_onsite_pathway(self):
         onsite = OnsiteData(
@@ -346,7 +395,7 @@ class TestAERMETStage3:
     def test_stage3_with_station(self):
         stage3 = AERMETStage3(station=_chicago(anemometer_height=6.1))
         output = stage3.to_aermet_input()
-        assert "LOCATION   KORD 41.98N 87.9W 6" in output
+        assert "LOCATION   94846 41.98N 87.9W 6" in output
         assert "NWS_HGT    WIND 6.1" in output
 
     def test_stage3_with_manual_location(self):
@@ -595,7 +644,7 @@ class TestAERMETEdgeCases:
         """elevation=0.0 (sea level) is still written, as LOCATION's fifth field."""
         stage1 = AERMETStage1(surface_station=_chicago(elevation=0.0),
                               surface_data_file="kord_2020.ish")
-        assert "LOCATION   KORD 41.98N 87.9W 6 0" in stage1.to_aermet_input()
+        assert "LOCATION   94846 41.98N 87.9W 6 0" in stage1.to_aermet_input()
 
 
 # ============================================================================

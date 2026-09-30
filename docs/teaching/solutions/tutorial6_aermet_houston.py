@@ -31,7 +31,7 @@ from pyaermod.aermet import (
 def create_houston_surface_station() -> AERMETStation:
     """Houston Hobby Airport (KHOU) surface station."""
     return AERMETStation(
-        station_id="KHOU",
+        station_id="12918",  # WBAN: METPREP reads the SURFACE ID as an integer
         station_name="Houston Hobby Airport",
         latitude=29.6454,
         longitude=-95.2789,
@@ -129,7 +129,7 @@ def main(output_dir: str = ".") -> None:
     print("\n--- Verification ---")
 
     # Stage 1 checks
-    assert "KHOU" in s1_text, "Surface station ID missing"
+    assert "LOCATION   12918 " in s1_text, "Surface station WBAN 12918 missing"
     assert "72240" in s1_text, "Upper air station ID missing"
     assert "ISHD" in s1_text, "Surface format missing"
     assert "2023/01/01" in s1_text, "Start date missing"

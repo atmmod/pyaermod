@@ -60,7 +60,7 @@ For a refinery near the Houston Ship Channel (approximately 29.75 N,
 
 | Parameter | Value | Notes |
 |---|---|---|
-| Station ID | `KHOU` | ICAO code; WBAN 12918 |
+| Station ID | `12918` | WBAN number (ICAO `KHOU`). AERMET needs the WBAN: it reads the surface ID as a number |
 | Station Name | `Houston Hobby Airport` | |
 | Latitude | `29.6454` | Decimal degrees |
 | Longitude | `-95.2789` | Negative = west |
