@@ -549,11 +549,19 @@ class AreaSource:
     """
     AERMOD area source (rectangular)
 
-    Represents a rectangular area source with uniform emissions.
+    Represents a rectangular area source with uniform emissions:
+    ``SRCPARAM srcid Aremis Relhgt Xinit [Yinit [Angle [Szinit]]]``
+    (soset.f APARM). ``x_coord``/``y_coord`` are the source's southwest
+    vertex, not its centre; the rectangle is ``initial_lateral_dimension``
+    (Xinit) long in x and ``initial_vertical_dimension`` (Yinit) long in
+    y, both full side lengths, turned clockwise about that vertex by
+    ``angle``. The two field names are historical: neither is a
+    half-width, and ``initial_vertical_dimension`` is the y side, not a
+    vertical spread; the vertical spread is ``initial_sigma_z``.
     """
     source_id: str
-    x_coord: float
-    y_coord: float
+    x_coord: float  # southwest vertex x (m)
+    y_coord: float  # southwest vertex y (m)
     base_elevation: float = 0.0
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
@@ -561,14 +569,14 @@ class AreaSource:
 
     # Area parameters
     release_height: float = 0.0  # meters above ground
-    initial_lateral_dimension: float = 10.0  # meters (half-width in y-direction)
-    initial_vertical_dimension: float = 10.0  # meters (half-width in x-direction)
+    initial_lateral_dimension: float = 10.0  # Xinit: full length of the x side (m)
+    initial_vertical_dimension: float = 10.0  # Yinit: full length of the y side (m)
 
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m^2
 
     # Orientation
-    angle: float = 0.0  # degrees from north (optional)
+    angle: float = 0.0  # degrees clockwise from north, about the SW vertex (optional)
 
     # Building downwash (optional)
     building_height: Optional[Union[float, List[float]]] = None
@@ -594,6 +602,15 @@ class AreaSource:
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
     method_2: Optional[Method2Params] = None
 
+    # Szinit, the initial vertical dispersion of the plume (m): the sixth
+    # SRCPARAM value, so a nonzero one is written after Angle even when
+    # Angle is 0. Zero is AERMOD's default when the field is absent
+    # (APARM stores 1e-5 m in both cases). EPA's surface coal mine roads
+    # use 3.0; an area standing in for an open pit uses d_eff/4.3 as the
+    # OPENPIT algorithm does. Kept last so positional construction of the
+    # older fields is unchanged.
+    initial_sigma_z: float = 0.0
+
     def set_building_from_bpip(self, building) -> None:
         """Populate building downwash fields from a Building object."""
         _set_building_from_bpip(self, self.x_coord, self.y_coord, building)
@@ -608,14 +625,17 @@ class AreaSource:
             f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
-        # SRCPARAM keyword -- angle is optional 5th parameter for AREA sources
+        # SRCPARAM: Aremis Relhgt Xinit Yinit [Angle [Szinit]] -- the
+        # fields are positional, so Szinit needs Angle written before it.
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
             f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
             f"{_f8_2(self.initial_lateral_dimension)} {_f8_2(self.initial_vertical_dimension)}"
         )
-        if self.angle != 0.0:
+        if self.angle != 0.0 or self.initial_sigma_z != 0.0:
             srcparam += f" {_f8_2(self.angle)}"
+        if self.initial_sigma_z != 0.0:
+            srcparam += f" {_f8_2(self.initial_sigma_z)}"
         lines.append(srcparam)
 
         # Building downwash parameters

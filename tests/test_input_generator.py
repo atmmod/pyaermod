@@ -147,6 +147,32 @@ class TestAreaSource:
         assert "45.00" in output
         assert "AREAVERT" not in output
 
+    @staticmethod
+    def _srcparam(source):
+        return next(ln.split() for ln in source.to_aermod_input().splitlines()
+                    if ln.split()[0] == "SRCPARAM")
+
+    def test_default_writes_no_angle_or_szinit(self):
+        """Szinit 0 is AERMOD's own default (soset.f APARM), so the
+        four-value card is unchanged."""
+        src = AreaSource(source_id="A1", x_coord=0, y_coord=0)
+        assert self._srcparam(src) == ["SRCPARAM", "A1", "1.000000", "0.00", "10.00", "10.00"]
+
+    def test_szinit_is_the_sixth_value_after_a_zero_angle(self):
+        """SRCPARAM AREA reads Aremis Relhgt Xinit Yinit Angle Szinit by
+        position (APARM, IFC 9), so a Szinit with no rotation writes
+        Angle 0 before it; EPA's surfcoal roads carry Szinit 3.0 this way."""
+        src = AreaSource(source_id="A1", x_coord=0, y_coord=0, emission_rate=1e-5,
+                         initial_lateral_dimension=1000.0, initial_vertical_dimension=1000.0,
+                         initial_sigma_z=23.26)
+        assert self._srcparam(src)[2:] == ["0.000010", "0.00", "1000.00", "1000.00", "0.00", "23.26"]
+
+    def test_szinit_with_rotation(self):
+        src = AreaSource(source_id="R0010201", x_coord=0, y_coord=0, emission_rate=1.0,
+                         release_height=2.0, initial_lateral_dimension=30.48,
+                         initial_vertical_dimension=262.73, angle=73.2, initial_sigma_z=3.0)
+        assert self._srcparam(src)[2:] == ["1.000000", "2.00", "30.48", "262.73", "73.20", "3.00"]
+
 
 class TestAreaCircSource:
     """Test circular area source"""

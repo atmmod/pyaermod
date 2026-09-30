@@ -6,7 +6,9 @@ Each case is an acceptance check of the demonstration study's WP-D3:
 * two OPENPIT sources in one group through their ``source_groups``: the
   writer used to put ``SRCGROUP`` among the source cards, and v26135
   stopped setup with ``SO E140`` (invalid order of keyword), and one
-  naming group ``ALL`` wrote ``SRCGROUP ALL srcid``, ``SO E203``.
+  naming group ``ALL`` wrote ``SRCGROUP ALL srcid``, ``SO E203``;
+* an AREA source with ``initial_sigma_z``: runs clean, and the value
+  reaches AERMOD (the field is Szinit, so the result changes).
 
 The met data are EPA's AERMET2 files in tests/fixtures/epa_official/.
 """
@@ -21,6 +23,7 @@ import pytest
 from pyaermod import AERMODRunner
 from pyaermod.input_generator import (
     AERMODProject,
+    AreaSource,
     CartesianGrid,
     ControlPathway,
     MeteorologyPathway,
@@ -73,6 +76,11 @@ def _pit(**kw):
                          y_dimension=400.0, pit_volume=2.4e7, **kw)
 
 
+def _area(**kw):
+    return AreaSource("A1", -500.0, -500.0, emission_rate=2e-6,
+                      initial_lateral_dimension=1000.0, initial_vertical_dimension=1000.0, **kw)
+
+
 def test_two_sources_grouped_by_source_groups_run(tmp_path):
     pit2 = OpenPitSource("PIT2", 500.0, 500.0, emission_rate=1e-5, x_dimension=200.0,
                          y_dimension=200.0, pit_volume=2e6, source_groups=["PITS"])
@@ -89,3 +97,14 @@ def test_a_source_in_group_all_runs(tmp_path):
     result, _ = _run(tmp_path, "all", SourcePathway(sources=[_pit(source_groups=["ALL", "PITS"])]))
     assert result.success, result.error_message
     assert not {c for c in _codes(result) if c.startswith("E")}
+
+
+def test_area_szinit_runs_and_takes_effect(tmp_path):
+    sz0, plt0 = _run(tmp_path, "sz0", SourcePathway(sources=[_area()]))
+    sz, plt = _run(tmp_path, "sz23", SourcePathway(sources=[_area(initial_sigma_z=23.26)]))
+    assert sz0.success and sz.success, (sz0.error_message, sz.error_message)
+    assert not {c for c in _codes(sz) if c.startswith("E")}
+    peak0 = max(float(r[2]) for r in _plot_rows(plt0))
+    peak = max(float(r[2]) for r in _plot_rows(plt))
+    assert peak < 0.5 * peak0  # a 23 m initial spread lowers the peak near the area
+

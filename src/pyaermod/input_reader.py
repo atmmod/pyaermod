@@ -1279,7 +1279,8 @@ def _parse_sources(block: _PathwayBlock,
                 building_height=params[4], building_angle=params[5],
             )
         elif stype == "AREA":
-            # SRCPARAM AREA: emission relhgt xinit yinit [angle]
+            # SRCPARAM AREA: emission relhgt xinit [yinit [angle [szinit]]]
+            # (soset.f APARM)
             if not params:
                 keep_lines(data)
                 continue
@@ -1288,8 +1289,11 @@ def _parse_sources(block: _PathwayBlock,
                 emission_rate=params[0],
                 release_height=params[1] if len(params) > 1 else 0.0,
                 initial_lateral_dimension=params[2] if len(params) > 2 else 10.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else 10.0,
+                # A square when Yinit is left out (APARM: AYINIT = AXINIT).
+                initial_vertical_dimension=(params[3] if len(params) > 3
+                                            else params[2] if len(params) > 2 else 10.0),
                 angle=params[4] if len(params) > 4 else 0.0,
+                initial_sigma_z=params[5] if len(params) > 5 else 0.0,
             )
         elif stype == "VOLUME":
             # SRCPARAM VOLUME: emission relhgt sylinit szinit

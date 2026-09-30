@@ -853,18 +853,18 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
    | Y Coordinate | `3870000` | Southwest corner Y |
    | Base Elevation | `0` | |
    | Release Height | `2.0` | Dust lifts off ~2 m above the pile surface |
-   | Half-Width Y | `25.0` | 50 m total in the Y direction |
-   | Half-Width X | `50.0` | 100 m total in the X direction |
+   | X Side Length (Xinit) | `100.0` | 100 m in the X direction |
+   | Y Side Length (Yinit) | `50.0` | 50 m in the Y direction |
    | Rotation Angle | `0` | Aligned with the grid (no rotation) |
    | Emission Rate | `0.000100` | 0.0001 g/s/m2 (see calculation above) |
 
 3. Click **Add Area Source**.
 
-> **Understanding half-widths:** AERMOD defines rectangular area sources by
-> their *half-widths* from the source coordinate. A "Half-Width X" of 50 means
-> the source extends 50 m from the center in each X direction (100 m total
-> width). This can be confusing at first — just remember to enter **half** the
-> actual dimension.
+> **Understanding the dimensions:** AERMOD places a rectangular area source by
+> its *southwest corner* and gives it *full side lengths*: Xinit is the length
+> of the X side and Yinit the length of the Y side (`SRCPARAM`, soset.f APARM).
+> A rotation angle turns the rectangle clockwise about that corner, not about
+> its centre. Enter the actual dimensions, not half of them.
 
 ### Step 4: Add a Circular Area Source (Staging Area)
 
@@ -951,7 +951,8 @@ SO LOCATION  SITEBND  AREAPOL 499900.00  3869900.00  0.00
 
 Notice how each source type generates different `SO SRCPARAM` lines:
 - **POINT**: emission rate, stack height, temperature, velocity, diameter
-- **AREA**: emission rate, release height, half-width-Y, half-width-X
+- **AREA**: emission rate, release height, X side length, Y side length (then
+  an optional angle and initial vertical spread Szinit)
 - **AREAPOL**: emission rate, release height, number of vertices
 
 ### Step 8: Interpret Area Source Results (After Running)
@@ -973,7 +974,8 @@ Viewer:
 At this point you should understand:
 
 - [x] Area source emission rates are per unit area (g/s/m2), not total (g/s)
-- [x] Rectangular area sources are defined by half-widths, not full dimensions
+- [x] Rectangular area sources are placed by their southwest corner and
+  defined by full side lengths, not half-widths
 - [x] Circular sources are approximated by polygons (Num Vertices)
 - [x] Polygon sources are defined by a list of corner coordinates
 - [x] Different source types produce different spatial patterns in results

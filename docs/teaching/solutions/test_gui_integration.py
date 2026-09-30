@@ -255,7 +255,7 @@ def test_tutorial4():
     ))
     sources.add_source(AreaSource(
         source_id="PILE1", x_coord=500000.0, y_coord=3870000.0,
-        release_height=2.0, initial_lateral_dimension=25.0,
+        release_height=2.0, initial_lateral_dimension=100.0,
         initial_vertical_dimension=50.0, angle=0.0, emission_rate=0.0001,
     ))
     sources.add_source(AreaCircSource(

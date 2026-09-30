@@ -76,6 +76,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ALL` deck and a mixed deck now run to completion on the v26135
   binary (`tests/test_real_aermod_source_writers.py` when `aermod` is on
   PATH).
+- **`AreaSource` called Xinit and Yinit half-widths, and so did the
+  teaching material.** AERMOD places an AREA source by its southwest
+  corner and takes Xinit and Yinit as full side lengths, turning the
+  rectangle clockwise about that corner (soset.f APARM builds the
+  vertices that way). The field comments said "half-width", and the
+  student guide, tutorial 4's solution, `examples/area_sources.py` and
+  notebook 03 told users to enter half the real dimension, which gives a
+  source a quarter of the intended area; the notebook also divided its
+  emission by four times the area it modelled. The comments, docstring
+  and material now describe full side lengths from the southwest corner,
+  and the examples enter the dimensions they meant. The written deck of
+  any given `AreaSource` is unchanged. (`geospatial.sources_to_geodataframe`
+  still draws an AREA as centred half-dimensions; that is left to a
+  separate fix.)
+- **`read_aermod_input` dropped an AREA source's Szinit and misread a
+  square.** The reader stopped at the fifth SRCPARAM value, so EPA's
+  surface coal mine roads (`... 73.2 3.0`) lost their Szinit of 3 m when
+  a deck was read and written back; it now reads the sixth value into
+  the new `initial_sigma_z`. A card with Xinit alone got a Yinit of
+  10 m, where AERMOD makes the area square (APARM: Yinit = Xinit); it
+  now does the same.
+
+
+### Added
+- **`AreaSource.initial_sigma_z`**, AERMOD's Szinit for an AREA source
+  (m, default 0, AERMOD's own default). A nonzero value is written as the
+  sixth SRCPARAM value, after an Angle of 0 when the source is not turned,
+  because the fields are positional (`SRCPARAM id Aremis Relhgt Xinit
+  Yinit Angle Szinit`, soset.f APARM). It lets an AREA source carry an
+  initial vertical spread, as EPA's surfcoal roads do (3 m) or as an
+  area standing in for an open pit needs (d_eff/4.3, the spread the
+  OPENPIT algorithm itself starts from). The field comes last, so
+  positional construction of the older fields is unchanged. An AREA deck
+  with Szinit 23.26 m runs clean on v26135 and lowers the peak near the
+  area as it should (`tests/test_real_aermod_source_writers.py`).
 
 ## [2.2.0] - YYYY-MM-DD
 
