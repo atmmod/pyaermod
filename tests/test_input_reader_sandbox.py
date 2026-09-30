@@ -110,7 +110,10 @@ class TestSandboxCoversNewFilePaths:
     _CO = ("   SAVEFILE  {p}\n", "   INITFILE  {p}\n", "   MULTYEAR  {p}\n",
            "   MULTYEAR  ok.sav  {p}\n", "   NOX_FILE  {p}\n",
            "   NOXSECTR  0  180\n   NOX_FILE  SECT2  {p}\n",
-           "   O3SECTOR  0  180\n   OZONEFIL  SECT1  {p}\n")
+           "   O3SECTOR  0  180\n   OZONEFIL  SECT1  {p}\n",
+           # AERMOD opens the EVENTFIL file for writing (coset.f EVNTFL,
+           # STATUS='REPLACE'), with or without its option word.
+           "   EVENTFIL  {p}\n", "   EVENTFIL  {p}  DETAIL\n")
     _OU = ("   MAXDAILY  ALL  {p}\n", "   MXDYBYYR  ALL  {p}\n",
            "   MAXDCONT  ALL  8  8  {p}\n", "   MAXDCONT  ALL  8  THRESH  1.0  {p}\n")
 

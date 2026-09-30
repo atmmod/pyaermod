@@ -2275,6 +2275,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     - meteorology.surface_file / profile_file
     - control.chemistry.ozone_data.ozone_file (if chemistry is set)
     - control.chemistry.nox_file
+    - control.save_file, init_file, multiyear files and eventfil
     - output.summary_file / plot_file / postfile / maxi_files
     - output.plot_file_groups (per-group filenames)
     - every field of every line kept in ``unparsed_lines``
@@ -2327,6 +2328,8 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     if control.multiyear is not None:
         _check("control.multiyear.save_file", control.multiyear.save_file)
         _check("control.multiyear.init_file", control.multiyear.init_file)
+    # AERMOD writes the EVENT input file here (coset.f EVNTFL).
+    _check("control.eventfil", control.eventfil)
 
     out = project.output
     for attr in ("summary_file", "plot_file", "postfile"):

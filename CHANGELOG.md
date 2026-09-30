@@ -73,7 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read one from anywhere. Every field of every kept line is now checked, split as
   AERMOD splits it, and an escape is reported as, for example,
   `CO ERRORFIL at line 14`. A name the file system cannot resolve (a NUL
-  byte) is refused rather than raised.
+  byte) is refused rather than raised. The `CO EVENTFIL` file, which
+  AERMOD writes and the reader stores as `ControlPathway.eventfil`, is
+  now checked too.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
