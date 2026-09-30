@@ -8,6 +8,9 @@
 # writes each case's deck (aermod.inp), runs it in a scratch directory with
 # the four Houston hours beside it, and copies back the POSTFILEs and the
 # PLOTFILE AERMOD wrote. Nothing in a case directory is edited by hand.
+# Three more cases (EXTRA_CASES) change one thing in the deck: two write
+# their files with OU NOHEADER ALL, and one runs four hours of 2005 from
+# Providence, so that the dates have a year below 10.
 
 set -euo pipefail
 
@@ -39,7 +42,27 @@ CASES=(
     "wdep_ddep_conc_keyword_order:WDEP DDEP CONC"
 )
 
+# case directory -> output types -> variant
+EXTRA_CASES=(
+    "noheader_conc:CONC:noheader"
+    "noheader_conc_ddep:CONC DDEP:noheader"
+    "year_2005:CONC DDEP:pvd2005"
+)
+
+# write_deck TYPES [VARIANT]
 write_deck() {
+    local sfc=HOUSTON_0228.SFC pfl=HOUSTON_0228.PFL
+    local surf="12960  1996" uair="3937  1996" startend="96 02 28 11 96 02 28 14"
+    local rec1="-50.0  -150.0" rec2="-130.0  -400.0" rec3="-270.0  -750.0"
+    local noheader=""
+    case "${2:-}" in
+        noheader) noheader=$'\n   NOHEADER  ALL' ;;
+        pvd2005)
+            sfc=PVD_0101.SFC; pfl=PVD_0101.PFL
+            surf="14765  2005"; uair="14684  2005"; startend="05 01 01 11 05 01 01 14"
+            # downwind of the 294-333 degree winds
+            rec1="140.0  -120.0"; rec2="350.0  -300.0"; rec3="600.0  -500.0" ;;
+    esac
     cat <<EOT
 CO STARTING
    TITLEONE  POSTFILE output types: $1
@@ -58,20 +81,20 @@ SO STARTING
    SRCGROUP  STK  STK1
 SO FINISHED
 RE STARTING
-   DISCCART  -50.0  -150.0  0.0  0.0
-   DISCCART  -130.0  -400.0  0.0  0.0
-   DISCCART  -270.0  -750.0  0.0  0.0
+   DISCCART  $rec1  0.0  0.0
+   DISCCART  $rec2  0.0  0.0
+   DISCCART  $rec3  0.0  0.0
 RE FINISHED
 ME STARTING
-   SURFFILE  HOUSTON_0228.SFC
-   PROFFILE  HOUSTON_0228.PFL
-   SURFDATA  12960  1996
-   UAIRDATA  3937  1996
+   SURFFILE  $sfc
+   PROFFILE  $pfl
+   SURFDATA  $surf
+   UAIRDATA  $uair
    PROFBASE  0.0  METERS
-   STARTEND  96 02 28 11 96 02 28 14
+   STARTEND  $startend
 ME FINISHED
 OU STARTING
-   RECTABLE  1  FIRST
+   RECTABLE  1  FIRST$noheader
    POSTFILE  1  ALL  PLOT  post_1h.pst
    POSTFILE  1  STK  UNFORM  post_1h.bin
    PLOTFILE  1  ALL  FIRST  high_1h.plt
@@ -81,13 +104,12 @@ OU FINISHED
 EOT
 }
 
-for entry in "${CASES[@]}"; do
-    case="${entry%%:*}"
-    types="${entry#*:}"
+for entry in "${CASES[@]}" "${EXTRA_CASES[@]}"; do
+    IFS=: read -r case types variant <<< "$entry"
     mkdir -p "$HERE/$case"
-    write_deck "$types" > "$HERE/$case/aermod.inp"
+    write_deck "$types" "$variant" > "$HERE/$case/aermod.inp"
     work="$(mktemp -d)"
-    cp "$HERE/$case/aermod.inp" "$HERE/HOUSTON_0228.SFC" "$HERE/HOUSTON_0228.PFL" "$work/"
+    cp "$HERE/$case/aermod.inp" "$HERE"/HOUSTON_0228.* "$HERE"/PVD_0101.* "$work/"
     (cd "$work" && "$EXE" > stdout.txt 2>&1) || true
     if ! grep -q "AERMOD Finishes Successfully" "$work/aermod.out"; then
         echo "$case: AERMOD did not finish successfully" >&2
