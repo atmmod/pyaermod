@@ -15,9 +15,9 @@ unsaved-changes marker, a readiness line and Save. Form labels carry
 units ("Stack height (m)"), so fields are found by the words of the
 label with the units optional (:func:`_label`).
 
-Methods that look for controls the current GUI does not have yet (the
-readiness checklist, the progress bar) are written against the planned
-design. Today they time out, which journeys wrap in ``known_gap``.
+Every step of the plan's design is in the GUI (WP-G3 to WP-G6), so no
+journey wraps a page-object call in ``known_gap`` any more; a method for
+a control the GUI loses would time out, and the journey would fail.
 """
 
 from __future__ import annotations
@@ -32,9 +32,9 @@ from .harness import Journey
 
 RUN_TIMEOUT_MS = 180_000
 
-# How the run status reads today ("Run succeeded (0.1 s). See Results tab.",
-# "Run reported FATAL or non-zero exit (rc=0).", "Run failed: ...") and in
-# the planned design ("Succeeded", "Failed", "Cancelled").
+# How the Review & Run status reads ("Succeeded in 0.8 s", "Failed: E480 ...",
+# "Cancelled after ..."); "reported FATAL" is the wording of the GUI before
+# WP-G4.
 _STATUS = re.compile(r"\b(succeeded|failed|reported FATAL|cancell?ed)\b", re.I)
 _SUCCESS = re.compile(r"\bsucceeded\b", re.I)
 _FAILURE = re.compile(r"\bfail(ed|ure)?\b|\bFATAL\b", re.I)
@@ -312,7 +312,7 @@ class ProjectPage(_Step):
         self._discard_changes_if_asked(self.app.notification(f"Loaded {path.name}"))
 
     def import_deck(self, path: Path) -> None:
-        """Import an AERMOD .inp deck (planned, WP-G6)."""
+        """Import an AERMOD .inp deck (WP-G6's Import deck... button)."""
         button = self.panel.get_by_role("button", name=re.compile(r"^Import", re.I))
         expect(button).to_be_visible()
         with self.page.expect_file_chooser() as chooser:
