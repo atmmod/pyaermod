@@ -63,16 +63,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and every later field shifted; a four-type file put DEPOS in
   `dry_depo` and DDEP in `wet_depo` and dropped WDEP. A PLOTFILE of highs
   at discrete receptors, whose NET ID is blank, came back with an empty
-  `date` whatever its types; the date is now read. A binary file with two or four types raised
-  `Expected 3 values but record contains 6`. The text reader now takes
+  `date` whatever its types; the date is now read, and padded to eight
+  digits, because PLOTFL writes it as `I8` and a year below 10 lost its
+  leading zero (`5010112` where the POSTFILE has `05010112`). A binary
+  file with two or four types raised
+  `Expected 3 values but record contains 6`. A text file written with
+  `OU NOHEADER` does not begin with `*`, so it was taken for a binary
+  file and read as an empty frame without an error; it is now recognised
+  by its content, its number of value columns and whether it is a
+  PLOTFILE of highs are read from its first row, and one with two or
+  three value columns needs `output_types`. The text reader now takes
   the types from the column-label line (or the MODELING OPTIONS line, or
   the caller), so every one of the 15 sets of types, in 1-hour and PERIOD
   POSTFILEs and in PLOTFILEs, reads with one column per type:
   `concentration`, `total_depo`, `dry_depo`, `wet_depo`. **A file with
   DEPOS now has a `total_depo` column, and code that read `dry_depo` or
-  `wet_depo` from such a file gets the values AERMOD labelled so.** A file
-  with one output type keeps its values in `concentration`, and a
-  CONC DDEP WDEP file reads as before. `tests/test_postfile_types.py` pins
+  `wet_depo` from such a file gets the values AERMOD labelled so. A file
+  with several output types and no CONC (`DDEP WDEP`, `DEPOS DDEP WDEP`
+  ...) has no `concentration` column: use `result.column_for("DDEP")`,
+  or `result.column_for(result.output_types[0])` for its first type.**
+  `regulatory_parity.score_postfile_pair` compares the `concentration`
+  columns, so it now raises `KeyError` on such files where it used to
+  score the first type under that name; single-type files and files with
+  CONC score as before (keying it on the output type is part of WP-D16's
+  deposition parity). A file with one output type keeps its values in
+  `concentration`, and a CONC DDEP WDEP text file reads as before.
+  `tests/test_postfile_types.py` pins
   this against real AERMOD v26135 runs of every set of types, recorded in
   `tests/fixtures/postfile_types/`, and checks each binary file against
   its text twin.
@@ -82,12 +98,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `UnformattedPostfileParser`.** A binary POSTFILE does not say which
   output types its values are, so a file from a multi-type run needs the
   run's MODELOPT line (`output_types="DFAULT CONC DEPOS FLAT"`) or the type
-  names (`["DEPOS", "WDEP"]`); order does not matter. Without it,
-  `num_receptors` still settles one type, three (read as CONC DDEP WDEP,
-  as `has_deposition=True` did) and four; two types raise a `ValueError`
-  asking for `output_types`, and a list of `receptor_coords` that does not
-  match the record's receptor count is an error rather than a silent
-  misreading. `PostfileResult.output_types` and `PostfileHeader.output_types`
+  names (`["DEPOS", "WDEP"]`); order does not matter. Without it, a
+  receptor count (`num_receptors`, or the length of `receptor_coords`)
+  settles one type and four; two or three blocks of values per receptor
+  raise a `ValueError` asking for `output_types`, because three blocks
+  can be any of four sets of types. **A binary file with three blocks and
+  `num_receptors` used to be read as CONC DDEP WDEP without being asked,
+  which put DEPOS in `dry_depo` for three of those four sets; pass
+  `has_deposition=True` (or `output_types`) to read CONC DDEP WDEP.** A
+  `receptor_coords` list that does not match the record's receptor count
+  is an error, where rows beyond it used to get coordinates `(i, 0)`. `PostfileResult.output_types` and `PostfileHeader.output_types`
   give the file's types, `PostfileResult.column_for("DDEP")` names the
   column of one, and `pyaermod.postfile.OUTPUT_TYPES` lists them in
   AERMOD's order. For a file without CONC, `max_concentration`,

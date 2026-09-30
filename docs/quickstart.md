@@ -402,10 +402,19 @@ result = read_postfile("depo_post.bin", output_types="DFAULT CONC DDEP WDEP")
 result = read_postfile("depo_post.bin", output_types=["DEPOS", "WDEP"])
 ```
 
-Without `output_types`, `num_receptors` settles the cases where the record
-size allows one reading: 3N values are read as CONC DDEP WDEP (as before,
-and what `has_deposition=True` means) and 4N as all four types; 2N values
-could be any two types and raise `ValueError` asking for `output_types`.
+Without `output_types`, a receptor count (`num_receptors`, or the length
+of `receptor_coords`) settles the cases where the record size allows one
+reading: N values are one type, read into `concentration`, and 4N are all
+four types. 2N or 3N values could be several sets of types and raise
+`ValueError` asking for `output_types`; `has_deposition=True` still reads
+3N values as CONC DDEP WDEP. With neither a receptor count nor
+`output_types`, every value is read as a concentration at its own
+receptor, which is right only for a run with one output type.
+
+A text file written with `OU NOHEADER` has no header to name its columns.
+`read_postfile` reads the number of value columns from the first row; one
+value column needs nothing more, and two or three need `output_types`
+(AERMOD still writes the header of a PERIOD or ANNUAL POSTFILE).
 
 ## Validation
 

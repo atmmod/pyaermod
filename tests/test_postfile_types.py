@@ -3,7 +3,8 @@ POSTFILE and PLOTFILE reading for every set of output types on MODELOPT.
 
 The files under tests/fixtures/postfile_types/ are what AERMOD v26135
 wrote for one deck run with each of the 15 non-empty sets of CONC, DEPOS,
-DDEP and WDEP (plus one with the keywords out of AERMOD's order); see the
+DDEP and WDEP (plus one with the keywords out of AERMOD's order, two
+written with OU NOHEADER and one with 2005 meteorology); see the
 README there. Each run writes the same 1-hour values twice, as a text
 POSTFILE for source group ALL and a binary one for group STK, which holds
 the same single source, so the two formats check each other.
@@ -18,6 +19,7 @@ from pyaermod.postfile import (
     OUTPUT_TYPES,
     PostfileParser,
     UnformattedPostfileParser,
+    _is_text_postfile,
     _normalize_output_types,
     read_postfile,
 )
@@ -48,6 +50,7 @@ CASES = {
 }
 MULTI = [c for c, t in CASES.items() if len(t) > 1]
 SINGLE = [c for c, t in CASES.items() if len(t) == 1]
+THREE = [c for c, t in CASES.items() if len(t) == 3]
 
 RECEPTORS = [(-50.0, -150.0), (-130.0, -400.0), (-270.0, -750.0)]
 DATES = ["96022811", "96022812", "96022813", "96022814"]
@@ -181,11 +184,36 @@ class TestTextPostfileWithoutLabels:
         path = self._strip(tmp_path, "conc_depos_ddep_wdep", ["TOTAL DEPO", "MODELING OPTIONS"])
         assert read_postfile(path).output_types == OUTPUT_TYPES
 
-    def test_three_unnamed_columns_keep_the_earlier_reading(self, tmp_path):
-        path = self._strip(tmp_path, "conc_ddep_wdep", ["AVERAGE CONC", "MODELING OPTIONS"])
+    @pytest.mark.parametrize("case", THREE)
+    def test_three_unnamed_columns_need_output_types(self, tmp_path, case):
+        # three columns could be any of four sets of types
+        path = self._strip(tmp_path, case, ["AVERAGE CONC", "TOTAL DEPO", "MODELING OPTIONS"])
+        with pytest.raises(ValueError, match="pass output_types"):
+            read_postfile(path)
+        result = read_postfile(path, output_types=CASES[case])
+        assert result.output_types == CASES[case]
+        np.testing.assert_allclose(result.data.iloc[:, 2:5], _text(case).data.iloc[:, 2:5])
+
+    def test_output_types_of_the_wrong_count_raise(self, tmp_path):
+        path = self._strip(tmp_path, "depos_wdep", ["TOTAL DEPO", "MODELING OPTIONS"])
+        with pytest.raises(ValueError, match="the FORMAT line has 2 value columns"):
+            read_postfile(path, output_types="CONC DDEP WDEP")
+
+    @pytest.mark.parametrize("case", MULTI)
+    def test_labels_name_the_types_without_the_options_line(self, tmp_path, case):
+        path = self._strip(tmp_path, case, ["MODELING OPTIONS"])
         result = read_postfile(path)
-        assert result.output_types == ("CONC", "DDEP", "WDEP")
-        np.testing.assert_allclose(result.data["wet_depo"], _text("conc_ddep_wdep").data["wet_depo"])
+        assert result.header.model_options is None
+        assert result.output_types == CASES[case]
+        assert list(result.data.columns) == ["x", "y", *_columns(CASES[case]), *TAIL]
+
+    def test_labels_win_over_an_options_line_that_disagrees(self, tmp_path):
+        # same count as the FORMAT line, so only the labels can tell
+        path = self._strip(tmp_path, "depos_wdep", [])
+        self._replace_options(path, "RegDFAULT  CONC  DDEP  ELEV")
+        result = read_postfile(path)
+        assert result.output_types == ("DEPOS", "WDEP")
+        assert list(result.data.columns[2:4]) == ["total_depo", "wet_depo"]
 
     def _replace_options(self, path, options):
         lines = path.read_text().splitlines(keepends=True)
@@ -283,15 +311,51 @@ class TestBinaryPostfileTypes:
         result = _binary("conc_depos_ddep_wdep", num_receptors=3)
         assert result.output_types == OUTPUT_TYPES
 
-    def test_num_receptors_keeps_the_three_type_default(self):
-        result = _binary("conc_ddep_wdep", num_receptors=3)
+    @pytest.mark.parametrize("case", THREE)
+    @pytest.mark.parametrize("given", ["num_receptors", "receptor_coords"])
+    def test_three_blocks_without_output_types_raise(self, case, given):
+        # three blocks could be any of four sets of types
+        path = FIXTURES / case / "post_1h.bin"
+        kw = {"num_receptors": 3} if given == "num_receptors" else {"receptor_coords": RECEPTORS}
+        with pytest.raises(ValueError, match=r"3 output types.*pass output_types"):
+            read_postfile(path, **kw)
+
+    def test_has_deposition_reads_three_blocks_as_conc_ddep_wdep(self):
+        result = _binary("conc_ddep_wdep", has_deposition=True)
         assert result.output_types == ("CONC", "DDEP", "WDEP")
         np.testing.assert_allclose(result.data["wet_depo"], _text("conc_ddep_wdep").data["wet_depo"], atol=6e-6)
 
     def test_single_type_with_the_wrong_receptor_count_raises(self):
+        path = FIXTURES / "conc" / "post_1h.bin"
         with pytest.raises(ValueError, match="Expected 2 values but record contains 3"):
-            _binary("conc", num_receptors=2)
+            read_postfile(path, num_receptors=2)
+        with pytest.raises(ValueError, match=r"Expected 2 values.*receptor_coords has 2"):
+            read_postfile(path, receptor_coords=RECEPTORS[:2])
         assert _binary("conc", num_receptors=3).output_types is None
+
+    @pytest.mark.parametrize("case", MULTI)
+    def test_receptor_coords_give_the_receptor_count(self, case):
+        """A multi-type file is never read as NUMTYP x NUMREC concentrations."""
+        path = FIXTURES / case / "post_1h.bin"
+        if len(CASES[case]) == 4:
+            result = read_postfile(path, receptor_coords=RECEPTORS)
+            assert result.output_types == OUTPUT_TYPES
+            assert len(result.data) == 12
+        else:
+            with pytest.raises(ValueError, match="pass output_types"):
+                read_postfile(path, receptor_coords=RECEPTORS)
+
+    def test_short_receptor_coords_raise(self):
+        # 4 types at 3 receptors; 2 pairs of coordinates fit no reading
+        path = FIXTURES / "conc_depos_ddep_wdep" / "post_1h.bin"
+        with pytest.raises(ValueError, match="receptor_coords has 2"):
+            read_postfile(path, receptor_coords=RECEPTORS[:2])
+        with pytest.raises(ValueError, match="receptor_coords has 2"):
+            read_postfile(path, receptor_coords=RECEPTORS[:2], output_types=OUTPUT_TYPES)
+
+    def test_receptor_coords_disagreeing_with_num_receptors_raise(self):
+        with pytest.raises(ValueError, match="receptor_coords has 3 receptors but num_receptors=4"):
+            _binary("conc", num_receptors=4)
 
     def test_two_types_without_output_types_raise(self):
         with pytest.raises(ValueError, match="pass output_types"):
@@ -316,11 +380,13 @@ class TestBinaryPostfileTypes:
         with pytest.raises(ValueError, match="receptor_coords has 3 receptors"):
             _binary("conc_depos_ddep_wdep", output_types="CONC DDEP WDEP")
         with pytest.raises(ValueError, match="num_receptors=3"):
-            _binary("conc_depos_ddep_wdep", output_types="CONC DDEP WDEP", num_receptors=3)
+            read_postfile(FIXTURES / "conc_depos_ddep_wdep" / "post_1h.bin",
+                          output_types="CONC DDEP WDEP", num_receptors=3)
 
     def test_output_types_disagreeing_with_num_receptors_raise(self):
         with pytest.raises(ValueError, match="num_receptors=4"):
-            _binary("conc_ddep", output_types="CONC DDEP", num_receptors=4)
+            read_postfile(FIXTURES / "conc_ddep" / "post_1h.bin",
+                          output_types="CONC DDEP", num_receptors=4)
 
     def test_has_deposition_conflicts_are_rejected(self):
         path = FIXTURES / "conc_ddep" / "post_1h.bin"
@@ -340,6 +406,104 @@ class TestBinaryPostfileTypes:
         assert result.data.empty
         assert result.output_types == ("DEPOS", "WDEP")
         assert list(result.data.columns) == ["x", "y", "total_depo", "wet_depo", *TAIL]
+
+
+# ---------------------------------------------------------------------------
+# Files written with OU NOHEADER ALL
+# ---------------------------------------------------------------------------
+
+class TestNoHeaderFiles:
+    """noheader_conc/ and noheader_conc_ddep/: the same runs as conc/ and
+    conc_ddep/, with the POSTFILE and PLOTFILE headers switched off."""
+
+    @pytest.mark.parametrize("name", ["post_1h.pst", "high_1h.plt"])
+    def test_headerless_text_is_read_as_text(self, name):
+        path = FIXTURES / "noheader_conc_ddep" / name
+        assert not path.read_bytes().startswith(b"*")
+        assert _is_text_postfile(path) is True
+        assert _is_text_postfile(FIXTURES / "noheader_conc_ddep" / "post_1h.bin") is False
+
+    def test_single_type_reads_without_help(self):
+        result = read_postfile(FIXTURES / "noheader_conc" / "post_1h.pst")
+        expected = _text("conc").data
+        assert list(result.data.columns) == list(expected.columns)
+        numeric = ["x", "y", "concentration", "zelev", "zhill", "zflag"]
+        np.testing.assert_allclose(result.data[numeric], expected[numeric])
+        assert list(result.data["date"]) == list(expected["date"])
+        assert (result.data["ave"] == "1-HR").all()
+
+    def test_two_types_need_output_types(self):
+        path = FIXTURES / "noheader_conc_ddep" / "post_1h.pst"
+        with pytest.raises(ValueError, match=r"rows \(no header\) have 2 value columns"):
+            read_postfile(path)
+        with pytest.raises(ValueError, match="names 3 output types"):
+            read_postfile(path, output_types="CONC DDEP WDEP")
+        result = read_postfile(path, output_types="CONC DDEP")
+        expected = _text("conc_ddep").data
+        assert list(result.data.columns) == list(expected.columns)
+        np.testing.assert_allclose(result.data["dry_depo"], expected["dry_depo"])
+        assert (result.data["grp"] == "ALL").all()
+        assert list(result.data["date"]) == list(expected["date"])
+
+    @pytest.mark.parametrize(("case", "types"), [("noheader_conc", None),
+                                                 ("noheader_conc_ddep", "CONC DDEP")])
+    def test_plotfile_rank_and_date(self, case, types):
+        parser = PostfileParser(FIXTURES / case / "high_1h.plt", output_types=types)
+        result = parser.parse()
+        expected = read_postfile(FIXTURES / case.replace("noheader_", "") / "high_1h.plt").data
+        assert list(result.data.columns) == list(expected.columns)
+        assert (result.data["rank"] == "1ST").all()
+        assert list(result.data["date"]) == list(expected["date"])
+        np.testing.assert_allclose(result.data["concentration"], expected["concentration"])
+
+    def test_period_postfile_keeps_its_header(self):
+        # PSTANN (output.f) writes the PERIOD header whatever NOHEADER says
+        result = read_postfile(FIXTURES / "noheader_conc_ddep" / "post_per.pst")
+        assert result.output_types == ("CONC", "DDEP")
+
+    def test_binary_file_is_unaffected(self):
+        result = _binary("noheader_conc_ddep", output_types="CONC DDEP")
+        np.testing.assert_allclose(result.data["dry_depo"], _binary(
+            "conc_ddep", output_types="CONC DDEP").data["dry_depo"])
+
+    def test_blank_line_before_the_rows_is_skipped(self, tmp_path):
+        path = tmp_path / "blank_first.pst"
+        path.write_text("\n" + (FIXTURES / "noheader_conc" / "post_1h.pst").read_text())
+        assert len(read_postfile(path).data) == 12
+
+    @pytest.mark.parametrize("text", ["1.0 2.0 3.0\nsome text\n", "1.0 2.0 3.0 1-HR ALL 96022811\n"])
+    def test_rows_that_are_not_postfile_rows_are_left_alone(self, tmp_path, text):
+        path = tmp_path / "notes.pst"
+        path.write_text(text)
+        result = read_postfile(path)
+        assert result.data.empty
+        assert result.output_types is None
+
+
+# ---------------------------------------------------------------------------
+# Dates with a year below 10 (year_2005/)
+# ---------------------------------------------------------------------------
+
+class TestYearBelowTen:
+    """PLOTFL writes the date as I8, so 2005 loses its leading zero there
+    (5010112) while the POSTFILE's I8.8 keeps it (05010112)."""
+
+    def test_plotfile_date_is_padded_to_the_postfile_date(self):
+        path = FIXTURES / "year_2005" / "high_1h.plt"
+        raw = [line.split()[-1] for line in path.read_text().splitlines() if not line.startswith("*")]
+        assert raw == ["5010112"] * 3
+        high = read_postfile(path)
+        assert list(high.data["date"]) == ["05010112"] * 3
+        post = read_postfile(FIXTURES / "year_2005" / "post_1h.pst")
+        at_high = post.get_timestep(high.data["date"].iloc[0])
+        np.testing.assert_allclose(at_high["concentration"], high.data["concentration"])
+
+    def test_binary_date_matches_the_text_date(self):
+        text = read_postfile(FIXTURES / "year_2005" / "post_1h.pst")
+        binary = read_postfile(FIXTURES / "year_2005" / "post_1h.bin",
+                               num_receptors=3, output_types="CONC DDEP")
+        assert list(binary.data["date"]) == list(text.data["date"])
+        assert text.data["date"].iloc[0] == "05010111"
 
 
 # ---------------------------------------------------------------------------

@@ -293,8 +293,10 @@ class PostfileParser:
     output_types : str or iterable of str, optional
         The run's output types, as a MODELOPT line (``"CONC DDEP FLAT"``)
         or as names (``["CONC", "DDEP"]``). Needed only for a file whose
-        header does not name its columns; when the header does, the header
-        is used and a different *output_types* raises ``ValueError``.
+        header does not name its columns, such as one written with
+        ``OU NOHEADER`` that has two or three value columns; when the
+        header does, the header is used and a different *output_types*
+        raises ``ValueError``.
 
     Raises
     ------
@@ -321,6 +323,7 @@ class PostfileParser:
         self._format_numtyp: Optional[int] = None
         # Row layout, fixed once the header has been read
         self._value_cols: Optional[List[str]] = None
+        self._saw_header = False
 
     def parse(self) -> PostfileResult:
         """
@@ -334,8 +337,10 @@ class PostfileParser:
         Raises
         ------
         ValueError
-            If the header disagrees with the caller's *output_types*, or
-            names no output types for a file with two value columns.
+            If the header, or the rows of a file without one, disagree
+            with the caller's *output_types*, or if the file has two or
+            three value columns and neither the header nor the caller says
+            which output types they are.
         """
         header = PostfileHeader()
         data_rows = []
@@ -344,9 +349,12 @@ class PostfileParser:
             for line in f:
                 line = line.rstrip("\n")
                 if line.startswith("*"):
+                    self._saw_header = True
                     self._parse_header_line(line, header)
                     continue
                 if self._value_cols is None:
+                    if not self._saw_header and line.strip():
+                        self._infer_headerless_layout(line)
                     self._resolve_layout(header)
                 row = self._parse_data_line(line)
                 if row is not None:
@@ -393,6 +401,32 @@ class PostfileParser:
             return options
         return None
 
+    def _infer_headerless_layout(self, line: str) -> None:
+        """
+        Read the number of value columns, and whether the file is a
+        PLOTFILE of high values, from the first row of a file written
+        without a header (``OU NOHEADER``).
+
+        X, Y, the values, ZELEV, ZHILL and ZFLAG are numbers; AVE
+        (``1-HR``, ``PERIOD`` ...) is the first field that is not, so it
+        sits at index 5 + NUMTYP. A PLOTFILE of highs has the rank
+        (``1ST``, ``2ND`` ...) after GRP where a POSTFILE has the date.
+        """
+        parts = line.split()
+        for idx in range(2, len(parts)):
+            try:
+                float(parts[idx])
+            except ValueError:
+                break
+        else:
+            return
+        numtyp = idx - 5
+        if numtyp < 1:
+            return
+        self._format_numtyp = numtyp
+        if len(parts) > idx + 2 and re.fullmatch(r"\d+(ST|ND|RD|TH)", parts[idx + 2]):
+            self._is_plotfile = True
+
     def _resolve_layout(self, header: PostfileHeader) -> None:
         """Fix the output types and the value columns of every data row."""
         types = self._header_types(header)
@@ -402,22 +436,26 @@ class PostfileParser:
                 f"{self.filepath.name}: the header names output types "
                 f"{list(types)} but output_types={list(requested)} was given"
             )
+        where = "the FORMAT line has" if self._saw_header else "the rows (no header) have"
+        numtyp = self._format_numtyp
         if types is None:
             types = requested
-        if types is None and self._format_numtyp is not None:
-            # A FORMAT line but nothing naming the types: the count alone
+            if types is not None and numtyp is not None and len(types) != numtyp:
+                raise ValueError(
+                    f"{self.filepath.name}: output_types={list(types)} names "
+                    f"{len(types)} output types but {where} {numtyp} value columns"
+                )
+        if types is None and numtyp is not None:
+            # A column count but nothing naming the types: the count alone
             # identifies one type (kept in ``concentration``) or all four.
-            # Three is read as CONC DDEP WDEP, as earlier releases did.
-            numtyp = self._format_numtyp
+            # Two or three columns could be several sets of types.
             if numtyp == 4:
                 types = OUTPUT_TYPES
-            elif numtyp == 3:
-                types = ("CONC", "DDEP", "WDEP")
-            elif numtyp == 2:
+            elif numtyp in (2, 3):
                 raise ValueError(
-                    f"{self.filepath.name}: the FORMAT line has two value "
-                    "columns but the header does not say which output types "
-                    "they are; pass output_types"
+                    f"{self.filepath.name}: {where} {numtyp} value columns "
+                    "but nothing says which output types they are; pass "
+                    "output_types (the run's MODELOPT line)"
                 )
         header.output_types = types
         numtyp = len(types) if types is not None else 1
@@ -545,8 +583,10 @@ class PostfileParser:
             PLOTFILE of highs:  X Y V1..Vk ZELEV ZHILL ZFLAG AVE GRP RANK [NETID] DATE
 
         NETID is blank for discrete receptors, so the PLOTFILE date is the
-        last field. A PERIOD or ANNUAL PLOTFILE has the POSTFILE layout,
-        with the number of hours (or years) where the date would be.
+        last field; it is written without leading zeros (``I8``) and is
+        padded here to the POSTFILE's eight digits. A PERIOD or ANNUAL
+        PLOTFILE has the POSTFILE layout, with the number of hours (or
+        years) where the date would be.
 
         Parameters
         ----------
@@ -580,7 +620,10 @@ class PostfileParser:
             })
             if self._is_plotfile:
                 row["rank"] = parts[7 + k]
-                row["date"] = parts[-1]
+                # PLOTFL writes the date as I8, not I8.8 as a POSTFILE
+                # does, so a year below 10 loses its leading zero.
+                date = parts[-1]
+                row["date"] = date.zfill(8) if date.isdigit() else date
             else:
                 row["date"] = parts[7 + k]
             return row
@@ -621,8 +664,10 @@ class UnformattedPostfileParser:
         Number of receptors.  If *None*, inferred from the first record size
         and the number of output types.
     receptor_coords : list of (float, float), optional
-        ``(x, y)`` coordinate pairs for each receptor index.  If *None*,
-        receptors are assigned index-based coordinates ``(i, 0)``.
+        ``(x, y)`` coordinate pairs, one per receptor.  Its length is the
+        receptor count when *num_receptors* is not given, and must equal
+        *num_receptors* when it is.  If *None*, receptors are assigned
+        index-based coordinates ``(i, 0)``.
     has_deposition : bool, optional
         Shorthand for ``output_types=("CONC", "DDEP", "WDEP")``: *True*
         reads three blocks as concentration, dry and wet deposition.  If
@@ -633,13 +678,16 @@ class UnformattedPostfileParser:
     output_types : str or iterable of str, optional
         The run's output types, as its MODELOPT line (``"CONC DDEP FLAT"``)
         or as names (``["CONC", "DDEP"]``); order does not matter.  Without
-        it, a record of N values per receptor count is read as: 1 block,
-        concentration; 3 blocks, CONC DDEP WDEP (as earlier releases did);
-        4 blocks, all four types; 2 blocks is ambiguous and raises
-        ``ValueError``.  Without *num_receptors* either, every value is
-        read as a concentration at its own receptor.  With *output_types*,
-        a *receptor_coords* list must have one entry per receptor, which
-        catches a wrong set of types that still divides the record evenly.
+        it, a record holding one block of values per receptor is read as
+        concentration and four blocks as all four types; two or three
+        blocks could be several sets of types and raise ``ValueError``
+        (pass *has_deposition=True* for CONC DDEP WDEP).  The receptor
+        count comes from *num_receptors* or *receptor_coords*; with
+        neither, every value is read as a concentration at its own
+        receptor, which is wrong for a run with more than one output
+        type.  With *output_types*, a receptor count that disagrees with
+        the record catches a wrong set of types that still divides the
+        record evenly.
 
     Raises
     ------
@@ -675,6 +723,15 @@ class UnformattedPostfileParser:
             raise ValueError(
                 f"has_deposition=False contradicts output_types={list(self.output_types)}"
             )
+        if (
+            receptor_coords is not None
+            and num_receptors is not None
+            and len(receptor_coords) != num_receptors
+        ):
+            raise ValueError(
+                f"receptor_coords has {len(receptor_coords)} receptors but "
+                f"num_receptors={num_receptors}"
+            )
 
     def _resolve_types(self, num_floats: int) -> Optional[Tuple[str, ...]]:
         """
@@ -687,6 +744,14 @@ class UnformattedPostfileParser:
         if types is None and self.has_deposition is True:
             types = ("CONC", "DDEP", "WDEP")
 
+        # The receptor count, if the caller gave one
+        if self.num_receptors is None and self.receptor_coords is not None:
+            self.num_receptors = len(self.receptor_coords)
+        if self.receptor_coords is not None:
+            given = f"receptor_coords has {self.num_receptors} receptors"
+        else:
+            given = f"num_receptors={self.num_receptors}"
+
         if types is not None:
             numtyp = len(types)
             if num_floats % numtyp != 0:
@@ -698,23 +763,13 @@ class UnformattedPostfileParser:
             if self.num_receptors is None:
                 self.num_receptors = inferred_nr
             elif self.num_receptors != inferred_nr:
+                # Too few or too many output types can still divide the
+                # record evenly (12 values: 4 types x 3 receptors or 3 x 4);
+                # the receptor count is the check the record cannot give.
                 raise ValueError(
-                    f"num_receptors={self.num_receptors} but the record holds "
-                    f"{inferred_nr} receptors ({num_floats} values / "
-                    f"{numtyp} output types {list(types)})"
-                )
-            if (
-                self.output_types is not None
-                and self.receptor_coords is not None
-                and len(self.receptor_coords) != inferred_nr
-            ):
-                # Too few or too many output types still divide the record
-                # evenly (12 values: 4 types x 3 receptors or 3 x 4); the
-                # receptor list is the check the record size cannot give.
-                raise ValueError(
-                    f"receptor_coords has {len(self.receptor_coords)} receptors "
-                    f"but the record holds {inferred_nr} ({num_floats} values / "
-                    f"{numtyp} output types {list(types)}); check output_types"
+                    f"{given} but the record holds {inferred_nr} receptors "
+                    f"({num_floats} values / {numtyp} output types "
+                    f"{list(types)}); check output_types"
                 )
             return types
 
@@ -726,20 +781,19 @@ class UnformattedPostfileParser:
         n = self.num_receptors
         if self.has_deposition is None and n > 0 and num_floats % n == 0:
             blocks = num_floats // n
-            if blocks == 3:
-                return ("CONC", "DDEP", "WDEP")
             if blocks == 4:
                 return OUTPUT_TYPES
-            if blocks == 2:
+            if blocks in (2, 3):
                 raise ValueError(
-                    f"Record holds {num_floats} values for {n} receptors: two "
-                    "output types, which could be any two of CONC DEPOS DDEP "
-                    "WDEP; pass output_types (the run's MODELOPT line)"
+                    f"Record holds {num_floats} values for {n} receptors: "
+                    f"{blocks} output types, which could be several sets of "
+                    "CONC DEPOS DDEP WDEP; pass output_types (the run's "
+                    "MODELOPT line)"
                 )
         if num_floats != n:
             raise ValueError(
-                f"Expected {n} values "
-                f"but record contains {num_floats}"
+                f"Expected {n} values but record contains {num_floats} "
+                f"({given}; not one to four blocks of that many)"
             )
         return None
 
@@ -802,14 +856,15 @@ class UnformattedPostfileParser:
 
                 date_str = self._kurdat_to_str(kurdat_int)
 
-                # Resolve receptor coordinates
+                # Resolve receptor coordinates (_resolve_types has checked
+                # that a caller's list has one pair per receptor)
                 if self.receptor_coords is not None:
                     coords = self.receptor_coords
                 else:
                     coords = [(float(i), 0.0) for i in range(n)]
 
                 for i in range(n):
-                    x, y = coords[i] if i < len(coords) else (float(i), 0.0)
+                    x, y = coords[i]
                     row = {"x": x, "y": y}
                     for j, column in enumerate(value_cols):
                         row[column] = values[j * n + i]
@@ -929,8 +984,10 @@ def _is_text_postfile(filepath: Union[str, Path]) -> bool:
     """
     Detect whether a POSTFILE is in text (PLOT) or binary (UNFORM) format.
 
-    Reads the first byte of the file: text POSTFILEs always begin with
-    ``*`` (0x2A) as the first character of the header.
+    A text file begins with ``*``, the first character of its header, or,
+    when written with ``OU NOHEADER``, with a data row: printable ASCII.
+    A binary file begins with a 4-byte little-endian record length, whose
+    high bytes are zero for any record under 16 MB.
 
     Parameters
     ----------
@@ -943,10 +1000,12 @@ def _is_text_postfile(filepath: Union[str, Path]) -> bool:
         *True* if the file appears to be a formatted (text) POSTFILE.
     """
     with open(filepath, "rb") as f:
-        first_byte = f.read(1)
-        if not first_byte:
-            return True  # empty file — treat as text
-        return first_byte == b"*"
+        chunk = f.read(512)
+    if not chunk:
+        return True  # empty file — treat as text
+    if chunk[:1] == b"*":
+        return True
+    return all(b in b"\t\n\r" or 0x20 <= b < 0x7F for b in chunk)
 
 
 # ============================================================================
@@ -965,7 +1024,8 @@ def read_postfile(
     Parse an AERMOD POSTFILE and return the result.
 
     Automatically detects whether the file is in formatted (PLOT/text) or
-    unformatted (UNFORM/binary) format.  Also reads text PLOTFILEs.
+    unformatted (UNFORM/binary) format.  Also reads text PLOTFILEs, and
+    text files written without a header (``OU NOHEADER``).
 
     Parameters
     ----------
@@ -973,10 +1033,11 @@ def read_postfile(
         Path to the POSTFILE.
     num_receptors : int, optional
         Number of receptors (binary files only).  Ignored for text files.
-        If *None*, inferred from the first record.
+        If *None*, taken from *receptor_coords*, else inferred from the
+        first record.
     receptor_coords : list of (float, float), optional
-        Receptor ``(x, y)`` coordinates (binary files only).  Ignored for
-        text files.
+        Receptor ``(x, y)`` coordinates, one pair per receptor (binary
+        files only).  Ignored for text files.
     has_deposition : bool, optional
         Binary files only: *True* is shorthand for
         ``output_types=("CONC", "DDEP", "WDEP")``.  Ignored for text files.
@@ -984,9 +1045,10 @@ def read_postfile(
         The run's output types, as its MODELOPT line
         (``"CONC DDEP WDEP FLAT"``) or as names (``["CONC", "DDEP"]``).
         A binary file from a run with more than one output type needs it
-        (or, where the record size allows only one reading,
-        *num_receptors*).  A text file names its types in its header, which
-        wins; a different *output_types* raises ``ValueError``.
+        (except for all four types with a known receptor count), and so
+        does a text file written without a header that has two or three
+        value columns.  A text file with a header names its types there,
+        and a different *output_types* raises ``ValueError``.
 
     Returns
     -------
