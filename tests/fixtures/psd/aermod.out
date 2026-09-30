@@ -1,0 +1,396 @@
+CO STARTING
+   TITLEONE  pyaermod.psd oracle: AERMOD vdp1 settling velocities
+   TITLETWO  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE converted
+   MODELOPT  DDEP FLAT DRYDPLT NOWETDPLT
+   AVERTIME  1
+   POLLUTID  OTHER
+   DEBUGOPT  DEPOS
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  AERO1    POINT        0.0000       0.0000     0.00
+   SRCPARAM  AERO1    1.0   10.00   300.00    1.00    1.00
+   PARTDIAM  AERO1    0.776808  1.32268  2.08241  3.02752  4.29367  6.05505  8.58733  11.2961  13.7878  17.6182  22.5922  27.5755  35.2365  45.1844  56.4805  68.9389
+   MASSFRAX  AERO1    0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625
+   PARTDENS  AERO1    1  1  1  1  1  1  1  1  1  1  1  1  1  1  1  1
+   LOCATION  AERO265  POINT        0.0000       0.0000     0.00
+   SRCPARAM  AERO265  1.0   10.00   300.00    1.00    1.00
+   PARTDIAM  AERO265  0.776808  1.32268  2.08241  3.02752  4.29367  6.05505  8.58733  11.2961  13.7878  17.6182  22.5922  27.5755  35.2365  45.1844  56.4805  68.9389
+   MASSFRAX  AERO265  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625
+   PARTDENS  AERO265  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65
+   LOCATION  STOKES   POINT        0.0000       0.0000     0.00
+   SRCPARAM  STOKES   1.0   10.00   300.00    1.00    1.00
+   PARTDIAM  STOKES   0.448935  0.783055  1.24877  1.82865  2.60583  3.68722  5.24204  6.90531  8.43531  10.7874  13.8417  16.9018  21.6061  27.7147  34.6513  42.3015
+   MASSFRAX  STOKES   0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625
+   PARTDENS  STOKES   2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65
+   LOCATION  NAIVE    POINT        0.0000       0.0000     0.00
+   SRCPARAM  NAIVE    1.0   10.00   300.00    1.00    1.00
+   PARTDIAM  NAIVE    0.477189  0.812515  1.27922  1.85979  2.63758  3.71959  5.27516  6.93914  8.46976  10.8228  13.8783  16.9395  21.6456  27.7566  34.6957  42.3488
+   MASSFRAX  NAIVE    0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625  0.0625
+   PARTDENS  NAIVE    2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART        0.0000    500.0000
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+   STARTEND  1988 3 1 12  1988 3 1 12
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      46       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Allows User-Specified Options
+      * Model Is Setup For Calculation of Dry DEPosition Values.
+      * NO GAS DEPOSITION Data Provided.
+      * PARTICLE DEPOSITION Data Provided.
+      * Model Uses DRY DEPLETION. DDPLETE  =  T
+      * Model Uses NO WET DEPLETION. WETDPLT  =  F
+      * Stack-tip Downwash.
+      * Model Assumes Receptors on FLAT Terrain.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: OTHER   
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+  
+ **This Run Includes:      4 Source(s);       1 Source Group(s); and       1 Receptor(s)
+
+                with:      4 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      0 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following DEPO Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =     0.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+                  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =    3600.0    
+                  Output Units   = GRAMS/M**2                              
+  
+ **Approximate Storage Requirements of Model =      3.5 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ **Debug Options Selected:         DEPOSDBG
+
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+
+                                                  *** POINT SOURCE DATA ***
+
+               NUMBER EMISSION RATE                    BASE     STACK   STACK    STACK     STACK    BLDG   URBAN  CAP/  EMIS RATE
+   SOURCE       PART.  (GRAMS/SEC)     X        Y      ELEV.    HEIGHT  TEMP.   EXIT VEL. DIAMETER  EXISTS SOURCE HOR   SCALAR
+     ID         CATS.               (METERS) (METERS) (METERS) (METERS) (DEG.K)  (M/SEC)  (METERS)                      VARY BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ AERO1           16   0.10000E+01       0.0       0.0     0.0    10.00   300.00     1.00     1.00    NO      NO    NO         
+ AERO265         16   0.10000E+01       0.0       0.0     0.0    10.00   300.00     1.00     1.00    NO      NO    NO         
+ STOKES          16   0.10000E+01       0.0       0.0     0.0    10.00   300.00     1.00     1.00    NO      NO    NO         
+ NAIVE           16   0.10000E+01       0.0       0.0     0.0    10.00   300.00     1.00     1.00    NO      NO    NO         
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        AERO1       , AERO265     , STOKES      , NAIVE       ,
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                                *** SOURCE PARTICULATE/GAS DATA ***
+
+
+
+
+        *** SOURCE ID = AERO1       ; SOURCE TYPE = POINT    ***
+
+        MASS FRACTION =
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            0.77681,   1.32268,   2.08241,   3.02752,   4.29367,   6.05505,   8.58733,  11.29610,  13.78780,  17.61820, 
+           22.59220,  27.57550,  35.23650,  45.18440,  56.48050,  68.93890, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            1.00000,   1.00000,   1.00000,   1.00000,   1.00000,   1.00000,   1.00000,   1.00000,   1.00000,   1.00000, 
+            1.00000,   1.00000,   1.00000,   1.00000,   1.00000,   1.00000, 
+
+
+        *** SOURCE ID = AERO265     ; SOURCE TYPE = POINT    ***
+
+        MASS FRACTION =
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            0.77681,   1.32268,   2.08241,   3.02752,   4.29367,   6.05505,   8.58733,  11.29610,  13.78780,  17.61820, 
+           22.59220,  27.57550,  35.23650,  45.18440,  56.48050,  68.93890, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+
+
+        *** SOURCE ID = STOKES      ; SOURCE TYPE = POINT    ***
+
+        MASS FRACTION =
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            0.44893,   0.78306,   1.24877,   1.82865,   2.60583,   3.68722,   5.24204,   6.90531,   8.43531,  10.78740, 
+           13.84170,  16.90180,  21.60610,  27.71470,  34.65130,  42.30150, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                                *** SOURCE PARTICULATE/GAS DATA ***
+
+
+
+
+        *** SOURCE ID = NAIVE       ; SOURCE TYPE = POINT    ***
+
+        MASS FRACTION =
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+            0.06250,   0.06250,   0.06250,   0.06250,   0.06250,   0.06250, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            0.47719,   0.81251,   1.27922,   1.85979,   2.63758,   3.71959,   5.27516,   6.93914,   8.46976,  10.82280, 
+           13.87830,  16.93950,  21.64560,  27.75660,  34.69570,  42.34880, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                             *** DISCRETE CARTESIAN RECEPTORS ***
+                                           (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                           (METERS)
+
+     (      0.0,     500.0,       0.0,       0.0,       0.0);                                                                       
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1
+
+                       METEOROLOGICAL DATA PROCESSED BETWEEN START DATE: 1988   3  1 12
+                                                           AND END DATE: 1988   3  1 12
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   AERMET2.SFC                                                                        Met Version:  26135
+   Profile file:   AERMET2.PFL                                                                     
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    14735                  Upper air station no.:    14735
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1988                                     Year:   1988
+
+ First 24 hours of scalar data
+ YR MO DY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN  Z0 BOWEN  ALB  REF WS   WD   HT  REF TA  HT IPCOD PRATE  RH SFCP CCVR
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ ** 03 01 01   -2.7  0.062 -9.000 -9.000 -999.   37.      7.9 0.75 1.50 1.00    0.80  318.  10.  273.8  10.  0  -9.00  999. 1003.  4
+ 88 03 01 02   -3.5  0.069 -9.000 -9.000 -999.   44.      8.5 0.75 1.50 1.00    0.90  273.  10.  273.5  10.  0  -9.00  999. 1003.  1
+ 88 03 01 03   -1.6  0.046 -9.000 -9.000 -999.   24.      5.7 0.75 1.50 1.00    0.60  276.  10.  272.4  10.  0  -9.00  999. 1003.  1
+ 88 03 01 04   -1.0  0.034 -9.000 -9.000 -999.   15.      3.6 0.30 0.80 1.00    0.60  200.  10.  271.5  10.  0  -9.00  999. 1003.  1
+ 88 03 01 05   -6.3  0.093 -9.000 -9.000 -999.   68.     11.3 0.75 1.50 1.00    1.20  289.  10.  271.8  10.  0  -9.00  999. 1003.  0
+ 88 03 01 06   -2.8  0.062 -9.000 -9.000 -999.   37.      7.5 0.75 1.50 1.00    0.80  254.  10.  271.0  10.  0  -9.00  999. 1004.  0
+ 88 03 01 07   -3.6  0.069 -9.000 -9.000 -999.   44.      8.5 0.75 1.50 1.00    0.90  264.  10.  270.9  10.  0  -9.00  999. 1004.  0
+ 88 03 01 08   -5.4  0.148 -9.000 -9.000 -999.  137.     54.2 0.75 1.50 0.67    1.30  315.  10.  271.8  10.  0  -9.00  999. 1005.  6
+ 88 03 01 09   25.1  0.321  0.558  0.007  248.  437.   -118.3 0.75 1.50 0.56    1.90  310.  10.  272.3  10.  0  -9.00  999. 1005.  7
+ 88 03 01 10   60.6  0.396  0.949  0.008  506.  599.    -92.0 0.75 1.50 0.52    2.30  315.  10.  273.0  10.  0  -9.00  999. 1005.  6
+ 88 03 01 11   88.3  1.474  1.182  0.005  671. 4000.  -3249.5 0.75 1.50 0.51    7.70  297.   6.  268.8   2.  0  -9.00  999. 1005.  2
+ 88 03 01 12   97.8  0.438  1.247  0.005  711. 2198.    -76.9 0.75 1.50 0.51    2.50  309.  10.  274.7  10.  0  -9.00  999. 1004.  0
+ 88 03 01 13   99.6  0.535  1.277  0.005  749. 1158.   -137.9 0.75 1.50 0.51    3.20  316.  10.  274.9  10.  0  -9.00  999. 1003.  0
+ 88 03 01 14   88.9  0.533  1.248  0.006  781.  941.   -151.8 0.75 1.50 0.51    3.20  290.  10.  275.3  10.  0  -9.00  999. 1002.  0
+ 88 03 01 15   65.9  0.483  1.147  0.007  818.  808.   -152.3 0.75 1.50 0.52    2.90  300.  10.  275.5  10.  0  -9.00  999. 1002.  0
+ 88 03 01 16   31.5  0.453  0.905  0.007  841.  733.   -263.9 0.75 1.50 0.55    2.80  315.  10.  275.0  10.  0  -9.00  999. 1001.  0
+ 88 03 01 17  -15.1  0.430 -9.000 -9.000 -999.  678.    469.5 0.75 1.50 0.62    2.90  308.  10.  274.3  10.  0  -9.00  999. 1001.  0
+ 88 03 01 18  -15.6  0.147 -9.000 -9.000 -999.  249.     18.1 0.75 1.50 0.86    1.90  311.  10.  273.3  10.  0  -9.00  999. 1001.  0
+ 88 03 01 19  -11.2  0.124 -9.000 -9.000 -999.  108.     15.1 0.75 1.50 1.00    1.60  313.  10.  272.2  10.  0  -9.00  999. 1001.  0
+ 88 03 01 20   -7.4  0.100 -9.000 -9.000 -999.   76.     12.2 0.75 1.50 1.00    1.30  326.  10.  271.3  10.  0  -9.00  999. 1002.  0
+ 88 03 01 21  -17.5  0.154 -9.000 -9.000 -999.  146.     18.8 0.75 1.50 1.00    2.00  327.  10.  270.5  10.  0  -9.00  999. 1001.  0
+ 88 03 01 22  -15.8  0.147 -9.000 -9.000 -999.  135.     17.8 0.75 1.50 1.00    1.90  320.  10.  269.8  10.  0  -9.00  999. 1001.  0
+ 88 03 01 23   -2.8  0.062 -9.000 -9.000 -999.   40.      7.5 0.75 1.50 1.00    0.80  284.  10.  268.7  10.  0  -9.00  999. 1001.  0
+ 88 03 01 24  -11.2  0.124 -9.000 -9.000 -999.  104.     15.0 0.75 1.50 1.00    1.60  298.  10.  268.3  10.  0  -9.00  999. 1001.  0
+
+
+ First hour of profile data
+ YR MO DY HR HEIGHT F  WDIR    WSPD AMB_TMP sigmaA  sigmaW  sigmaV
+ ** 03 01 01   10.0 0  318.    0.80   273.8   48.7    0.11    0.48
+ ** 03 01 01   50.0 0  323.    2.00   275.0   14.7  -99.00    0.50
+ ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
+
+ F indicates top of profile (=1) or below (=0)
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                              *** THE   1ST HIGHEST  1-HR     DRY DEPOSITION      VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     AERO1       , AERO265     , STOKES      , NAIVE       , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** DEPO OF OTHER    IN GRAMS/M**2                               **
+
+      X-COORD (M)  Y-COORD (M)        DEPO     (YYMMDDHH)              X-COORD (M)  Y-COORD (M)        DEPO     (YYMMDDHH)
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+             0.00       500.00        0.00038  (88030112)                                                                           
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** DEPO OF OTHER    IN GRAMS/M**2                               **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                              DRY DEPO     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS       0.00038  ON 88030112: AT (       0.00,      500.00,     0.00,     0.00,    0.00)  DC          
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  pyaermod.psd oracle: AERMOD vdp1 settling velocities                ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  AERO1 aerodynamic at 1.0; AERO265 same at 2.65; STOKES, NAIVE conve ***        19:27:29
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  RURAL  SigA&SigW
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of            1 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      46       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+
