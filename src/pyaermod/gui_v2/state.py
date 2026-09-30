@@ -7,7 +7,10 @@ file, the unsaved-changes flag and the run history, and tells the pages
 what changed. :func:`_empty_project` stays here because
 ``scripts/record_aermod_fixtures.py`` builds the recorded AERMOD decks
 from it: the end-to-end journeys' fake AERMOD checks that the GUI writes
-exactly those decks, so this function's body must not change casually.
+exactly those decks, so this function's body must not change casually:
+a change that alters the deck means recording the scenarios again with
+the real binary (WP-G3 did, when the plot files and POSTFILEs the
+Results step reads became the default).
 """
 
 from __future__ import annotations
@@ -36,7 +39,9 @@ def _empty_project() -> AERMODProject:
         meteorology=MeteorologyPathway(
             surface_file="", profile_file="",
         ),
-        output=OutputPathway(),
+        # A plot file and a POSTFILE for every averaging period, which the
+        # Results step reads (pages/output.py, PERIOD_FILE_STEM).
+        output=OutputPathway(period_plot_files="pyaermod", period_postfiles="pyaermod"),
     )
 
 
