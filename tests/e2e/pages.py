@@ -566,9 +566,10 @@ class RunPage(_Step):
         self.run_button().click()
 
     def status(self) -> Locator:
-        # A11Y-GAP (WP-G4): the run status is a plain label, not a
-        # role="status" live region, so it is found by its wording.
-        return self.panel.get_by_text(_STATUS)
+        # The run status is a role="status" live region (WP-G4); before a
+        # run ends it reads "Running ...", so it counts only once it names
+        # an outcome.
+        return self.panel.get_by_role("status").filter(has_text=_STATUS)
 
     def wait_until_finished(self, timeout_ms: int = RUN_TIMEOUT_MS) -> None:
         expect(self.status()).to_be_visible(timeout=timeout_ms)
@@ -590,7 +591,7 @@ class RunPage(_Step):
     def log(self) -> str:
         return self.panel.get_by_label("Run log", exact=True).input_value()
 
-    # -- planned (WP-G4) --------------------------------------------------
+    # -- Review & Run (WP-G4) --------------------------------------------
     def messages(self) -> Locator:
         return self.panel.get_by_role("table", name=re.compile("messages", re.I))
 
@@ -639,8 +640,18 @@ class RunPage(_Step):
         expect(self.panel.get_by_text(re.compile(rf"\bday\b\D*\b{day}\b", re.I))
                ).to_be_visible()
 
+    def expect_no_progress(self) -> None:
+        """No run is going: no progress bar, no Cancel (WP-G4)."""
+        panel = self.panel
+        expect(panel.get_by_role("progressbar")).to_have_count(0)
+        expect(panel.get_by_role("button", name="Cancel", exact=True)).to_have_count(0)
+
     def cancel(self) -> None:
         self.panel.get_by_role("button", name="Cancel", exact=True).click()
+
+    def double_click_start(self) -> None:
+        """Double-click Run AERMOD, as an impatient user does (WP-G4)."""
+        self.run_button().dblclick()
 
 
 class ResultsPage(_Step):

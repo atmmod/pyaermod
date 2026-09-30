@@ -27,8 +27,9 @@ import dataclasses
 import logging
 import re
 import tempfile
+import threading
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import (
@@ -48,7 +49,8 @@ from .project_io import check_project, project_from_json, project_to_json, save_
 from .state import _empty_project
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..runner import AERMODRunner, AERMODRunResult
+    from ..aermet import SurfaceFilePeriod
+    from ..runner import AERMODProgress, AERMODRun, AERMODRunner, AERMODRunResult
     from ..validator import ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,7 @@ class SessionEvent(StrEnum):
     DIRTY_CHANGED = "dirty_changed"            # the dirty flag or the file name changed
     VALIDATION_CHANGED = "validation_changed"  # validate()
     RUN_STARTED = "run_started"
-    RUN_PROGRESS = "run_progress"              # reserved; emitted from WP-G4 on
+    RUN_PROGRESS = "run_progress"              # a background run printed another day
     RUN_FINISHED = "run_finished"
 
 
@@ -104,6 +106,10 @@ class RunRecord:
     finished_at: Optional[datetime] = None
     result: Optional[AERMODRunResult] = None   # None when the runner raised
     error: Optional[str] = None                # str(exc) when the runner raised
+    # WP-G4: a background run's progress, and the days of met data it has
+    # to process (from the surface file; None when it could not be read).
+    progress: Optional[AERMODProgress] = None
+    expected_days: Optional[int] = None
 
     @property
     def in_progress(self) -> bool:
@@ -112,6 +118,28 @@ class RunRecord:
     @property
     def success(self) -> bool:
         return self.result is not None and bool(self.result.success)
+
+    @property
+    def cancelled(self) -> bool:
+        return self.result is not None and bool(getattr(self.result, "cancelled", False))
+
+    @property
+    def status(self) -> str:
+        """"Running", "Succeeded", "Cancelled" or "Failed"."""
+        if self.in_progress:
+            return "Running"
+        if self.success:
+            return "Succeeded"
+        return "Cancelled" if self.cancelled else "Failed"
+
+    @property
+    def fraction_done(self) -> Optional[float]:
+        """Days processed over the days of met data, in [0, 1]; None if unknown."""
+        if self.progress is not None and self.progress.stage == "output":
+            return 1.0
+        if not self.expected_days or self.progress is None:
+            return None
+        return min(1.0, self.progress.days_processed / self.expected_days)
 
 
 @dataclass(frozen=True)
@@ -139,7 +167,44 @@ class DeckError(ValueError):
     """The project could not be written as an AERMOD deck."""
 
 
+class RunInProgressError(RuntimeError):
+    """:meth:`Session.start_run` was called while a run is in progress."""
+
+
+def _call_now(callback: Callable[[], object]) -> None:
+    callback()
+
+
+# (path, mtime_ns, size) -> the period read from that surface file.
+_PERIOD_CACHE: Dict[Tuple[str, int, int], Any] = {}
+_PERIOD_CACHE_SIZE = 16
+
+
+def read_met_period(path: Path) -> SurfaceFilePeriod:
+    """:func:`~pyaermod.aermet.read_surface_period`, cached by path and mtime.
+
+    Raises what it raises (``OSError``, ``ValueError``).
+    """
+    from ..aermet import read_surface_period
+
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    period = _PERIOD_CACHE.get(key)
+    if period is None:
+        period = read_surface_period(path)
+        if len(_PERIOD_CACHE) >= _PERIOD_CACHE_SIZE:
+            _PERIOD_CACHE.pop(next(iter(_PERIOD_CACHE)))
+        _PERIOD_CACHE[key] = period
+    return period
+
+
 Observer = Callable[[Change], None]
+
+
+def _orphan_record(result: Optional[AERMODRunResult]) -> RunRecord:
+    """A record for the end of a run the session no longer tracks."""
+    deck = Path(result.input_file) if result is not None else Path(DECK_NAME)
+    return RunRecord(number=0, work_dir=deck.parent, deck_path=deck, started_at=datetime.now())
 
 
 def clean_file_name(name: Optional[str]) -> str:
@@ -187,6 +252,12 @@ class Session:
     tab_id
         Which browser tab owns this session. The GUI shell reads and
         writes it; the session never interprets it.
+    dispatch
+        How a background run's events reach the session's owner:
+        ``dispatch(callback)`` must arrange for ``callback()`` to run on the
+        thread that owns the session. The GUI passes its event loop's
+        ``call_soon_threadsafe``; the default calls at once, on the run's
+        own thread (fine for scripts and tests that only wait).
     """
 
     def __init__(self, project: Optional[AERMODProject] = None, *,
@@ -200,7 +271,14 @@ class Session:
         self.run_in_progress: Optional[RunRecord] = None
         self.run_options = RunOptions()
         self.tab_id: Optional[str] = tab_id
+        self.dispatch: Callable[[Callable[[], object]], Any] = _call_now
         self._observers: List[Tuple[frozenset, Observer]] = []
+        # The background run in progress: its handle and serial number, and
+        # the newest progress not yet applied on the owner's thread.
+        self._run_handle: Optional[AERMODRun] = None
+        self._run_serial = 0
+        self._progress_lock = threading.Lock()
+        self._pending_progress: Optional[Tuple[int, AERMODProgress]] = None
         # id(obj) -> (key, obj). Holding obj keeps its id from being reused
         # while the key exists.
         self._keys: Dict[int, Tuple[str, object]] = {}
@@ -216,9 +294,9 @@ class Session:
 
     @property
     def last_completed_run(self) -> Optional[RunRecord]:
-        """The newest run AERMOD actually completed (it has a result)."""
+        """The newest run AERMOD actually completed (it has a result and was not cancelled)."""
         for record in reversed(self.runs):
-            if record.result is not None:
+            if record.result is not None and not record.cancelled:
                 return record
         return None
 
@@ -298,6 +376,10 @@ class Session:
 
     def _replaced(self, project: AERMODProject, *, path: Optional[Path],
                   name: Optional[str]) -> None:
+        # Policy (WP-G4): replacing the project stops its run. The run's
+        # outputs belong to the discarded project, and its record would go
+        # with the discarded history.
+        self._abandon_run()
         was_dirty, old_name = self.dirty, self.file_name
         self.project = project
         self.project_path = path
@@ -523,33 +605,78 @@ class Session:
     # ------------------------------------------------------------------
     # Runs
     # ------------------------------------------------------------------
-    def start_run(self, *, working_dir: Union[str, Path, None] = None, timeout: int = 600,
-                  runner: Optional[AERMODRunner] = None) -> RunRecord:
-        """Write the deck, run AERMOD on it, and record the run.
+    def deck_text(self) -> str:
+        """The AERMOD deck :meth:`start_run` would write for the project.
 
-        Raises :class:`DeckError` (nothing recorded, nothing emitted) when
-        the project cannot be written as a deck, either because it holds a
-        value its file could not be reopened with (the message names the
-        field; see :func:`~.project_io.check_project`) or because the deck
-        writer refuses it, and ``OSError`` when the
-        deck cannot be written to the working directory. Anything the
-        runner raises, including a missing binary, is kept on the record
-        as ``error``. Emits RUN_STARTED and then RUN_FINISHED.
-
-        The run is synchronous; WP-G4 moves it to the background.
+        Written from the project as a file would reopen it: a value the
+        loader refuses is refused here by name, and whole numbers the number
+        boxes stored as floats are integers again. Raises
+        :class:`DeckError` when the project cannot be written as a deck.
+        Emits nothing, so a page section may call it.
         """
         try:
-            # The deck is written from the project as a file would reopen it:
-            # a value the loader refuses is refused here by name, and whole
-            # numbers the number boxes stored as floats are integers again.
             deck_project = check_project(self.project, origin="deck")
-            deck = deck_project.to_aermod_input(validate=False)
+            return deck_project.to_aermod_input(validate=False)
         except ValueError as exc:
             raise DeckError(str(exc).removeprefix("deck: ")) from exc
         except Exception as exc:
             # Anything else is a bug in the deck writer or the check.
             logger.exception("Writing the deck raised")
             raise DeckError(str(exc) or type(exc).__name__) from exc
+
+    def met_period(self, base_dir: Union[str, Path, None] = None,
+                   ) -> Tuple[Optional[Path], Optional[SurfaceFilePeriod], Optional[str]]:
+        """The surface file, the period it covers, and why it could not be read.
+
+        ``(path, period, problem)``: ``path`` is the surface file resolved
+        against ``base_dir`` (None when none is set), ``period`` the
+        :class:`~pyaermod.aermet.SurfaceFilePeriod` it holds, and
+        ``problem`` a sentence saying why it could not be read (then
+        ``period`` is None). Reads are cached by the file's mtime. Emits
+        nothing.
+        """
+        from ..validator_advanced import surface_file_path
+
+        path = surface_file_path(self.project.meteorology, base_dir)
+        if path is None:
+            return None, None, None
+        try:
+            return path, read_met_period(path), None
+        except FileNotFoundError:
+            return path, None, f"{path} does not exist"
+        except IsADirectoryError:
+            return path, None, f"{path} is a directory, not a surface file"
+        except (OSError, ValueError) as exc:
+            return path, None, f"{path} could not be read: {exc}"
+
+    def start_run(self, *, working_dir: Union[str, Path, None] = None, timeout: int = 600,
+                  runner: Optional[AERMODRunner] = None,
+                  background: bool = False) -> RunRecord:
+        """Write the deck, run AERMOD on it, and record the run.
+
+        Raises :class:`RunInProgressError` while another run is in progress
+        (nothing written, nothing emitted), :class:`DeckError` (nothing
+        recorded, nothing emitted) when the project cannot be written as a
+        deck (see :meth:`deck_text`), and ``OSError`` when the deck cannot
+        be written to the working directory. Anything the runner raises,
+        including a missing binary, is kept on the record as ``error``.
+
+        With ``background=False`` the run is synchronous: RUN_STARTED, then
+        RUN_FINISHED, and the finished record is returned.
+
+        With ``background=True`` AERMOD runs through
+        :meth:`AERMODRunner.start <pyaermod.runner.AERMODRunner.start>` and
+        this returns the record in progress (:attr:`run_in_progress`) after
+        RUN_STARTED. RUN_PROGRESS follows for each day AERMOD reports (a
+        burst is coalesced into one event), then RUN_FINISHED, all
+        delivered through :attr:`dispatch`. :meth:`cancel_run` stops it. A
+        runner that cannot be built or started finishes the run at once,
+        as a synchronous run would.
+        """
+        if self.run_in_progress is not None:
+            raise RunInProgressError(
+                f"AERMOD is already running (run {self.run_in_progress.number})")
+        deck = self.deck_text()
 
         if working_dir is not None and str(working_dir).strip():
             wd = Path(working_dir).expanduser()
@@ -560,43 +687,127 @@ class Session:
         deck_path.write_text(deck, encoding="utf-8")
 
         record = RunRecord(number=len(self.runs) + 1, work_dir=wd, deck_path=deck_path,
-                           started_at=datetime.now())
+                           started_at=datetime.now(), expected_days=self._expected_days(wd))
+        self._run_serial += 1
+        serial = self._run_serial
         self.run_in_progress = record
         self._emit(Change(SessionEvent.RUN_STARTED, run=record))
 
-        result: Optional[AERMODRunResult] = None
-        error: Optional[str] = None
         try:
             if runner is None:
                 from ..runner import AERMODRunner
 
                 runner = AERMODRunner(log_level="WARNING")
-            result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+            if not background:
+                result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+                return self._finish_run(serial, result=result)
+            handle = runner.start(
+                input_file=deck_path, working_dir=wd, timeout=timeout,
+                on_progress=lambda progress: self._progress_arrived(serial, progress),
+                on_finish=lambda result: self._dispatch(
+                    lambda: self._finish_run(serial, result=result)),
+            )
         except FileNotFoundError as exc:
             # No AERMOD binary, or a file it needs: the user's setup, and the
             # Run step says so. Logged without a traceback.
             logger.warning("AERMOD run %d could not start: %s", record.number, exc)
-            error = str(exc) or type(exc).__name__
+            return self._finish_run(serial, error=str(exc) or type(exc).__name__)
         except Exception as exc:
             # Anything else is a bug: keep the traceback in the log, and show
             # the message on the Run step.
             logger.exception("AERMOD run %d raised", record.number)
-            error = str(exc) or type(exc).__name__
+            return self._finish_run(serial, error=str(exc) or type(exc).__name__)
+        if self._run_serial == serial and self.run_in_progress is not None:
+            self._run_handle = handle
+            return self.run_in_progress
+        # It ended already (a dispatch that calls at once, and a quick failure).
+        return self.runs[-1] if self.runs and self.runs[-1].number == record.number else record
 
-        finished = replace(record, finished_at=datetime.now(), result=result, error=error)
+    def cancel_run(self) -> bool:
+        """Stop the background run in progress.
+
+        Returns True when a cancel was sent: RUN_FINISHED follows once
+        AERMOD has exited, with a record whose status is "Cancelled".
+        False when nothing is running, the run was already cancelled, or
+        the run is synchronous (it cannot be interrupted).
+        """
+        if self.run_in_progress is None or self._run_handle is None:
+            return False
+        return self._run_handle.cancel()
+
+    def _expected_days(self, work_dir: Path) -> Optional[int]:
+        """How many "Day No." lines AERMOD will print: the days of met data it reads."""
+        _path, period, _problem = self.met_period(work_dir)
+        if period is None:
+            return None
+        from ..validator_advanced import _startend_window
+
+        window = _startend_window(self.project.meteorology)
+        if window is None:
+            return period.days
+        first, last = max(period.first, window[0]), min(period.last, window[1])
+        if last <= first:
+            return None
+        return (last - timedelta(hours=1)).date().toordinal() - first.date().toordinal() + 1
+
+    def _dispatch(self, callback: Callable[[], object]) -> None:
+        try:
+            self.dispatch(callback)
+        except RuntimeError as exc:         # the event loop has closed: the app is stopping
+            logger.debug("dropped a run event: %s", exc)
+
+    def _progress_arrived(self, serial: int, progress: AERMODProgress) -> None:
+        """From the run's reader thread: apply ``progress`` on the owner's thread."""
+        with self._progress_lock:
+            already = self._pending_progress is not None
+            self._pending_progress = (serial, progress)
+        if not already:
+            self._dispatch(self._apply_progress)
+
+    def _apply_progress(self) -> None:
+        with self._progress_lock:
+            pending, self._pending_progress = self._pending_progress, None
+        record = self.run_in_progress
+        if pending is None or record is None or pending[0] != self._run_serial:
+            return
+        self.run_in_progress = replace(record, progress=pending[1])
+        self._emit(Change(SessionEvent.RUN_PROGRESS, run=self.run_in_progress))
+
+    def _finish_run(self, serial: int, *, result: Optional[AERMODRunResult] = None,
+                    error: Optional[str] = None) -> RunRecord:
+        """Record the end of run ``serial`` and emit RUN_FINISHED.
+
+        A run that is no longer the one in progress (New or Open replaced
+        the project and stopped it) is dropped without an event.
+        """
+        record = self.run_in_progress
+        if record is None or serial != self._run_serial:
+            if result is not None:
+                logger.info("A stopped run of a replaced project ended: %s", result)
+            return replace(record or _orphan_record(result), finished_at=datetime.now(),
+                           result=result, error=error)
+        handle, self._run_handle = self._run_handle, None
+        progress = record.progress
+        if handle is not None and handle.progress is not None:
+            progress = handle.progress
+        finished = replace(record, finished_at=datetime.now(), result=result, error=error,
+                           progress=progress)
         self.runs.append(finished)
         self.run_in_progress = None
         self._emit(Change(SessionEvent.RUN_FINISHED, run=finished))
         return finished
 
-    def cancel_run(self) -> bool:
-        """Stop the run in progress. False when nothing is running.
-
-        Runs are synchronous until WP-G4, which implements cancelling.
-        """
+    def _abandon_run(self) -> None:
+        """Stop the run in progress without recording it (the project is going)."""
+        handle, self._run_handle = self._run_handle, None
         if self.run_in_progress is None:
-            return False
-        raise NotImplementedError("cancelling arrives with WP-G4")
+            return
+        logger.info("Stopping AERMOD run %d: the project was replaced",
+                    self.run_in_progress.number)
+        self.run_in_progress = None
+        self._run_serial += 1               # its finish no longer matches
+        if handle is not None:
+            handle.cancel()
 
     # ------------------------------------------------------------------
     # Tabs
@@ -619,9 +830,11 @@ __all__ = [
     "Change",
     "DeckError",
     "ProjectFileError",
+    "RunInProgressError",
     "RunOptions",
     "RunRecord",
     "Session",
     "SessionEvent",
     "clean_file_name",
+    "read_met_period",
 ]

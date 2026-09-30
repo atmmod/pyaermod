@@ -12,6 +12,9 @@ wrong results:
 - DFAULT vs. non-default model-option consistency.
 - Emission-rate plausibility for the declared pollutant.
 - Met date range vs. ControlPathway date range.
+- ANNUAL averages vs. the period the surface file covers
+  (:func:`check_annual_met_coverage`, which reads the file and so is not
+  part of ``Validator.validate()``).
 
 As of v1.3.0 these checks are **integrated into `Validator.validate()`**
 by default — findings land in the returned `ValidationResult.errors`
@@ -22,9 +25,14 @@ findings in isolation (e.g. for custom reporting).
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
 from .validator import ValidationError
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .aermet import SurfaceFilePeriod
 
 # ---------------------------------------------------------------------------
 # Heuristic thresholds
@@ -316,6 +324,103 @@ def _check_met_dates(control: Any, met: Any) -> List[ValidationError]:
     return errors
 
 
+def surface_file_path(met: Any, base_dir: Union[str, Path, None] = None) -> Optional[Path]:
+    """The surface file ``met`` names, resolved as AERMOD would open it.
+
+    AERMOD opens a relative path from its working directory, so a
+    relative ``surface_file`` is joined to ``base_dir`` when one is given.
+    AERMOD does not expand ``~``, so neither does this: ``~/met.sfc`` is a
+    relative path to a folder named ``~``. None when no surface file is set.
+    """
+    name = (getattr(met, "surface_file", "") or "").strip().strip('"')
+    if not name:
+        return None
+    path = Path(name)
+    if not path.is_absolute() and base_dir is not None and str(base_dir).strip():
+        path = Path(base_dir).expanduser() / path
+    return path
+
+
+def _startend_window(met: Any) -> Optional[Tuple[datetime, datetime]]:
+    """STARTEND as (start of its first hour, end of its last day), or None."""
+    fields = [getattr(met, f, None) for f in (
+        "start_year", "start_month", "start_day", "end_year", "end_month", "end_day")]
+    if any(f is None for f in fields):
+        return None
+    try:
+        sy, sm, sd, ey, em, ed = (int(f) for f in fields if f is not None)
+        return datetime(sy, sm, sd), datetime(ey, em, ed) + timedelta(days=1)
+    except (TypeError, ValueError, OverflowError):
+        return None                     # the base validator reports bad dates
+
+
+def check_annual_met_coverage(project: Any, *, base_dir: Union[str, Path, None] = None,
+                              period: Optional[SurfaceFilePeriod] = None,
+                              ) -> List[ValidationError]:
+    """Warn when ANNUAL is requested with less than a year of met data.
+
+    AERMOD processes every hour and then stops with fatal error E480
+    ("Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave") when the data
+    hold no complete year (:attr:`~pyaermod.aermet.SurfaceFilePeriod.complete_years`,
+    checked against AERMOD v26135). A STARTEND window limits the data to
+    the hours inside it.
+
+    Unlike :func:`advanced_validate` this reads the surface file, so
+    ``Validator.validate()`` does not call it.
+
+    Parameters
+    ----------
+    project : AERMODProject
+    base_dir : str or Path, optional
+        The directory AERMOD will run in, against which a relative
+        ``surface_file`` is resolved.
+    period : SurfaceFilePeriod, optional
+        The file's period, if already read (the GUI caches it); read with
+        :func:`~pyaermod.aermet.read_surface_period` otherwise.
+
+    Returns
+    -------
+    list of ValidationError
+        One warning when the data hold no complete year; empty when
+        ANNUAL is not requested or the surface file is unset or cannot be
+        read (other checks report those).
+    """
+    periods = [str(p).strip().upper() for p in getattr(project.control, "averaging_periods", [])]
+    if "ANNUAL" not in periods:
+        return []
+    met = project.meteorology
+    path = surface_file_path(met, base_dir)
+    if period is None:
+        if path is None:
+            return []
+        from .aermet import read_surface_period
+
+        try:
+            period = read_surface_period(path)
+        except (OSError, ValueError):
+            return []
+    name = path.name if path is not None else "the surface file"
+    covered = period
+    window = _startend_window(met)
+    if window is not None:
+        from dataclasses import replace
+
+        first, last = max(period.first, window[0]), min(period.last, window[1])
+        if last <= first:
+            return []                   # AERMOD reports a STARTEND outside the data itself
+        covered = replace(period, first=first, last=last)
+    if covered.complete_years > 0:
+        return []
+    within = " within STARTEND" if covered is not period else ""
+    return [ValidationError(
+        "MeteorologyPathway", "surface_file",
+        f"ANNUAL averages need at least one full year of met data, but {name} "
+        f"holds {period.describe()}{within}; AERMOD would stop with fatal error "
+        "E480. Use a year or more of met data, or averaging periods without ANNUAL",
+        severity="warning",
+    )]
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -349,4 +454,6 @@ __all__ = [
     "RECEPTOR_GRID_HARD_LIMIT",
     "RECEPTOR_GRID_WARN_LIMIT",
     "advanced_validate",
+    "check_annual_met_coverage",
+    "surface_file_path",
 ]

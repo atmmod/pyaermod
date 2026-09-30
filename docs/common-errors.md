@@ -21,11 +21,37 @@ them, and which pyaermod helper catches them earlier.
 
 ## AERMOD runtime failures
 
-### Immediate crash, ERRMSG.TMP has `E101`
+### Immediate crash, ERRMSG.TMP has `E101` {#e101}
 
 - **Cause:** missing input or met file.
 - **Fix:** run `Validator.validate(project, check_files=True)` —
   catches this in-process.
+
+### `E480`: "Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave" {#e480}
+
+- **Cause:** ANNUAL averages (or MULTYEAR, or MAXDCONT) with met data
+  that hold no complete year. AERMOD processes every hour and then stops;
+  it exits with code 0 all the same. A year ends at the hour before the
+  first hour of data, one year on, so a file that starts at hour 1 of
+  1 March needs data through hour 24 of the last day of February.
+  During setup the same code flags a STARTEND window shorter than a year.
+- **Fix:** use a year or more of met data, or averaging periods without
+  ANNUAL (PERIOD averages over whatever the file holds).
+  `check_annual_met_coverage(project)` in `validator_advanced` reads the
+  surface file and warns before the run, and the GUI's Review & Run step
+  shows that warning; `read_surface_period(path)` in `aermet` says which
+  days a file holds.
+
+### `E500`: "Fatal Error Occurs Opening the Data File of SURFFILE" {#e500}
+
+- **Cause:** AERMOD could not open a met file (`SURFFILE` or `PROFFILE`,
+  named at the end of the message). A relative path is opened from the
+  directory AERMOD runs in, not from where the deck was written. AERMOD
+  does not expand `~`, so `~/met.sfc` is a relative path too. AERMOD
+  stops during setup and still exits with code 0.
+- **Fix:** give the full path, or copy the file into the working
+  directory. `Validator.validate(project, check_files=True)` checks the
+  paths first.
 
 ### Runs but writes no output
 

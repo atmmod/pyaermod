@@ -255,10 +255,17 @@ class Journey:
         self.artifacts = ARTIFACTS / re.sub(r"[^\w.-]+", "_", name)
         shutil.rmtree(self.artifacts, ignore_errors=True)
         self.artifacts.mkdir(parents=True, exist_ok=True)
+        self.watch(page)
+        self._use_timeouts(STEP_TIMEOUT_MS, EXPECT_TIMEOUT_MS)
+
+    def watch(self, page) -> None:
+        """Fail the journey on ``page``'s JS and console errors (Rule 5).
+
+        The fixture calls it for every further tab the journey opens.
+        """
         page.on("pageerror", lambda exc: self.browser_errors.append(
             f"pageerror: {exc}"))
         page.on("console", self._on_console)
-        self._use_timeouts(STEP_TIMEOUT_MS, EXPECT_TIMEOUT_MS)
 
     def _on_console(self, msg) -> None:
         if msg.type == "error":
@@ -270,13 +277,16 @@ class Journey:
             expect.set_options(timeout=expect_ms)
 
     # -- screenshots ------------------------------------------------------
-    def step(self, name: str) -> Path:
-        """Save a full-page screenshot as ``NN_<name>.png`` for this journey."""
+    def step(self, name: str, page=None) -> Path:
+        """Save a full-page screenshot as ``NN_<name>.png`` for this journey.
+
+        Of the journey's page, or of ``page`` (another tab it opened).
+        """
         self._shot += 1
         slug = re.sub(r"[^\w.-]+", "_", name).strip("_") or "step"
         path = self.artifacts / f"{self._shot:02d}_{slug}.png"
         try:
-            self.page.screenshot(path=str(path), full_page=True, timeout=5_000)
+            (page or self.page).screenshot(path=str(path), full_page=True, timeout=5_000)
         except Exception as exc:
             path.with_suffix(".txt").write_text(f"screenshot failed: {exc}\n")
         return path
