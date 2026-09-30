@@ -534,6 +534,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- `input_reader.input_files`, `anchor_input_files` and the sandbox did not
+  know #28's `SourcePathway.hourly_emissions`: a project that models its
+  HOUREMIS cards had its hourly emission files left out of the files a
+  deck reads (so the GUI neither listed a missing one nor anchored a
+  relative one to the deck's folder), and `sandbox=True` did not check
+  them. Each card's file is now `SO HOUREMIS` among the input files and
+  `sources.hourly_emissions[i]` in the sandbox check. A deck's own
+  HOUREMIS lines, which the reader keeps verbatim, were covered already.
 - **GUI: the whole server froze while Results read a finished run.**
   The view was built on the event loop from the `RUN_FINISHED` observer,
   so for a large run (tens of thousands of receptors, or a POSTFILE of

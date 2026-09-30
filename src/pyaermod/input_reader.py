@@ -2323,6 +2323,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     - control.chemistry.nox_file
     - control.save_file, init_file, multiyear files and eventfil
     - control.debug_options (the DEBUGOPT file names)
+    - sources.hourly_emissions (the HOUREMIS files)
     - output.summary_file / plot_file / postfile / maxi_files
     - output.plot_file_groups (per-group filenames)
     - every field of every line kept in ``unparsed_lines``
@@ -2379,6 +2380,8 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     _check("control.eventfil", control.eventfil)
     for name in control.debug_files():
         _check("control.debug_options", name)
+    for i, card in enumerate(getattr(project.sources, "hourly_emissions", None) or []):
+        _check(f"sources.hourly_emissions[{i}]", card.filename)
 
     out = project.output
     for attr in ("summary_file", "plot_file", "postfile"):
@@ -2501,6 +2504,9 @@ def _input_file_slots(project: AERMODProject) -> List[Tuple[InputFile, Any]]:
         attr(control.init_file, "filename", "CO INITFILE")
     if control.multiyear is not None:
         attr(control.multiyear, "init_file", "CO MULTYEAR")
+    # HOUREMIS cards the project models (#28); a deck's own stay verbatim.
+    for card in getattr(project.sources, "hourly_emissions", None) or []:
+        attr(card, "filename", "SO HOUREMIS")
 
     for line in project.unparsed_lines:
         # The line goes back into the deck as its fields joined by blanks;
@@ -2525,7 +2531,8 @@ def input_files(project: AERMODProject) -> List[InputFile]:
     """Every file AERMOD reads that ``project`` names.
 
     In this order: the met files, the ozone and NOx background files,
-    the file a run starts from (``INITFILE``, ``MULTYEAR``), and, among
+    the file a run starts from (``INITFILE``, ``MULTYEAR``), the
+    ``HOUREMIS`` files of ``sources.hourly_emissions``, and, among
     the lines kept verbatim, in deck order, ``INCLUDED``, ``HOUREMIS``
     and hourly ``BACKGRND`` files.
     Files AERMOD writes (outputs, ``SAVEFILE``, ``ERRORFIL``) are not

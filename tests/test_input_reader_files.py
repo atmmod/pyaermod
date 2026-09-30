@@ -95,6 +95,34 @@ class TestInputFiles:
         assert "bg.dat" not in [r.path for r in input_files(project)]
 
 
+    def test_a_modelled_houremis_card_is_an_input_file(self, deck, tmp_path):
+        """#28's SourcePathway.hourly_emissions names a file AERMOD reads."""
+        from pyaermod.sources import HourlyEmissionFile
+
+        project = read_aermod_input(deck)
+        project.sources.hourly_emissions.append(HourlyEmissionFile("emis/s1.dat", ["S1"]))
+        assert ("SO HOUREMIS", "emis/s1.dat") in _keywords(input_files(project))
+        emis = deck.parent / "emis"
+        emis.mkdir()
+        (emis / "s1.dat").write_text("")
+        anchored = dict(_keywords(ref for ref, _full in anchor_input_files(project, deck.parent)))
+        assert anchored["SO HOUREMIS"] == "emis/s1.dat"
+        assert project.sources.hourly_emissions[0].filename == str(emis / "s1.dat")
+
+    def test_the_sandbox_refuses_a_modelled_houremis_file_outside_the_folder(self, deck):
+        from pyaermod.input_reader import PathTraversalError, _validate_paths_within
+        from pyaermod.sources import HourlyEmissionFile
+
+        deck.write_text(_DECK.replace("../shared/receptors.dat", "receptors.dat")
+                        .replace("/nowhere/a.pfl", "a.pfl"))
+        project = read_aermod_input(deck)
+        project.sources.hourly_emissions.append(HourlyEmissionFile("../s1.dat", ["S1"]))
+        with pytest.raises(PathTraversalError) as caught:
+            _validate_paths_within(project, deck.parent)
+        assert [(v.field, v.path) for v in caught.value.violations] == [
+            ("sources.hourly_emissions[0]", "../s1.dat")]
+
+
 class TestAnchorInputFiles:
     def test_relative_names_found_from_the_deck_folder_become_full_paths(self, deck):
         folder = deck.parent
