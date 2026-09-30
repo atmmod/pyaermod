@@ -382,11 +382,18 @@ async def _rows_become(gui: GuiSession, table_of, key: str, expected: list) -> l
     raise AssertionError(f"table shows {rows}, expected {expected}")
 
 
-async def _value_becomes(get, expected) -> None:
-    for _ in range(150):
+async def _value_becomes(get, expected, timeout: float = 10.0) -> None:
+    # Time-based, not a count of polls: CI's coverage run is several times
+    # slower, and 150 polls of 10 ms (1.5 s) were too few there for a step
+    # that revalidates after typing a path.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
         if get() == expected:
             return
         await asyncio.sleep(_POLL_S)
+    if get() == expected:
+        return
     raise AssertionError(f"shows {get()!r}, expected {expected!r}")
 
 
