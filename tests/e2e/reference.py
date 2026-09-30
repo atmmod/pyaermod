@@ -42,6 +42,16 @@ MAX_LOCATION = (519.62, -300.00)
 
 AERTEST_RECORDING = RECORDINGS / "aertest"
 
+# AERTEST's maxima as AERMOD v26135 printed them (recording aertest; the
+# same as EPA's AERTEST.SUM): (value, x, y) per averaging period.
+AERTEST_MAXIMA = {
+    "1HR": ("753.65603", "303.11", "-175.00"),
+    "3HR": ("329.96015", "433.01", "-250.00"),
+    "8HR": ("264.11481", "433.01", "-250.00"),
+    "24HR": ("88.89517", "433.01", "-250.00"),
+    "PERIOD": ("24.85173", "433.01", "-250.00"),
+}
+
 
 def enter_reference_scenario(gui, step: Optional[Callable[[str], object]] = None,
                              *, surface_file: Path = SURFACE_FILE) -> None:

@@ -86,6 +86,13 @@ def _agrees(shown: str, expected: float) -> bool:
     return abs(value - expected) <= 0.5 * 10 ** -decimals * scale * (1 + 1e-9)
 
 
+def _table_rows(table: Locator) -> List[Dict[str, str]]:
+    """A table's body rows as ``{column heading: cell text}``."""
+    headings = [h.strip() for h in table.get_by_role("columnheader").all_inner_texts()]
+    return [dict(zip(headings, (c.strip() for c in row.get_by_role("cell").all_inner_texts())))
+            for row in table.get_by_role("row").filter(has=table.page.get_by_role("cell")).all()]
+
+
 class App:
     """The whole application: navigation, header and notifications."""
 
@@ -318,6 +325,14 @@ class ProjectPage(_Step):
         with self.page.expect_file_chooser() as chooser:
             button.click()
         chooser.value.set_files(str(path))
+        self.app.expect_notification(path.name)
+
+    def import_deck_from_path(self, path: Path) -> None:
+        """Import a deck by its path on the server's computer (WP-G6's
+        Deck file path field), which keeps the deck's folder: its met
+        files are found beside it."""
+        self.set_field("Deck file path", path)
+        self.panel.get_by_role("button", name="Read deck").click()
         self.app.expect_notification(path.name)
 
 
@@ -697,9 +712,46 @@ class ResultsPage(_Step):
             assert _agrees(x, location[0]) and _agrees(y, location[1]), (
                 f"{period} maximum located at ({x}, {y}), expected {location}")
 
+    def maxima_rows(self) -> List[Dict[str, str]]:
+        """Every row of the "Maximum for each averaging period" table, keyed
+        by column heading, as displayed."""
+        table = self.panel.get_by_role("table").filter(
+            has=self.page.get_by_role("columnheader", name="Max", exact=True))
+        expect(table).to_be_visible()
+        return _table_rows(table)
+
+    def summary_table_names(self) -> List[str]:
+        """The summary tables listed under "Summary tables", in order
+        ("Concentration, 1-HR: THE SUMMARY OF HIGHEST 1-HR RESULTS")."""
+        expanders = self.panel.get_by_role("button", name=re.compile(r'^Expand ".*: '))
+        return [re.sub(r'^Expand "(.*)"$', r"\1", name)
+                for name in (b.get_attribute("aria-label") or "" for b in expanders.all())]
+
+    def summary_table(self, name: str) -> List[Dict[str, str]]:
+        """Every row of the summary table ``name``, keyed by column heading."""
+        panel = self.panel
+        panel.get_by_role("button", name=f'Expand "{name}"', exact=True).click()
+        collapse = panel.get_by_role("button", name=f'Collapse "{name}"', exact=True)
+        expect(collapse).to_be_visible()
+        # The only summary table shown: the others stay collapsed.
+        table = panel.get_by_role("table").filter(
+            has=self.page.get_by_role("columnheader", name="Rank", exact=True))
+        expect(table).to_have_count(1)
+        rows = _table_rows(table)
+        collapse.click()
+        expect(table).to_have_count(0)
+        return rows
+
     def expect_map(self) -> None:
         expect(self.panel.get_by_role(
             "img", name=re.compile("concentration map", re.I))).to_be_visible()
+
+    def expect_naaqs_design_value_from(self, file_name: str) -> None:
+        """The NAAQS comparison computed a design value from ``file_name``."""
+        table = self.panel.get_by_role("table").filter(
+            has=self.page.get_by_role("columnheader", name="NAAQS", exact=True))
+        expect(table.get_by_role("row").filter(has_text="design value computed by pyaermod "
+                                               f"from {file_name}")).to_be_visible()
 
     def download_deck(self) -> Path:
         name = re.compile(r"\bdeck\b", re.I)
