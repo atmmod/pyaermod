@@ -388,8 +388,8 @@ class AERMETStage1:
         lines.append("")
 
         if self.has_upper_air:
-            ua = self.upper_air_station
-            assert ua is not None
+            ua, ua_data = self.upper_air_station, self.upper_air_data_file
+            assert ua is not None and ua_data is not None
             fmt = _format_or_raise(self.upper_air_format, UPPER_AIR_FORMATS, "Upper-air")
             if ua.elevation is None:
                 raise ValueError(
@@ -397,7 +397,7 @@ class AERMETStage1:
                     "when the UPPERAIR LOCATION has no station elevation"
                 )
             lines.append("UPPERAIR")
-            lines.append(f"   DATA       {_filename(self.upper_air_data_file)} {fmt}")
+            lines.append(f"   DATA       {_filename(ua_data)} {fmt}")
             lines.append(f"   EXTRACT    {_filename(self.upper_air_extract)}")
             lines.append(f"   QAOUT      {_filename(self.upper_air_qaout)}")
             lines.append(f"   XDATES     {self.start_date} TO {self.end_date}")
@@ -410,11 +410,11 @@ class AERMETStage1:
             lines.append("")
 
         if self.has_surface:
-            sf = self.surface_station
-            assert sf is not None
+            sf, sf_data = self.surface_station, self.surface_data_file
+            assert sf is not None and sf_data is not None
             fmt = _format_or_raise(self.surface_format, SURFACE_FORMATS, "Surface")
             lines.append("SURFACE")
-            lines.append(f"   DATA       {_filename(self.surface_data_file)} {fmt}")
+            lines.append(f"   DATA       {_filename(sf_data)} {fmt}")
             lines.append(f"   EXTRACT    {_filename(self.extract_file)}")
             lines.append(f"   QAOUT      {_filename(self.qa_file)}")
             lines.append(f"   XDATES     {self.start_date} TO {self.end_date}")
