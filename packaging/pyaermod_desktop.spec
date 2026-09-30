@@ -56,7 +56,9 @@ except Exception:  # noqa: BLE001
 # Entry point
 # ---------------------------------------------------------------------
 ROOT = Path(SPECPATH).resolve().parent
-ENTRY = ROOT / "src" / "pyaermod" / "gui_v2" / "desktop.py"
+# A launcher, not desktop.py: run as __main__, desktop.py's relative
+# imports fail.
+ENTRY = ROOT / "packaging" / "desktop_entry.py"
 
 block_cipher = None
 

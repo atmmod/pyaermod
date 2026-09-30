@@ -22,21 +22,26 @@ Module layout::
 
     gui_v2/
       __init__.py        -- entry point ``main()``
-      state.py           -- AppState dataclass
+      session.py         -- Session: the project, its runs and change events (no UI)
+      state.py           -- _empty_project(), the blank project
       project_io.py      -- JSON save/load for AERMODProject
-      app.py             -- top-level shell (tabs, header, status bar)
+      app.py             -- top-level shell (tabs, header, one session per tab)
+      _live.py           -- live(): page sections rebuilt from the session
+      _form.py           -- dataclass field -> widget helper
+      _native.py         -- the desktop window, for native dialogs
+      desktop.py         -- pywebview wrapper (``pyaermod-desktop``)
       pages/
         project.py       -- file menu + project metadata
-        sources.py       -- source editor (port of the Streamlit version)
+        sources.py       -- source editor
         receptors.py     -- receptor editor
         meteorology.py   -- AERMET / met-file pathway
         output.py        -- output pathway + chemistry
-        run.py           -- AERMOD invocation + progress
-        results.py       -- POSTFILE viewer + design values
+        run.py           -- AERMOD invocation and the last run's status
+        results.py       -- the latest run's outputs
 
-The shell + state layer is in :mod:`pyaermod.gui_v2.app` and
-:mod:`pyaermod.gui_v2.state`. Pages are added incrementally — every
-page that hasn't been ported yet renders a placeholder banner.
+The shell resolves each browser tab's
+:class:`~pyaermod.gui_v2.session.Session` and passes it to every page;
+pages rebuild from it through :func:`pyaermod.gui_v2._live.live`.
 """
 
 from __future__ import annotations
