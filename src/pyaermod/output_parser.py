@@ -73,12 +73,99 @@ class ReceptorInfo:
 
 @dataclass
 class ConcentrationResult:
-    """Concentration results for a specific averaging period"""
+    """Results for one averaging period, as one of AERMOD's summary tables.
+
+    ``output_type`` says what the values are: ``"CONC"`` (concentration)
+    or, for a deposition run, ``"DEPOS"`` (total), ``"DDEP"`` (dry) or
+    ``"WDEP"`` (wet deposition). ``units`` is the unit AERMOD printed
+    over the table (``MICROGRAMS/M**3`` is given as ``ug/m^3`` and
+    ``GRAMS/M**2`` as ``g/m^2``). ``title`` is the table's own heading,
+    for example ``THE SUMMARY OF HIGHEST  1-HR RESULTS``.
+
+    Rows read from AERMOD's summary tables carry, besides ``x``, ``y``
+    and ``concentration``, the ``rank``, the source ``group``, the
+    ``date`` (YYMMDDHH, short-term averages only), ``zelev``, ``zhill``
+    and ``zflag``, the ``receptor_type`` and ``grid_id``, the value as
+    AERMOD printed it (``value_text``) and its calm/missing ``flag``:
+    ``"c"`` when the average included calm hours, ``"m"`` missing hours,
+    ``"b"`` both, and ``""`` for neither.
+    """
     averaging_period: str
     data: pd.DataFrame  # Contains x, y, concentration, rank, etc.
     max_value: float
     max_location: Tuple[float, float]
     units: str = "ug/m^3"
+    output_type: str = "CONC"
+    title: Optional[str] = None
+
+    @property
+    def max_row(self) -> Optional[Dict]:
+        """The row of the maximum, as a dict, or None for an empty table."""
+        if self.data.empty or "concentration" not in self.data:
+            return None
+        values = pd.to_numeric(self.data["concentration"], errors="coerce")
+        if values.isna().all():
+            return None
+        return self.data.loc[values.idxmax()].to_dict()
+
+
+#: Unit labels AERMOD prints over its tables, as pyaermod reports them.
+_UNIT_LABELS = {
+    "MICROGRAMS/M**3": "ug/m^3",
+    "GRAMS/M**2": "g/m^2",
+    "GRAMS/M**2/YR": "g/m^2/yr",
+}
+
+#: The value column's heading in a summary table (CHIDEP in coset.f)
+#: -> the output type it holds.
+_OUTPUT_TYPE_HEADINGS = (
+    (re.compile(r"\bAVERAGE\s+CONC\b"), "CONC"),
+    (re.compile(r"\bTOTAL\s+DEPO\b"), "DEPOS"),
+    (re.compile(r"\bDRY\s+DEPO\b"), "DDEP"),
+    (re.compile(r"\bWET\s+DEPO\b"), "WDEP"),
+)
+
+# FORMAT 9011 of output.f PRTSUM: "** CONC OF SO2      IN MICROGRAMS/M**3  **".
+_UNITS_LINE = re.compile(
+    r"^\s*\*\*\s+(CONC|DEPO)\s+OF\s+(\S*)\s+IN\s+(.+?)\s+\*\*\s*$")
+
+# FORMATs 9020-9031 and 9091/99091 of output.f: every summary table AERMOD
+# prints starts with one of these headings.
+_SUMMARY_HEADING = re.compile(
+    r"\*\*\*\s*(THE\s+SUMMARY\s+OF\s+(?:HIGHEST|MAXIMUM)\b.*?\bRESULTS\b.*?)\s*\*\*\*",
+    re.IGNORECASE)
+_MULTIYEAR_LINE = re.compile(
+    r"^\s*\*\*\*\s*(ACROSS\s+\d+\s+YEARS\s+WITH\s+THE\s+MULTYEAR\s+OPTION)\s*\*\*\*\s*$",
+    re.IGNORECASE)
+_PAGE_HEADER = re.compile(r"\*\*\*\s*AER(?:MOD|MET)\s+-\s+VERSION|\*\*\*\s*MODELOPTs",
+                          re.IGNORECASE)
+
+# One row of a summary table (FORMATs 1002-1005 and 1012-1015 of PRTSUM).
+# A short-term value is F14.5 or E14.6 followed by A1, a calm/missing flag
+# that is blank, "c", "m" or "b" and touches the number; so the value is
+# every non-blank character up to the flag.
+_SUMMARY_ROW = re.compile(
+    r"^(?P<prefix>.*?)(?P<rank>\d+(?:ST|ND|RD|TH))\s+HIGH(?:EST)?\s+VALUE\s+IS\s*"
+    r"(?P<value>\S+?)(?P<flag>[cmb])?\s+(?:ON\s+(?P<date>\d+)\s*:\s*)?"
+    r"AT\s*\(\s*(?P<coords>[^)]*)\)\s*(?P<rtype>[A-Z]{2})?\s*(?P<grid>\S+)?",
+    re.IGNORECASE)
+
+
+def _float_or_nan(text: str) -> float:
+    try:
+        return float(text.replace("D", "E").replace("d", "e"))
+    except ValueError:
+        return float("nan")
+
+
+def _summary_period(title: str) -> Optional[str]:
+    """The averaging period a summary heading is about: "1HR", "PERIOD", ..."""
+    upper = title.upper()
+    for word in ("PERIOD", "ANNUAL", "MONTH"):
+        if re.search(rf"\b{word}\b", upper):
+            return word
+    hours = re.findall(r"(?<![0-9])(\d{1,2})\s*-?\s*(?:HR|HOUR)S?\b", upper)
+    return f"{int(hours[-1])}HR" if hours else None
 
 
 class AERMODOutputParser:
@@ -153,6 +240,8 @@ class AERMODOutputParser:
         self.sources: List[SourceSummary] = []
         self.receptors: List[ReceptorInfo] = []
         self.concentrations: Dict[str, ConcentrationResult] = {}
+        self.deposition: Dict[str, Dict[str, ConcentrationResult]] = {}
+        self.summaries: List[ConcentrationResult] = []
 
     def parse(self) -> 'AERMODResults':
         """
@@ -171,7 +260,9 @@ class AERMODOutputParser:
             sources=self.sources,
             receptors=self.receptors,
             concentrations=self.concentrations,
-            output_file=str(self.output_file)
+            output_file=str(self.output_file),
+            deposition=self.deposition,
+            summaries=self.summaries,
         )
 
     def _parse_header(self):
@@ -505,7 +596,17 @@ class AERMODOutputParser:
                         continue
 
     def _parse_concentration_results(self):
-        """Parse concentration results for all averaging periods"""
+        """Parse the results for every averaging period.
+
+        An AERMOD ``.out`` file ends with its summary tables ("THE SUMMARY
+        OF HIGHEST 1-HR RESULTS", "THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS)
+        RESULTS", ...), which are read by :meth:`_parse_summary_tables`.
+        Concentration tables fill :attr:`concentrations`; deposition tables
+        fill :attr:`deposition` instead. Files without summary tables fall
+        back to the older, pattern-based reading below.
+        """
+        if self._parse_summary_tables():
+            return
 
         # Common averaging period patterns — matches both standard format
         # (*** ANNUAL RESULTS ***) and EPA SUM format
@@ -529,6 +630,142 @@ class AERMODOutputParser:
             result = self._parse_concentration_table(pattern, period_name)
             if result is not None:
                 self.concentrations[period_name] = result
+
+    def _parse_summary_tables(self) -> bool:
+        """Read every summary table AERMOD printed; False if there are none.
+
+        The tables are PRTSUM's and PRTPM25SUM's in AERMOD's output.f. Each
+        starts with a heading (the averaging period), then a units line
+        (FORMAT 9011: what is tabulated, of which pollutant, in which
+        units) and a column heading that names the output type (``AVERAGE
+        CONC``, ``TOTAL DEPO``, ``DRY DEPO`` or ``WET DEPO``). A table for
+        several source groups can continue on the next page under the same
+        heading; its rows are joined. The group ID is printed on a group's
+        first row only.
+
+        Short-term values carry AERMOD's calm/missing flag, which the
+        earlier reading took for part of the number: the row was dropped,
+        so maxima were wrong and a period whose values were all flagged
+        disappeared.
+        """
+        sections: List[dict] = []
+        current: Optional[dict] = None
+        for line in self.content.splitlines():
+            heading = _SUMMARY_HEADING.search(line)
+            if heading:
+                current = {"title": " ".join(heading.group(1).split()), "rows": [],
+                           "type": None, "units": None, "group": None}
+                current["period"] = _summary_period(current["title"])
+                sections.append(current)
+                continue
+            if current is None:
+                continue
+            multiyear = _MULTIYEAR_LINE.match(line)
+            if multiyear and not current["rows"]:
+                current["title"] += "; " + " ".join(multiyear.group(1).split())
+                continue
+            units = _UNITS_LINE.match(line)
+            if units:
+                current["units"] = units.group(3).strip()
+                if units.group(1) == "CONC":
+                    current["type"] = "CONC"
+                continue
+            if current["type"] in (None, "CONC") and "GROUP ID" in line.upper():
+                for pattern, kind in _OUTPUT_TYPE_HEADINGS:
+                    if pattern.search(line.upper()):
+                        current["type"] = kind
+                        break
+                continue
+            if "VALUE IS" in line.upper():
+                row = self._summary_row(line, current)
+                if row is not None:
+                    current["rows"].append(row)
+                continue
+            if "***" in line and not _PAGE_HEADER.search(line):
+                # "*** RECEPTOR TYPES", the message summary, a new section.
+                current = None
+
+        if not sections:
+            return False
+
+        # A table continued on a later page repeats its heading.
+        merged: Dict[tuple, dict] = {}
+        for sec in sections:
+            if sec["period"] is None:
+                continue
+            key = (sec["type"] or "CONC", sec["period"], sec["title"])
+            if key in merged:
+                merged[key]["rows"].extend(sec["rows"])
+            else:
+                merged[key] = sec
+        for (kind, period, title), sec in merged.items():
+            if not sec["rows"]:
+                continue
+            result = self._summary_result(sec["rows"], period, kind, title, sec["units"])
+            self.summaries.append(result)
+            if kind == "CONC":
+                self.concentrations.setdefault(period, result)
+            else:
+                self.deposition.setdefault(kind, {}).setdefault(period, result)
+        return True
+
+    @staticmethod
+    def _summary_row(line: str, section: dict) -> Optional[dict]:
+        match = _SUMMARY_ROW.search(line)
+        if match is None:
+            return None
+        value_text = match.group("value")
+        value = _float_or_nan(value_text)
+        # A value AERMOD could not fit in its field prints as asterisks;
+        # anything else that is not a number is not a value.
+        if value != value and not set(value_text) <= {"*"}:
+            return None
+        coords = [c.strip() for c in match.group("coords").split(",")]
+        if len(coords) < 2:
+            return None
+        x, y = _float_or_nan(coords[0]), _float_or_nan(coords[1])
+        if x != x or y != y:
+            return None
+        extra = [_float_or_nan(c) for c in coords[2:5]] + [0.0] * 3
+        prefix = [t for t in match.group("prefix").split() if t.upper() not in ("HIGH", "THE")]
+        if prefix:
+            section["group"] = prefix[0]
+        date = match.group("date")
+        return {
+            "group": section["group"],
+            "rank": int(match.group("rank")[:-2]),
+            "concentration": value,
+            "value_text": value_text,
+            "flag": (match.group("flag") or "").lower(),
+            "date": date,
+            "x": x,
+            "y": y,
+            "zelev": extra[0],
+            "zhill": extra[1],
+            "zflag": extra[2],
+            "receptor_type": match.group("rtype"),
+            "grid_id": match.group("grid"),
+        }
+
+    @staticmethod
+    def _summary_result(rows: List[dict], period: str, kind: str, title: str,
+                        units: Optional[str]) -> ConcentrationResult:
+        df = pd.DataFrame(rows)
+        values = pd.to_numeric(df["concentration"], errors="coerce")
+        if values.isna().all():
+            max_value, max_location = float("nan"), (float("nan"), float("nan"))
+        else:
+            i = values.idxmax()
+            max_value = df.loc[i, "concentration"]
+            max_location = (df.loc[i, "x"], df.loc[i, "y"])
+        if units is None:
+            label = "ug/m^3" if kind == "CONC" else "g/m^2"
+        else:
+            label = _UNIT_LABELS.get(units.upper(), units)
+        return ConcentrationResult(
+            averaging_period=period, data=df, max_value=max_value,
+            max_location=max_location, units=label, output_type=kind, title=title,
+        )
 
     def _parse_concentration_table(self, pattern: str, period_name: str) -> Optional[ConcentrationResult]:
         """Parse concentration table for specific averaging period"""
@@ -662,8 +899,10 @@ class AERMODOutputParser:
         """
         # Match both formats: "VALUE IS <conc> AT (...)" and
         # "VALUE IS <conc> ON <date>: AT (...)"
+        # A short-term value may carry AERMOD's calm/missing flag ("c",
+        # "m" or "b") directly after the number.
         value_pattern = re.compile(
-            r'VALUE\s+IS\s+(\S+)\s+(?:ON\s+\S+:\s+)?AT\s*\(\s*'
+            r'VALUE\s+IS\s*(\S+?)([cmb])?\s+(?:ON\s+\S+:\s+)?AT\s*\(\s*'
             r'([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)'
         )
 
@@ -671,12 +910,13 @@ class AERMODOutputParser:
         for match in value_pattern.finditer(table_text):
             try:
                 conc = float(match.group(1))
-                x = float(match.group(2).strip())
-                y = float(match.group(3).strip())
+                x = float(match.group(3).strip())
+                y = float(match.group(4).strip())
                 data_rows.append({
                     'x': x,
                     'y': y,
                     'concentration': conc,
+                    'flag': match.group(2) or '',
                 })
             except ValueError:
                 continue
@@ -710,6 +950,10 @@ class AERMODResults:
     receptors: List[ReceptorInfo]
     concentrations: Dict[str, ConcentrationResult]
     output_file: str
+    #: Deposition tables of a DEPOS/DDEP/WDEP run, by output type and period.
+    deposition: Dict[str, Dict[str, ConcentrationResult]] = field(default_factory=dict)
+    #: Every summary table AERMOD printed, in the order of the file.
+    summaries: List[ConcentrationResult] = field(default_factory=list)
 
     @classmethod
     def from_file(cls, output_file: Union[str, Path]) -> 'AERMODResults':

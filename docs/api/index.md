@@ -17,6 +17,7 @@ Build, read, write, and validate AERMOD input files.
 | [pathways](pathways.md) | Enums + `ControlPathway`, `MeteorologyPathway`, `OutputPathway`, `EventPathway` |
 | [input_reader](input_reader.md) | **Bidirectional** — parse existing `.inp` files back into `AERMODProject` |
 | [unparsed](unparsed.md) | `UnparsedLine` — deck lines the reader keeps verbatim and the writer puts back |
+| [psd](psd.md) | Particle size distributions for Method 1 deposition: bins from cut points or a lognormal, representative diameters, aerodynamic-to-Stokes conversion, `ParticleDepositionParams` |
 
 ## Validation
 
