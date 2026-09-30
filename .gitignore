@@ -53,6 +53,8 @@ coverage.xml
 !tests/fixtures/gui/aermod_recordings/**
 # Real AERMOD runs the output parser's tests read
 !tests/fixtures/output_parser/**
+# ... but not the bytecode of regenerate.py, which a test imports
+tests/fixtures/output_parser/**/__pycache__/
 
 # Screenshots the GUI journeys save at every step (tests/e2e)
 test-artifacts/
