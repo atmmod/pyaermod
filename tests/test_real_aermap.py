@@ -21,6 +21,7 @@ binary + our wrappers) that parallels the AERMOD real-run test.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -65,19 +66,21 @@ def _expected_elev(x: float, y: float) -> int:
     return _node_elev(round((x - _X0) / _DX), round((y - _Y0) / _DY))
 
 
-def _write_synthetic_dem(path: Path, nprof: int = _NPROF, nodes: int = _NODES) -> None:
+def _write_synthetic_dem(path: Path, nprof: int = _NPROF, nodes: int = _NODES, elev=None) -> None:
     """Write a tiny UTM USGS-format DEM (Type A header + Type B profiles).
 
     ``nprof`` profiles (columns, west to east) of ``nodes`` nodes each
-    (south to north). The default 7 x 7 DEM is
+    (south to north), with elevation ``elev(i, j)`` (integer metres; the
+    plane ``_node_elev`` by default). The default 7 x 7 DEM is
     ``tests/fixtures/aermap_runner/synth.dem``.
     """
+    elev = elev or _node_elev
     def _A(s, w):  return f"{s:<{w}.{w}}"
     def _D(v):     return f"{v:24.15f}"
     def _I(v, w):  return f"{int(v):{w}d}"
     def _E(v):     return f"{v:12.6E}"
 
-    elevs = [[_node_elev(i, j) for j in range(nodes)] for i in range(nprof)]
+    elevs = [[elev(i, j) for j in range(nodes)] for i in range(nprof)]
     emin = min(min(c) for c in elevs)
     emax = max(max(c) for c in elevs)
     corners = [
@@ -416,8 +419,7 @@ def test_terrain_processor_fills_in_the_planar_dem(tmp_path):
     )
     from pyaermod.terrain import TerrainProcessor
 
-    # 41 x 41 nodes (4 km square): the 1 km buffer the processor adds
-    # around the project must stay inside the DEM.
+    # 41 x 41 nodes (4 km square).
     _write_synthetic_dem(tmp_path / "big.dem", nprof=41, nodes=41)
     project = AERMODProject(
         control=ControlPathway(title_one="planar DEM"),
@@ -454,3 +456,219 @@ def test_terrain_processor_fills_in_the_planar_dem(tmp_path):
     ]
     for row, expected_row in zip(grid.grid_elevations, expected):
         assert row == pytest.approx(expected_row, abs=1e-2)
+
+
+def _plane(x: float, y: float) -> float:
+    """The planar DEM's elevation anywhere, not only on nodes (AERMAP
+    interpolates between nodes, which is exact on a plane)."""
+    return _BASE + _SX * (x - _X0) / _DX + _SY * (y - _Y0) / _DY
+
+
+def _aermod_project(**receptors):
+    from pyaermod.input_generator import (
+        AERMODProject,
+        ControlPathway,
+        MeteorologyPathway,
+        OutputPathway,
+        ReceptorPathway,
+        SourcePathway,
+    )
+
+    return AERMODProject(
+        control=ControlPathway(title_one="planar DEM"),
+        sources=SourcePathway(),
+        receptors=ReceptorPathway(**receptors),
+        meteorology=MeteorologyPathway(surface_file="a.sfc", profile_file="a.pfl"),
+        output=OutputPathway(),
+    )
+
+
+def _process(project, tmp_path, dem="big.dem", **kw):
+    from pyaermod.terrain import TerrainProcessor
+
+    kw.setdefault("datum", "NAD27")
+    return TerrainProcessor().process(
+        project, bounds=(0, 0, 0, 0), working_dir=tmp_path, utm_zone=_ZONE,
+        skip_download=True, dem_files=[dem], timeout=120, **kw,
+    )
+
+
+def test_terrain_processor_places_every_source_type(tmp_path):
+    """Every AERMOD source type gets the elevation AERMAP finds where AERMOD puts it.
+
+    Before, AREAPOLY and BUOYLINE sources were left out of the deck (and kept
+    base_elevation 0), and line sources got the elevation at their start.
+    SOLOCA (aermap.f) takes RLINE and BUOYLINE at the midpoint and LINE at
+    the south-west corner of its equivalent area.
+    """
+    from pyaermod.input_generator import DiscreteReceptor
+    from pyaermod.sources import (
+        AreaCircSource,
+        AreaPolySource,
+        AreaSource,
+        BuoyLineSegment,
+        BuoyLineSource,
+        LineSource,
+        OpenPitSource,
+        PointCapSource,
+        PointHorSource,
+        PointSource,
+        RLineExtSource,
+        RLineSource,
+        SidewashPointSource,
+        VolumeSource,
+    )
+
+    _write_synthetic_dem(tmp_path / "big.dem", nprof=41, nodes=41)
+    project = _aermod_project(discrete_receptors=[DiscreteReceptor(*_node_xy(17, 19))])
+    at = _node_xy
+    width = 10.0
+    buoy = BuoyLineSource(
+        source_id="BLG", avg_line_length=100.0, avg_building_height=10.0, avg_building_width=10.0,
+        avg_line_width=5.0, avg_building_separation=5.0, avg_buoyancy_parameter=100.0,
+        line_segments=[
+            BuoyLineSegment("BL1", *at(22, 16), *at(23, 16)),
+            BuoyLineSegment("BL2", *at(22, 18), *at(23, 18)),
+        ],
+    )
+    sources = [
+        PointSource("PT", *at(20, 20)), PointCapSource("CAP", *at(21, 20)),
+        PointHorSource("HOR", *at(22, 20)), SidewashPointSource("SW", *at(23, 20)),
+        VolumeSource("VOL", *at(24, 20)), AreaSource("AR", *at(25, 20)),
+        AreaCircSource("AC", *at(26, 20)), OpenPitSource("PIT", *at(27, 20)),
+        AreaPolySource("AP", vertices=[at(15, 15), at(16, 15), at(16, 16)]),
+        LineSource("LN", *at(18, 22), *at(24, 22), initial_lateral_dimension=width),
+        RLineSource("RL", *at(18, 18), *at(24, 24)),
+        RLineExtSource("RX", *at(10, 10), 1.0, *at(14, 12), 1.0),
+        buoy,
+    ]
+    for src in sources:
+        project.sources.add_source(src)
+
+    _process(project, tmp_path)
+
+    def mid(a, b):
+        return _plane((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+
+    # LINE from west to east: the equivalent area's south-west corner is
+    # the start moved width/2 to the north (SOLOCA's lx1, ly1 at 90 degrees).
+    x_ln, y_ln = at(18, 22)
+    expected = {
+        "PT": _node_elev(20, 20), "CAP": _node_elev(21, 20), "HOR": _node_elev(22, 20),
+        "SW": _node_elev(23, 20), "VOL": _node_elev(24, 20), "AR": _node_elev(25, 20),
+        "AC": _node_elev(26, 20), "PIT": _node_elev(27, 20), "AP": _node_elev(15, 15),
+        "LN": _plane(x_ln, y_ln + width / 2),
+        "RL": mid(at(18, 18), at(24, 24)), "RX": mid(at(10, 10), at(14, 12)),
+        "BLG": mid(at(22, 16), at(23, 16)),
+    }
+    got = {s.source_id: s.base_elevation for s in project.sources.sources}
+    assert got == pytest.approx(expected, abs=1e-2)
+    assert [seg.base_elevation for seg in buoy.line_segments] == pytest.approx(
+        [mid(at(22, 16), at(23, 16)), mid(at(22, 18), at(23, 18))], abs=1e-2,
+    )
+    # The start point would have been wrong for the line sources.
+    assert abs(got["RL"] - _node_elev(18, 18)) > 10
+
+
+def test_terrain_processor_fills_in_every_grid(tmp_path):
+    """Every Cartesian and polar grid gets its elevations; before, only the first Cartesian one did."""
+    from pyaermod.input_generator import CartesianGrid, PointSource
+    from pyaermod.receptors import PolarGrid
+
+    _write_synthetic_dem(tmp_path / "big.dem", nprof=41, nodes=41)
+    project = _aermod_project(
+        cartesian_grids=[
+            CartesianGrid(grid_name="G1", x_init=_X0 + 1500.0, x_num=3, x_delta=100.0,
+                          y_init=_Y0 + 1500.0, y_num=2, y_delta=100.0),
+            CartesianGrid(grid_name="G2", x_points=[_X0 + 2050.0, _X0 + 2300.0],
+                          y_points=[_Y0 + 2000.0, _Y0 + 2150.0, _Y0 + 2400.0]),
+        ],
+        polar_grids=[
+            PolarGrid(grid_name="P1", x_origin=_X0 + 2000.0, y_origin=_Y0 + 2000.0,
+                      dist_init=100.0, dist_num=3, dist_delta=100.0,
+                      dir_init=30.0, dir_num=4, dir_delta=90.0),
+            PolarGrid(grid_name="P2", origin_source_id="STK", distances=[250.0, 700.0],
+                      directions=[10.0, 200.0]),
+        ],
+    )
+    x_stk, y_stk = _node_xy(12, 25)
+    project.sources.add_source(PointSource("STK", x_stk, y_stk))
+
+    _process(project, tmp_path)
+
+    for grid in project.receptors.cartesian_grids:
+        expected = [[_plane(x, y) for x in grid.x_values()] for y in grid.y_values()]
+        assert len(grid.grid_elevations) == len(expected)
+        for row, want in zip(grid.grid_elevations, expected):
+            # AERMAP writes grid elevations as F8.1.
+            assert row == pytest.approx(want, abs=0.051)
+    import math
+
+    origins = {"P1": (_X0 + 2000.0, _Y0 + 2000.0), "P2": (x_stk, y_stk)}
+    for grid in project.receptors.polar_grids:
+        x0, y0 = origins[grid.grid_name]
+        expected = [
+            [_plane(x0 + d * math.sin(math.radians(a)), y0 + d * math.cos(math.radians(a)))
+             for d in grid.ring_distances()]
+            for a in grid.direction_angles()
+        ]
+        assert len(grid.elevations) == len(expected)
+        for row, want in zip(grid.elevations, expected):
+            assert row == pytest.approx(want, abs=0.051)
+
+
+def _hill(i: int, j: int) -> int:
+    """Flat at 100 m with one 600 m node at (38, 20)."""
+    return 600 if (i, j) == (38, 20) else 100
+
+
+@pytest.mark.parametrize("domain_buffer, zhill", [(None, 600.0), (1000.0, 100.0)])
+def test_the_domain_decides_whether_a_distant_hill_counts(tmp_path, domain_buffer, zhill):
+    """With no DOMAINXY (the default) AERMAP finds the hill 1.8 km away.
+
+    The 600 m node rises 500 m over 1800 m from the receptor, a 28% slope,
+    so sub_calchc.f counts it (ZNODE - AZELEV >= 0.1 * RDIST). A 1 km domain
+    buffer leaves it outside, and the hill height silently drops to the
+    receptor's own 100 m: the buffer must take in every such feature.
+    """
+    from pyaermod.input_generator import DiscreteReceptor
+
+    _write_synthetic_dem(tmp_path / "hill.dem", nprof=41, nodes=41, elev=_hill)
+    project = _aermod_project(discrete_receptors=[DiscreteReceptor(*_node_xy(20, 20))])
+
+    _process(project, tmp_path, dem="hill.dem", domain_buffer=domain_buffer)
+
+    deck = (tmp_path / "aermap.inp").read_text()
+    assert ("DOMAINXY" in deck) is (domain_buffer is not None)
+    rec = project.receptors.discrete_receptors[0]
+    assert rec.z_elev == 100.0
+    assert rec.z_hill == zhill
+
+
+def test_a_datum_shift_without_the_nadcon_files_fails_with_e365(tmp_path):
+    """NAD83 coordinates on the NAD27 DEM need NADCON's grid files (E365 without them)."""
+    from pyaermod.input_generator import DiscreteReceptor
+
+    _write_synthetic_dem(tmp_path / "big.dem", nprof=41, nodes=41)
+    project = _aermod_project(discrete_receptors=[DiscreteReceptor(*_node_xy(20, 20))])
+    with pytest.raises(RuntimeError, match="E365"):
+        _process(project, tmp_path, datum="NAD83", nad_grids_dir=str(tmp_path / "no_nadcon"))
+    assert "NADGRIDS" in (tmp_path / "aermap.inp").read_text()
+
+
+@pytest.mark.skipif(
+    not (Path(os.environ.get("AERMAP_NADGRIDS_DIR", "/nonexistent")) / "conus.las").exists(),
+    reason="set AERMAP_NADGRIDS_DIR to a directory holding the NADCON grid files (conus.las, conus.los)",
+)
+def test_nad_grids_dir_lets_aermap_shift_the_datum(tmp_path):
+    from pyaermod.input_generator import DiscreteReceptor
+
+    _write_synthetic_dem(tmp_path / "big.dem", nprof=41, nodes=41)
+    project = _aermod_project(discrete_receptors=[DiscreteReceptor(*_node_xy(20, 20))])
+    _process(project, tmp_path, datum="NAD83", nad_grids_dir=os.environ["AERMAP_NADGRIDS_DIR"])
+    # AERMAP shifted the receptor's NAD83 coordinates onto the NAD27 DEM:
+    # it lands some metres off the node, still on the plane (194.86 m with
+    # the CONUS grid files, against 200 m at the node).
+    z_elev = project.receptors.discrete_receptors[0].z_elev
+    assert z_elev != _node_elev(20, 20)
+    assert abs(z_elev - _node_elev(20, 20)) < 10.0

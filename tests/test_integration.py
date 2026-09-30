@@ -884,7 +884,7 @@ class TestAERMAPInputGeneration:
 
         assert len(aermap.dem_files) == 2
         assert len(aermap.sources) == 1
-        assert aermap.grid_receptor is True
+        assert len(aermap.grids) == 1
 
     def test_aermap_output_parser_disccart(self, temp_workspace):
         """Test parsing AERMAP discrete receptor output"""

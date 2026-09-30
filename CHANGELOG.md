@@ -82,9 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields `anchor_utm_x`/`anchor_utm_y` (the UTM point the anchor is tied
   to; default the anchor itself, i.e. user coordinates are UTM),
   `domain_x_min`/`domain_y_min`/`domain_x_max`/`domain_y_max` (the
-  `DOMAINXY` corners, which `from_aermod_project` sets to the project
-  extent plus `buffer`) and `grid_y_spacing` (default `grid_spacing`;
-  `from_aermod_project` now takes the grid's own `y_delta`), and a
+  `DOMAINXY` corners; see the next entries for what `from_aermod_project`
+  does with them) and `grid_y_spacing` (default `grid_spacing`), and a
   `dem_format` argument to `from_aermod_project` (default `"DEM"` when
   every file ends in `.dem`, else `"NED"`). `dem_format` must be `"NED"`
   or `"DEM"`, the formats AERMAP reads. `receptor_id` and `message_file`
@@ -95,6 +94,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   format, and a `PROVIDED` project with a missing elevation, a grid or
   no discrete receptor. A path with a space is quoted, as AERMAP's
   parser allows, and one over AERMAP's 200-character field raises.
+- **`TerrainProcessor.process` left sources and receptor grids without
+  elevations, and put line sources at the wrong point.**
+  `AERMAPProject.from_aermod_project` wrote only sources with an
+  `x_coord` or `x_start`, so AREAPOLY and BUOYLINE sources were left out
+  of the deck and kept `base_elevation` 0 with no error; it wrote every
+  source as a `POINT` at its first point, so an RLINE from node (18, 18)
+  to (24, 24) of the planar test DEM got 190 m where AERMAP gives 205 m;
+  and it wrote only the first Cartesian grid and no polar grid, so the
+  others came back with no elevations. It now writes every source as the
+  AERMAP type that places its elevation where AERMOD expects it (the
+  AERMOD type where AERMAP 24142 has it, `SWPOINT` as `POINT`, `RLINEXT`
+  as `RLINE`, an `AREAPOLY` at its first vertex, each BUOYLINE segment
+  under its own ID), with both ends of a LINE, RLINE or BUOYLINE and a
+  LINE's width, so AERMAP takes RLINE and BUOYLINE at the midpoint and
+  LINE at the south-west corner of its equivalent area, as `SOLOCA`
+  does; a source it cannot place raises `ValueError`. Every Cartesian
+  grid (`XYINC` or `XPNTS`/`YPNTS`) and polar grid (`GDIR` or `DDIR`;
+  one centred on a source is written with that source's coordinates)
+  is written under its own name, and `process` fills in each one's
+  `grid_elevations`/`grid_hills` or `elevations`/`hills` by name, each
+  BUOYLINE segment's `base_elevation`, and the group's from its first
+  segment. **API changes:** `AERMAPSource` gains `source_type` (default
+  `"POINT"`), `x_end`, `y_end` and `width`; `AERMAPProject` gains
+  `grids` (a list of `CartesianGrid`/`PolarGrid`), and
+  `from_aermod_project` puts the AERMOD grids there instead of in the
+  single-grid `grid_receptor` fields; `to_aermap_input` also raises for
+  an unknown source type, a line source without its end (or a LINE
+  without its width), a source ID over 12 or grid name over 8
+  characters, a repeated grid name, and a polar grid centred on a source
+  that is not a single-point source of the project.
+  `AERMAPOutputParser.parse_receptor_output` now reads every network in
+  the file (it used to merge the rows of every Cartesian grid into one
+  and skip polar grids) and adds the columns `network`, `row` and `col`;
+  `parse_source_output` now reads the elevation of a LINE, RLINE or
+  BUOYLINE row from its last field (it read the end point's x).
+  `tests/fixtures/aermap_runner/networks/` records AERMAP running the
+  writer's deck with every network kind and source type.
+- **A domain could silently cut distant hills out of the hill heights.**
+  `from_aermod_project` always wrote a `DOMAINXY` of the project's extent
+  plus `buffer` (1 km from `TerrainProcessor`, which offered no way to
+  change it), and AERMAP ignores terrain outside the domain. On a flat
+  100 m DEM with a 600 m node 1.8 km from the only receptor (a 28%
+  slope, well over the 10% rule in `sub_calchc.f`), the receptor's hill
+  height came out 100 m, where AERMAP searching the whole DEM gives
+  600 m, and nothing warned. No domain is now written by default, so
+  AERMAP searches the whole DEM, as it does on its own; `buffer`
+  (`from_aermod_project`, now default `None`) and the new
+  `domain_buffer` of `TerrainProcessor.process` and
+  `create_aermap_project_from_aermod` ask for one, which must take in
+  every such feature. The anchor is now the south-west corner of the
+  project's extent itself.
+- **No way to point AERMAP at the NADCON grid files.** A project whose
+  datum differs from its DEM's (the default `"NAD83"` with NAD27 USGS
+  `.dem` files) stopped with `OU E365 ... NAD Conversion Grid Files
+  (*.las; *.los) Not Found`, and the only ways out were to change the
+  datum. `AERMAPProject.nad_grids_dir`, and a `nad_grids_dir` argument
+  to `from_aermod_project`, `TerrainProcessor.process` and
+  `create_aermap_project_from_aermod`, write `CO NADGRIDS` with the
+  trailing separator AERMAP needs (it opens the directory and the file
+  name joined with nothing between them).
+- **`regenerate.sh` in `tests/fixtures/aermap_runner/` failed on a
+  relative path to `aermap`**, since it runs the binary from a scratch
+  directory; it now makes the path absolute first. The teaching guide
+  (`docs/teaching/refinery-assignments.md`) said to run
+  `aermap < aermap_houston.inp`, which AERMAP ignores (it reads the file
+  named on its command line, or `aermap.inp`); it now says
+  `aermap aermap_houston.inp`.
 - **AERMAP runs that failed were reported as successful.** AERMAP ends
   with a bare `STOP`, so it exits with code 0 after fatal errors, and
   `AERMAPRunner.run` counted exit code 0 as success. A domain that

@@ -18,8 +18,11 @@ if [ -z "$EXE" ] || [ ! -x "$EXE" ]; then
     echo "aermap not found: pass its path or put it on PATH" >&2
     exit 1
 fi
+# Each run happens in a scratch directory, so a relative path must be
+# made absolute before the loop changes into it.
+EXE="$(cd "$(dirname "$EXE")" && pwd)/$(basename "$EXE")"
 
-for case in success domain_error_e310 old_writer_setup_errors; do
+for case in success networks domain_error_e310 old_writer_setup_errors; do
     work="$(mktemp -d)"
     cp "$HERE/$case/aermap.inp" "$HERE/synth.dem" "$work/"
     status=0

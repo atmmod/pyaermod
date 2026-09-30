@@ -48,8 +48,11 @@ from pyaermod.aermap import AERMAPProject, AERMAPReceptor, AERMAPSource
 from pyaermod.terrain import AERMAPRunner
 
 project = AERMAPProject(
+    title_one="pyaermod AERMAP runner recording",
     dem_files=["synth.dem"], dem_format="DEM",
     anchor_x=500000.0, anchor_y=4000000.0, utm_zone=13, datum="NAD27",
+    grid_receptor=True, grid_x_init=500100.0, grid_y_init=4000200.0,
+    grid_x_num=3, grid_y_num=2, grid_spacing=100.0,
     domain_x_min=500050.0, domain_y_min=4000050.0,
     domain_x_max=500550.0, domain_y_max=4000550.0,
 )
@@ -71,13 +74,24 @@ What the fields mean:
   code: `"NAD27"` 1, `"WGS72"` 2, `"WGS84"` 3, `"NAD83"` 4, or an
   integer from 0 to 7.
 - **Domain.** `DOMAINXY` is written when all four `domain_*` corners
-  are set, in UTM metres. AERMAP searches only this area for hill
-  heights, and the whole area must lie inside the DEM files, or AERMAP
-  stops with `E310 Domain Coordinate is NOT Inside a DEM File`. Leave
-  the corners unset to let AERMAP use the full extent of the DEM files.
-  `AERMAPProject.from_aermod_project` and `TerrainProcessor` set the
-  domain to the project's extent plus a buffer (1 km for
-  `TerrainProcessor`), so the DEM must cover that buffer too.
+  are set, in UTM metres. AERMAP then searches only this area for hill
+  heights, so the domain must take in every terrain feature that rises
+  above a 10% slope from any receptor (the rule in `sub_calchc.f`);
+  otherwise the hill heights come out too low, with no warning. The
+  whole area must also lie inside the DEM files, or AERMAP stops with
+  `E310 Domain Coordinate is NOT Inside a DEM File`. Leave the corners
+  unset to let AERMAP search the full extent of the DEM files, which is
+  the safe choice and what `from_aermod_project` and `TerrainProcessor`
+  do by default.
+- **Datum shifts.** When the DEM files' datum differs from `datum`,
+  AERMAP converts between them with the NADCON grid files (`conus.las`,
+  `conus.los` and the others EPA ships with AERMAP) and stops with
+  `E365 NAD Conversion Grid Files (*.las; *.los) Not Found` when it
+  cannot find them. Set `nad_grids_dir` to the directory that holds
+  them (written as `NADGRIDS`), or put them in the working directory.
+  USGS native `.dem` files (`dem_format="DEM"`) are usually NAD27, so
+  with them use `datum="NAD27"` (or `0`, no shift) unless you supply
+  the NADCON files.
 - **Terrain heights.** `terrain_type="EXTRACT"` (the default) takes the
   elevations from the DEM, and the deck leaves out any elevation you
   set. `"PROVIDED"` keeps the elevations you give, which every receptor
@@ -88,6 +102,19 @@ What the fields mean:
   AERMOD deck.
 - **Formats.** `dem_format` is `"NED"` for GeoTIFF or `"DEM"` for the
   USGS native format.
+- **Source types.** `AERMAPSource.source_type` is one of AERMAP's
+  types: `POINT`, `POINTCAP`, `POINTHOR`, `VOLUME`, `AREA`, `AREAPOLY`,
+  `AREACIRC` and `OPENPIT` sit at (`x_coord`, `y_coord`); `RLINE` and
+  `BUOYLINE` also need `x_end`, `y_end`, and AERMAP takes their
+  elevation at the midpoint; `LINE` also needs its `width`, and AERMAP
+  takes its elevation at the south-west corner of its equivalent area
+  (`SOLOCA` in `aermap.f`).
+- **Receptor networks.** `grids` takes AERMOD `CartesianGrid` and
+  `PolarGrid` objects, each written as a `GRIDCART` or `GRIDPOLR` block
+  under its own `grid_name` (1 to 8 characters, unique). A polar grid
+  centred on a source (`origin_source_id`) is written with that
+  source's coordinates. The older `grid_receptor` fields still write one
+  grid named `GRID`.
 - **No IDs, no message file.** AERMAP has no receptor IDs, so
   `AERMAPReceptor.receptor_id` is not written, and it always writes its
   messages to `<input stem>.out` beside the input file.
@@ -95,6 +122,27 @@ What the fields mean:
 A path with a space is written in double quotes. AERMAP reads at most
 200 characters per field, so a longer path raises `ValueError`; move
 the file or use a relative path.
+
+### From an AERMOD project
+
+`AERMAPProject.from_aermod_project(project, dem_files, ...)` and
+`TerrainProcessor.process(project, ...)` write every source, every
+Cartesian and polar grid and every discrete receptor of an
+`AERMODProject`, and `process` fills in each one's elevation from
+AERMAP's output: each source's `base_elevation` (and each BUOYLINE
+segment's), each grid's `grid_elevations`/`grid_hills` or
+`elevations`/`hills` (matched by grid name), and each discrete
+receptor's `z_elev`/`z_hill`. Each source is written as the AERMAP type
+that gets its elevation where AERMOD expects it: the AERMOD type itself
+where AERMAP has it, `SWPOINT` as `POINT`, `RLINEXT` as `RLINE`, an
+`AREAPOLY` at its first vertex and each BUOYLINE segment under its own
+ID. A source AERMAP cannot place raises `ValueError`.
+
+The AERMOD coordinates are read as UTM in `utm_zone`. No domain is
+written unless you ask for one with `buffer=` (`from_aermod_project`)
+or `domain_buffer=` (`TerrainProcessor`), in metres around the
+project's extent; see **Domain** above for what a domain cuts off.
+`nad_grids_dir=` is passed on as `NADGRIDS`.
 
 ### Did the run work?
 

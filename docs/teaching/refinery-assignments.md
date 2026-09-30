@@ -422,7 +422,7 @@ If the AERMAP executable is installed:
 Your instructor may provide the AERMAP input file. Run it as:
 
 ```bash
-aermap < aermap_houston.inp
+aermap aermap_houston.inp
 ```
 
 AERMAP typically runs in under a minute for a domain this size.

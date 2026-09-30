@@ -1,0 +1,51 @@
+** AERMAP - VERSION 24142                                              09/30/26
+**                                                                     01:38:59
+**  pyaermod AERMAP networks recording
+** 
+** A total of       1  DEM files were used
+** A total of      27  receptors were processed
+** No user-specifed DOMAIN; all available data used
+** ANCHORXY  500000.00 4000000.00 500000.00 4000000.00 13 1
+** TERRHGTS  EXTRACT
+  
+RE ELEVUNIT METERS
+   DISCCART     500100.00   4000100.00     105.00     105.00
+   GRIDCART  G1       STA
+   GRIDCART  G1       XYINC     500100.00     3     100.00    4000200.00     2     100.00
+   GRIDCART G1       ELEV    1    108.0    110.0    112.0
+   GRIDCART G1       ELEV    2    111.0    113.0    115.0
+   GRIDCART G1       HILL    1    108.0    110.0    112.0
+   GRIDCART G1       HILL    2    111.0    113.0    115.0
+   GRIDCART  G1       END
+   GRIDCART  G2       STA
+   GRIDCART  G2       XPNTS  500150.00 500250.00 500450.00
+   GRIDCART  G2       YPNTS  4000150.00 4000350.00
+   GRIDCART G2       ELEV    1    107.5    109.5    113.5
+   GRIDCART G2       ELEV    2    113.5    115.5    119.5
+   GRIDCART G2       HILL    1    107.5    109.5    113.5
+   GRIDCART G2       HILL    2    113.5    115.5    119.5
+   GRIDCART  G2       END
+   GRIDPOLR  P1       STA
+   GRIDPOLR  P1       ORIG     500300.00   4000300.00
+   GRIDPOLR  P1       DIST  100.00 200.00
+   GRIDPOLR  P1       GDIR  4 0.00 90.00
+   GRIDPOLR P1       ELEV    1    118.0    121.0
+   GRIDPOLR P1       ELEV    2    117.0    119.0
+   GRIDPOLR P1       ELEV    3    112.0    109.0
+   GRIDPOLR P1       ELEV    4    113.0    111.0
+   GRIDPOLR P1       HILL    1    118.0    121.0
+   GRIDPOLR P1       HILL    2    117.0    119.0
+   GRIDPOLR P1       HILL    3    112.0    109.0
+   GRIDPOLR P1       HILL    4    113.0    111.0
+   GRIDPOLR  P1       END
+   GRIDPOLR  P2       STA
+   GRIDPOLR  P2       ORIG     500200.00   4000300.00
+   GRIDPOLR  P2       DIST  50.00 150.00
+   GRIDPOLR  P2       DDIR  45.00 135.00 225.00
+   GRIDPOLR P2       ELEV    1    114.8    118.3
+   GRIDPOLR P2       ELEV    2    112.6    111.9
+   GRIDPOLR P2       ELEV    3    111.2    107.7
+   GRIDPOLR P2       HILL    1    114.8    118.3
+   GRIDPOLR P2       HILL    2    112.6    111.9
+   GRIDPOLR P2       HILL    3    111.2    107.7
+   GRIDPOLR  P2       END

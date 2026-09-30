@@ -1,9 +1,11 @@
 # Recorded AERMAP runs for the AERMAP writer and runner
 
-These are three real AERMAP runs. `tests/test_aermap_runner_status.py`
+These are four real AERMAP runs. `tests/test_aermap_runner_status.py`
 reads them to pin how `AERMAPRunner` decides whether a run succeeded,
 and its fake `aermap` replays them. `tests/test_aermap.py` checks that
-`AERMAPProject.to_aermap_input` still writes the `success/` deck. None of
+`AERMAPProject.to_aermap_input` still writes the `success/` and
+`networks/` decks, and `tests/test_terrain.py` parses the `networks/`
+receptor and source files. None of
 the files is hand-edited.
 
 - **Program:** AERMAP 24142, EPA's source archive `aermap_source.zip`
@@ -11,7 +13,7 @@ the files is hand-edited.
   current AERMAP; AERMAP has no 26135 release.
 - **Build:** `scripts/build_aermod.sh aermap` with GNU Fortran 15.2.0 and the
   script's default flags, `-O2 -fbounds-check -Wuninitialized`.
-- **Recorded:** 2026-09-29, on macOS arm64.
+- **Recorded:** 2026-09-29 (`networks/` on 2026-09-30), on macOS arm64.
 - **Terrain:** `synth.dem`, the 7 × 7 node USGS-format DEM that
   `_write_synthetic_dem` in `tests/test_real_aermap.py` writes: UTM zone
   13, NAD27, nodes 100 m apart from (500000, 4000000), elevation
@@ -27,6 +29,7 @@ wrote nothing to stderr in any case.
 | Case | Deck | Exit code | What AERMAP reports |
 |---|---|---|---|
 | `success/` | What `AERMAPProject.to_aermap_input` writes for one discrete receptor, a 3 × 2 grid and one point source, with `DOMAINXY` inside the DEM | 0 | 0 fatal errors, 0 warnings, `*** AERMAP Finishes Successfully ***`; elevations 105 (receptor), 108 to 115 (grid) and 113 (source), the analytic plane |
+| `networks/` | What `to_aermap_input` writes for one discrete receptor, two Cartesian grids (`XYINC` and `XPNTS`/`YPNTS`), two polar grids (`GDIR`, and `DDIR` centred on a source) and one source of each AERMAP source type but POINTHOR, with no `DOMAINXY` | 0 | 0 fatal errors, `*** AERMAP Finishes Successfully ***`; every network echoed under its own ID with its `ELEV` and `HILL` rows, and each line source at the point `SOLOCA` uses: 110 for the RLINE (its midpoint; its start is 105), 120 for the BUOYLINE (its midpoint), 114.15 for the LINE (the south-west corner of its equivalent area, 5 m north of its start) |
 | `domain_error_e310/` | The `success/` deck with a `DOMAINXY` that reaches 1 km past the DEM | 0 | Four fatal `OU E310 ... CHKEXT:Domain Coordinate is NOT Inside a DEM File`, `*** AERMAP Finishes UN-successfully ***`, and empty receptor and source files |
 | `old_writer_setup_errors/` | What `to_aermap_input` wrote before the fix, for the same receptors and source | 0 | 11 fatal errors (E203 `TERRHGTS ELEVATED`, E200 four-field `DOMAINXY`, E130 no `ANCHORXY`, E130 no `RUNORNOT`, E208 receptor ID in `DISCCART`, E200 `GRIDCART` without `STA`, E105 `RECOUTPUT`, `SRCOUTPUT` and `MSGOUTPUT`, E120 `SO` after `RE`, E194 no `RECEPTOR` or `SOURCLOC`), 3 warnings, `*** AERMAP Finishes UN-successfully ***`, no receptor or source file |
 
