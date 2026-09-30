@@ -158,7 +158,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SUBNWS ACTION NOT INVOKED` without it (24142 did not check). The runner passes the deck as AERMET's
   argument and reports success only when AERMET prints `AERMET FINISHED
   SUCCESSFULLY` and neither its MESSAGES file nor its REPORT summary lists
-  an error; `error_message` names the first error, such as `UPPERAIR E30
+  an error, reading AERMET's output with CRLF (Windows) or LF line endings
+  alike; `error_message` names the first error, such as `UPPERAIR E30
   READ_FSL: SOUNDING IS NOT FSL FORMAT ...`. `run_aermet_pipeline`
   inherits the rule. pyaermod's decks for EPA's AERMET test cases EX01,
   EX04 (Houston) and Cordero reproduce EPA's 24142 `.SFC` and `.PFL` line

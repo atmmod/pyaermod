@@ -117,10 +117,22 @@ def read_aermet_messages(message_file: Union[str, Path]) -> List[AERMETMessage]:
     return parse_aermet_messages(Path(message_file).read_text(encoding="latin-1"))
 
 
+def _lf(text: str) -> str:
+    """``text`` with LF line endings. A Windows AERMET ends its records with
+    CRLF (as EPA's reference outputs do), and a CR before the end of a line
+    defeats the ``$`` of the banner and summary patterns."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _read_text(path: Path) -> str:
+    """The last 1 MB of a text file AERMET wrote, with LF line endings."""
+    return _lf(_read_capped(path, 1_000_000))
+
+
 def _summary_counts(report_text: str) -> Dict[str, int]:
     """The ERROR/WARNING/INFORMATION/QA counts of a REPORT file's MESSAGE SUMMARY."""
     return {_SUMMARY_SEVERITY[m.group(1)]: int(m.group(2))
-            for m in _SUMMARY_COUNT.finditer(report_text)}
+            for m in _SUMMARY_COUNT.finditer(_lf(report_text))}
 
 
 class _JobFiles(NamedTuple):
@@ -298,16 +310,16 @@ class AERMETRunner:
             stderr_fh.close()
         end = datetime.now()
 
-        # Read captured streams from disk (capped at 1 MB tail).
-        out = _read_capped(stdout_path, 1_000_000)
-        err = _read_capped(stderr_path, 1_000_000)
+        # Read captured streams from disk (capped at 1 MB tail), as LF text.
+        out = _read_text(stdout_path)
+        err = _read_text(stderr_path)
 
         messages = parse_aermet_messages(out)
         if message_path is not None and message_path.is_file():
             messages += read_aermet_messages(message_path)
         counts: Dict[str, int] = {}
         if report_path is not None and report_path.is_file():
-            counts = _summary_counts(_read_capped(report_path, 1_000_000))
+            counts = _summary_counts(_read_text(report_path))
         finished = (_FINISHED_SUCCESSFULLY.search(out) is not None
                     and _FINISHED_UNSUCCESSFULLY.search(out) is None)
 

@@ -187,6 +187,11 @@ class TestMessages:
         assert _summary_counts((LEGACY / "stage1.out").read_text())["E"] == 6
         assert _summary_counts((NO_STAGE1 / "stage3.out").read_text())["E"] == 1
 
+    def test_report_summary_counts_with_crlf_records(self):
+        """A Windows AERMET ends its records with CRLF, as EPA's reference REPORTs do."""
+        text = (METPREP_OK / "stage3.out").read_text().replace("\n", "\r\n")
+        assert _summary_counts(text) == {"E": 0, "W": 9, "I": 25, "Q": 0}
+
     def test_lines_outside_the_layout_are_ignored(self):
         assert parse_aermet_messages("\n AERMET FINISHED SUCCESSFULLY\r\n garbage\n") == []
 
@@ -251,6 +256,28 @@ class TestRunStage:
         assert result.message_file == str((tmp_path / "w" / "stage1.msg").resolve())
         # A deck outside the working directory is copied in under its own name.
         assert (tmp_path / "w" / "deck.inp").read_text() == (STAGE1_OK / "deck.inp").read_text()
+
+    @pytest.mark.parametrize(("case", "counts"), [
+        (STAGE1_OK, {"E": 0, "W": 0, "I": 16, "Q": 30}),
+        (METPREP_OK, {"E": 0, "W": 9, "I": 25, "Q": 0}),
+    ], ids=lambda v: v.name if isinstance(v, Path) else "")
+    def test_success_with_crlf_records(self, tmp_path, case, counts):
+        """The recorded run as a Windows AERMET writes it: CRLF on stdout, REPORT
+        and MESSAGES. The banner and the REPORT counts must still be found."""
+        crlf = tmp_path / "crlf" / case.name
+        crlf.mkdir(parents=True)
+        for f in case.iterdir():
+            data = f.read_bytes()
+            if f.name not in ("deck.inp", "exit_code.txt"):
+                data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            (crlf / f.name).write_bytes(data)
+        result = self._run(_replayer(tmp_path / "bin", [crlf]), crlf, tmp_path / "w")
+        assert b" AERMET FINISHED SUCCESSFULLY\r\n" in (tmp_path / "w" / "stage1.subproc.stdout").read_bytes()
+        assert result.success is True, result.error_message
+        assert result.finished_successfully is True
+        assert result.message_counts == counts
+        assert result.error_message is None
+        assert "\r" not in result.stdout
 
     @pytest.mark.parametrize(("case", "first"), [
         (LEGACY, "SURFACE E01 CHECK_LINE: INVALID KEYWORD: ANEMHGT LINE NUMBER:  17 (and 5 more error(s))"),
