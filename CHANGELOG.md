@@ -71,6 +71,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps a timed-out run's partial output as `<deck>.out`, reported in
   `output_file`. **A timed-out or crashed re-run no longer leaves the
   earlier run's output in place.**
+- **`AERMODRunner.run` deleted a deck named `aermod.inp`, EPA's default
+  name.** It replaced `<working_dir>/aermod.inp` with a link to the deck,
+  which was that same file, so the deck was deleted, the link pointed to
+  itself, and the run failed with "AERMOD exited with code 0 but wrote no
+  aermod.out". A deck already named `aermod.inp` in the working directory
+  now runs in place and is left alone. With a `working_dir` apart from
+  the deck, the link named only the deck's file, so it pointed to a file
+  that did not exist there; it now holds the deck's path relative to the
+  working directory.
 - **A killed AERMOD run was reported as "AERMOD did not report
   success".** A run stopped by a signal (the pilot ended its slowest
   run, an area source, with SIGTERM) now reads "AERMOD was stopped by

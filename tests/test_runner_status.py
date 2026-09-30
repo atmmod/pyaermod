@@ -452,6 +452,35 @@ class TestRunnerVerdict:
         assert (work / "run.out").read_bytes() == (KILLED / "aermod.out").read_bytes()
         assert not (work / "aermod.out").exists()
 
+    def test_deck_named_aermod_inp_runs_in_place(self, replay_bin, tmp_path):
+        """EPA's default deck name: the runner used to delete the deck.
+
+        It replaced ``<work_dir>/aermod.inp`` with a link to the deck,
+        which was ``aermod.inp`` itself, so the deck was deleted and the
+        link pointed to itself; AERMOD then found no input.
+        """
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work, "aermod")
+        deck = inp.read_bytes()
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(inp)
+        assert result.success is True, result.error_message
+        assert result.output_file == str(work / "aermod.out")
+        assert not inp.is_symlink()
+        assert inp.read_bytes() == deck
+
+    @pytest.mark.parametrize("name", ["run", "aermod"])
+    def test_working_dir_apart_from_the_deck(self, replay_bin, tmp_path, name):
+        """The aermod.inp link reaches a deck in another directory."""
+        inp = _stage(SUCCESS, tmp_path / "decks", name)
+        work = tmp_path / "w"
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(inp, working_dir=work)
+        assert result.success is True, result.error_message
+        assert result.output_file == str(work / f"{name}.out")
+        assert not (work / "aermod.inp").exists()
+        assert inp.read_bytes() == (SUCCESS / "aermod.inp").read_bytes()
+
     def test_run_batch_inherits_the_verdict(self, replay_bin, tmp_path):
         work = tmp_path / "batch"
         inputs = [_stage(SUCCESS, work, "ok"), _stage(E480, work, "annual")]

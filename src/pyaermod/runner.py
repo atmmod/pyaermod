@@ -7,6 +7,7 @@ and batch processing capabilities.
 
 import contextlib
 import logging
+import os
 import platform
 import re
 import shutil
@@ -407,16 +408,25 @@ class AERMODRunner:
                 with contextlib.suppress(FileNotFoundError):
                     stale.unlink()
 
-        # Create symlink: aermod.inp -> <input_name>.inp
+        # Create symlink: aermod.inp -> <input_name>.inp. A deck that is
+        # itself <work_dir>/aermod.inp, EPA's default name, runs in place:
+        # replacing it with the link would delete the deck and leave a
+        # link to itself.
         aermod_inp = work_dir / "aermod.inp"
-        try:
-            if aermod_inp.exists() or aermod_inp.is_symlink():
-                aermod_inp.unlink()
-            aermod_inp.symlink_to(input_path.name)
-        except OSError:
-            # Fallback: copy the file
-            import shutil
-            shutil.copy2(str(input_path), str(aermod_inp))
+        in_place = (
+            aermod_inp.exists()
+            and not aermod_inp.is_symlink()
+            and aermod_inp.samefile(input_path)
+        )
+        if not in_place:
+            try:
+                if aermod_inp.exists() or aermod_inp.is_symlink():
+                    aermod_inp.unlink()
+                aermod_inp.symlink_to(os.path.relpath(input_path, work_dir))
+            except (OSError, ValueError):
+                # Fallback: copy the file (ValueError: relpath across
+                # Windows drives)
+                shutil.copy2(str(input_path), str(aermod_inp))
 
         start_time = datetime.now()
 
@@ -576,8 +586,8 @@ class AERMODRunner:
                 if fh is not None:
                     with contextlib.suppress(Exception):
                         fh.close()
-            # Clean up the aermod.inp symlink/copy
-            if aermod_inp.exists() or aermod_inp.is_symlink():
+            # Clean up the aermod.inp symlink/copy, never the user's own deck
+            if not in_place and (aermod_inp.exists() or aermod_inp.is_symlink()):
                 with contextlib.suppress(OSError):
                     aermod_inp.unlink()
             # Release the working-dir lock
