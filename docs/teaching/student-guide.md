@@ -1435,7 +1435,7 @@ analysis.
 | **Bowen ratio** | Ratio of sensible heat flux to latent heat flux at the surface. High values (dry/urban), low values (moist/vegetated) |
 | **Friction velocity** | A measure of wind-driven turbulence near the ground surface (m/s). Higher values mean more mechanical mixing |
 | **Fugitive emissions** | Pollutants released from diffuse, ground-level sources (piles, lots, open areas) rather than through defined stacks |
-| **Half-width** | AERMOD defines rectangular area sources by half the dimension in each direction from the source coordinate |
+| **Initial side lengths (Xinit, Yinit)** | AERMOD defines a rectangular area source by its southwest corner and the full length of its x and y sides (not half-widths); a rotation turns it clockwise about that corner |
 | **ISHD** | Integrated Surface Hourly Data — NOAA's standard format for recent U.S. surface weather observations |
 | **Mixing height** | The depth of the atmospheric boundary layer (meters). Pollutants released below this height mix vertically within it |
 | **Monin-Obukhov length** | A parameter characterizing atmospheric stability. Negative = unstable (good mixing), positive = stable (poor mixing) |

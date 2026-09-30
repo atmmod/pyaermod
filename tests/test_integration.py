@@ -229,8 +229,8 @@ def multi_source_project():
         y_coord=400.0,
         base_elevation=0.0,
         release_height=5.0,
-        initial_vertical_dimension=100.0,  # x half-width
-        initial_lateral_dimension=100.0,   # y half-width
+        initial_vertical_dimension=100.0,  # Yinit: y side length
+        initial_lateral_dimension=100.0,   # Xinit: x side length
         emission_rate=2.0,
         angle=0.0,
     )

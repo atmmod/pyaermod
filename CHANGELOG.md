@@ -86,12 +86,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corner and takes Xinit and Yinit as full side lengths, turning the
   rectangle clockwise about that corner (soset.f APARM builds the
   vertices that way). The field comments said "half-width", and the
-  student guide, tutorial 4's solution, `examples/area_sources.py` and
-  notebook 03 told users to enter half the real dimension, which gives a
-  source a quarter of the intended area; the notebook also divided its
-  emission by four times the area it modelled. The comments, docstring
-  and material now describe full side lengths from the southwest corner,
-  and the examples enter the dimensions they meant. The written deck of
+  student guide (its walkthrough and its glossary), the refinery
+  assignments' TANKS and LOADRK tables, the solutions to tutorials 4 and
+  8, `examples/area_sources.py` and three cells of notebook 03 told users
+  to enter half the real dimension, which gives a source a quarter of the
+  intended area; tutorial 8's solution also put the north-south side in
+  Xinit, and the notebook divided one emission by four times the area it
+  modelled. The comments, docstring and material now describe full side
+  lengths from the southwest corner, and the examples enter the
+  dimensions they meant (the refinery's tank farm is 200 m east-west by
+  150 m north-south, the 30,000 m2 its emission box already assumed). The written deck of
   any given `AreaSource` is unchanged. (`geospatial.sources_to_geodataframe`
   still draws an AREA as centred half-dimensions; that is left to a
   separate fix.)
