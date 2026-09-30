@@ -603,8 +603,9 @@ def watch(session: Session) -> Callable[[], None]:
 
 def completed_runs(session: Session) -> List[RunRecord]:
     """The runs Results can show, newest first: every finished run,
-    including one AERMOD could not be started for (its view says why)."""
-    return [r for r in reversed(session.runs) if not r.in_progress]
+    including one AERMOD could not be started for (its view says why),
+    but not a cancelled one, which is no result (WP-G4)."""
+    return [r for r in reversed(session.runs) if not r.in_progress and not r.cancelled]
 
 
 def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:

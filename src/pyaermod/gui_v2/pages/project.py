@@ -16,7 +16,7 @@ and Save writes back to that file.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from ...input_generator import PollutantType, TerrainType
 from ...naaqs import naaqs_averaging_periods
@@ -97,14 +97,30 @@ class FileActions:
                 ui.button("Save", on_click=self._do_save).props("color=primary")
 
     # ----- New ----------------------------------------------------------
-    def new(self) -> None:
-        if self.session.dirty:
+    def _asked_before_replacing(self, what: str, on_yes: Callable[[], Any]) -> bool:
+        """Ask before ``what`` (New, or opening a file) replaces the project,
+        when that loses unsaved changes or stops a run in progress; return
+        whether the question was asked (``on_yes`` then does the rest)."""
+        session = self.session
+        running = session.run_in_progress
+        if not session.dirty and running is None:
+            return False
+        stop = (f" Run {running.number}, still in progress, is stopped."
+                if running is not None else "")
+        if session.dirty:
             confirm(self.dialogs, question="Discard unsaved changes?",
-                    detail="New starts a blank project; the changes you have not saved, "
-                           "and the runs of this project, are lost.",
-                    yes="Discard changes", on_yes=self._new)
-            return
-        self._new()
+                    detail=f"{what}; the changes you have not saved, and the runs of this "
+                           f"project, are lost.{stop}",
+                    yes="Discard changes", on_yes=on_yes)
+        else:
+            confirm(self.dialogs, question="Stop the run in progress?",
+                    detail=f"{what}; the runs of this project are lost.{stop}",
+                    yes="Stop the run", on_yes=on_yes)
+        return True
+
+    def new(self) -> None:
+        if not self._asked_before_replacing("New starts a blank project", self._new):
+            self._new()
 
     def _new(self) -> None:
         self.session.new()
@@ -132,15 +148,11 @@ class FileActions:
             # Always, so choosing the same file again sends it again.
             self.uploader.reset()
         self.open_dialog.close()
-        if self.session.dirty:
-            # Asked once the file has arrived, so that closing the Open
-            # dialog (or cancelling a slow upload) never asks anything.
-            confirm(self.dialogs, question="Discard unsaved changes?",
-                    detail=f"Opening {name} replaces the project; the changes you have "
-                           "not saved, and the runs of this project, are lost.",
-                    yes="Discard changes", on_yes=lambda: self._open(data, name))
-            return
-        self._open(data, name)
+        # Asked once the file has arrived, so that closing the Open dialog
+        # (or cancelling a slow upload) never asks anything.
+        if not self._asked_before_replacing(f"Opening {name} replaces the project",
+                                            lambda: self._open(data, name)):
+            self._open(data, name)
 
     def _open(self, data: bytes, name: str) -> None:
         try:

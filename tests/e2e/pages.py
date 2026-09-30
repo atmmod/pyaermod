@@ -262,16 +262,20 @@ class ProjectPage(_Step):
         assert sorted(shown) == sorted(periods), f"averaging periods read {shown}"
 
     def _discard_changes_if_asked(self, done: Locator) -> None:
-        """Answer New's and Open's question about unsaved changes, if it is asked.
+        """Answer New's and Open's question about what they discard, if it is asked.
 
-        The page asks only when the project has unsaved changes. Either the
-        question or ``done`` (the notification the operation ends with)
-        appears; the question is answered "Discard changes".
+        The page asks only when the project has unsaved changes ("Discard
+        unsaved changes?") or a run is in progress ("Stop the run in
+        progress?"). Either the question or ``done`` (the notification the
+        operation ends with) appears; the question is answered "Discard
+        changes" or "Stop the run".
         """
-        question = self.app.dialog().filter(has_text="Discard unsaved changes?")
+        question = self.app.dialog().filter(
+            has_text=re.compile(r"Discard unsaved changes\?|Stop the run in progress\?"))
         expect(question.or_(done).first).to_be_visible()
         if question.is_visible():
-            question.get_by_role("button", name="Discard changes").click()
+            question.get_by_role(
+                "button", name=re.compile(r"^(Discard changes|Stop the run)$")).click()
             expect(question).to_be_hidden()
         expect(done.first).to_be_visible()
 

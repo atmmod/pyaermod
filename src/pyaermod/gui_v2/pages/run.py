@@ -49,20 +49,15 @@ from ..session import (
     Session,
     SessionEvent,
 )
+from ..steps import STEP_IDS as _STEP_IDS
+from ..steps import STEPS as _STEPS
 
-#: The GUI's steps, in order. ``goto`` callbacks receive one of these.
-STEP_IDS = ("project", "sources", "receptors", "meteorology", "output", "run", "results")
+#: The GUI's steps, in order (the shell's, :data:`..steps.STEP_IDS`).
+#: ``goto`` callbacks receive one of these.
+STEP_IDS = _STEP_IDS
 
-#: What the user reads for each step.
-STEP_TITLES = {
-    "project": "Project",
-    "sources": "Sources",
-    "receptors": "Receptors",
-    "meteorology": "Meteorology",
-    "output": "Output",
-    "run": "Review & Run",
-    "results": "Results",
-}
+#: What the user reads for each step, as the step list names it.
+STEP_TITLES = {step.id: step.label for step in _STEPS}
 
 #: The common-errors page of the documentation site.
 COMMON_ERRORS_URL = "https://atmmod.github.io/pyaermod/common-errors/"

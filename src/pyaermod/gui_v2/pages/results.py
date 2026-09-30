@@ -53,7 +53,7 @@ from ..run_results import (
 from ..session import Session, SessionEvent
 
 #: Shown when the session has no run AERMOD completed.
-NO_RUN = "No run yet. Use the Run tab to dispatch AERMOD."
+NO_RUN = "No run yet. Run AERMOD from the Review & Run step."
 
 _UNITS = {"ug/m^3": "µg/m³", "g/m^2": "g/m²", "g/m^2/yr": "g/m²/yr"}
 
@@ -88,7 +88,7 @@ def render(session: Session, *, dialogs: Any = None,
         runs = completed_runs(session)
         if not runs:
             ui.label(NO_RUN).classes("text-grey q-mt-sm")
-            ui.button("Go to Run", on_click=lambda: goto("run")).props("flat")
+            ui.button("Go to Review & Run", on_click=lambda: goto("run")).props("flat")
             return
 
         if picked["runs"] != len(session.runs):

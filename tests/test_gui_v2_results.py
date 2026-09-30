@@ -85,7 +85,7 @@ class TestSuccessfulRun:
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
         work_dir = tmp_path / "run"
-        await _run_in(gui, work_dir, outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, work_dir, outcome="Succeeded in", shows="Run 1 succeeded")
         gui.user.find(kind=ui.tab, content="Results").click()
         await gui.user.should_see("Run 1 succeeded")
         await gui.user.should_see(
@@ -113,7 +113,7 @@ class TestSuccessfulRun:
     async def test_every_rank_is_in_a_table_per_period(self, gui, recorded_aermod, tmp_path):
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
-        await _run_in(gui, tmp_path / "run", outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Summary tables")
         tables = gui.user.find(kind=ui.table, marker="results-table").elements
         assert len(tables) == 4
@@ -131,7 +131,7 @@ class TestSuccessfulRun:
     async def test_map_is_drawn_from_the_plot_files(self, gui, recorded_aermod, tmp_path):
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
-        await _run_in(gui, tmp_path / "run", outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Concentration map")
         image = _one(gui, kind=ui.image, marker="results-map")
         alt = image.props["alt"]
@@ -155,7 +155,7 @@ class TestSuccessfulRun:
     async def test_so2_is_compared_with_its_naaqs(self, gui, recorded_aermod, tmp_path):
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
-        await _run_in(gui, tmp_path / "run", outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Comparison with the NAAQS")
         [row] = _one(gui, kind=ui.table, marker="results-naaqs").rows
         assert row["standard"] == "SO2 1-hour (99th percentile of daily max)"
@@ -175,7 +175,7 @@ class TestSuccessfulRun:
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
         work_dir = tmp_path / "run"
-        await _run_in(gui, work_dir, outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, work_dir, outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Downloads")
         assert await _download(gui, "Download deck") == (work_dir / "pyaermod_gui.inp").read_bytes()
         out = await _download(gui, "Download AERMOD output (.out)")
@@ -191,7 +191,7 @@ class TestSuccessfulRun:
         pytest.importorskip("pyproj")
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
-        await _run_in(gui, tmp_path / "run", outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in", shows="Run 1 succeeded")
         gui.user.find(kind=ui.button, content="Download KMZ").click()
         await gui.user.should_see("Enter the UTM zone of the model's x and y")
         zone = _one(gui, kind=ui.number, content="UTM zone of the coordinates")
@@ -212,7 +212,7 @@ class TestFailedRun:
         recorded_aermod("albany_e480")
         await _open_albany(gui, tmp_path, E480_PERIODS)
         work_dir = tmp_path / "run"
-        await _run_in(gui, work_dir, outcome="Run reported FATAL", shows="Run 1 failed")
+        await _run_in(gui, work_dir, outcome="Failed: E480", shows="Run 1 failed")
         await gui.user.should_see("Run 1 failed")
         await gui.user.should_see("AERMOD stopped with 1 fatal error and 5 warnings.")
         await gui.user.should_see(
@@ -236,9 +236,9 @@ class TestRunHistory:
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
         first, second = tmp_path / "first", tmp_path / "second"
-        await _run_in(gui, first, outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, first, outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Run 1 succeeded")
-        await _run_in(gui, second, outcome="Run succeeded", shows="Run 2 succeeded")
+        await _run_in(gui, second, outcome="Succeeded in", shows="Run 2 succeeded")
         await gui.user.should_see("Run 2 succeeded")
         await gui.user.should_see(f"Working directory: {second}")
         history = _one(gui, kind=ui.select, content="Run shown")
@@ -251,7 +251,7 @@ class TestRunHistory:
         await gui.user.should_not_see("Run 2 succeeded")
         assert _maxima(gui)["1-HR"]["value"] == "76.07952"
         # A new run shows itself again.
-        await _run_in(gui, tmp_path / "third", outcome="Run succeeded", shows="Run 3 succeeded")
+        await _run_in(gui, tmp_path / "third", outcome="Succeeded in", shows="Run 3 succeeded")
         await gui.user.should_see("Run 3 succeeded")
 
     @pytest.mark.asyncio
@@ -259,12 +259,17 @@ class TestRunHistory:
             self, gui, recorded_aermod, tmp_path, monkeypatch):
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
-        await _run_in(gui, tmp_path / "first", outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, tmp_path / "first", outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Run 1 succeeded")
-        # No AERMOD on PATH for the second run: the runner cannot start it.
-        empty = tmp_path / "no_aermod"
-        empty.mkdir()
-        monkeypatch.setenv("PATH", str(empty))
+        # AERMOD is gone by the time the second run starts (the Review & Run
+        # checklist found it): the runner cannot start it, and says so as it
+        # does when no binary is on PATH.
+        from pyaermod.runner import AERMODRunner
+
+        def _gone(self, *args, **kwargs):
+            raise FileNotFoundError("AERMOD executable not found in PATH")
+
+        monkeypatch.setattr(AERMODRunner, "start", _gone)
         box = _by_id(gui.user.find(kind=ui.input, content="Working directory").elements,
                      newest=True)
         with gui.user:
@@ -289,9 +294,9 @@ class TestRunHistory:
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
         work_dir = tmp_path / "run"
-        await _run_in(gui, work_dir, outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, work_dir, outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Run 1 succeeded")
-        await _run_in(gui, work_dir, outcome="Run succeeded", shows="Run 2 succeeded")
+        await _run_in(gui, work_dir, outcome="Succeeded in", shows="Run 2 succeeded")
         await gui.user.should_see("Run 2 succeeded")
         with gui.user:
             _one(gui, kind=ui.select, content="Run shown").value = 1
@@ -304,8 +309,8 @@ class TestRunHistory:
     @pytest.mark.asyncio
     async def test_before_any_run(self, gui):
         await gui.open()
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
-        await gui.user.should_see(kind=ui.button, content="Go to Run")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
+        await gui.user.should_see(kind=ui.button, content="Go to Review & Run")
 
 
 class TestReload:
@@ -313,7 +318,7 @@ class TestReload:
     async def test_a_reload_shows_the_same_run(self, gui, recorded_aermod, tmp_path):
         recorded_aermod("albany_success")
         await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
-        await _run_in(gui, tmp_path / "run", outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Run 1 succeeded")
         await gui.open()
         await gui.user.should_see("Run 1 succeeded")
@@ -339,7 +344,7 @@ class TestImportedAertest:
         session.open_json(path)
         await _value_becomes(lambda: _title_input(gui).value, project.control.title_one)
         work_dir = tmp_path / "run"
-        await _run_in(gui, work_dir, outcome="Run succeeded", shows="Run 1 succeeded")
+        await _run_in(gui, work_dir, outcome="Succeeded in", shows="Run 1 succeeded")
         rows = _maxima(gui)
         # AERTEST.SUM: 1-HR 753.65603 at (303.11, -175.00); PERIOD 24.85173.
         assert (rows["1-HR"]["value"], rows["1-HR"]["x"], rows["1-HR"]["y"]) == (

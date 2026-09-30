@@ -848,7 +848,7 @@ class TestProjectPage:
         assert _sources_table(gui).rows == []
         await gui.user.should_see("No sources yet. Choose a type and click Add.")
         assert _one(gui, kind=ui.input, content="Surface file").value == ""
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
         await gui.user.should_not_see("(modified)")
 
     @pytest.mark.asyncio
@@ -1247,7 +1247,7 @@ class TestProjectFiles:
         await gui.open()                        # reload: Sources cannot be shown
         await gui.user.should_see(f"{SECTION_FAILED}: cannot summarise this source")
         await gui.user.should_see(kind=ui.button, content="Run AERMOD")      # later steps
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
         gui.user.find(kind=ui.button, marker="project-new").click()
         await _discard_changes(gui)
         await gui.user.should_see("No sources yet. Choose a type and click Add.")         # rebuilt
@@ -1809,7 +1809,7 @@ class TestEndToEnd:
     @pytest.mark.asyncio
     async def test_results_placeholder_before_any_run(self, gui):
         await gui.open()
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
 
     @pytest.mark.asyncio
     async def test_run_page_warns_without_binary(self, gui, monkeypatch, tmp_path):
@@ -1831,7 +1831,7 @@ class TestEndToEnd:
         assert _run_button(gui).enabled is True
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("No AERMOD binary; cannot run.")
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
 
 
 def _number_box(gui: GuiSession, label: str) -> UserInteraction:
@@ -1899,7 +1899,7 @@ class TestRunPageFailurePaths:
         _interact(gui, _title_input(gui)).clear().type("Boom")
         await gui.user.should_see("The deck cannot be written: boom")
         assert _run_button(gui).enabled is False
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
 
     @pytest.mark.asyncio
     async def test_deck_write_failure_is_reported(self, gui, fake_aermod_on_path, tmp_path):
@@ -1927,8 +1927,8 @@ class TestRunPageFailurePaths:
         await gui.user.should_see("Run failed; see log")
         # Results shows the attempt as the latest run, and why it failed.
         await gui.user.should_see("Run 1 failed")
-        await gui.user.should_see("AERMOD could not be run: AERMOD executable not found in PATH")
-        await gui.user.should_not_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("AERMOD could not be run: the runner broke")
+        await gui.user.should_not_see("No run yet. Run AERMOD from the Review & Run step.")
 
 
 class TestResultsPageMore:
@@ -2067,7 +2067,7 @@ class TestReviewAndRun:
         from tests.e2e.harness import process_running
         assert not process_running(start["pid"])
         # A cancelled run is not a result.
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
 
     @pytest.mark.asyncio
     async def test_a_double_click_starts_one_aermod(self, gui, recorded_aermod, tmp_path,
@@ -2094,6 +2094,13 @@ class TestReviewAndRun:
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("Day 61 of 1988", retries=50)
         gui.user.find(kind=ui.button, marker="project-new").click()
+        # Nothing unsaved, but New would stop the run: it asks first.
+        await _dialog_opens(gui, "confirm-dialog")
+        await gui.user.should_see("Stop the run in progress?")
+        await gui.user.should_see("New starts a blank project; the runs of this project are "
+                                  "lost. Run 1, still in progress, is stopped.")
+        assert session.run_in_progress is not None
+        _in_dialog(gui, "confirm-dialog", ui.button, "Stop the run").click()
         await gui.user.should_see("AERMOD has not been run for this project yet.")
         assert session.run_in_progress is None and session.runs == []
         # Nothing of the stopped run stays: no progress, no Cancel to click.
@@ -2112,6 +2119,31 @@ class TestReviewAndRun:
             raise AssertionError("AERMOD still runs after New")
         await _settle(gui)
         assert session.runs == []
+
+    @pytest.mark.asyncio
+    async def test_new_on_a_modified_project_during_a_run_says_the_run_is_stopped(
+            self, gui, recorded_aermod, tmp_path, monkeypatch):
+        recorded_aermod("albany_e480")
+        monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
+        session = await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("Day 61 of 1988", retries=50)
+        gui.user.find(kind=ui.input, content="Title (line 1)").type(" (edited)")
+        await _value_becomes(lambda: session.dirty, True)
+        gui.user.find(kind=ui.button, marker="project-new").click()
+        await _dialog_opens(gui, "confirm-dialog")
+        await gui.user.should_see("Discard unsaved changes?")
+        await gui.user.should_see("New starts a blank project; the changes you have not saved, "
+                                  "and the runs of this project, are lost. Run 1, still in "
+                                  "progress, is stopped.")
+        # Cancel keeps the project and the run.
+        _in_dialog(gui, "confirm-dialog", ui.button, "Cancel").click()
+        await _settle(gui)
+        assert session.run_in_progress is not None and session.dirty
+        gui.user.find(kind=ui.button, marker="project-new").click()
+        await _discard_changes(gui)
+        await gui.user.should_see("AERMOD has not been run for this project yet.")
+        assert session.run_in_progress is None and session.runs == []
 
     @pytest.mark.asyncio
     async def test_a_successful_run_says_so_with_aermods_counts(self, gui, recorded_aermod,

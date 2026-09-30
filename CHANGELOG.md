@@ -118,8 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameters (E242; `GASDEPVD` exempts it), an urban roughness without an
   urban area name, and an urban name or roughness without a population
   (which the deck writer used to fill in as 1,000,000).
-- GUI (WP-G4): the Run tab now holds the **Review & Run** step (the tab
-  keeps its name until the step navigation arrives). A readiness checklist
+- GUI (WP-G4): the **Review & Run** step. A readiness checklist
   names each step with a problem that blocks the run (no source, no
   receptors, no met files, a met file named by a relative path while the
   working directory is blank, a met file whose path starts with `~`, which
@@ -136,7 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counts and a table of its messages (severity, pathway, code, line,
   text) follow, linking to `docs/common-errors.md` for E101, E480 and
   E500. A second click on Run while a run is going is ignored, and New or
-  Open during a run stops it.
+  Open during a run asks first ("Stop the run in progress?", or "Discard
+  unsaved changes?" saying the run is stopped) and then stops it.
 - `AERMODRunner.start()` runs AERMOD in the background and returns an
   `AERMODRun`: `progress` (an `AERMODProgress` with the stage, "setup",
   "day" or "output", AERMOD's day and year, and the days processed),
