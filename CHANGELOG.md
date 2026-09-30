@@ -16,9 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
-- GUI (WP-G4): the Run tab is now **Review & Run**. A readiness checklist
+- GUI (WP-G4): the Run tab now holds the **Review & Run** step (the tab
+  keeps its name until the step navigation arrives). A readiness checklist
   names each step with a problem that blocks the run (no source, no
-  receptors, no met files, a value the deck cannot be written with, no
+  receptors, no met files, a met file named by a relative path while the
+  working directory is blank, a value the deck cannot be written with, no
   `aermod` binary) and links to that step, and Run AERMOD stays disabled
   until it is empty. Warnings that do not block the run follow, among
   them ANNUAL with less than a year of met data. A read-only deck
@@ -38,8 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cancel()` (SIGTERM, then a kill after `CANCEL_GRACE_SECONDS`), `wait()`,
   `done`, `result`, and `on_progress`/`on_finish` callbacks. A cancelled
   run's result has the new `AERMODRunResult.cancelled` set. The process
-  is always reaped, and AERMOD runs still going when Python exits are
-  stopped. `parse_progress_line()` reads one progress line.
+  is always reaped, and `stop_active_runs()` stops the runs still going;
+  it runs when Python exits normally or on Ctrl+C, and the GUI server
+  also calls it when it shuts down on SIGTERM or SIGHUP.
+  `parse_progress_line()` reads one progress line.
 - `aermet.read_surface_period()` reads which hours an AERMET `.SFC` file
   holds (`SurfaceFilePeriod`: first and last hour, hours, days, station
   IDs) without loading its data, and `SurfaceFilePeriod.complete_years`
@@ -70,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files written before this change still open.
 
 ### Fixed
+- `AERMODRunner` no longer reports a run with an earlier run's `.out`
+  file (its verdict, messages and counts) when this run wrote none, for
+  instance because AERMOD crashed; a run killed by a signal says so
+  ("AERMOD was stopped by signal 11 (SIGSEGV) before writing run.out").
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
