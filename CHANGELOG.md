@@ -44,8 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by hand. `results[i]` now belongs to `input_files[i]` however the runs
   finish, and a run that raised in its worker carries its deck's
   absolute path like every other result. With `stop_on_error=True` the
-  list still holds only the runs that finished before the stop, now in
-  input order. The docstring and `docs/common-errors.md` now say that a
+  list also holds one result per deck: runs already under way when the
+  batch stops are waited for and filed in their place (they used to be
+  dropped, which shifted every later pair), and a deck never started
+  gets `success=False` with "Not run: the batch stopped after an earlier
+  run failed". The docstring and `docs/common-errors.md` now say that a
   script calling `run_batch` or `BatchRunner.parameter_sweep` on macOS or
   Windows must do so under `if __name__ == "__main__":`: those platforms
   start workers with `spawn`, and without the guard every run came back

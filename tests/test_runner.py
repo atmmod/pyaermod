@@ -489,9 +489,9 @@ class TestRunBatch:
         runner = AERMODRunner(executable_path=str(fake_exe), log_level="WARNING")
         results = runner.run_batch(files, n_workers=1, stop_on_error=True)
 
-        # Should have stopped early (may not have all 5 results)
-        assert len(results) >= 1
-        assert any(not r.success for r in results)
+        # Stopped early, but every deck still has its result
+        assert len(results) == 5
+        assert all(not r.success for r in results)
 
     @patch("pyaermod.runner.ProcessPoolExecutor")
     def test_run_batch_mocked_executor(self, MockExecutor, tmp_path):

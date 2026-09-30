@@ -190,17 +190,65 @@ def test_run_batch_returns_input_order_whatever_order_runs_finish(tmp_path):
         assert result.output_file == str(inp.with_suffix(".out").resolve())
 
 
+# A fake aermod for stop_on_error. The deck's "** role" line says what it
+# does: "fail" leaves a marker and writes no aermod.out, so its run fails
+# at once; "slow" waits for that marker and then runs 2 s more, so it is
+# still running when the batch stops; any other deck runs 2 s. Each
+# deck that runs to the end writes the successful recording.
+_STOPPING = """#!/bin/bash
+role="$(sed -n 's/^\\*\\* role //p' aermod.inp)"
+if [ "$role" = fail ]; then
+    touch "{markers}/failed"
+    exit 0
+fi
+if [ "$role" = slow ]; then
+    for _ in $(seq 3000); do
+        [ -e "{markers}/failed" ] && break
+        sleep 0.1
+    done
+fi
+sleep 2
+cp "{success}/aermod.out" aermod.out
+exit 0
+"""
+
+
 @posix_only
-def test_run_batch_stop_on_error_keeps_input_order(tmp_path):
-    """With stop_on_error the runs that finished still come back in input order."""
+def test_run_batch_stop_on_error_returns_one_result_per_deck(tmp_path):
+    """A stopped batch still pairs every deck with its own result, in input order.
+
+    Deck 0 is still running when deck 1 fails, so its result arrives
+    after the stop, and the last decks are never started. The results
+    used to omit both, so ``zip(input_files, results)`` paired deck 0
+    with deck 1's failure.
+    """
+    markers = tmp_path / "markers"
+    markers.mkdir()
     exe = tmp_path / "aermod"
-    exe.write_text("#!/bin/bash\nexit 0\n")
+    exe.write_text(_STOPPING.format(markers=markers, success=SUCCESS))
     exe.chmod(0o755)
+    deck = (SUCCESS / "aermod.inp").read_text()
+    roles = ["slow", "fail"] + ["plain"] * 8
+    inputs = []
+    for i, role in enumerate(roles):
+        work = tmp_path / f"d{i}"
+        work.mkdir()
+        inp = work / f"d{i}.inp"
+        inp.write_text(f"** role {role}\n" + deck)
+        inputs.append(inp)
+
     runner = AERMODRunner(executable_path=exe, log_level="CRITICAL")
-    missing = [tmp_path / f"missing{i}.inp" for i in range(3)]
-    results = runner.run_batch(missing, n_workers=1, stop_on_error=True)
-    assert 1 <= len(results) <= 3
-    assert all(not r.success for r in results)
-    resolved = [p.resolve() for p in missing]
-    positions = [resolved.index(Path(r.input_file)) for r in results]
-    assert positions == sorted(positions)
+    results = runner.run_batch(inputs, n_workers=2, timeout=300, stop_on_error=True)
+
+    assert [r.input_file for r in results] == [str(p.resolve()) for p in inputs]
+    assert results[0].success is True, results[0].error_message
+    assert results[0].output_file == str(inputs[0].with_suffix(".out").resolve())
+    assert results[1].success is False
+    assert not results[1].error_message.startswith("Not run")
+    not_run = "Not run: the batch stopped after an earlier run failed"
+    for result in results[2:]:
+        assert result.success or result.error_message == not_run, result.error_message
+    # Two workers and the executor's one queued call leave at most four
+    # of the plain decks started before the stop; the last one never is.
+    assert results[-1].error_message == not_run
+    assert results[-1].output_file is None

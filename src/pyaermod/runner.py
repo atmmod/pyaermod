@@ -721,8 +721,11 @@ class AERMODRunner:
             n_workers: Number of parallel workers
             timeout: Timeout per run (seconds)
             stop_on_error: Stop at the first failed run. Runs not yet
-                started are cancelled, and the list then holds only the
-                runs that finished before the stop, still in input order.
+                started are cancelled and runs already started finish.
+                The list still holds one result per deck: a cancelled
+                deck's result has ``success=False`` and the
+                ``error_message`` "Not run: the batch stopped after an
+                earlier run failed".
 
         Returns:
             List of AERMODRunResult objects, in the order of ``input_files``
@@ -732,7 +735,25 @@ class AERMODRunner:
         # Results are filed by the index of their deck, so the list comes
         # back in input order however the runs finish.
         results_by_index: Dict[int, AERMODRunResult] = {}
-        failed_count = 0
+
+        def _collect(index: int, future) -> AERMODRunResult:
+            input_file = input_files[index]
+            try:
+                result = future.result()
+            except Exception as e:
+                self.logger.error(f"✗ {input_file}: Exception: {e}")
+                result = AERMODRunResult(
+                    success=False,
+                    input_file=str(Path(input_file).resolve()),
+                    error_message=str(e)
+                )
+            else:
+                if result.success:
+                    self.logger.info(f"✓ {Path(result.input_file).name} ({result.runtime_seconds:.1f}s)")
+                else:
+                    self.logger.error(f"✗ {Path(result.input_file).name}: {result.error_message}")
+            results_by_index[index] = result
+            return result
 
         exe_path = str(self.executable)
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
@@ -746,39 +767,38 @@ class AERMODRunner:
 
             # Process completed jobs
             for future in as_completed(future_to_index):
-                index = future_to_index[future]
-                input_file = input_files[index]
+                result = _collect(future_to_index[future], future)
+                if not result.success and stop_on_error:
+                    self.logger.error("Stopping batch run due to error")
+                    # Cancel the runs not yet started; the ones already
+                    # running finish before the executor shuts down.
+                    for f in future_to_index:
+                        f.cancel()
+                    break
 
-                try:
-                    result = future.result()
-                except Exception as e:
-                    self.logger.error(f"✗ {input_file}: Exception: {e}")
-                    result = AERMODRunResult(
-                        success=False,
-                        input_file=str(Path(input_file).resolve()),
-                        error_message=str(e)
-                    )
-                else:
-                    if result.success:
-                        self.logger.info(f"✓ {Path(result.input_file).name} ({result.runtime_seconds:.1f}s)")
-                    else:
-                        self.logger.error(f"✗ {Path(result.input_file).name}: {result.error_message}")
-                results_by_index[index] = result
-
-                if not result.success:
-                    failed_count += 1
-                    if stop_on_error:
-                        self.logger.error("Stopping batch run due to error")
-                        # Cancel pending futures
-                        for f in future_to_index:
-                            f.cancel()
-                        break
+        # After a stop, file the runs that were running at the time and
+        # mark the cancelled ones, so every deck still has its result.
+        not_run = 0
+        for future, index in future_to_index.items():
+            if index in results_by_index:
+                continue
+            if future.cancelled():
+                not_run += 1
+                results_by_index[index] = AERMODRunResult(
+                    success=False,
+                    input_file=str(Path(input_files[index]).resolve()),
+                    error_message="Not run: the batch stopped after an earlier run failed",
+                )
+            else:
+                _collect(index, future)
 
         results = [results_by_index[i] for i in sorted(results_by_index)]
-        success_count = len(results) - failed_count
+        success_count = sum(r.success for r in results)
+        failed_count = len(results) - success_count - not_run
         self.logger.info(
             f"Batch complete: {success_count}/{len(results)} succeeded, "
             f"{failed_count} failed"
+            + (f", {not_run} not run" if not_run else "")
         )
 
         return results

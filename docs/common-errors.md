@@ -125,8 +125,11 @@ if __name__ == "__main__":
 order the runs finish in, so `zip(input_files, results)` pairs each deck
 with its own result (earlier versions returned the list in finishing
 order). Each result's `input_file` is the deck's absolute path. With
-`stop_on_error=True` the list holds only the runs that finished before
-the stop, still in input order.
+`stop_on_error=True` the list still holds one result per deck: runs
+already under way when the batch stops finish and keep their place, and
+a deck that was never started has `success=False` and the
+`error_message` "Not run: the batch stopped after an earlier run
+failed".
 
 ### Resuming an interrupted batch
 

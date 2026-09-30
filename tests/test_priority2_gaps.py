@@ -395,9 +395,10 @@ class TestBatchExceptionHandling:
                 ["a.inp", "b.inp"], n_workers=1, stop_on_error=True
             )
 
-        # Should have stopped after first exception
-        assert len(results) == 1
-        assert not results[0].success
+        # Stopped after the first exception; the second run, already
+        # finished, still gets its place in the list
+        assert [r.error_message for r in results] == ["Crash 1", "Crash 2"]
+        assert not any(r.success for r in results)
 
 
 # ============================================================================
