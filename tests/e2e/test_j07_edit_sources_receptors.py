@@ -101,8 +101,7 @@ def test_j07_plan_view_follows_the_project(gui, step, known_gap):
     gui.open()
     gui.sources.add_point_source(**STACK)
     step("one_source")
-    with known_gap("WP-G3", "no plan-view plot"):
-        gui.sources.expect_plan_view_shows("STACK1")
+    gui.sources.expect_plan_view_shows("STACK1")
     gui.receptors.add_polar_grid(**GRID)
     gui.receptors.expect_plan_view_shows("STACK1", "GRID1")
 
@@ -110,8 +109,7 @@ def test_j07_plan_view_follows_the_project(gui, step, known_gap):
 def test_j07_step_badges_follow_the_project(gui, step, known_gap):
     gui.open()
     step("blank")
-    with known_gap("WP-G3", "no step status badges"):
-        gui.expect_step_status("Sources", "not started")
+    gui.expect_step_status("Sources", "not started")
     gui.sources.add_point_source(**STACK)
     gui.expect_step_status("Sources", "complete")
     gui.sources.delete_source("STACK1")

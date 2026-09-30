@@ -1,12 +1,25 @@
 """
-NiceGUI app shell: top-level layout, tab navigation, header, status bar.
+NiceGUI app shell: the header, the step list and the steps.
 
-The shell is intentionally thin. It resolves the browser tab's
-:class:`~pyaermod.gui_v2.session.Session` and hands it to every page
-module under :mod:`pyaermod.gui_v2.pages`, each of which exports a
-``render(session, *, dialogs)`` callable that builds its tab panel.
-Pages follow the session through :func:`pyaermod.gui_v2._live.live`
-sections.
+The shell resolves the browser tab's
+:class:`~pyaermod.gui_v2.session.Session` and builds the page around it:
+
+- a header with the project's name and unsaved-changes marker, a
+  one-line readiness summary and a Save button;
+- a step list on the left (a drawer the menu button opens on narrow
+  windows) with the seven steps of :data:`pyaermod.gui_v2.steps.STEPS`,
+  each with a badge (not started, complete, warning, error) computed
+  from the session's latest validation and runs. A step's accessible
+  name carries its badge: "Sources, complete";
+- one panel per step, built by the page module under
+  :mod:`pyaermod.gui_v2.pages`. Each page exports ``render(session, *,
+  dialogs, goto=None)``; ``goto(step_id)`` shows another step, for pages
+  that send the user somewhere (a checklist item that links to Sources).
+
+The shell validates the project when the page is built and again shortly
+after every change (:func:`_keep_validated`), so the badges and the
+readiness line follow the project. Pages follow the session through
+:func:`pyaermod.gui_v2._live.live` sections.
 
 One session per browser tab
 ---------------------------
@@ -30,30 +43,33 @@ session.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 import traceback
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Any, Dict, MutableMapping, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, MutableMapping, Optional, Set
 
+from ._live import live
 from .pages import meteorology, output, project, receptors, results, run, sources
 from .session import Session, SessionEvent
+from .steps import STEP_IDS, STEPS, StepStatus, readiness, step_accessible_name, step_statuses
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from nicegui import Client
 
 logger = logging.getLogger(__name__)
 
-# Display order for the tab bar.
-_TABS = [
-    ("Project",    project.render),
-    ("Sources",    sources.render),
-    ("Receptors",  receptors.render),
-    ("Meteorology", meteorology.render),
-    ("Output",     output.render),
-    ("Run",        run.render),
-    ("Results",    results.render),
-]
+#: The page module that builds each step.
+_PAGES: Dict[str, Callable[..., None]] = {
+    "project": project.render,
+    "sources": sources.render,
+    "receptors": receptors.render,
+    "meteorology": meteorology.render,
+    "output": output.render,
+    "run": run.render,
+    "results": results.render,
+}
 
 #: The tab-storage key holding when the tab's session was last used.
 LAST_USED_KEY = "session_last_used"
@@ -149,6 +165,69 @@ def _warn_if_redis() -> None:
             "GUI's live sessions, so reloading a tab will not restore its project.")
 
 
+#: How long the shell waits after an edit before validating again (s), so a
+#: burst of keystrokes costs one validation.
+VALIDATION_DELAY_S = 0.15
+
+#: The tab-storage key holding the step the tab last showed.
+STEP_KEY = "current_step"
+
+#: Badge icon and colour for each step status.
+_BADGES = {
+    StepStatus.NOT_STARTED: ("radio_button_unchecked", "grey-6"),
+    StepStatus.COMPLETE: ("check_circle", "positive"),
+    StepStatus.WARNING: ("warning", "warning"),
+    StepStatus.ERROR: ("error", "negative"),
+}
+
+
+def _keep_validated(session: Session, client: Client) -> None:
+    """Validate the session now, and again shortly after every change to its project.
+
+    The step badges and the header's readiness line follow
+    ``session.validation`` (VALIDATION_CHANGED). Met files are checked on
+    disk, so a surface file that does not exist marks Meteorology.
+    """
+    import asyncio
+
+    pending: Dict[str, Any] = {"handle": None}
+
+    def run() -> None:
+        pending["handle"] = None
+        if _is_deleted(client):
+            return
+        try:
+            session.validate(check_files=True)
+        except Exception:                       # a validator bug must not break the page
+            logger.exception("validating the project raised")
+
+    def schedule(_change: Any) -> None:
+        if pending["handle"] is not None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:                    # no event loop (a script): at once
+            run()
+            return
+        pending["handle"] = loop.call_later(VALIDATION_DELAY_S, run)
+
+    run()
+    client.on_delete(session.subscribe(
+        {SessionEvent.PROJECT_REPLACED, SessionEvent.PROJECT_CHANGED}, schedule))
+
+
+def _call_render(render: Any, session: Session, **kwargs: Any) -> None:
+    """Call a page's ``render`` with the keyword arguments it accepts.
+
+    Every page takes ``dialogs``; ``goto`` and ``actions`` are passed only
+    to pages whose ``render`` names them, so a page from another work
+    package that does not take them yet still builds.
+    """
+    params = inspect.signature(render).parameters
+    accepted = {k: v for k, v in kwargs.items() if k in params}
+    render(session, **accepted)
+
+
 def build_app() -> None:
     """Define the NiceGUI page hierarchy. Called once on app start."""
     from nicegui import ui
@@ -166,29 +245,105 @@ def build_app() -> None:
         session = _session_for(client)      # looked up at call time (tests wrap it)
         _claim(session, client)
         _keep_in_use(session, client, tab)
+        _keep_validated(session, client)
+
+        # No input may be wider than the window: a page from another work
+        # package that fixes a width (w-96) still fits a phone, also inside
+        # a q-gutter row, whose negative margin makes 100% too wide (3rem is
+        # the step's own padding and the gutter).
+        ui.add_css(".q-tab-panel .q-field { max-width: min(100%, calc(100vw - 3rem)); }")
 
         # Every dialog a page creates lives here, outside any live section,
         # so no rebuild can delete an open dialog.
         page_dialogs = ui.element("div")
+        actions = project.FileActions(session, dialogs=page_dialogs)
+        start: Any = tab.get(STEP_KEY) if tab.get(STEP_KEY) in STEP_IDS else STEP_IDS[0]
+        # Built below; the header's menu button and goto() use them.
+        drawer: Any
+        tabs: Any
+
+        def goto(step_id: str) -> None:
+            """Show step ``step_id`` (one of :data:`~.steps.STEP_IDS`)."""
+            if step_id not in STEP_IDS:
+                raise ValueError(f"no step {step_id!r}; expected one of {STEP_IDS}")
+            tabs.set_value(step_id)
+
+        def remember(e: Any) -> None:
+            tab[STEP_KEY] = e.value
 
         # ----- header -------------------------------------------------
-        with ui.header().classes("items-center justify-between"):
-            ui.label("PyAERMOD").classes("text-h6 q-mr-md")
-            ui.label().bind_text_from(session, "title")
+        with ui.header().classes("items-center gap-x-3 gap-y-0 flex-wrap q-py-xs"):
+            ui.button(icon="menu", on_click=lambda: drawer.toggle()).props(
+                'flat round color=white aria-label="Steps"').classes("lt-md")
+            ui.label().bind_text_from(session, "title").classes(
+                "text-subtitle1 text-weight-medium ellipsis min-w-0").mark("header-title")
 
-        # ----- tabs + panels -----------------------------------------
-        with ui.tabs() as tab_bar:
-            tab_handles = [ui.tab(name) for name, _ in _TABS]
-        with ui.tab_panels(tab_bar, value=tab_handles[0]).classes("w-full"):
-            for (_name, render), handle in zip(
-                _TABS, tab_handles, strict=False,
-            ):
-                with ui.tab_panel(handle):
-                    render(session, dialogs=page_dialogs)
+            @live(session, SessionEvent.VALIDATION_CHANGED)
+            def _readiness() -> None:
+                ui.label(readiness(session.validation)).classes("text-body2 min-w-0").props(
+                    'role="status"').mark("readiness")
+
+            ui.space()
+            ui.button("Save", icon="save", on_click=actions.save).props(
+                "flat color=white").mark("header-save")
+
+        # ----- step list ----------------------------------------------
+        with ui.left_drawer(bordered=True).props(
+                f"width=232 breakpoint={DRAWER_BREAKPOINT}") as drawer:
+            ui.label("Steps").classes("text-overline text-grey-8 q-px-md q-pt-sm")
+            # Named, so tests and assistive technology can tell the step
+            # list from any other set of tabs.
+            with ui.tabs(value=start, on_change=remember).props(
+                    'vertical inline-label no-caps align="left" active-bg-color="blue-1"'
+                    ' indicator-color="primary" aria-label="Steps"').classes("w-full") as tabs:
+                handles = {}
+                badges = {}
+                for step in STEPS:
+                    with ui.tab(step.id, label=step.label).classes("justify-start") as handle:
+                        badges[step.id] = ui.icon("radio_button_unchecked").classes(
+                            "q-ml-sm").props('aria-hidden="true"')
+                    handles[step.id] = handle
+            tabs.on_value_change(lambda e: _close_on_narrow(drawer, e))
+
+        def show_badges(_change: Any = None) -> None:
+            statuses = step_statuses(session.project, session.validation, session.runs)
+            for step in STEPS:
+                status = statuses[step.id]
+                icon, colour = _BADGES[status]
+                badges[step.id].name = icon
+                badges[step.id].props(f"color={colour}")
+                handles[step.id].props(f'aria-label="{step_accessible_name(step, status)}"')
+
+        show_badges()
+        # Not on PROJECT_CHANGED: the validation that follows every change
+        # (VALIDATION_CHANGED) is what the badges read, and reading the old
+        # one would flash an error for a source that was just added.
+        client.on_delete(session.subscribe(
+            {SessionEvent.VALIDATION_CHANGED, SessionEvent.RUN_FINISHED}, show_badges))
+
+        # ----- the steps ----------------------------------------------
+        with ui.tab_panels(tabs, value=start).classes("w-full"):
+            for step in STEPS:
+                with ui.tab_panel(step.id).props(f'aria-label="{step.label}"').classes(
+                        "q-pa-sm"):
+                    _call_render(_PAGES[step.id], session, dialogs=page_dialogs, goto=goto,
+                                 actions=actions)
 
         # ----- footer / status bar (built last: tests wait for it) ----
-        with ui.footer().classes("bg-grey-3 text-grey-9"):
-            ui.label("PyAERMOD GUI v2 (NiceGUI)")
+        # Not fixed: a fixed footer covers the middle of full-page screenshots.
+        with ui.footer(fixed=False).classes("bg-grey-3 text-grey-9 q-py-xs"):
+            ui.label("PyAERMOD GUI v2 (NiceGUI)").classes("text-caption")
+
+
+#: Below this window width the step list is a drawer the menu button opens.
+DRAWER_BREAKPOINT = 1024
+
+
+def _close_on_narrow(drawer: Any, _event: Any) -> None:
+    from nicegui import ui
+
+    ui.run_javascript(
+        f"if (window.innerWidth < {DRAWER_BREAKPOINT}) getElement({drawer.id}).hide()")
 
 
 class _CancelledUploadFilter(logging.Filter):

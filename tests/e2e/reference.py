@@ -47,9 +47,9 @@ def enter_reference_scenario(gui, step: Optional[Callable[[str], object]] = None
                              *, surface_file: Path = SURFACE_FILE) -> None:
     """Enter everything but the averaging periods, one step at a time.
 
-    The current GUI cannot set averaging periods (WP-G3), so journeys call
-    ``gui.project.set_averaging_periods`` themselves, inside a known gap
-    when they need anything but the default ``1 ANNUAL``.
+    Journeys choose the averaging periods themselves with
+    ``gui.project.set_averaging_periods``: J1 the reference periods, the
+    others the GUI's default ``1 ANNUAL``.
     """
     shot = step or (lambda _name: None)
     gui.project.set_titles(TITLE, TITLE_TWO)

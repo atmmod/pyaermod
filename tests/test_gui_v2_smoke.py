@@ -78,6 +78,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 FOOTER = "PyAERMOD GUI v2 (NiceGUI)"
+STEP_IDS = ("project", "sources", "receptors", "meteorology", "output", "run", "results")
+STEP_LABELS = ("Project", "Sources", "Receptors", "Meteorology", "Output", "Review & Run",
+               "Results")
 
 
 # ---------------------------------------------------------------------
@@ -320,6 +323,13 @@ def _editor_close(gui: GuiSession) -> None:
     _in_dialog(gui, "editor-dialog", ui.button, "Close").click()
 
 
+async def _discard_changes(gui: GuiSession) -> None:
+    """Answer New's or Open's "Discard unsaved changes?" with "Discard changes"."""
+    await _dialog_opens(gui, "confirm-dialog")
+    await gui.user.should_see("Discard unsaved changes?")
+    _in_dialog(gui, "confirm-dialog", ui.button, "Discard changes").click()
+
+
 def _add_source(gui: GuiSession) -> None:
     """Click the Sources "Add" (the older of the two Add buttons)."""
     _click(gui, _by_id(gui.user.find(kind=ui.button, content="Add").elements))
@@ -370,9 +380,9 @@ async def _value_becomes(get, expected) -> None:
 async def _add_point_source(gui: GuiSession, sid: str, **numbers: float) -> None:
     _add_source(gui)
     await gui.user.should_see("Edit PointSource")
-    _in_dialog(gui, "editor-dialog", ui.input, "source id").clear().type(sid)
+    _in_dialog(gui, "editor-dialog", ui.input, "Source ID").clear().type(sid)
     for label, value in numbers.items():
-        _in_dialog(gui, "editor-dialog", ui.number, label.replace("_", " ")).clear().type(str(value))
+        _in_dialog(gui, "editor-dialog", ui.number, label.replace("_", " ").capitalize()).clear().type(str(value))
     _editor_save(gui)
     await gui.user.should_see(kind=ui.table, marker="sources-table")
 
@@ -387,8 +397,8 @@ async def _fill_minimal_project(gui: GuiSession) -> Session:
     await gui.user.should_see("Edit CartesianGrid")
     _editor_save(gui)
     await _rows_become(gui, _receptors_table, "kind", ["CartesianGrid"])
-    gui.user.find(kind=ui.input, content="surface file").type("met.sfc")
-    gui.user.find(kind=ui.input, content="profile file").type("met.pfl")
+    gui.user.find(kind=ui.input, content="Surface file").type("met.sfc")
+    gui.user.find(kind=ui.input, content="Profile file").type("met.pfl")
     return session
 
 
@@ -398,22 +408,22 @@ async def _fill_minimal_project(gui: GuiSession) -> Session:
 
 class TestShell:
     @pytest.mark.asyncio
-    async def test_index_renders_header_tabs_footer(self, gui):
+    async def test_index_renders_header_steps_footer(self, gui):
         await gui.open()
         await gui.user.should_see("PyAERMOD")
-        await gui.user.should_see(kind=ui.tab, content="Project")
-        for name in ("Sources", "Receptors", "Meteorology", "Output", "Run", "Results"):
+        for name in STEP_LABELS:
             await gui.user.should_see(kind=ui.tab, content=name)
         await gui.user.should_see(FOOTER)
         await gui.user.should_see("PyAERMOD — Untitled")
+        await gui.user.should_see(kind=ui.button, marker="header-save")
 
     @pytest.mark.asyncio
-    async def test_each_tab_is_clickable(self, gui):
+    async def test_each_step_is_clickable(self, gui):
         await gui.open()
-        for name in ("Sources", "Receptors", "Meteorology", "Output", "Run", "Results", "Project"):
+        for step_id, name in reversed(list(zip(STEP_IDS, STEP_LABELS, strict=True))):
             gui.user.find(kind=ui.tab, content=name).click()
             tabs = _by_id(gui.user.find(kind=ui.tabs).elements)
-            assert tabs.value == name
+            assert tabs.value == step_id
 
     @pytest.mark.asyncio
     async def test_live_sections_cannot_nest(self, gui):
@@ -426,6 +436,245 @@ class TestShell:
                     live(session)(lambda: None)
                 ui.label("outer built")
         await gui.user.should_see("outer built")
+
+
+def _step_tab(gui: GuiSession, label: str) -> ui.tab:
+    return _by_id(gui.user.find(kind=ui.tab, content=label).elements)
+
+
+async def _badge_reads(gui: GuiSession, label: str, status: str) -> None:
+    """Wait for a step's accessible name to read "<label>, <status>"."""
+    await _value_becomes(lambda: _step_tab(gui, label).props.get("aria-label"),
+                         f"{label}, {status}")
+
+
+def _current_step(gui: GuiSession) -> str:
+    return _by_id(gui.user.find(kind=ui.tabs).elements).value
+
+
+class TestWorkflowShell:
+    """The step list, its badges, the header and the confirmation (WP-G3)."""
+
+    @pytest.mark.asyncio
+    async def test_badges_follow_the_project(self, gui):
+        await gui.open()
+        await _badge_reads(gui, "Project", "complete")
+        await _badge_reads(gui, "Sources", "not started")
+        await _badge_reads(gui, "Review & Run", "not started")
+        await _add_point_source(gui, "STACK1")
+        await _badge_reads(gui, "Sources", "complete")
+        gui.user.find(kind=ui.input, content="Surface file").type("does-not-exist.sfc")
+        await _badge_reads(gui, "Meteorology", "error")      # checked on disk
+        _interact(gui, _title_input(gui)).clear()
+        await _badge_reads(gui, "Project", "error")          # TITLEONE must not be empty
+
+    @pytest.mark.asyncio
+    async def test_readiness_line_in_the_header(self, gui, tmp_path):
+        await gui.open()
+        await gui.user.should_see("Not ready to run: 4 problems in Sources, Receptors, Meteorology")
+        await _add_point_source(gui, "STACK1")
+        await gui.user.should_see("Not ready to run: 3 problems in Receptors, Meteorology")
+
+    @pytest.mark.asyncio
+    async def test_header_save_opens_save_as_for_a_new_project(self, gui):
+        await gui.open()
+        gui.user.find(kind=ui.button, marker="header-save").click()
+        await _dialog_opens(gui, "save-as-dialog")
+
+    @pytest.mark.asyncio
+    async def test_new_asks_before_discarding_and_cancel_keeps_the_project(self, gui):
+        await gui.open()
+        _interact(gui, _title_input(gui)).clear().type("Precious")
+        await gui.user.should_see("(modified)")
+        gui.user.find(kind=ui.button, marker="project-new").click()
+        await _dialog_opens(gui, "confirm-dialog")
+        _in_dialog(gui, "confirm-dialog", ui.button, "Cancel").click()
+        await _settle(gui)
+        assert _open_dialogs(gui, "confirm-dialog") == []
+        assert _title_input(gui).value == "Precious"
+        await gui.user.should_see("PyAERMOD — Untitled (modified)")
+
+    @pytest.mark.asyncio
+    async def test_new_on_a_saved_project_does_not_ask(self, gui):
+        await gui.open()
+        gui.user.find(kind=ui.button, marker="project-new").click()
+        await gui.user.should_see("New project")
+        assert _open_dialogs(gui, "confirm-dialog") == []
+
+    @pytest.mark.asyncio
+    async def test_the_step_shown_survives_a_reload(self, gui):
+        await gui.open()
+        _click(gui, _step_tab(gui, "Receptors"))
+        assert _current_step(gui) == "receptors"
+        await gui.open()
+        assert _current_step(gui) == "receptors"
+
+    @pytest.mark.asyncio
+    async def test_output_sends_the_user_to_the_project_step(self, gui):
+        await gui.open()
+        _click(gui, _step_tab(gui, "Output"))
+        gui.user.find(kind=ui.button, content="Change on the Project step").click()
+        await _value_becomes(lambda: _current_step(gui), "project")
+
+
+def _periods_select(gui: GuiSession) -> ui.select:
+    return _one(gui, kind=ui.select, content="Averaging periods")
+
+
+class TestProjectOptions:
+    @pytest.mark.asyncio
+    async def test_averaging_periods_are_stored_in_avertime_order(self, gui, tmp_path):
+        await gui.open()
+        select = _periods_select(gui)
+        assert select.value == ["1", "ANNUAL"]
+        select.value = ["PERIOD", "24", "1", "3"]                # the order clicked
+        await _value_becomes(lambda: gui.session.project.control.averaging_periods,
+                             ["1", "3", "24", "PERIOD"])
+        await _value_becomes(lambda: _periods_select(gui).value, ["1", "3", "24", "PERIOD"])
+        await gui.user.should_see("PyAERMOD — Untitled (modified)")
+        deck = gui.session.project.to_aermod_input(validate=False)
+        assert "AVERTIME  1 3 24 PERIOD" in deck
+
+    @pytest.mark.asyncio
+    async def test_naaqs_periods_follow_the_pollutant(self, gui):
+        await gui.open()
+        await gui.user.should_see("NAAQS periods for SO2: 1.", retries=20)
+        gui.user.find(kind=ui.button, content="Use the NAAQS periods").click()
+        await _value_becomes(lambda: gui.session.project.control.averaging_periods, ["1"])
+        _choose(gui, _one(gui, kind=ui.select, content="Pollutant"), "PM25")
+        await gui.user.should_see("NAAQS periods for PM25: 24, ANNUAL.")
+        gui.user.find(kind=ui.button, content="Use the NAAQS periods").click()
+        await _value_becomes(lambda: gui.session.project.control.averaging_periods,
+                             ["24", "ANNUAL"])
+
+    @pytest.mark.asyncio
+    async def test_model_options_reach_modelopt(self, gui):
+        await gui.open()
+        _one(gui, kind=ui.checkbox, content="Dry deposition (DDEP)").value = True
+        _one(gui, kind=ui.checkbox, content="Regulatory default options (DFAULT)").value = False
+        _one(gui, kind=ui.select, content="Terrain").value = "ELEVATED"
+        await _value_becomes(lambda: gui.session.project.control.regulatory_default, False)
+        control = gui.session.project.control
+        assert control.calculate_dry_deposition is True
+        assert control.terrain_type.value == "ELEVATED"
+        assert "MODELOPT  CONC DDEP ELEV" in gui.session.project.to_aermod_input(validate=False)
+        _click(gui, _step_tab(gui, "Output"))
+        await _value_becomes(lambda: _one(gui, kind=ui.input, content="Output quantities").value,
+                             "CONC DDEP")
+
+    @pytest.mark.asyncio
+    async def test_urban_population_writes_urbanopt(self, gui):
+        await gui.open()
+        _one(gui, kind=ui.number, content="Urban population").value = 250000
+        await _value_becomes(lambda: gui.session.project.control.urban_population, 250000)
+        assert "URBANOPT  250000.0" in gui.session.project.to_aermod_input(validate=False)
+
+
+    @pytest.mark.asyncio
+    async def test_deposition_without_source_parameters_is_not_ready(self, gui):
+        """DEPOS with a source that has no deposition inputs is AERMOD's E242:
+        the Sources badge and the readiness line say so before any run."""
+        await gui.open()
+        await _add_point_source(gui, "STACK1")
+        await _badge_reads(gui, "Sources", "complete")
+        await gui.user.should_see("which the GUI cannot enter yet")
+        _one(gui, kind=ui.checkbox, content="Total deposition (DEPOS)").value = True
+        await _badge_reads(gui, "Sources", "error")
+        await gui.user.should_see("Not ready to run: 4 problems in Sources, Receptors, Meteorology")
+
+    @pytest.mark.asyncio
+    async def test_urban_roughness_needs_a_name_and_a_population(self, gui):
+        await gui.open()
+        roughness = lambda: _one(gui, kind=ui.number, content="Urban roughness")  # noqa: E731
+        assert not roughness().enabled
+        _interact(gui, _one(gui, kind=ui.input, content="Urban area name")).type("ALB")
+        await _value_becomes(lambda: roughness().enabled, True)
+        await _badge_reads(gui, "Project", "error")          # a name, but no population
+        _one(gui, kind=ui.number, content="Urban population").value = 50000
+        await _badge_reads(gui, "Project", "complete")
+        roughness().value = 1.0
+        await _value_becomes(lambda: gui.session.project.control.urban_roughness, 1.0)
+        assert "URBANOPT  50000.0  ALB  1.00" in gui.session.project.to_aermod_input(validate=False)
+        _interact(gui, _one(gui, kind=ui.input, content="Urban area name")).clear()
+        await _badge_reads(gui, "Project", "error")          # the roughness needs the name
+        assert roughness().enabled                           # still there to be cleared
+
+
+class TestOutputDefaults:
+    @pytest.mark.asyncio
+    async def test_plot_files_and_postfiles_are_on_and_follow_the_periods(self, gui):
+        await gui.open()
+        await gui.user.should_see(
+            "Files: pyaermod_01H.plt, pyaermod_ANNUAL.plt, pyaermod_01H.pst, pyaermod_ANNUAL.pst")
+        _periods_select(gui).value = ["24"]
+        await gui.user.should_see("Files: pyaermod_24H.plt, pyaermod_24H.pst")
+        _one(gui, kind=ui.checkbox, content="POSTFILE for every averaging period").value = False
+        await gui.user.should_see("Files: pyaermod_24H.plt")
+        assert gui.session.project.output.period_postfiles is None
+        deck = gui.session.project.to_aermod_input(validate=False)
+        assert "PLOTFILE  24  ALL  FIRST  pyaermod_24H.plt" in deck and "POSTFILE" not in deck
+
+
+class TestPlanView:
+    @pytest.mark.asyncio
+    async def test_plan_view_follows_sources_and_receptors(self, gui):
+        await gui.open()
+        views = lambda: [e.content for e in gui.user.find(marker="plan-view").elements]  # noqa: E731
+        assert len(views()) == 2                                 # Sources and Receptors
+        assert all("Nothing to show yet" in v for v in views())
+        await _add_point_source(gui, "STACK1")
+        await _value_becomes(lambda: all("STACK1" in v for v in views()), True)
+        _add_receptor(gui)
+        await gui.user.should_see("Edit CartesianGrid")
+        _editor_save(gui)
+        await _value_becomes(lambda: all("Cartesian grid GRID1: 441 receptors" in v
+                                         for v in views()), True)
+
+
+class TestLongTables:
+    """About 10,000 receptors: one page of rows, and a page that builds quickly."""
+
+    @pytest.mark.asyncio
+    async def test_ten_thousand_receptors(self, gui, tmp_path):
+        from pyaermod.receptors import DiscreteReceptor
+        project = _albany_project(["1", "ANNUAL"], "a.sfc")
+        project.receptors.discrete_receptors = [
+            DiscreteReceptor(x_coord=float(i % 100) * 10, y_coord=float(i // 100) * 10)
+            for i in range(10_000)]
+        path = save_project(project, tmp_path / "many.json")
+        session = await gui.open()
+        session.open_json(path)                                  # a saved project fixture
+        await _value_becomes(lambda: len(_receptors_table(gui).rows), 25)
+        await gui.user.should_see("Receptors 1–25 of 10001")
+
+        start = asyncio.get_running_loop().time()
+        await gui.open()                                         # a reload builds every step
+        elapsed = asyncio.get_running_loop().time() - start
+        assert elapsed < 5.0, f"the page took {elapsed:.1f} s to build"
+        assert len(_receptors_table(gui).rows) == 25
+
+        _click(gui, next(b for b in gui.user.find(kind=ui.button).elements
+                         if b.props.get("aria-label") == "Next page"))
+        await gui.user.should_see("Receptors 26–50 of 10001")
+        assert [r["label"] for r in _receptors_table(gui).rows][:2] == ["DISC24", "DISC25"]
+
+
+    @pytest.mark.asyncio
+    async def test_a_newly_opened_project_starts_on_the_first_page(self, gui, tmp_path):
+        from pyaermod.receptors import DiscreteReceptor
+        project = _albany_project(["1"], "a.sfc")
+        project.receptors.discrete_receptors = [
+            DiscreteReceptor(x_coord=float(i), y_coord=0.0) for i in range(60)]
+        path = save_project(project, tmp_path / "sixty.json")
+        session = await gui.open()
+        session.open_json(path)                                  # a saved project fixture
+        await gui.user.should_see("Receptors 1–25 of 61")
+        _click(gui, next(b for b in gui.user.find(kind=ui.button).elements
+                         if b.props.get("aria-label") == "Next page"))
+        await gui.user.should_see("Receptors 26–50 of 61")
+        session.open_json(path)                                  # the same file, opened again
+        await gui.user.should_see("Receptors 1–25 of 61")
+        assert [r["label"] for r in _receptors_table(gui).rows][1] == "DISC0"
 
 
 class TestEntryPoints:
@@ -572,16 +821,17 @@ class TestProjectPage:
         await gui.open()
         gui.user.find(kind=ui.input, content="Title (line 1)").clear().type("Something else")
         await _add_point_source(gui, "OLD1")
-        gui.user.find(kind=ui.input, content="surface file").type("old.sfc")
+        gui.user.find(kind=ui.input, content="Surface file").type("old.sfc")
         await gui.user.should_see("(modified)")
 
         gui.user.find(kind=ui.button, marker="project-new").click()
+        await _discard_changes(gui)
         await gui.user.should_see("New project")
         await _value_becomes(lambda: _title_input(gui).value, "Untitled run")
         await _settle(gui)
         assert _sources_table(gui).rows == []
-        await gui.user.should_see("No sources yet. Add one above.")
-        assert _one(gui, kind=ui.input, content="surface file").value == ""
+        await gui.user.should_see("No sources yet. Choose a type and click Add.")
+        assert _one(gui, kind=ui.input, content="Surface file").value == ""
         await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
         await gui.user.should_not_see("(modified)")
 
@@ -590,6 +840,7 @@ class TestProjectPage:
         await gui.open()
         gui.user.find(kind=ui.input, content="Title (line 1)").clear().type("Project A")
         gui.user.find(kind=ui.button, marker="project-new").click()
+        await _discard_changes(gui)
         await _value_becomes(lambda: _title_input(gui).value, "Untitled run")
         _interact(gui, _title_input(gui)).clear().type("Project B")
         await _add_point_source(gui, "STACK1")
@@ -617,13 +868,14 @@ class TestProjectPage:
         await gui.user.should_see("Edit CartesianGrid")
         _editor_save(gui)
         await _rows_become(gui, _receptors_table, "kind", ["CartesianGrid"])
-        gui.user.find(kind=ui.input, content="surface file").type("old.sfc")
-        gui.user.find(kind=ui.input, content="summary file").type("old.sum")
+        gui.user.find(kind=ui.input, content="Surface file").type("old.sfc")
+        gui.user.find(kind=ui.input, content="Summary file").type("old.sum")
 
         old_project = gui.session.project        # keep it alive: ids stay unique
         old_ids = _reachable_ids(old_project)
 
         gui.user.find(kind=ui.button, marker="project-new").click()
+        await _discard_changes(gui)
         await _value_becomes(lambda: _title_input(gui).value, "Untitled run")
         await _settle(gui)
 
@@ -878,6 +1130,7 @@ class TestProjectFiles:
         # The uploader was reset: a good file chosen next is sent.
         good = save_project(_albany_project(["1", "ANNUAL"], "a.sfc"), tmp_path / "good.json")
         await _upload(gui, SmallFileUpload("good.json", "application/json", good.read_bytes()))
+        await _discard_changes(gui)                 # "Keep me" was never saved
         await gui.user.should_see("Loaded good.json")
         assert _open_dialogs(gui, "open-dialog") == []
 
@@ -902,27 +1155,25 @@ class TestProjectFiles:
         await gui.user.should_see("PyAERMOD — pit_project")
 
     @pytest.mark.asyncio
-    async def test_save_as_refuses_a_project_its_file_could_not_reopen(self, gui):
-        """An emptied number box leaves no number; saving says which field,
-        delivers no file and leaves the project marked modified."""
+    async def test_an_emptied_number_box_keeps_the_value_and_says_required(self, gui):
+        """An emptied number box that is not Optional once stored None, which
+        no project file could hold (Save refused it, late). The box now says
+        "Required" and the source keeps its value, so the project saves."""
         await gui.open()
         _add_source(gui)
         await gui.user.should_see("Edit PointSource")
-        _in_dialog(gui, "editor-dialog", ui.number, "emission rate").clear()
+        rate = next(iter(_in_dialog(gui, "editor-dialog", ui.number, "Emission rate").elements))
+        _in_dialog(gui, "editor-dialog", ui.number, "Emission rate").clear()
+        assert rate.value is None
+        with gui.user:
+            assert rate.validate() is False
+        assert rate.error == "Required"
         _editor_save(gui)
-        await gui.user.should_see("PyAERMOD — Untitled (modified)")
-        downloads_before = len(gui.user.download.http_responses)
-        gui.user.find(kind=ui.button, marker="project-save-as").click()
-        await _dialog_opens(gui, "save-as-dialog")
-        _in_dialog(gui, "save-as-dialog", ui.input, "Filename").clear().type("broken.json")
-        _in_dialog(gui, "save-as-dialog", ui.button, "Save").click()
-        await gui.user.should_see(
-            "Save failed: cannot save the project: "
-            "project.sources.sources[0].emission_rate must be a number, not null")
-        await _settle(gui)
-        assert len(gui.user.download.http_responses) == downloads_before
-        assert _open_dialogs(gui, "save-as-dialog") == []
-        await gui.user.should_see("PyAERMOD — Untitled (modified)")
+        await _rows_become(gui, _sources_table, "Q (g/s)", [1.0])
+        assert gui.session.project.sources.sources[0].emission_rate == 1.0
+        data = await _save_as_download(gui, "kept.json")
+        from pyaermod.gui_v2.project_io import project_from_json
+        assert project_from_json(data).sources.sources[0].emission_rate == 1.0
 
     @pytest.mark.asyncio
     async def test_save_failure_is_reported(self, gui, tmp_path):
@@ -982,7 +1233,8 @@ class TestProjectFiles:
         await gui.user.should_see(kind=ui.button, content="Run AERMOD")      # later steps
         await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
         gui.user.find(kind=ui.button, marker="project-new").click()
-        await gui.user.should_see("No sources yet. Add one above.")         # rebuilt
+        await _discard_changes(gui)
+        await gui.user.should_see("No sources yet. Choose a type and click Add.")         # rebuilt
         await gui.user.should_not_see(SECTION_FAILED)
 
     @pytest.mark.asyncio
@@ -1027,7 +1279,7 @@ class TestSourcesPage:
     @pytest.mark.asyncio
     async def test_empty_state_and_controls(self, gui):
         await gui.open()
-        await gui.user.should_see("No sources yet. Add one above.")
+        await gui.user.should_see("No sources yet. Choose a type and click Add.")
         await gui.user.should_see(kind=ui.select, content="Type")
         await gui.user.should_see(kind=ui.button, content="Add")
         await gui.user.should_see(kind=ui.table, marker="sources-table")
@@ -1039,8 +1291,8 @@ class TestSourcesPage:
         await gui.user.should_see("Edit PointSource")
         # Add only adds on Save: the open editor holds a draft.
         assert _sources_table(gui).rows == []
-        _in_dialog(gui, "editor-dialog", ui.input, "source id").clear().type("STK1")
-        _in_dialog(gui, "editor-dialog", ui.number, "stack height").clear().type("35")
+        _in_dialog(gui, "editor-dialog", ui.input, "Source ID").clear().type("STK1")
+        _in_dialog(gui, "editor-dialog", ui.number, "Stack height").clear().type("35")
         _editor_save(gui)
         await _rows_become(gui, _sources_table, "id", ["STK1"])
         await gui.user.should_not_see("No sources yet")
@@ -1057,7 +1309,7 @@ class TestSourcesPage:
         _editor_close(gui)
         await _settle(gui)
         assert _sources_table(gui).rows == []
-        await gui.user.should_see("No sources yet. Add one above.")
+        await gui.user.should_see("No sources yet. Choose a type and click Add.")
         await gui.user.should_not_see("(modified)")
 
     @pytest.mark.asyncio
@@ -1071,14 +1323,14 @@ class TestSourcesPage:
         # Close after an edit discards it.
         UserInteraction(gui.user, {_sources_table(gui)}, None).trigger("edit", key)
         await gui.user.should_see("Edit PointSource — STK1")
-        _in_dialog(gui, "editor-dialog", ui.number, "emission rate").clear().type("99")
+        _in_dialog(gui, "editor-dialog", ui.number, "Emission rate").clear().type("99")
         _editor_close(gui)
         await _settle(gui)
         assert _sources_table(gui).rows[0]["Q (g/s)"] == 5.0
 
         # Save updates the row.
         UserInteraction(gui.user, {_sources_table(gui)}, None).trigger("edit", key)
-        _in_dialog(gui, "editor-dialog", ui.number, "emission rate").clear().type("150")
+        _in_dialog(gui, "editor-dialog", ui.number, "Emission rate").clear().type("150")
         _editor_save(gui)
         await _rows_become(gui, _sources_table, "Q (g/s)", [150.0])
 
@@ -1088,7 +1340,7 @@ class TestSourcesPage:
         UserInteraction(gui.user, {table}, None).trigger("delete", key)
         await gui.user.should_see("Deleted STK1")
         await _rows_become(gui, _sources_table, "id", [])
-        await gui.user.should_see("No sources yet. Add one above.")
+        await gui.user.should_see("No sources yet. Choose a type and click Add.")
         UserInteraction(gui.user, {_sources_table(gui)}, None).trigger("delete", key)
         UserInteraction(gui.user, {_sources_table(gui)}, None).trigger("edit", key)
         await _settle(gui)
@@ -1116,7 +1368,7 @@ class TestSourcesPage:
         _choose(gui, _sources_type_select(gui), "AreaPolySource")
         _add_source(gui)
         await gui.user.should_see("Edit AreaPolySource")
-        ta = _by_id(_in_dialog(gui, "editor-dialog", ui.textarea, "vertices").elements)
+        ta = _by_id(_in_dialog(gui, "editor-dialog", ui.textarea, "Vertices").elements)
         with gui.user:
             ta.value = "10, 20\n50; 0\n\n50, 50\nnot a pair\n0, 50"
         UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
@@ -1125,7 +1377,7 @@ class TestSourcesPage:
         # Reopening the editor shows the parsed vertices.
         key = _sources_table(gui).rows[0]["key"]
         UserInteraction(gui.user, {_sources_table(gui)}, None).trigger("edit", key)
-        ta = _by_id(_in_dialog(gui, "editor-dialog", ui.textarea, "vertices").elements)
+        ta = _by_id(_in_dialog(gui, "editor-dialog", ui.textarea, "Vertices").elements)
         assert ta.value.splitlines() == ["10, 20", "50, 0", "50, 50", "0, 50"]
 
 
@@ -1138,16 +1390,19 @@ class TestReceptorsPage:
     async def test_add_cartesian_grid(self, gui):
         await gui.open()
         gui.user.find(kind=ui.tab, content="Receptors").click()
-        await gui.user.should_see("No receptors yet. Add one above.")
+        await gui.user.should_see("No receptors yet. Choose a type and click Add.")
         # Two "Add" buttons exist (Sources, Receptors).
         assert len(gui.user.find(kind=ui.button, content="Add").elements) == 2
         _add_receptor(gui)
         await gui.user.should_see("Edit CartesianGrid")
-        _in_dialog(gui, "editor-dialog", ui.number, "x num").clear().type("11")
+        _in_dialog(gui, "editor-dialog", ui.number, "X num").clear().type("11")
         _editor_save(gui)
-        await _rows_become(gui, _receptors_table, "summary", ["11.0 x 21"])
+        await _rows_become(gui, _receptors_table, "summary", ["11 x 21"])
         await gui.user.should_not_see("No receptors yet")
         assert [r["label"] for r in _receptors_table(gui).rows] == ["GRID1"]
+        # An integer box stores an int, so the project itself holds 11.
+        x_num = gui.session.project.receptors.cartesian_grids[0].x_num
+        assert x_num == 11 and type(x_num) is int
 
     @pytest.mark.asyncio
     async def test_edit_and_delete_events(self, gui):
@@ -1159,20 +1414,20 @@ class TestReceptorsPage:
         key = _receptors_table(gui).rows[0]["key"]
 
         UserInteraction(gui.user, {_receptors_table(gui)}, None).trigger("edit", key)
-        _in_dialog(gui, "editor-dialog", ui.input, "grid name").clear().type("CLOSED")
+        _in_dialog(gui, "editor-dialog", ui.input, "Grid name").clear().type("CLOSED")
         _editor_close(gui)
         await _settle(gui)
         assert [r["label"] for r in _receptors_table(gui).rows] == ["GRID1"]
 
         UserInteraction(gui.user, {_receptors_table(gui)}, None).trigger("edit", key)
-        _in_dialog(gui, "editor-dialog", ui.input, "grid name").clear().type("SAVED")
+        _in_dialog(gui, "editor-dialog", ui.input, "Grid name").clear().type("SAVED")
         _editor_save(gui)
         await _rows_become(gui, _receptors_table, "label", ["SAVED"])
 
         UserInteraction(gui.user, {_receptors_table(gui)}, None).trigger("delete", key)
         await gui.user.should_see("Deleted CartesianGrid[0]")
         await _rows_become(gui, _receptors_table, "kind", [])
-        await gui.user.should_see("No receptors yet. Add one above.")
+        await gui.user.should_see("No receptors yet. Choose a type and click Add.")
         UserInteraction(gui.user, {_receptors_table(gui)}, None).trigger("delete", key)
         await _settle(gui)
         assert gui.session.project.receptors.cartesian_grids == []
@@ -1201,10 +1456,10 @@ class TestMeteorologyAndOutputPages:
         await gui.open()
         await _settle(gui)
         await gui.user.should_not_see("(modified)")
-        gui.user.find(kind=ui.input, content="surface file").type("met.sfc")
-        gui.user.find(kind=ui.input, content="profile file").type("met.pfl")
+        gui.user.find(kind=ui.input, content="Surface file").type("met.sfc")
+        gui.user.find(kind=ui.input, content="Profile file").type("met.pfl")
         await gui.user.should_see("PyAERMOD — Untitled (modified)")
-        assert _one(gui, kind=ui.input, content="surface file").value == "met.sfc"
+        assert _one(gui, kind=ui.input, content="Surface file").value == "met.sfc"
         assert gui.session.project.meteorology.surface_file == "met.sfc"
         assert gui.session.project.meteorology.profile_file == "met.pfl"
         await gui.user.should_see(kind=ui.expansion, content="Advanced")
@@ -1212,22 +1467,32 @@ class TestMeteorologyAndOutputPages:
     @pytest.mark.asyncio
     async def test_output_page_renders_primary_fields(self, gui):
         await gui.open()
-        await gui.user.should_see("Files + format")
+        await gui.user.should_see("Other output files")
         # Optional[str] fields are editable text inputs
-        gui.user.find(kind=ui.input, content="summary file").type("run.sum")
+        gui.user.find(kind=ui.input, content="Summary file").type("run.sum")
         await gui.user.should_see("PyAERMOD — Untitled (modified)")
-        assert _one(gui, kind=ui.input, content="summary file").value == "run.sum"
+        assert _one(gui, kind=ui.input, content="Summary file").value == "run.sum"
         assert gui.session.project.output.summary_file == "run.sum"
 
     @pytest.mark.asyncio
     async def test_list_of_str_textarea(self, gui):
         await gui.open()
-        ta = _by_id(gui.user.find(kind=ui.textarea, content="plot file groups").elements)
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="No header").elements)
         with gui.user:
-            ta.value = "ALL\n\n GRP1 "
+            ta.value = "PLOTFILE\n\n POSTFILE "
         UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
         await gui.user.should_see("PyAERMOD — Untitled (modified)")
-        assert gui.session.project.output.plot_file_groups == ["ALL", "GRP1"]
+        assert gui.session.project.output.no_header == ["PLOTFILE", "POSTFILE"]
+
+    @pytest.mark.asyncio
+    async def test_lists_without_an_editor_are_shown_read_only(self, gui):
+        """``List[Tuple[str, str, str]]`` and lists of dataclasses once got the
+        free-text list box, which stored strings the project file refuses."""
+        await gui.open()
+        await gui.user.should_see("Plot file groups: none")
+        await gui.user.should_see("Maxi files: none")
+        with pytest.raises(AssertionError):
+            gui.user.find(kind=ui.textarea, content="Plot file groups")
 
     @pytest.mark.asyncio
     async def test_leaving_a_number_field_keeps_its_exact_value(self, gui, tmp_path):
@@ -1241,7 +1506,7 @@ class TestMeteorologyAndOutputPages:
         path = save_project(project, tmp_path / "precise.json")
         session = await gui.open()
         session.open_json(path)                 # a saved project fixture
-        field = "profile base elevation"
+        field = "Profile base elevation"
         await _value_becomes(lambda: _one(gui, kind=ui.number, content=field).value, 10.123456)
         number = _one(gui, kind=ui.number, content=field)
         with gui.user:
@@ -1252,7 +1517,7 @@ class TestMeteorologyAndOutputPages:
         UserInteraction(gui.user, {_sources_table(gui)}, None).trigger(
             "edit", _sources_table(gui).rows[0]["key"])
         await gui.user.should_see("Edit OpenPitSource — PIT1")
-        rate = next(iter(_in_dialog(gui, "editor-dialog", ui.number, "emission rate").elements))
+        rate = next(iter(_in_dialog(gui, "editor-dialog", ui.number, "Emission rate").elements))
         with gui.user:
             rate.sanitize()
         assert rate.value == 1.5e-6
@@ -1269,7 +1534,7 @@ class TestMeteorologyAndOutputPages:
         project.meteorology.profile_base_elevation = 10.123456
         session = await gui.open()
         session.open_json(save_project(project, tmp_path / "precise.json"))
-        field = "profile base elevation"
+        field = "Profile base elevation"
         await _value_becomes(lambda: _one(gui, kind=ui.number, content=field).value, 10.123456)
         number = _one(gui, kind=ui.number, content=field)
         with gui.user:
@@ -1290,9 +1555,9 @@ class TestMeteorologyAndOutputPages:
         )
         with gui.user:
             emit_form(ui.column(), src, fields=["source_id", "stack_height", "no_such_field"])
-        gui.user.find(kind=ui.input, content="source id").clear().type("F2")
+        gui.user.find(kind=ui.input, content="Source ID").clear().type("F2")
         assert src.source_id == "F2"
-        _one(gui, kind=ui.number, content="stack height").value = 12
+        _one(gui, kind=ui.number, content="Stack height").value = 12
         assert src.stack_height == 12.0
 
 
@@ -1317,9 +1582,9 @@ class TestFormChangeHook:
             emit_form(ui.column(), src, on_change=lambda: calls.append(1),
                       fields=["source_id", "stack_height", "is_urban", "building_height"])
         assert calls == []                              # not called while building
-        gui.user.find(kind=ui.input, content="source id").type("X")
+        gui.user.find(kind=ui.input, content="Source ID").type("X")
         assert len(calls) == 1
-        number = _one(gui, kind=ui.number, content="stack height")
+        number = _one(gui, kind=ui.number, content="Stack height")
         with gui.user:
             number.sanitize()                           # leaving the field: no edit
         assert len(calls) == 1
@@ -1327,9 +1592,9 @@ class TestFormChangeHook:
         assert len(calls) == 2 and src.stack_height == 10.00001
         number.value = None                             # cleared: an edit
         assert len(calls) == 3
-        _one(gui, kind=ui.checkbox, content="is urban").value = True
+        _one(gui, kind=ui.checkbox, content="Is urban").value = True
         assert len(calls) == 4
-        ta = _one(gui, kind=ui.textarea, content="building height")
+        ta = _one(gui, kind=ui.textarea, content="Building height")
         with gui.user:
             ta.value = "2\n" * 36
         UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
@@ -1366,10 +1631,10 @@ class TestBuildingDimensionWidgets:
             emit_form(ui.column(), src, fields=["building_height"])
         # The regression rendered this as ``ui.label("building height: None")``.
         with pytest.raises(AssertionError):
-            gui.user.find(kind=ui.label, content="building height")
-        num = _by_id(gui.user.find(kind=ui.number, content="building height").elements)
+            gui.user.find(kind=ui.label, content="Building height")
+        num = _by_id(gui.user.find(kind=ui.number, content="Building height").elements)
         assert num.value is None            # unset stays unset, not 0.0
-        gui.user.find(kind=ui.number, content="building height").type("25")
+        gui.user.find(kind=ui.number, content="Building height").type("25")
         assert src.building_height == 25.0
 
     @pytest.mark.asyncio
@@ -1380,7 +1645,7 @@ class TestBuildingDimensionWidgets:
         src.building_width = 12.5
         with gui.user:
             emit_form(ui.column(), src, fields=["building_width"])
-        num = _by_id(gui.user.find(kind=ui.number, content="building width").elements)
+        num = _by_id(gui.user.find(kind=ui.number, content="Building width").elements)
         assert num.value == 12.5
         # ``clearable`` is the only way back to None from the UI, and None
         # is the only value the writer omits -- without the prop a typed-in
@@ -1388,7 +1653,7 @@ class TestBuildingDimensionWidgets:
         assert num._props.get("clearable") is True
         # Clearing must store None, not 0.0: _building_downwash_lines()
         # emits BUILDWID for anything that is not None.
-        gui.user.find(kind=ui.number, content="building width").clear()
+        gui.user.find(kind=ui.number, content="Building width").clear()
         assert src.building_width is None
 
     @pytest.mark.asyncio
@@ -1400,7 +1665,7 @@ class TestBuildingDimensionWidgets:
         with gui.user:
             emit_form(ui.column(), src, fields=["building_length"])
         # A number box here would collapse the 36-sector vector to one value.
-        ta = _by_id(gui.user.find(kind=ui.textarea, content="building length").elements)
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="Building length").elements)
         assert ta.value.splitlines()[:3] == ["0", "1", "2"]
         assert src.building_length == [float(i) for i in range(36)]   # render is read-only
         with gui.user:
@@ -1416,7 +1681,7 @@ class TestBuildingDimensionWidgets:
         src.building_y_offset = [1.0] * 36
         with gui.user:
             emit_form(ui.column(), src, fields=["building_y_offset"])
-        ta = _by_id(gui.user.find(kind=ui.textarea, content="building y offset").elements)
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="Building y offset").elements)
         with gui.user:
             ta.value = "  \n\n"
         UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
@@ -1438,8 +1703,8 @@ class TestBuildingDimensionWidgets:
         with gui.user:
             emit_form(ui.column(), poly, fields=["vertices"])
         with pytest.raises(AssertionError):
-            gui.user.find(kind=ui.number, content="vertices")
-        ta = _by_id(gui.user.find(kind=ui.textarea, content="vertices").elements)
+            gui.user.find(kind=ui.number, content="Vertices")
+        ta = _by_id(gui.user.find(kind=ui.textarea, content="Vertices").elements)
         assert ta.value.splitlines() == ["0, 0", "50, 0", "50, 50"]
         with gui.user:
             ta.value = "1, 2\n3, 4\n5, 6"
@@ -1538,7 +1803,7 @@ class TestEndToEnd:
 
 
 def _number_box(gui: GuiSession, label: str) -> UserInteraction:
-    """The number box labelled exactly ``label`` ("start year", not "data start year")."""
+    """The number box labelled exactly ``label`` ("Start year", not "Data start year")."""
     [box] = [e for e in gui.user.find(kind=ui.number, content=label).elements
              if e.props.get("label") == label]
     return UserInteraction(gui.user, {box}, None)
@@ -1548,18 +1813,19 @@ class TestWholeNumbersReachTheDeck:
     @pytest.mark.asyncio
     async def test_start_and_end_dates_typed_into_number_boxes_reach_the_deck(
             self, gui, fake_aermod_on_path, tmp_path):
-        """The number boxes store 2020.0; STARTEND is written with integers
-        (it once failed with "Unknown format code 'd' for object of type
-        'float'"), and so is the file Save As gives."""
+        """Integer fields get integer boxes that store ints (they once stored
+        2020.0); STARTEND is written with integers (it once failed with
+        "Unknown format code 'd' for object of type 'float'"), and so is the
+        file Save As gives."""
         from pyaermod.gui_v2.project_io import project_from_json
         gui.expect_error_log("AERMOD run failed: AERMOD exited with code 0 but wrote no")
         session = await _fill_minimal_project(gui)
-        dates = {"start year": 2020, "start month": 1, "start day": 1,
-                 "end year": 2020, "end month": 12, "end day": 31}
+        dates = {"Start year": 2020, "Start month": 1, "Start day": 1,
+                 "End year": 2020, "End month": 12, "End day": 31}
         for label, value in dates.items():
             _number_box(gui, label).clear().type(str(value))
         end_day = session.project.meteorology.end_day
-        assert end_day == 31 and type(end_day) is float     # as the browser stores it
+        assert end_day == 31 and type(end_day) is int
         workdir = tmp_path / "run"
         gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
@@ -1568,19 +1834,21 @@ class TestWholeNumbersReachTheDeck:
         assert re.search(r"^\s*STARTEND\s+2020\s+1\s+1\s+2020\s+12\s+31\s*$", deck, re.M), deck
         saved = json.loads(await _save_as_download(gui, "dates.json"))
         met = saved["project"]["meteorology"]
-        assert {k: met[k.replace(" ", "_")] for k in dates} == dates
-        assert all(type(met[k.replace(" ", "_")]) is int for k in dates)
+        assert {k: met[k.lower().replace(" ", "_")] for k in dates} == dates
+        assert all(type(met[k.lower().replace(" ", "_")]) is int for k in dates)
         assert project_from_json(json.dumps(saved)).meteorology.start_year == 2020
 
     @pytest.mark.asyncio
-    async def test_a_fraction_in_an_integer_field_is_refused_by_name(self, gui, fake_aermod_on_path):
+    async def test_a_fraction_in_an_integer_box_is_stored_whole(self, gui):
+        """An integer box has no decimals: what the user types is rounded,
+        and the project holds the whole number (a file holding 2020.5 is
+        still refused by name when opened; see test_gui_v2_project_io)."""
         await _fill_minimal_project(gui)
-        _number_box(gui, "start year").clear().type("2020.5")
-        gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see(
-            "Could not generate deck: project.meteorology.start_year must be a whole number, "
-            "not 2020.5")
-        await gui.user.should_see("No run yet. Use the Run tab to dispatch AERMOD.")
+        _number_box(gui, "Start year").clear().type("2020.7")
+        await _value_becomes(lambda: gui.session.project.meteorology.start_year, 2021)
+        assert type(gui.session.project.meteorology.start_year) is int
+        [box] = _number_box(gui, "Start year").elements
+        assert box.props.get("precision") == 0
 
 
 class TestRunPageFailurePaths:

@@ -16,7 +16,9 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple, Union
+
+from ._fields import described
 
 if TYPE_CHECKING:
     from .sources import SourceGroupDefinition
@@ -870,48 +872,48 @@ class MeteorologyPathway:
       UAIRDATA  -- upper-air station ID + start year
       PROFBASE  -- base elevation (m MSL) of the profile data
     """
-    surface_file: str
-    profile_file: str
+    surface_file: str = field(metadata=described(None, "AERMET surface file (SURFFILE, usually .SFC)"))
+    profile_file: str = field(metadata=described(None, "AERMET profile file (PROFFILE, usually .PFL)"))
 
     # Station identification (mandatory for AERMOD)
-    surface_station_id: int = 0          # SURFDATA station ID (e.g. WBAN or numeric)
-    upper_air_station_id: int = 0        # UAIRDATA station ID
-    data_start_year: int = 2020          # Start year for SURFDATA/UAIRDATA
+    surface_station_id: int = field(default=0, metadata=described("", "Surface station ID (SURFDATA), as in the surface file's header"))          # SURFDATA station ID (e.g. WBAN or numeric)
+    upper_air_station_id: int = field(default=0, metadata=described("", "Upper-air station ID (UAIRDATA)"))        # UAIRDATA station ID
+    data_start_year: int = field(default=2020, metadata=described("", "First year of the met data (SURFDATA and UAIRDATA)"))          # Start year for SURFDATA/UAIRDATA
 
     # Profile base elevation (mandatory)
-    profile_base_elevation: float = 0.0  # meters MSL
+    profile_base_elevation: float = field(default=0.0, metadata=described("m", "Elevation of the profile station's base above mean sea level (PROFBASE)"))  # meters MSL
 
     # Optional parameters
-    start_year: Optional[int] = None
-    start_month: Optional[int] = None
-    start_day: Optional[int] = None
-    end_year: Optional[int] = None
-    end_month: Optional[int] = None
-    end_day: Optional[int] = None
+    start_year: Optional[int] = field(default=None, metadata=described("", "STARTEND: first year to model (set all six dates or none)"))
+    start_month: Optional[int] = field(default=None, metadata=described("", "STARTEND: first month"))
+    start_day: Optional[int] = field(default=None, metadata=described("", "STARTEND: first day"))
+    end_year: Optional[int] = field(default=None, metadata=described("", "STARTEND: last year to model"))
+    end_month: Optional[int] = field(default=None, metadata=described("", "STARTEND: last month"))
+    end_day: Optional[int] = field(default=None, metadata=described("", "STARTEND: last day"))
     # meset.f STAEND takes six fields (dates) or eight (dates with an
     # hour after each date). Both hours must be set to write the latter.
-    start_hour: Optional[int] = None
-    end_hour: Optional[int] = None
+    start_hour: Optional[int] = field(default=None, metadata=described("", "STARTEND: first hour, 1 to 24 (set both hours or neither)"))
+    end_hour: Optional[int] = field(default=None, metadata=described("", "STARTEND: last hour, 1 to 24"))
 
     # Wind direction rotation
-    wind_rotation: Optional[float] = None  # degrees
+    wind_rotation: Optional[float] = field(default=None, metadata=described("deg", "WDROTATE: rotate every wind direction by this angle"))  # degrees
 
     # DAYRANGE fields as AERMOD reads them (meset.f DAYRNG): each a Julian
     # day, a Julian range, a month/day or a month/day range, accumulating
     # over any number of cards and written back on one. Not dispatched
     # under SCIM (E154) or in an EVENT run.
-    day_ranges: List[str] = field(default_factory=list)
+    day_ranges: List[str] = field(default_factory=list, metadata=described(None, "DAYRANGE: days or ranges to model (e.g. 1-31, 3/1-3/15), one per line"))
     # NUMYEARS n: years of meteorology, which sizes the MAXDCONT arrays
     # (meset.f NUMYR; exactly one integer field).
-    num_years: Optional[int] = None
+    num_years: Optional[int] = field(default=None, metadata=described("", "NUMYEARS: years of met data, which sizes the MAXDCONT arrays"))
     # WINDCATS u1 u2 u3 u4 u5: the wind-speed category upper bounds
     # (meset.f WSCATS: exactly five, increasing, 1-20 m/s).
-    wind_speed_categories: Optional[List[float]] = None
+    wind_speed_categories: Optional[List[float]] = field(default=None, metadata=described("m/s", "WINDCATS: the five upper bounds of the wind-speed categories"))
     # SCIMBYHR (see ScimOptions); needs MODELOPT SCIM.
     scim: Optional[ScimOptions] = None
     # One of TURBULENCE_OPTIONS, written as a bare keyword; the nine share
     # a status switch in meset.f so a deck carries at most one.
-    turbulence_option: Optional[str] = None
+    turbulence_option: Optional[str] = field(default=None, metadata=described(None, "One of AERMOD's turbulence options (e.g. NOTURB)"))
 
     def to_aermod_input(self, event_processing: bool = False) -> str:
         """Generate AERMOD ME pathway text.
@@ -977,6 +979,19 @@ class MeteorologyPathway:
 # ============================================================================
 # OUTPUT PATHWAY
 # ============================================================================
+
+def period_file_name(stem: str, averaging: str, suffix: str) -> str:
+    """The name of a per-period output file: ``<stem>_<label><suffix>``.
+
+    The label follows EPA's own decks (``AERTEST_01H.PLT``): an hourly
+    period is its hours in two digits and ``H`` (``01H``, ``24H``); MONTH,
+    PERIOD and ANNUAL are themselves. ``period_file_name("run", "1",
+    ".plt")`` is ``"run_01H.plt"``.
+    """
+    token = str(averaging).strip().upper()
+    label = f"{int(token):02d}H" if token.isdigit() else token
+    return f"{stem}_{label}{suffix}"
+
 
 def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
     """PLOTFILE parameters for one averaging period.
@@ -1212,30 +1227,42 @@ class OutputPathway:
     Controls output file generation and formats.
     """
     # Table outputs
-    receptor_table: bool = True
-    receptor_table_rank: int = 10  # Number of high values to include
+    receptor_table: bool = field(default=True, metadata=described(None, "Print the highest values at every receptor (RECTABLE)"))
+    receptor_table_rank: int = field(default=10, metadata=described("", "How many highest values per receptor"))  # Number of high values to include
 
-    max_table: bool = True
-    max_table_rank: int = 10
+    max_table: bool = field(default=True, metadata=described(None, "Print the overall maxima (MAXTABLE)"))
+    max_table_rank: int = field(default=10, metadata=described("", "How many overall maxima"))
 
-    day_table: bool = False
+    day_table: bool = field(default=False, metadata=described(None, "Print the values for every day (DAYTABLE); large"))
 
     # File outputs
-    summary_file: Optional[str] = None
-    plot_file: Optional[str] = None
+    summary_file: Optional[str] = field(default=None, metadata=described(None, "SUMMFILE: a file with the summary of the highest values"))
+    plot_file: Optional[str] = field(default=None, metadata=described(None, "PLOTFILE for one averaging period (below); blank for none"))
     # MAXIFILE threshold files, one per (averaging period, source group).
     # There is no filename-only form: see MaxiFile.
     maxi_files: List[MaxiFile] = field(default_factory=list)
-    plot_file_averaging: str = "ANNUAL"  # Averaging period for default PLOTFILE
+    plot_file_averaging: str = field(default="ANNUAL", metadata=described(None, "Averaging period of that plot file"))  # Averaging period for default PLOTFILE
 
     # POSTFILE outputs
-    postfile: Optional[str] = None  # Output file path
-    postfile_averaging: Optional[str] = None  # e.g. "1" for 1-HR, "ANNUAL", etc.
-    postfile_source_group: str = "ALL"
-    postfile_format: str = "PLOT"  # PLOT (formatted) or UNFORM (unformatted/binary)
+    postfile: Optional[str] = field(default=None, metadata=described(None, "POSTFILE for one averaging period (below); blank for none"))  # Output file path
+    postfile_averaging: Optional[str] = field(default=None, metadata=described(None, "Averaging period of that POSTFILE"))  # e.g. "1" for 1-HR, "ANNUAL", etc.
+    postfile_source_group: str = field(default="ALL", metadata=described(None, "Source group of that POSTFILE"))
+    postfile_format: str = field(default="PLOT", metadata=described(None, "PLOT (text) or UNFORM (binary)"))  # PLOT (formatted) or UNFORM (unformatted/binary)
 
     # Per-group plot files: list of (averaging_period, source_group, filename)
     plot_file_groups: List[Tuple[str, str, str]] = field(default_factory=list)
+
+    # A PLOTFILE and a POSTFILE for every averaging period of the run,
+    # named by period_file_name(): "<stem>_01H.plt", "<stem>_PERIOD.plt",
+    # "<stem>_01H.pst". The plot files hold each receptor's highest value
+    # (FIRST for the short-term periods) for source group ALL, which is
+    # what a concentration map is drawn from; the POSTFILEs hold every
+    # averaged value, in postfile_format. None writes none. The periods
+    # are the control pathway's: AERMODProject.to_aermod_input passes them.
+    period_plot_files: Optional[str] = field(default=None, metadata=described(
+        None, "Write a plot file for every averaging period, named <stem>_<period>.plt"))
+    period_postfiles: Optional[str] = field(default=None, metadata=described(
+        None, "Write a POSTFILE for every averaging period, named <stem>_<period>.pst"))
 
     # Output type (CONC, DEPOS, DDEP, WDEP). Retained for callers that
     # set it, but AERMOD has no per-file output type: PLOTFILE and
@@ -1244,16 +1271,16 @@ class OutputPathway:
     # decided by MODELOPT -- see ControlPathway.calculate_concentration,
     # .calculate_deposition, .calculate_dry_deposition and
     # .calculate_wet_deposition.
-    output_type: str = "CONC"
+    output_type: str = field(default="CONC", metadata=described(None, "Kept for older projects; what AERMOD computes is set by the model options"))
 
     # FILEFORM: FIX (AERMOD's default) or EXP for exponential notation
     # in the plot/post/max files. None writes no FILEFORM line.
-    file_format: Optional[str] = None
+    file_format: Optional[str] = field(default=None, metadata=described(None, "FILEFORM: FIX (default) or EXP for exponential notation"))
 
     # NOHEADER ALL, or one to eight of NOHEADER_FILE_TYPES: suppress the
     # header records of those output files (ouset.f NOHEADER). A type not
     # in use in the deck is E164.
-    no_header: List[str] = field(default_factory=list)
+    no_header: List[str] = field(default_factory=list, metadata=described(None, "NOHEADER: file types to write without headers, one per line"))
 
     # The remaining OU file keywords, one entry per card.
     rank_files: List[RankFile] = field(default_factory=list)
@@ -1264,7 +1291,7 @@ class OutputPathway:
     # EVENTOUT SOCONT|DETAIL: the one OU option of an EVENT deck besides
     # FILEFORM (evset.f EV_OUCARD). None lets the event deck writer use
     # ControlPathway.eventfil_option, then AERMOD's default DETAIL.
-    event_output: Optional[str] = None
+    event_output: Optional[str] = field(default=None, metadata=described(None, "EVENTOUT: SOCONT or DETAIL"))
 
     # NAAQS design-value outputs (1-hour NO2/SO2, 24-hour PM2.5 only).
     max_daily_files: List[MaxDailyFile] = field(default_factory=list)
@@ -1272,16 +1299,35 @@ class OutputPathway:
     max_daily_contributions: List[MaxDailyContribution] = field(
         default_factory=list)
 
+    def period_plot_file_names(self, averaging_periods: Iterable[str]) -> Dict[str, str]:
+        """``{period: file name}`` of the plot files :attr:`period_plot_files` writes."""
+        if not self.period_plot_files:
+            return {}
+        return {str(p): period_file_name(self.period_plot_files, p, ".plt")
+                for p in averaging_periods}
+
+    def period_postfile_names(self, averaging_periods: Iterable[str]) -> Dict[str, str]:
+        """``{period: file name}`` of the POSTFILEs :attr:`period_postfiles` writes."""
+        if not self.period_postfiles:
+            return {}
+        return {str(p): period_file_name(self.period_postfiles, p, ".pst")
+                for p in averaging_periods}
+
     def to_aermod_input(self, event_processing: bool = False,
-                        event_output: Optional[str] = None) -> str:
+                        event_output: Optional[str] = None,
+                        averaging_periods: Optional[Iterable[str]] = None) -> str:
         """Generate AERMOD OU pathway text.
 
         ``event_processing`` writes the OU pathway of an EVENT deck, which
         evset.f EV_OUCARD reads: FILEFORM and EVENTOUT, nothing else (a
         RECTABLE there is E110). ``event_output`` overrides
         :attr:`event_output` for that line; with neither, AERMOD's own
-        default ``DETAIL`` is written.
+        default ``DETAIL`` is written. ``averaging_periods`` are the run's
+        (``ControlPathway.averaging_periods``), for which
+        :attr:`period_plot_files` and :attr:`period_postfiles` write one
+        file each; without them those two write nothing.
         """
+        periods = [str(p) for p in (averaging_periods or [])]
         lines = ["OU STARTING"]
 
         # FILEFORM first: the POSTFILE header is written at setup with
@@ -1360,6 +1406,12 @@ class OutputPathway:
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
                 f"{self.postfile_format}  {self.postfile}"
             )
+
+        # One plot file and one POSTFILE per averaging period, group ALL.
+        for ave, name in self.period_plot_file_names(periods).items():
+            lines.append(f"   PLOTFILE  {_plotfile_fields(ave, 'ALL', name)}")
+        for ave, name in self.period_postfile_names(periods).items():
+            lines.append(f"   POSTFILE  {ave}  ALL  {self.postfile_format}  {name}")
 
         lines.extend(rf.to_aermod_line() for rf in self.rank_files)
         lines.extend(sh.to_aermod_line() for sh in self.season_hour_files)

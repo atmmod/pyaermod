@@ -31,4 +31,12 @@ ME FINISHED
 OU STARTING
    RECTABLE  ALLAVE  1-10
    MAXTABLE  ALLAVE  10
+   PLOTFILE  1  ALL  FIRST  pyaermod_01H.plt
+   PLOTFILE  3  ALL  FIRST  pyaermod_03H.plt
+   PLOTFILE  24  ALL  FIRST  pyaermod_24H.plt
+   PLOTFILE  PERIOD  ALL  pyaermod_PERIOD.plt
+   POSTFILE  1  ALL  PLOT  pyaermod_01H.pst
+   POSTFILE  3  ALL  PLOT  pyaermod_03H.pst
+   POSTFILE  24  ALL  PLOT  pyaermod_24H.pst
+   POSTFILE  PERIOD  ALL  PLOT  pyaermod_PERIOD.pst
 OU FINISHED

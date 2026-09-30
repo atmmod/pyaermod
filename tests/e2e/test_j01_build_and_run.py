@@ -4,10 +4,10 @@ What the user must see (PLAN-gui.md): the run status reads "Succeeded"
 with 0 fatal errors; Results shows the four maxima and their location,
 and the map renders; the downloaded deck matches the deck on disk.
 
-The current GUI cannot set averaging periods, so the full journey stops
-at that step (WP-G3). Defect D2 (Results never refreshes) is independent
-of it and is exercised by the second test with the only run the current
-GUI can make, its default ``1 ANNUAL``.
+The averaging periods are set on the Project step (WP-G3); the full
+journey then stops at the run's message summary (WP-G4). Defect D2
+(Results never refreshes) is independent of it and is exercised by the
+second test with the GUI's default periods, ``1 ANNUAL``.
 """
 
 from __future__ import annotations
@@ -35,8 +35,7 @@ def test_j01_build_run_and_read_results(gui, step, known_gap, run_dir):
     gui.run.set_working_directory(run_dir)
     step("run_ready")
 
-    with known_gap("WP-G3", "no averaging-period control on the Project step"):
-        gui.project.set_averaging_periods(*AVERAGING_PERIODS)
+    gui.project.set_averaging_periods(*AVERAGING_PERIODS)
 
     gui.run.start()
     gui.run.wait_until_finished()

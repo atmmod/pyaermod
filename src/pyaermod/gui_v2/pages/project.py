@@ -1,9 +1,12 @@
 """
-Project tab — file menu (new / open / save / save as) + project metadata.
+Project step: the project file, the titles and pollutant, the averaging
+periods and the model options.
 
-The file buttons act on the :class:`~pyaermod.gui_v2.session.Session`;
-the metadata fields are a live section rebuilt whenever the project is
-replaced, so they always show the project the session holds.
+The file operations (New, Open, Save, Save As) are a :class:`FileActions`
+built once per page, because the header's Save button uses them too. New
+and Open ask before they discard unsaved changes. The editable fields are
+live sections rebuilt whenever the project is replaced, so they always
+show the project the session holds.
 
 Files never pass through the server's disk in the browser: Open reads the
 uploaded file's text, and Save As hands the browser a download. In
@@ -13,54 +16,143 @@ and Save writes back to that file.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, List, Optional
 
-from ...input_generator import PollutantType
+from ...input_generator import PollutantType, TerrainType
+from ...naaqs import naaqs_averaging_periods
+from ...validator import VALID_AVERAGING_PERIODS
 from .. import _native
+from .._layout import Goto, confirm, section, step_page
 from .._live import live
 from ..session import ProjectFileError, Session
 
+#: AERMOD's averaging periods, in the order AVERTIME lists them.
+AVERAGING_PERIODS: List[str] = sorted(
+    VALID_AVERAGING_PERIODS,
+    key=lambda p: (0, int(p)) if p.isdigit() else (1, ["MONTH", "PERIOD", "ANNUAL"].index(p)),
+)
 
-def render(session: Session, *, dialogs: Any) -> None:
-    """Render the Project tab into the current NiceGUI panel.
+#: The terrain choices, as MODELOPT spells them.
+TERRAIN_CHOICES = {
+    TerrainType.FLAT.value: "Flat (FLAT)",
+    TerrainType.ELEVATED.value: "Elevated (ELEV)",
+    TerrainType.FLATSRCS.value: "Elevated, some sources flat (FLAT ELEV)",
+}
 
-    ``dialogs`` is the page's static dialog container; the Open and Save
-    As dialogs are built there, after the button row, and live as long as
-    the page.
+#: What AERMOD computes (MODELOPT), as the check boxes read.
+OUTPUT_OPTIONS = (
+    ("calculate_concentration", "Concentration (CONC)"),
+    ("calculate_deposition", "Total deposition (DEPOS)"),
+    ("calculate_dry_deposition", "Dry deposition (DDEP)"),
+    ("calculate_wet_deposition", "Wet deposition (WDEP)"),
+)
+
+#: Beside the deposition check boxes, until a step edits deposition parameters.
+DEPOSITION_NOTE = ("Deposition also needs each source's deposition parameters, which the "
+                   "GUI cannot enter yet: they come only from an opened or imported project.")
+
+#: What a save can raise: the disk (OSError), or a project holding a value
+#: its file could not be reopened with (ValueError, TypeError).
+_SAVE_ERRORS = (OSError, ValueError, TypeError)
+
+
+def sort_periods(periods: List[str]) -> List[str]:
+    """Averaging periods in AVERTIME's order; unknown ones keep their place at the end."""
+    known = [p for p in AVERAGING_PERIODS if p in periods]
+    return known + [p for p in periods if p not in AVERAGING_PERIODS]
+
+
+class FileActions:
+    """New, Open, Save and Save As for one page, and the dialogs they use.
+
+    Built once per page in the page's static dialog container
+    (``dialogs``): the Open and Save As dialogs live as long as the page.
     """
-    from nicegui import run, ui
 
-    # Built after the button row (below), used by its handlers.
-    open_dialog: ui.dialog
-    uploader: ui.upload
-    save_as_dialog: ui.dialog
-    name_input: ui.input
+    def __init__(self, session: Session, *, dialogs: Any):
+        from nicegui import ui
 
-    def _on_new() -> None:
-        session.new()
-        _notify(f"New project. Title: {session.project.control.title_one!r}")
+        self.session = session
+        self.dialogs = dialogs
 
-    async def _save_as_clicked() -> None:
-        # async: NiceGUI awaits the handler inside its slot, so the UI calls
-        # after the await (notify, open) still know their page.
-        if _native.native_window() is not None:
-            await _native_save_as()
+        with dialogs, ui.dialog().mark("open-dialog") as self.open_dialog, ui.card():
+            ui.label("Open a project file").classes("text-h6")
+            # auto_upload sends the file as soon as it is chosen; the
+            # header's upload button (an unnamed icon) is hidden. No
+            # ``accept`` filter: QUploader drops a file it filters out
+            # without a word, and a project whose name lost its .json must
+            # still open. Every file reaches _on_upload, which refuses a
+            # non-project by name.
+            self.uploader = ui.upload(
+                label="Project file (.json)", auto_upload=True, max_files=1,
+                on_upload=self._on_upload,
+            ).props("hide-upload-btn")
+            ui.button("Cancel", on_click=self.open_dialog.close).props("flat")
+
+        with dialogs, ui.dialog().mark("save-as-dialog") as self.save_as_dialog, ui.card():
+            ui.label("Save project as").classes("text-h6")
+            self.name_input = ui.input("Filename", value=session.suggested_file_name())
+            with ui.row():
+                ui.button("Cancel", on_click=self.save_as_dialog.close).props("flat")
+                ui.button("Save", on_click=self._do_save).props("color=primary")
+
+    # ----- New ----------------------------------------------------------
+    def new(self) -> None:
+        if self.session.dirty:
+            confirm(self.dialogs, question="Discard unsaved changes?",
+                    detail="New starts a blank project; the changes you have not saved, "
+                           "and the runs of this project, are lost.",
+                    yes="Discard changes", on_yes=self._new)
             return
-        name_input.value = session.suggested_file_name()
-        save_as_dialog.open()
+        self._new()
 
-    async def _native_save_as() -> None:
-        path = await run.io_bound(_native.ask_save_path, session.suggested_file_name())
-        if path is None:
-            return                                  # the user cancelled
+    def _new(self) -> None:
+        self.session.new()
+        _notify(f"New project. Title: {self.session.project.control.title_one!r}")
+
+    # ----- Open ---------------------------------------------------------
+    def open(self) -> None:
+        self.open_dialog.open()
+
+    async def _on_upload(self, e) -> None:
+        name = e.file.name
         try:
-            session.save_as(path)
-        except _SAVE_ERRORS as exc:
-            _notify(f"Save failed: {exc}", color="negative")
+            # Read inside the handler: an upload over 1 MiB is a temporary
+            # file that goes away with the event. Bytes, so that a file that
+            # is not UTF-8 text is refused with its name like any other.
+            data = await e.file.read()
+            # Checked on a scratch session first: a file that cannot be
+            # opened is refused (and the dialog stays open) before anything
+            # asks about the project it would have replaced.
+            Session().open_json(data, name=name)
+        except ProjectFileError as exc:
+            _notify(f"Load failed: {exc}", color="negative")
+            return                                  # the dialog stays open
+        finally:
+            # Always, so choosing the same file again sends it again.
+            self.uploader.reset()
+        self.open_dialog.close()
+        if self.session.dirty:
+            # Asked once the file has arrived, so that closing the Open
+            # dialog (or cancelling a slow upload) never asks anything.
+            confirm(self.dialogs, question="Discard unsaved changes?",
+                    detail=f"Opening {name} replaces the project; the changes you have "
+                           "not saved, and the runs of this project, are lost.",
+                    yes="Discard changes", on_yes=lambda: self._open(data, name))
             return
-        _notify(f"Saved {path.name}")
+        self._open(data, name)
 
-    async def _on_save() -> None:
+    def _open(self, data: bytes, name: str) -> None:
+        try:
+            self.session.open_json(data, name=name)
+        except ProjectFileError as exc:            # pragma: no cover - checked above
+            _notify(f"Load failed: {exc}", color="negative")
+            return
+        _notify(f"Loaded {name}")
+
+    # ----- Save ---------------------------------------------------------
+    async def save(self) -> None:
+        session = self.session
         if session.project_path is not None:
             try:
                 session.save()
@@ -71,30 +163,107 @@ def render(session: Session, *, dialogs: Any) -> None:
         else:
             # Browser: the dialog opens pre-filled, never a silent second
             # download (the browser would save it as "name (1).json").
-            await _save_as_clicked()
+            await self.save_as()
 
-    with ui.row().classes("q-gutter-md items-center"):
-        ui.button("New", on_click=_on_new).mark("project-new")
-        ui.button("Open...", on_click=lambda: open_dialog.open()).mark("project-open")
-        ui.button("Save", on_click=_on_save).mark("project-save")
-        ui.button("Save as...", on_click=_save_as_clicked).mark("project-save-as")
+    async def save_as(self) -> None:
+        # async: NiceGUI awaits the handler inside its slot, so the UI calls
+        # after the await (notify, open) still know their page.
+        if _native.native_window() is not None:
+            await self._native_save_as()
+            return
+        self.name_input.value = self.session.suggested_file_name()
+        self.save_as_dialog.open()
 
-    ui.separator().classes("q-my-md")
+    async def _native_save_as(self) -> None:
+        from nicegui import run
 
-    ui.label("Project metadata").classes("text-subtitle1")
+        path = await run.io_bound(_native.ask_save_path, self.session.suggested_file_name())
+        if path is None:
+            return                                  # the user cancelled
+        try:
+            self.session.save_as(path)
+        except _SAVE_ERRORS as exc:
+            _notify(f"Save failed: {exc}", color="negative")
+            return
+        _notify(f"Saved {path.name}")
 
-    @live(session)
-    def _metadata() -> None:
-        control = session.project.control
-        with ui.row().classes("q-gutter-md"):
+    def _do_save(self) -> None:
+        from nicegui import ui
+
+        try:
+            data = self.session.save_as_download(self.name_input.value)
+        except _SAVE_ERRORS as exc:
+            self.save_as_dialog.close()
+            _notify(f"Save failed: {exc}", color="negative")
+            return
+        # Bytes, and looked up on ``ui`` at call time (the T1 harness
+        # replaces ui.download).
+        ui.download(data, self.session.file_name, "application/json")
+        _notify(f"Saved {self.session.file_name}")
+        self.save_as_dialog.close()
+
+
+def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
+           actions: Optional[FileActions] = None) -> None:
+    """Render the Project step into the current NiceGUI container.
+
+    ``actions`` are the page's file operations (the shell builds them once
+    and shares them with the header); without them the step builds its own.
+    ``goto`` is the shell's navigation. This step does not use it yet: it is
+    kept for WP-G6's deck-import controls, whose notice links to the
+    Meteorology step (see the placeholder below).
+    """
+    from nicegui import ui
+
+    if actions is None:
+        actions = FileActions(session, dialogs=dialogs)
+
+    with step_page("Project", "Name the run, choose the pollutant and how AERMOD models it. "
+                   "The steps can be done in any order."):
+        with section("Project file"), ui.row().classes("items-center gap-2 flex-wrap"):
+            ui.button("New", icon="note_add", on_click=actions.new).props("outline").mark(
+                "project-new")
+            ui.button("Open...", icon="folder_open", on_click=actions.open).props(
+                "outline").mark("project-open")
+            ui.button("Save", icon="save", on_click=actions.save).props("outline").mark(
+                "project-save")
+            ui.button("Save as...", on_click=actions.save_as).props("outline").mark(
+                "project-save-as")
+        # WP-G6: the deck-import controls go here, below the file buttons and
+        # outside any live section:
+        #     files.import_controls(session, dialogs=dialogs, goto=goto)
+
+        @live(session)
+        def _settings() -> None:
+            # One section, so the pollutant choice can update the
+            # averaging-period hint directly.
+            pollutant_chosen = _titles_and_pollutant(session)
+            pollutant_chosen.append(_averaging_periods(session))
+            _model_options(session)
+
+
+def _titles_and_pollutant(session: Session) -> List[Any]:
+    """Build the titles and the pollutant; return the list of pollutant-change callbacks."""
+    from nicegui import ui
+
+    control = session.project.control
+    listeners: List[Any] = []
+
+    def pollutant_changed(e) -> None:
+        session.set_control(pollutant_id=_pollutant_value(e.value))
+        for listener in listeners:
+            listener()
+
+    with section("Titles and pollutant"):
+        with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 w-full"):
             ui.input(
                 "Title (line 1)", value=control.title_one,
                 on_change=lambda e: session.set_control(title_one=e.value),
-            )
+            ).classes("w-full").props('hint="TITLEONE: printed at the top of every table"')
             ui.input(
                 "Title (line 2)", value=control.title_two or "",
                 on_change=lambda e: session.set_control(title_two=e.value or None),
-            )
+            ).classes("w-full").props('hint="TITLETWO: optional"')
         current = _pollutant_name(control.pollutant_id)
         options = [p.value for p in PollutantType]
         if current not in options:
@@ -102,67 +271,126 @@ def render(session: Session, *, dialogs: Any) -> None:
             # PB, NOX ... from an imported deck or a saved file) stays a
             # choice, so the select can show it.
             options.append(current)
-        ui.select(
-            options=options, label="Pollutant", value=current,
-            on_change=lambda e: session.set_control(pollutant_id=_pollutant_value(e.value)),
-        ).classes("w-48")
-
-    # ----- Open ---------------------------------------------------------
-    async def _on_upload(e) -> None:
-        name = e.file.name
-        try:
-            # Read inside the handler: an upload over 1 MiB is a temporary
-            # file that goes away with the event. Bytes, so that a file that
-            # is not UTF-8 text is refused with its name like any other.
-            data = await e.file.read()
-            session.open_json(data, name=name)
-        except ProjectFileError as exc:
-            _notify(f"Load failed: {exc}", color="negative")
-            return                                  # the dialog stays open
-        finally:
-            # Always, so choosing the same file again sends it again.
-            uploader.reset()
-        open_dialog.close()
-        _notify(f"Loaded {name}")
-
-    with dialogs, ui.dialog().mark("open-dialog") as open_dialog, ui.card():
-        ui.label("Select project JSON")
-        # auto_upload sends the file as soon as it is chosen; the header's
-        # upload button (an unnamed icon) is hidden. No ``accept`` filter:
-        # QUploader drops a file it filters out without a word, and a
-        # project whose name lost its .json must still open. Every file
-        # reaches _on_upload, which refuses a non-project by name.
-        uploader = ui.upload(
-            label="Project file (.json)", auto_upload=True, max_files=1,
-            on_upload=_on_upload,
-        ).props("hide-upload-btn")
-        ui.button("Cancel", on_click=open_dialog.close).props("flat")
-
-    # ----- Save As (browser) --------------------------------------------
-    def _do_save() -> None:
-        try:
-            data = session.save_as_download(name_input.value)
-        except _SAVE_ERRORS as exc:
-            save_as_dialog.close()
-            _notify(f"Save failed: {exc}", color="negative")
-            return
-        # Bytes, and looked up on ``ui`` at call time (the T1 harness
-        # replaces ui.download).
-        ui.download(data, session.file_name, "application/json")
-        _notify(f"Saved {session.file_name}")
-        save_as_dialog.close()
-
-    with dialogs, ui.dialog().mark("save-as-dialog") as save_as_dialog, ui.card():
-        ui.label("Save project as")
-        name_input = ui.input("Filename", value=session.suggested_file_name())
-        with ui.row():
-            ui.button("Cancel", on_click=save_as_dialog.close).props("flat")
-            ui.button("Save", on_click=_do_save).props("color=primary")
+        ui.select(options=options, label="Pollutant", value=current,
+                  on_change=pollutant_changed).classes("w-full sm:w-64").props('hint="POLLUTID"')
+    return listeners
 
 
-#: What a save can raise: the disk (OSError), or a project holding a value
-#: its file could not be reopened with (ValueError, TypeError).
-_SAVE_ERRORS = (OSError, ValueError, TypeError)
+#: The periods AERMOD averages over whole years of met data, by pollutant:
+#: ANNUAL for every pollutant, and the NAAQS design values AERMOD computes
+#: itself (``coset.f``: SO2AVE and NO2AVE for the 1-hour period, PM25AVE for
+#: the 24-hour one). On less than a year of met data each ends the run (E480).
+_WHOLE_YEAR_PERIODS = {
+    "SO2": "The 1-hour period and ANNUAL need",
+    "NO2": "The 1-hour period and ANNUAL need",
+    "PM25": "The 24-hour period and ANNUAL need",
+}
+
+
+def _naaqs_hint(pollutant: Any) -> str:
+    name = _pollutant_name(pollutant)
+    periods = naaqs_averaging_periods(name)
+    whole_years = _WHOLE_YEAR_PERIODS.get(name.upper().replace(".", "").replace("-", ""),
+                                          "ANNUAL needs")
+    rule = f"{whole_years} complete years of met data; PERIOD averages the whole met file."
+    if not periods:
+        return f"{name} has no NAAQS in pyaermod's table; choose the periods you need. {rule}"
+    return f"NAAQS periods for {name}: {', '.join(periods)}. {rule}"
+
+
+def _averaging_periods(session: Session) -> Any:
+    """Build the averaging-period select; return what to call when the pollutant changes."""
+    from nicegui import ui
+
+    control = session.project.control
+    current = [str(p) for p in control.averaging_periods]
+    options = AVERAGING_PERIODS + [p for p in current if p not in AVERAGING_PERIODS]
+
+    def changed(e) -> None:
+        periods = sort_periods([str(p) for p in (e.value or [])])
+        session.set_control(averaging_periods=periods)
+        if list(e.value or []) != periods:
+            select.value = periods             # show them in AVERTIME's order
+
+    def naaqs_periods() -> List[str]:
+        return naaqs_averaging_periods(_pollutant_name(session.project.control.pollutant_id))
+
+    def use_naaqs() -> None:
+        if naaqs_periods():
+            select.value = naaqs_periods()
+
+    with section("Averaging periods", "AVERTIME: the periods AERMOD averages over. "
+                 "Hours are 1 to 24; MONTH, PERIOD (the whole met file) and ANNUAL."):
+        with ui.row().classes("items-start gap-4 w-full flex-wrap"):
+            select = ui.select(options=options, value=sort_periods(current), multiple=True,
+                               label="Averaging periods", on_change=changed,
+                               ).classes("w-full sm:w-80")
+            button = ui.button("Use the NAAQS periods", on_click=use_naaqs).props("flat")
+        hint = ui.label().classes("text-body2 text-grey-8")
+
+    def pollutant_changed() -> None:
+        hint.set_text(_naaqs_hint(session.project.control.pollutant_id))
+        button.set_enabled(bool(naaqs_periods()))
+
+    pollutant_changed()
+    return pollutant_changed
+
+
+def _model_options(session: Session) -> None:
+    from nicegui import ui
+
+    control = session.project.control
+    with section("Model options", "MODELOPT: what AERMOD computes and how it treats terrain."):
+        with ui.element("div").classes("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 w-full"):
+            with ui.column().classes("gap-0"):
+                ui.label("Output").classes("text-caption text-grey-8")
+                for attr, label in OUTPUT_OPTIONS:
+                    ui.checkbox(label, value=bool(getattr(control, attr)),
+                                on_change=lambda e, a=attr: session.set_control(**{a: e.value}))
+                # No step edits a source's deposition parameters yet; the
+                # validator reports a source without them (AERMOD E242).
+                ui.label(DEPOSITION_NOTE).classes("text-caption text-grey-8")
+            with ui.column().classes("gap-2 w-full"):
+                terrain = _terrain_name(control.terrain_type)
+                choices = dict(TERRAIN_CHOICES)
+                if terrain not in choices:
+                    choices[terrain] = terrain
+                ui.select(choices, label="Terrain", value=terrain,
+                          on_change=lambda e: session.set_control(
+                              terrain_type=_terrain_value(e.value)),
+                          ).classes("w-full sm:w-80")
+                ui.checkbox("Regulatory default options (DFAULT)",
+                            value=bool(control.regulatory_default),
+                            on_change=lambda e: session.set_control(regulatory_default=e.value))
+        with ui.expansion("Urban dispersion (URBANOPT)", icon="location_city").classes("w-full"):
+            ui.label("Set the urban population to model the sources marked urban on the "
+                     "Sources step with urban dispersion.").classes("text-body2 text-grey-8")
+            with ui.element("div").classes(
+                    "grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-2 w-full"):
+                ui.number("Urban population", value=control.urban_population, min=0,
+                          on_change=lambda e: session.set_control(urban_population=e.value),
+                          ).props("clearable").classes("w-full")
+                def roughness_allowed() -> None:
+                    # URBANOPT's third field needs the name before it; a
+                    # roughness already set stays editable, so it can be cleared.
+                    c = session.project.control
+                    roughness.set_enabled(bool(c.urban_option) or c.urban_roughness is not None)
+
+                def name_changed(e) -> None:
+                    session.set_control(urban_option=e.value or None)
+                    roughness_allowed()
+
+                def roughness_changed(e) -> None:
+                    session.set_control(urban_roughness=e.value)
+                    roughness_allowed()
+
+                ui.input("Urban area name", value=control.urban_option or "",
+                         on_change=name_changed).classes("w-full")
+                roughness = ui.number(
+                    "Urban roughness (m)", value=control.urban_roughness, min=0,
+                    on_change=roughness_changed,
+                ).props('clearable hint="Needs the urban area name"').classes("w-full")
+                roughness_allowed()
 
 
 def _pollutant_name(pollutant: Any) -> str:
@@ -178,7 +406,21 @@ def _pollutant_value(name: str) -> Any:
         return name
 
 
+def _terrain_name(terrain: Any) -> str:
+    return terrain.value if isinstance(terrain, TerrainType) else str(terrain)
+
+
+def _terrain_value(name: str) -> Any:
+    try:
+        return TerrainType(name)
+    except ValueError:
+        return name
+
+
 def _notify(msg: str, *, color: str = "positive") -> None:
     """Wrapper around ``ui.notify`` so unit tests can monkeypatch it."""
     from nicegui import ui
     ui.notify(msg, color=color)
+
+
+__all__ = ["AVERAGING_PERIODS", "FileActions", "render", "sort_periods"]

@@ -83,6 +83,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table's own heading) and `.max_row`. Rows read from AERMOD's summary
   tables now also carry `rank`, `group`, `date`, `flag`, `value_text`,
   `zelev`, `zhill`, `zflag`, `receptor_type` and `grid_id`.
+- GUI: a step list on the left with the seven steps (Project, Sources,
+  Receptors, Meteorology, Output, Review & Run, Results), each with a
+  badge (not started, complete, warning, error) computed from `Validator`
+  and the runs, and a header with the project's name, the unsaved-changes
+  marker, a one-line readiness summary and a Save button. The badges and
+  the summary follow every change. On a narrow window the step list is a
+  drawer behind a menu button, and every step fits a 390 px phone.
+- GUI: the Project step edits the averaging periods (a multi-select, with
+  a button that applies the NAAQS periods of the chosen pollutant) and the
+  model options: CONC, DEPOS, DDEP and WDEP, the terrain (FLAT, ELEV or
+  FLAT ELEV), DFAULT and the urban population, name and roughness.
+- GUI: a plan view of the sources and receptors in model coordinates on
+  the Sources and Receptors steps, redrawn after every change.
+- GUI: New and Open ask before they discard unsaved changes.
+- GUI: the Sources and Receptors tables show 25 rows a page, with Previous
+  and Next page buttons; each row's Edit and Delete buttons are named for
+  the item ("Edit STACK1").
+- `pyaermod.footprints`: `source_footprint()` (the outline AERMOD builds
+  for a source, from `soset.f`) and `receptor_points()` (every receptor a
+  grid or discrete receptor stands for), with no optional dependency.
+- `pyaermod.naaqs.naaqs_averaging_periods()`: the AVERTIME periods a
+  pollutant's NAAQS need (`["1"]` for SO2, `["24", "ANNUAL"]` for PM2.5).
+- `OutputPathway.period_plot_files` and `period_postfiles`: a file-name
+  stem each; the pathway then writes a PLOTFILE and a POSTFILE for every
+  averaging period of the run, named as EPA's decks name them
+  (`<stem>_01H.plt`), and `period_plot_file_names()` /
+  `period_postfile_names()` say where they are.
+- Units and help text on the fields of every source type, the receptor
+  types and the meteorology and output pathways, as dataclass field
+  metadata (`pyaermod._fields.described`, `units_of`, `help_of`).
+- `Validator` reports as errors what AERMOD refuses in the model options:
+  DEPOS, DDEP or WDEP with a source that has no gas or particle deposition
+  parameters (E242; `GASDEPVD` exempts it), an urban roughness without an
+  urban area name, and an urban name or roughness without a population
+  (which the deck writer used to fill in as 1,000,000).
 
 ### Changed
 - GUI: in the source and receptor editors, Close now discards changes,
@@ -95,6 +130,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dict whose keys are not all strings (background `sector_values`) as
   `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
   files written before this change still open.
+- GUI: form labels carry units ("Stack temp (K)") and the inputs their
+  help text; integer fields use integer boxes that store `int`, so the
+  project in memory holds `14735`, not `14735.0`; file paths span the
+  full width; editors put the fields AERMOD's LOCATION and SRCPARAM cards
+  need first and the rest under "Advanced".
+- GUI: the Output step turns on, by default, a plot file and a POSTFILE
+  for every averaging period (`pyaermod_01H.plt`, `pyaermod_01H.pst`,
+  ...), which the Results step reads. The GUI's default deck changes
+  accordingly; the `albany_success`, `albany_e480` and `missing_met`
+  recordings were made again with the real binary.
 
 ### Fixed
 - **`examples/deposition_modeling.py` calculated no deposition.** Its
@@ -298,6 +343,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+- GUI: emptying a number box that is not optional no longer stores
+  `None` (which the project file refused, late, on Save): the box says
+  "Required" and the value stays.
+- GUI: lists that have no editor yet (`plot_file_groups`, `maxi_files`,
+  the buoyant line segments, vegetative barriers) are shown read-only;
+  the free-text box they had stored strings the project file refused.
+- The comments on `AreaSource` said its two dimensions are half-widths
+  and those on `LineSource` and `RLineSource` that the emission rate is
+  per unit length; AERMOD reads full side lengths (Xinit, Yinit) and a
+  rate per unit area.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by

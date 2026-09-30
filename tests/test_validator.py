@@ -591,6 +591,36 @@ class TestUrbanCrossValidation:
         assert len(urban_errors) == 0
 
 
+class TestUrbanOption:
+    """The single-area URBANOPT card: ``population [name [roughness]]`` (coset.f URBOPT)."""
+
+    @staticmethod
+    def _errors(**urban):
+        control = ControlPathway(title_one="T", averaging_periods=["ANNUAL"], **urban)
+        result = Validator.validate(_make_valid_project(control=control))
+        return sorted(e.field for e in result.errors
+                      if e.field.startswith("urban_") and e.severity == "error")
+
+    def test_population_alone_or_with_name_and_roughness_is_valid(self):
+        assert self._errors(urban_population=50000.0) == []
+        assert self._errors(urban_population=50000.0, urban_option="ALB",
+                            urban_roughness=1.0) == []
+
+    def test_roughness_needs_the_name_and_the_population(self):
+        assert self._errors(urban_population=50000.0, urban_roughness=1.0) == ["urban_roughness"]
+        assert self._errors(urban_roughness=1.0) == ["urban_population", "urban_roughness"]
+
+    def test_a_name_alone_needs_the_population(self):
+        """The deck writer would otherwise fill in a population of 1,000,000."""
+        assert self._errors(urban_option="ALB") == ["urban_population"]
+
+    def test_several_urban_areas_are_checked_by_their_own_fields(self):
+        from pyaermod.pathways import UrbanArea
+        assert self._errors(urban_option="A", urban_areas=[
+            UrbanArea(population=1e5, urban_id="A", name="A"),
+            UrbanArea(population=2e5, urban_id="B", name="B")]) == []
+
+
 # ---------------------------------------------------------------------------
 # No sources
 # ---------------------------------------------------------------------------
@@ -1054,6 +1084,30 @@ class TestDepositionValidation:
         warnings = [e for e in result.errors
                     if "deposition" in e.field and e.severity == "warning"]
         assert len(warnings) >= 1
+
+    @pytest.mark.parametrize("option", ["calculate_deposition", "calculate_dry_deposition",
+                                        "calculate_wet_deposition"])
+    def test_deposition_output_without_source_parameters_is_an_error(self, option):
+        """soset.f SRCQA: DEPOS/DDEP/WDEP with no particle or gas deposition
+        inputs for a source is E242 (and E244 for the run)."""
+        control = ControlPathway(title_one="T", averaging_periods=["ANNUAL"], **{option: True})
+        result = Validator.validate(_make_valid_project(control=control))
+        errors = [e for e in result.errors if e.field == "deposition" and e.severity == "error"]
+        assert [e.pathway for e in errors] == ["PointSource(STK1)"]
+        assert "E242" in errors[0].message
+        assert not result.is_valid
+
+    def test_gasdepvd_supplies_the_deposition_velocity(self):
+        """GASDEPVD sets a dry deposition velocity for every source (LUSERVD)."""
+        control = ControlPathway(title_one="T", averaging_periods=["ANNUAL"],
+                                 calculate_dry_deposition=True, alpha=True,
+                                 regulatory_default=False, gas_deposition_velocity=0.01)
+        result = Validator.validate(_make_valid_project(control=control))
+        assert not [e for e in result.errors if e.field == "deposition"]
+
+    def test_concentration_alone_needs_no_deposition_parameters(self):
+        result = Validator.validate(_make_valid_project())
+        assert not [e for e in result.errors if e.field == "deposition"]
 
     def test_gas_dep_invalid_diffusivity(self):
         result = Validator.validate(self._project_with_deposition(
