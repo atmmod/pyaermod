@@ -427,20 +427,22 @@ class TestRunnerPathSearch:
         inp = tmp_path / "test.inp"
         inp.write_text("CO STARTING\nCO FINISHED")
 
-        # Create the output file that AERMOD would produce: that of a real,
-        # successful run (tests/fixtures/runner/README.md)
-        out_file = tmp_path / "test.out"
+        # The mocked AERMOD writes aermod.out during the run, as the real
+        # binary does, with the .out of a real, successful run
+        # (tests/fixtures/runner/README.md). A test.out placed before the
+        # run would be an earlier run's, which run() removes first.
         success_out = Path(__file__).parent / "fixtures" / "runner" / "success" / "aermod.out"
-        out_file.write_bytes(success_out.read_bytes())
+
+        def _aermod(args, cwd, **kwargs):
+            (Path(cwd) / "aermod.out").write_bytes(success_out.read_bytes())
+            return CompletedProcess(args=args, returncode=0, stdout="", stderr="")
 
         runner = AERMODRunner(executable_path=str(fake_exe), log_level="DEBUG")
-        with patch("pyaermod.runner.subprocess.run") as mock_run:
-            mock_run.return_value = CompletedProcess(
-                args=[], returncode=0, stdout="", stderr=""
-            )
+        with patch("pyaermod.runner.subprocess.run", side_effect=_aermod):
             result = runner.run(str(inp), working_dir=str(tmp_path))
 
         assert result.success
+        assert result.output_file == str(tmp_path / "test.out")
 
 
 class TestValidateInputErrorReading:
