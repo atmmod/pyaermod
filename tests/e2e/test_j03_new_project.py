@@ -5,9 +5,10 @@ What the user must see (PLAN-gui.md): every step shows the blank project
 step), the unsaved-changes marker clears, and edits made after New appear
 in the saved file.
 
-Defect D3: New replaces the project, but every widget stays bound to the
-old project's objects, so the screen keeps showing the old project and
-later edits are lost. The two symptoms are separate tests.
+Defect D3 (fixed in WP-G2): New replaced the project, but every widget
+stayed bound to the old project's objects, so the screen kept showing the
+old project and later edits were lost. The two symptoms are separate
+tests.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from .reference import GRID, PROFILE_FILE, STACK, SURFACE_FILE
 pytestmark = pytest.mark.e2e
 
 
-def test_j03_new_shows_the_blank_project(gui, step, known_gap):
+def test_j03_new_shows_the_blank_project(gui, step):
     gui.open()
     blank_title = gui.project.title()
     gui.project.set_titles("Project A")
@@ -36,15 +37,14 @@ def test_j03_new_shows_the_blank_project(gui, step, known_gap):
     gui.project.new()
     step("after_new")
     gui.expect_unsaved_changes(False)
-    with known_gap("D3", "New leaves every widget bound to the old project"):
-        gui.project.expect_title(blank_title)
-        gui.sources.expect_ids([])
-        gui.receptors.expect_names([])
-        gui.meteorology.expect_met_files("", "")
-        gui.results.expect_no_run()
+    gui.project.expect_title(blank_title)
+    gui.sources.expect_ids([])
+    gui.receptors.expect_names([])
+    gui.meteorology.expect_met_files("", "")
+    gui.results.expect_no_run()
 
 
-def test_j03_edits_after_new_are_saved(gui, step, known_gap):
+def test_j03_edits_after_new_are_saved(gui, step):
     gui.open()
     gui.project.set_titles("Project A")
     gui.project.new()
@@ -55,6 +55,5 @@ def test_j03_edits_after_new_are_saved(gui, step, known_gap):
     saved = gui.project.save_as(f"j03-{uuid.uuid4().hex[:8]}.json")
     gui.expect_unsaved_changes(False)
     project = load_project(saved)
-    with known_gap("D3", "edits made after New go to the discarded project"):
-        assert project.control.title_one == "Project B"
-        assert [s.source_id for s in project.sources.sources] == ["STACK1"]
+    assert project.control.title_one == "Project B"
+    assert [s.source_id for s in project.sources.sources] == ["STACK1"]

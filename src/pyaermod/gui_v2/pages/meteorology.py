@@ -12,9 +12,11 @@ expansion panel.
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 from .._form import emit_field
-from ..state import AppState
+from .._live import live
+from ..session import Session
 
 _PRIMARY_FIELDS = (
     "surface_file",
@@ -30,34 +32,35 @@ _PRIMARY_FIELDS = (
 )
 
 
-def render(state: AppState) -> None:
+def render(session: Session, *, dialogs: Any = None) -> None:
     from nicegui import ui
-
-    met = state.project.meteorology
-    field_names = {f.name for f in dataclasses.fields(met)}
 
     ui.label("Meteorology").classes("text-h6")
 
-    ui.label("Surface + Profile files").classes("text-subtitle1 q-mt-md")
-    with ui.column().classes("w-full q-gutter-sm"):
-        for fname in _PRIMARY_FIELDS:
-            if fname in field_names:
-                fmeta = met.__dataclass_fields__[fname]
-                emit_field(ui.row().classes("w-full"), met, fmeta)
+    def edited() -> None:
+        session.mark_edited("meteorology")
 
-    advanced = [f for f in dataclasses.fields(met)
-                if f.name not in _PRIMARY_FIELDS]
-    if advanced:
-        with ui.expansion("Advanced", icon="settings").classes("w-full q-mt-md"):
-            for fmeta in advanced:
-                emit_field(ui.row().classes("w-full"), met, fmeta)
+    # The form edits the project's MeteorologyPathway in place, so it is
+    # rebuilt whenever the project is replaced (and only then: rebuilding
+    # on its own edits would pull the field from under the user's cursor).
+    @live(session)
+    def _form() -> None:
+        met = session.project.meteorology
+        field_names = {f.name for f in dataclasses.fields(met)}
 
-    # Mark dirty whenever the user edits anything in the panel.
-    # NiceGUI doesn't expose a panel-level on_change; bind_value on
-    # individual fields handles state mutation directly. We stamp
-    # dirty here once at render to flag that the user has been on
-    # the page (close enough for v1.9-C; refine in v1.9-D).
-    state.mark_dirty()
+        ui.label("Surface + Profile files").classes("text-subtitle1 q-mt-md")
+        with ui.column().classes("w-full q-gutter-sm"):
+            for fname in _PRIMARY_FIELDS:
+                if fname in field_names:
+                    fmeta = met.__dataclass_fields__[fname]
+                    emit_field(ui.row().classes("w-full"), met, fmeta, on_change=edited)
+
+        advanced = [f for f in dataclasses.fields(met)
+                    if f.name not in _PRIMARY_FIELDS]
+        if advanced:
+            with ui.expansion("Advanced", icon="settings").classes("w-full q-mt-md"):
+                for fmeta in advanced:
+                    emit_field(ui.row().classes("w-full"), met, fmeta, on_change=edited)
 
 
 __all__ = ["render"]

@@ -7,8 +7,9 @@ Surfaces the most-recent run's outputs:
 - Parsed .OUT file (sources / averaging periods / max concentrations)
 - POSTFILE viewer (if any .PST files in the working dir)
 
-State source: :class:`AppState.last_run_dir`. If empty (no run yet),
-the page shows a placeholder.
+State source: the session's latest run that AERMOD completed
+(:attr:`Session.last_completed_run`). A run whose runner raised shows
+only on the Run tab. With no run the page shows a placeholder.
 
 Heavy data analysis (contour plots, animations) lives in
 :mod:`pyaermod.advanced_viz` — the Results tab is a quick triage view,
@@ -18,22 +19,32 @@ not a replacement for that module.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Optional
 
-from ..state import AppState
+from .._live import live
+from ..session import RunRecord, Session, SessionEvent
 
 
-def render(state: AppState) -> None:
+def render(session: Session, *, dialogs: Any = None) -> None:
     from nicegui import ui
 
+    # Rebuilt when a run finishes, and on every page build (a reload shows
+    # the last run again). New and Open clear the run history.
+    @live(session, SessionEvent.RUN_FINISHED)
+    def _body() -> None:
+        _render_run(ui, session.last_completed_run)
+
+
+def _render_run(ui: Any, record: Optional[RunRecord]) -> None:
     ui.label("Results").classes("text-h6")
 
-    if state.last_run_dir is None:
+    if record is None:
         ui.label(
             "No run yet. Use the Run tab to dispatch AERMOD.",
         ).classes("text-grey q-mt-sm")
         return
 
-    wd = state.last_run_dir
+    wd = record.work_dir
     ui.label(f"Last run directory: {wd}").classes("text-body1")
 
     # ---- .OUT file summary ------------------------------------------

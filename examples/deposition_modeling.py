@@ -1,23 +1,53 @@
 """
 PyAERMOD Deposition Modeling Example
 
-Demonstrates how to configure gas and particle deposition parameters
-for AERMOD, including dry deposition, wet deposition, and combined
-deposition analysis.
+Demonstrates how to configure gas and particle deposition for AERMOD,
+including dry deposition, wet deposition, and combined deposition
+analysis.
 
 This script covers:
-  1. Gas deposition with a point source
+  1. Gas dry deposition with a point source
   2. Particle deposition with size/mass/density distributions
-  3. Combined gas + particle deposition
-  4. Output configuration for deposition results
-  5. Source groups with mixed deposition methods
+  3. Source groups mixing gas and particle sources
+  4. Reading deposition results back from a POSTFILE
+
+Which quantities AERMOD calculates is set on MODELOPT, through four
+ControlPathway flags (coset.f, subroutine MODOPT):
+
+    calculate_concentration   -> CONC   (on by default)
+    calculate_deposition      -> DEPOS  total (dry + wet) deposition
+    calculate_dry_deposition  -> DDEP   dry deposition
+    calculate_wet_deposition  -> WDEP   wet deposition
+
+Any combination may be switched on; AERMOD then writes one set of
+results per quantity, always in the order CONC, DEPOS, DDEP, WDEP.
+OutputPathway.output_type does not select anything: AERMOD has no
+per-file output type, and a deck that sets only output_type is a
+concentration-only deck.
+
+Units: AERMOD reports concentration in micrograms/m**3 but deposition
+in g/m**2, totalled (not averaged) over each averaging period; ANNUAL
+deposition is g/m**2/yr (coset.f MODOPT and output.f PERAVE).
+
+Dry and wet depletion of the plume switch on by themselves once any
+source has deposition inputs, even in a CONC-only run (soset.f SOCARD);
+add "NODRYDPLT" or "NOWETDPLT" to ControlPathway.extra_model_options to
+turn either off. While depletion or any deposition output is on, every
+source needs particle or gas deposition inputs (soset.f SRCQA, E242).
+
+Terrain: DFAULT forces elevated terrain and overrides FLAT with warning
+W206 (coset.f MODOPT), so every deck here that asks for FLAT also sets
+regulatory_default=False. A regulatory (DFAULT) run keeps elevated
+terrain and gives its receptors elevations, from AERMAP for example.
+
+The decks name met_2023.sfc / met_2023.pfl as placeholders; put your
+own AERMET output there (wet deposition needs its precipitation fields).
 """
 
 from pyaermod.input_generator import (
     AERMODProject,
     CartesianGrid,
     ControlPathway,
-    DepositionMethod,
     GasDepositionParams,
     MeteorologyPathway,
     OutputPathway,
@@ -30,12 +60,20 @@ from pyaermod.input_generator import (
     TerrainType,
 )
 
+# Site categories for gas dry deposition, as in EPA's testgas case:
+# GDSEASON gives a Wesely season category (1-5) for each calendar month,
+# GDLANUSE a land-use category (1-9) for each 10-degree wind sector.
+GAS_DEPOSITION_SITE = {
+    "gas_deposition_seasons": [4, 4, 4, 5, 1, 1, 1, 1, 1, 2, 3, 3],
+    "gas_deposition_land_use": [4] * 36,
+}
+
 
 def example_1_gas_deposition():
     """
     Example 1: Gas dry deposition for SO2.
 
-    Uses EPA-recommended diffusivity and reactivity values for SO2.
+    Uses AERMOD's own built-in gas deposition values for SO2.
     """
     print("=" * 70)
     print("EXAMPLE 1: Gas Dry Deposition (SO2)")
@@ -50,8 +88,6 @@ def example_1_gas_deposition():
         henry_constant=72.0,        # Pa m3/mol -- Henry's law constant
     )
 
-    # Create source with dry deposition
-    # deposition_method is a (DepositionMethod, float) tuple
     sources = SourcePathway()
     sources.add_source(
         PointSource(
@@ -65,17 +101,26 @@ def example_1_gas_deposition():
             stack_diameter=2.5,
             emission_rate=5.0,         # g/s
             gas_deposition=gas_dep,
-            deposition_method=(DepositionMethod.DRYDPLT, 0.0),
         )
     )
 
-    # Control pathway for SO2
+    # Control pathway for SO2. Gas deposition is a non-regulatory option:
+    # AERMOD accepts GASDEPOS only with ALPHA (E198), and ALPHA only
+    # without DFAULT (E204). Gas dry deposition also needs the site's
+    # Wesely season category for each month (GDSEASON) and land-use
+    # category for each 10-degree sector (GDLANUSE); without them AERMOD
+    # stops with E244 (soset.f).
     control = ControlPathway(
         title_one="SO2 Gas Deposition Example",
-        title_two="Dry deposition modeling with DRYDPLT",
+        title_two="Concentration and dry deposition",
         pollutant_id=PollutantType.SO2,
         averaging_periods=["ANNUAL", "24"],
         terrain_type=TerrainType.FLAT,
+        calculate_concentration=True,    # MODELOPT CONC
+        calculate_dry_deposition=True,   # MODELOPT DDEP
+        regulatory_default=False,
+        alpha=True,
+        **GAS_DEPOSITION_SITE,
     )
 
     # Receptors — 2 km domain, 100 m spacing
@@ -93,11 +138,11 @@ def example_1_gas_deposition():
         profile_file="met_2023.pfl",
     )
 
-    # Output: deposition flux (g/m2/s)
+    # Tables for every quantity on MODELOPT: concentration in ug/m3 and
+    # dry deposition in g/m2 over each averaging period (g/m2/yr ANNUAL).
     output = OutputPathway(
         receptor_table=True,
         max_table=True,
-        output_type="DDEP",
     )
 
     project = AERMODProject(control, sources, receptors, meteorology, output)
@@ -112,9 +157,9 @@ def example_1_gas_deposition():
     # Write input file
     project.write("gas_deposition.inp")
     print("\n  Input file written: gas_deposition.inp")
-    print(f"  Deposition method: {DepositionMethod.DRYDPLT.value}")
-    print(f"  Gas diffusivity: {gas_dep.diffusivity} cm2/s")
-    print(f"  Reactivity: {gas_dep.reactivity}")
+    print("  MODELOPT: CONC DDEP (with ALPHA)")
+    print(f"  Gas diffusivity in air: {gas_dep.diffusivity} cm2/s")
+    print(f"  Henry's law constant: {gas_dep.henry_constant} Pa m3/mol")
     print()
 
 
@@ -122,8 +167,8 @@ def example_2_particle_deposition():
     """
     Example 2: Particle deposition with size distribution.
 
-    Models PM emissions with a tri-modal particle size distribution
-    and calculates both dry and wet deposition.
+    Models PM emissions with a three-bin particle size distribution
+    (Method 1) and calculates total, dry and wet deposition.
     """
     print("=" * 70)
     print("EXAMPLE 2: Particle Deposition (PM)")
@@ -140,7 +185,6 @@ def example_2_particle_deposition():
     total = sum(particle_dep.mass_fractions)
     print(f"\n  Mass fraction total: {total:.2f} (must be 1.0)")
 
-    # Create source with combined deposition
     sources = SourcePathway()
     sources.add_source(
         PointSource(
@@ -154,16 +198,24 @@ def example_2_particle_deposition():
             stack_diameter=1.8,
             emission_rate=2.0,          # g/s total PM
             particle_deposition=particle_dep,
-            deposition_method=(DepositionMethod.DRYDPLT, 0.0),
         )
     )
 
+    # Method 1 particle deposition needs no ALPHA, but this deck asks for
+    # FLAT terrain, and DFAULT would override that with elevated terrain
+    # (W206, coset.f MODOPT): the 50 m source base would then sit above
+    # receptors at 0 m. So regulatory_default is off, as in the gas decks.
     control = ControlPathway(
         title_one="Particle Deposition Example",
-        title_two="Dry + wet deposition with DEPOS method",
+        title_two="Concentration with total, dry and wet deposition",
         pollutant_id=PollutantType.PM10,
         averaging_periods=["ANNUAL", "24"],
         terrain_type=TerrainType.FLAT,
+        calculate_concentration=True,    # MODELOPT CONC
+        calculate_deposition=True,       # MODELOPT DEPOS (dry + wet)
+        calculate_dry_deposition=True,   # MODELOPT DDEP
+        calculate_wet_deposition=True,   # MODELOPT WDEP
+        regulatory_default=False,        # keeps FLAT (DFAULT forces ELEV)
     )
 
     receptors = ReceptorPathway()
@@ -183,14 +235,13 @@ def example_2_particle_deposition():
     output = OutputPathway(
         receptor_table=True,
         max_table=True,
-        output_type="DEPOS",   # total deposition
     )
 
     project = AERMODProject(control, sources, receptors, meteorology, output)
     project.write("particle_deposition.inp")
 
     print("  Input file written: particle_deposition.inp")
-    print(f"  Deposition method: {DepositionMethod.DRYDPLT.value}")
+    print("  MODELOPT: CONC DEPOS DDEP WDEP")
     print(f"  Particle diameters: {particle_dep.diameters} um")
     print(f"  Mass fractions: {particle_dep.mass_fractions}")
     print(f"  Densities: {particle_dep.densities} g/cm3")
@@ -199,10 +250,11 @@ def example_2_particle_deposition():
 
 def example_3_multi_source_groups():
     """
-    Example 3: Multiple sources with different deposition methods.
+    Example 3: Gas and particle sources together.
 
-    Demonstrates source groups where each group uses a different
-    deposition configuration.
+    Demonstrates source groups where each group has a different
+    deposition configuration, in one run that calculates concentration
+    and dry deposition.
     """
     print("=" * 70)
     print("EXAMPLE 3: Source Groups with Mixed Deposition")
@@ -229,7 +281,6 @@ def example_3_multi_source_groups():
             stack_diameter=3.0,
             emission_rate=8.0,
             gas_deposition=gas_dep,
-            deposition_method=(DepositionMethod.DRYDPLT, 0.0),
         )
     )
 
@@ -251,24 +302,15 @@ def example_3_multi_source_groups():
             stack_diameter=1.0,
             emission_rate=1.0,
             particle_deposition=particle_dep,
-            deposition_method=(DepositionMethod.DRYDPLT, 0.0),
         )
     )
 
-    # Concentration-only source (no deposition)
-    sources.add_source(
-        PointSource(
-            source_id="EMRG1",
-            x_coord=-100.0,
-            y_coord=50.0,
-            base_elevation=100.0,
-            stack_height=40.0,
-            stack_temp=1200.0,
-            exit_velocity=25.0,
-            stack_diameter=0.8,
-            emission_rate=0.3,
-        )
-    )
+    # A source with no deposition inputs cannot join this run. Once any
+    # source has deposition inputs, dry and wet depletion are on by
+    # default, and then AERMOD needs particle or gas deposition inputs for
+    # every source (soset.f SRCQA, E242) -- even in a run with CONC alone.
+    # Model such a source in a run that has no deposition sources, or add
+    # "NODRYDPLT" and "NOWETDPLT" to extra_model_options in a CONC-only run.
 
     # Define source groups
     sources.group_definitions = [
@@ -282,19 +324,23 @@ def example_3_multi_source_groups():
             member_source_ids=["MATL1"],
             description="Materials handling (particle deposition)",
         ),
-        SourceGroupDefinition(
-            group_name="EMRGCY",
-            member_source_ids=["EMRG1"],
-            description="Emergency flare (concentration only)",
-        ),
     ]
 
+    # The gas source needs ALPHA (and so no DFAULT) and the site
+    # categories, as in Example 1. The pollutant is OTHER: the sources emit
+    # different pollutants, and AERMOD refuses a 1-hour average for PM25
+    # (E363).
     control = ControlPathway(
         title_one="Multi-Source Deposition Example",
-        title_two="Gas, particle, and concentration-only sources",
-        pollutant_id=PollutantType.PM25,
+        title_two="Gas and particle sources in separate groups",
+        pollutant_id=PollutantType.OTHER,
         averaging_periods=["ANNUAL", "24", "1"],
         terrain_type=TerrainType.FLAT,
+        calculate_concentration=True,    # MODELOPT CONC
+        calculate_dry_deposition=True,   # MODELOPT DDEP
+        regulatory_default=False,
+        alpha=True,
+        **GAS_DEPOSITION_SITE,
     )
 
     receptors = ReceptorPathway()
@@ -324,6 +370,7 @@ def example_3_multi_source_groups():
     for grp in sources.group_definitions:
         print(f"    {grp.group_name}: {grp.member_source_ids} — {grp.description}")
     print("\n  Input file written: multi_source_deposition.inp")
+    print("  MODELOPT: CONC DDEP (with ALPHA)")
     print()
 
 
@@ -331,39 +378,59 @@ def example_4_postfile_with_deposition():
     """
     Example 4: POSTFILE output for deposition analysis.
 
-    Shows how to configure POSTFILE output and then parse the
-    resulting binary file for concentration + deposition data.
+    Shows how deposition results appear in a POSTFILE and how to
+    parse them.
     """
     print("=" * 70)
     print("EXAMPLE 4: POSTFILE Output for Deposition")
     print("=" * 70)
 
     print("""
-  After running AERMOD with deposition, the POSTFILE contains
-  concentration, dry deposition, and wet deposition for every
-  receptor at every timestep.
+  A POSTFILE holds one value per receptor per timestep for every
+  quantity on MODELOPT, in the order CONC, DEPOS, DDEP, WDEP. With
+  MODELOPT CONC DDEP WDEP that is concentration, dry deposition and
+  wet deposition:
 
-  To parse POSTFILE output with deposition data:
+    output = OutputPathway(
+        postfile="postfile.txt",
+        postfile_averaging="1",     # must be on AVERTIME
+        postfile_format="PLOT",     # or "UNFORM" for binary
+        file_format="EXP",          # FILEFORM EXP keeps small values
+    )
+
+  Hourly deposition values are often far below the 0.00001 that the default
+  fixed-point format can show, so FILEFORM EXP is worth setting.
+
+  To parse the POSTFILE of a CONC DDEP WDEP run:
 
     from pyaermod.postfile import read_postfile
 
-    # Auto-detect text vs binary format
-    result = read_postfile("postfile.bin", has_deposition=True)
+    # Auto-detect text vs binary format (a binary file also needs
+    # has_deposition=True and, for coordinates, receptor_coords)
+    result = read_postfile("postfile.txt")
 
-    # Access the DataFrame
     df = result.data
     print(df.columns)
-    # ['timestep', 'receptor', 'concentration', 'dry_depo', 'wet_depo']
+    # ['x', 'y', 'concentration', 'dry_depo', 'wet_depo',
+    #  'zelev', 'zhill', 'zflag', 'ave', 'grp', 'date']
 
-    # Filter by timestep
-    hour_14 = df[df['timestep'] == 2001031514]
-
-    # Get total deposition
+    # Total deposition (g/m2 in each hour)
     df['total_depo'] = df['dry_depo'] + df['wet_depo']
 
-    # Maximum deposition receptor
-    max_idx = df['total_depo'].idxmax()
-    print(f"Max deposition at receptor {df.loc[max_idx, 'receptor']}")
+    # Receptor with the most deposition in a single hour
+    peak = df.loc[df['total_depo'].idxmax()]
+    print(f"Max deposition at ({peak['x']}, {peak['y']}) on {peak['date']}")
+
+  The reader labels the value columns concentration, dry_depo and
+  wet_depo whatever MODELOPT says, so this recipe fits only a CONC DDEP
+  WDEP run, and none of Examples 1-3 is one. On their POSTFILEs it
+  mislabels columns without any error: for CONC DDEP (Examples 1 and 3)
+  dry deposition lands in 'zelev'; for CONC DEPOS DDEP WDEP (Example 2)
+  'dry_depo' holds total deposition, 'wet_depo' dry deposition and
+  'zelev' wet deposition. Either way the later columns shift as well, so
+  'grp' reads '1-HR' and 'date' reads 'ALL'. Until the reader takes its
+  columns from the file, check them against the POSTFILE's own header
+  line, which names every column in order.
 """)
 
     print("  See notebook 06_Postfile_Analysis.ipynb for interactive examples.")
@@ -391,25 +458,18 @@ def main():
     print()
 
     for _, func in examples:
-        try:
-            func()
-        except Exception as e:
-            print(f"\n  Error: {e}\n")
+        func()
 
     print("+" + "=" * 68 + "+")
     print("|" + " " * 20 + "All examples complete!" + " " * 25 + "|")
     print("+" + "=" * 68 + "+")
     print()
-    print("  Deposition methods (DepositionMethod enum):")
-    print("    DRYDPLT  — Dry depletion")
-    print("    WETDPLT  — Wet depletion")
-    print("    GASDEPVD — Gas deposition (velocity-dependent)")
-    print("    GASDEPDF — Gas deposition (diffusivity-based)")
-    print()
-    print("  Output types (OutputPathway.output_type):")
-    print("    DDEP  — Dry deposition flux")
-    print("    WDEP  — Wet deposition flux")
-    print("    DEPOS — Total deposition flux")
+    print("  Output quantities (ControlPathway flags -> MODELOPT):")
+    print("    calculate_concentration  -> CONC   concentration, ug/m3")
+    print("    calculate_deposition     -> DEPOS  total deposition, g/m2")
+    print("    calculate_dry_deposition -> DDEP   dry deposition, g/m2")
+    print("    calculate_wet_deposition -> WDEP   wet deposition, g/m2")
+    print("  Deposition is totalled over each averaging period (g/m2/yr for ANNUAL).")
     print()
 
 

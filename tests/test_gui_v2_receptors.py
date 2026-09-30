@@ -13,7 +13,7 @@ from pyaermod.gui_v2.pages.receptors import (
     _new_receptor,
     _summary_row,
 )
-from pyaermod.gui_v2.state import AppState
+from pyaermod.gui_v2.session import Session
 
 
 class TestRegistry:
@@ -63,19 +63,20 @@ class TestSummaryRow:
 
 class TestAllRows:
     def test_empty(self):
-        s = AppState()
-        assert _all_rows(s) == []
+        assert _all_rows(Session().receptor_entries()) == []
 
     def test_after_add(self):
-        s = AppState()
-        s.project.receptors.cartesian_grids.append(
-            _new_receptor("CartesianGrid"),
-        )
-        s.project.receptors.polar_grids.append(_new_receptor("PolarGrid"))
-        s.project.receptors.discrete_receptors.append(
-            _new_receptor("DiscreteReceptor"),
-        )
-        rows = _all_rows(s)
-        assert len(rows) == 3
-        kinds = {r["kind"] for r in rows}
-        assert kinds == {"CartesianGrid", "PolarGrid", "DiscreteReceptor"}
+        s = Session()
+        keys = [
+            s.add_receptor(_new_receptor("CartesianGrid")),
+            s.add_receptor(_new_receptor("PolarGrid")),
+            s.add_receptor(_new_receptor("DiscreteReceptor")),
+            s.add_receptor(_new_receptor("DiscreteReceptor")),
+        ]
+        rows = _all_rows(s.receptor_entries())
+        assert [r["kind"] for r in rows] == [
+            "CartesianGrid", "PolarGrid", "DiscreteReceptor", "DiscreteReceptor"]
+        # Rows carry the session's keys; discrete receptors are numbered
+        # within their kind.
+        assert [r["key"] for r in rows] == keys
+        assert [r["label"] for r in rows[2:]] == ["DISC0", "DISC1"]
