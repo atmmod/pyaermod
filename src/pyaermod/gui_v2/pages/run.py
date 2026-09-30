@@ -283,7 +283,7 @@ def progress_text(record: Optional[RunRecord]) -> str:
 
 
 #: Seconds after which Cancel is offered even if AERMOD has printed nothing.
-CANCEL_WITHOUT_OUTPUT_S = 2.0
+CANCEL_WITHOUT_OUTPUT_S = 10.0
 
 
 def can_cancel(record: Optional[RunRecord], now: Optional[datetime] = None) -> bool:
