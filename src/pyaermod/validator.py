@@ -234,8 +234,9 @@ class Validator:
         if terrain in ("FLAT", "FLATSRCS") or "FLAT" in extra:
             result.errors.append(ValidationError(
                 "ControlPathway", "terrain_type",
-                f"terrain_type={terrain} with regulatory_default=True: AERMOD "
-                "overrides FLAT with ELEV under DFAULT (AERMOD W206) and uses the "
+                f"terrain_type={terrain} with regulatory_default=True: pyaermod "
+                "writes FLAT with DFAULT on MODELOPT, and AERMOD drops FLAT under "
+                "DFAULT (AERMOD W206) and runs in elevated terrain, using the "
                 "receptor and source elevations; set regulatory_default=False "
                 "for a flat-terrain run, or terrain_type=ELEVATED to say what "
                 "AERMOD will do",
@@ -518,10 +519,13 @@ class Validator:
         SRCQA requires the three counts to agree (E240, lines 1216-1219)
         and warns when the fractions sum outside 0.98-1.02 (W330, lines
         1221-1231).
+
+        The ranges are checked on the values as the deck will carry them,
+        because those are what AERMOD reads: the writer rounds PARTDIAM and
+        PARTDENS to 4 significant figures and MASSFRAX to 6 decimals, so a
+        1000.4 um diameter is written, and accepted, as 1000.
         """
-        diameters = list(particle_dep.diameters)
-        fractions = list(particle_dep.mass_fractions)
-        densities = list(particle_dep.densities)
+        diameters, fractions, densities = cls._particle_values_as_written(particle_dep)
 
         def add(field_name, message, severity="error"):
             result.errors.append(ValidationError(name, field_name, message, severity=severity))
@@ -559,6 +563,18 @@ class Validator:
             add("particle_deposition.densities",
                 f"densities {low} are <= 0.1 g/cm^3, which AERMOD flags as possibly "
                 "out of range (AERMOD W334)", "warning")
+
+    @staticmethod
+    def _particle_values_as_written(particle_dep):
+        """PARTDIAM, MASSFRAX and PARTDENS read back from the lines the
+        writer produces for them, so the checks see AERMOD's numbers."""
+        from pyaermod.sources import _deposition_to_aermod_lines
+
+        written = {}
+        for line in _deposition_to_aermod_lines("SRC", None, particle_dep):
+            keyword, _, *values = line.split()
+            written[keyword] = [float(v) for v in values]
+        return written["PARTDIAM"], written["MASSFRAX"], written["PARTDENS"]
 
     #: Pollutants for which soset.f GASDEP substitutes a built-in value
     #: when a GASDEPOS field is 0 (warning W473); any other zero is E380.
@@ -1098,8 +1114,11 @@ class Validator:
 
         calc1.f PITCALC (v26135, lines 4859-4892) tests every receptor
         with PNPOLY against the pit's corners and skips one that lies
-        strictly inside, leaving 0 for that source there without any
-        message. A receptor on the pit's edge is modelled.
+        strictly inside, leaving 0 for that source there. AERMOD raises no
+        message code for it; inpsum.f CHKREC (lines 3994-4007) only lists
+        the receptor, marked OPENPIT, in the input summary's "calculations
+        may not be performed" table. A receptor on the pit's edge is
+        modelled.
         """
         from pyaermod.input_generator import OpenPitSource
 

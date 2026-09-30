@@ -32,8 +32,11 @@ them, and which pyaermod helper catches them earlier.
 
 - **Cause:** AERMOD does not model an `OPENPIT` source at receptors that
   lie strictly inside the pit; it skips them and leaves 0 for that source
-  there, without any message (`calc1.f` PITCALC). Receptors on the pit's
-  edge are modelled.
+  there (`calc1.f` PITCALC). AERMOD raises no error or warning code for
+  them. It only lists each one, with `OPENPIT` in the distance column, in
+  the input summary's table headed "source-receptor combinations for
+  which calculations may not be performed" (`inpsum.f` CHKREC).
+  Receptors on the pit's edge are modelled.
 - **Fix:** the validator warns with the number of receptors inside each
   pit and the first few of their coordinates. Drop those receptors, or
   read their values as "not modelled" rather than "clean air".
@@ -44,7 +47,11 @@ them, and which pyaermod helper catches them earlier.
   of 0.001 microns or less, or above 1000 (E335); a mass fraction outside
   0-1 (E332); a density of 0 or less (E334). AERMOD warns for a density of
   0.1 g/cm³ or less (W334) and for fractions that sum outside 0.98-1.02
-  (W330). There is no limit on the number of categories.
+  (W330). There is no limit on the number of categories. AERMOD checks
+  the numbers in the deck, and pyaermod writes diameters and densities
+  to 4 significant figures and mass fractions to 6 decimals, so the
+  validator checks the rounded values: 1000.4 microns is written, and
+  accepted, as 1000.
 - **Fix:** `Validator.validate(project)` reports each with AERMOD's code.
 
 ### DFAULT with FLAT terrain (W206)
@@ -52,7 +59,11 @@ them, and which pyaermod helper catches them earlier.
 - **Cause:** `ControlPathway` defaults to `terrain_type=FLAT` with
   `regulatory_default=True`, which writes `MODELOPT ... FLAT DFAULT`.
   Under DFAULT, AERMOD drops FLAT with warning W206 and runs the deck in
-  elevated terrain, using the receptor and source elevations.
+  elevated terrain, using the receptor and source elevations. A DFAULT
+  deck read with `read_aermod_input` whose `MODELOPT` names no terrain
+  token also draws the warning: the reader maps it to FLAT, so pyaermod
+  would write it back as `FLAT DFAULT`, although AERMOD runs the original
+  deck in elevated terrain without W206.
 - **Fix:** the validator warns. Set `regulatory_default=False` for a
   flat-terrain run, or `terrain_type=TerrainType.ELEVATED` to write what
   AERMOD will do.

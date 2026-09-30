@@ -103,8 +103,21 @@ def _aermod_rule_codes(case):
             if m.code in RULE_CODES}
 
 
-@pytest.mark.parametrize("case", sorted(
-    p.name for p in FIXTURES.iterdir() if (p / "aermod.inp").is_file()))
+#: Every recorded case. The recordings are force-added past .gitignore's
+#: ``*.inp``/``*.out``; a checkout without them must fail here rather than
+#: turn the parity test into an empty, skipped parametrize.
+CASES = sorted(p.name for p in FIXTURES.iterdir() if (p / "aermod.inp").is_file())
+
+
+def test_every_recorded_case_is_present():
+    assert CASES == ["bins25", "dfault_elev", "dfault_flat", "dfault_flatsrcs",
+                     "inpit", "inpit_rotated", "method1", "openpit_errors",
+                     "openpit_limits", "openpit_tiny_dimension"]
+    for case in CASES:
+        assert (FIXTURES / case / "aermod.out").is_file(), case
+
+
+@pytest.mark.parametrize("case", CASES)
 def test_validator_names_the_codes_aermod_raised(case):
     """Reading each recorded deck back, the validator raises exactly the
     rule codes AERMOD v26135 raised for it, and no others."""
@@ -115,7 +128,7 @@ def test_validator_names_the_codes_aermod_raised(case):
 def test_recorded_runs_are_what_the_rules_claim():
     """Guard the fixtures themselves: the runs that should fail did, and
     the rest (warnings only) ran to completion."""
-    for case in ("method1", "openpit_errors"):
+    for case in ("method1", "openpit_errors", "openpit_tiny_dimension"):
         text = (FIXTURES / case / "aermod.out").read_text()
         assert "AERMOD Finishes UN-successfully" in text, case
     for case in ("openpit_limits", "inpit", "inpit_rotated", "bins25",
@@ -158,6 +171,16 @@ class TestE322ReleaseHeightAboveDepth:
         # width gives a very deep pit rather than a zero-depth one.
         result = Validator.validate(_project([_pit(x_dimension=0.0, release_height=50.0)]))
         assert not _findings(result, "E322")
+
+    def test_depth_follows_the_substitution_below_1e_5_m(self):
+        # The recorded openpit_tiny_dimension run: soset.f 3549-3553 raises
+        # XINIT = 5e-6 m to 1e-5 m, then 3591 computes Deff = 1e-3 / (1e-5 *
+        # 100) = 1 m, so Hs = 1.5 m is E322. The raw width would give 2 m.
+        result = Validator.validate(_project([_pit(
+            x_dimension=5e-6, y_dimension=100.0, pit_volume=1e-3, release_height=1.5)]))
+        [finding] = _findings(result, "E322")
+        assert "= 1.00 m" in finding.message
+        assert Counter(_codes(result)) == Counter({"W320": 1, "W392": 1, "E322": 1})
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +291,12 @@ class TestReceptorsInsideThePit:
         table = _period_table(case)
         zeroed = sorted(p for p, conc in table.items() if conc == 0.0)
         assert len(zeroed) == 2 and len(table) > len(zeroed)
+        # AERMOD's own list: inpsum.f CHKREC names each receptor PNPOLY puts
+        # inside the pit, with OPENPIT in the distance column (FORMAT 9004).
+        listed = sorted((float(x), float(y)) for x, y in re.findall(
+            r"^\s+PIT\s+(-?\d+\.\d)\s+(-?\d+\.\d)\s+OPENPIT\s*$",
+            (FIXTURES / case / "aermod.out").read_text(), re.MULTILINE))
+        assert listed == zeroed
         result = Validator.validate(read_aermod_input(FIXTURES / case / "aermod.inp"))
         [warning] = _inside_warning(result)
         assert warning.severity == "warning"
@@ -366,12 +395,24 @@ class TestMethod1ParticleArrays:
         assert result.is_valid
 
     @pytest.mark.parametrize("diameter, bad", [(0.001, True), (0.0011, False),
-                                               (1000.0, False), (1000.5, True),
+                                               (1000.0, False), (1001.0, True),
                                                (0.0, True), (-1.0, True)])
     def test_e335_diameter_range(self, diameter, bad):
         # soset.f 4920-4922: DNUM .LE. 0.001 .OR. DNUM .GT. 1000.0
         result = self._result(_pm([diameter, 10.0]))
         assert bool(_findings(result, "E335")) is bad
+
+    @pytest.mark.parametrize("diameter, written, bad", [
+        (1000.4, "1000", False),   # recorded method1: 1000 accepted
+        (1000.5, "1000", False),
+        (0.0010004, "0.001", True),  # recorded method1: 0.001 is E335
+    ])
+    def test_e335_checks_the_diameter_as_written(self, tmp_path, diameter, written, bad):
+        # The writer puts PARTDIAM to 4 significant figures, and INPPDM tests
+        # the number in the deck, not the one in Python.
+        project = _project([_pit(particle_deposition=_pm([diameter, 5.0]))])
+        assert f"PARTDIAM  PIT      {written}  5\n" in project.to_aermod_input(validate=False)
+        assert bool(_findings(Validator.validate(project), "E335")) is bad
 
     @pytest.mark.parametrize("fractions, bad", [([1.1, -0.1], True), ([1.0, 0.0], False),
                                                 ([0.5, 0.5], False)])
@@ -404,13 +445,23 @@ class TestMethod1ParticleArrays:
         [e] = _findings(self._result(_pm([1.0, 2.0], densities=[0.0, 2.65])), "E334")
         assert e.severity == "error"
 
-    @pytest.mark.parametrize("density, warns", [(0.1, True), (0.05, True), (0.11, False)])
+    @pytest.mark.parametrize("density, warns", [(0.1, True), (0.05, True), (0.11, False),
+                                                # written as 0.1 (4 significant
+                                                # figures), which W334 flags
+                                                (0.10004, True)])
     def test_w334_density_at_or_below_0_1(self, density, warns):
         # soset.f 5171-5173: ELSE IF (DNUM .LE. 0.1D0) -> W334
         result = self._result(_pm([1.0, 2.0], densities=[density, 2.65]))
         found = _findings(result, "W334")
         assert bool(found) is warns
         assert result.is_valid
+
+    def test_w330_sums_the_fractions_as_written(self):
+        # MASSFRAX is written to 6 decimals: 0.4899996 twice sums to
+        # 0.9799992 in Python but reads back as 0.49 + 0.49 = 0.98, which
+        # SRCQA (soset.f 1222) does not warn about.
+        result = self._result(_pm([1.0, 2.0], [0.4899996, 0.4899996]))
+        assert not _findings(result, "W330")
 
     def test_e240_category_counts_disagree(self):
         # soset.f 1216-1219
@@ -440,6 +491,10 @@ class TestDfaultWithFlat:
             output=OutputPathway(),
         )), "W206")
         assert w.severity == "warning" and w.pathway == "ControlPathway"
+        # The warning is about the deck pyaermod writes: read_aermod_input
+        # maps a MODELOPT with no terrain token to FLAT, and the writer
+        # then writes FLAT DFAULT, which AERMOD itself would not see.
+        assert "pyaermod writes FLAT with DFAULT" in w.message
 
     def test_flatsrcs_warns(self):
         # FLAT ELEV DFAULT: the FLAT token still draws W206 (dfault_flatsrcs)

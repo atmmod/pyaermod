@@ -57,7 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Height Exceeds Effective Depth for OPENPIT`, `soset.f` OPARM), so the
   validator passed a deck that could not run and `project.write()` wrote
   it. It is now an error, and `write()` refuses the deck. The depth is
-  computed as AERMOD does, with a zero dimension raised to 1e-5 m.
+  computed as AERMOD does, with a dimension below 1e-5 m (zero included)
+  raised to 1e-5 m.
 - **The validator rejected more than 20 particle categories.** AERMOD
   has no such limit: `soset.f` sizes its particle arrays to the deck, and
   a 25-category OPENPIT deck runs to completion. The cap is gone.
@@ -66,7 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.02; a sum of 0.985 no longer draws a warning.
 - **Particle diameters were checked only for being positive.** AERMOD
   refuses a diameter of 0.001 µm or less, or above 1000 µm (E335); the
-  validator now does too.
+  validator now does too. The particle checks test the values as the
+  deck carries them: the writer rounds `PARTDIAM` and `PARTDENS` to 4
+  significant figures and `MASSFRAX` to 6 decimals, so a 1000.4 µm
+  diameter, written as 1000, is accepted as AERMOD accepts it, and a
+  0.10004 g/cm³ density, written as 0.1, draws W334.
 
 ### Added
 - **The validator applies AERMOD v26135's remaining OPENPIT and Method 1
@@ -80,11 +85,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   named on the existing count and density errors. Receptors that lie
   strictly inside an open pit draw a warning with their count and first
   coordinates: AERMOD skips them for that source and reports 0 there
-  without any message (`calc1.f` PITCALC); receptors on the edge are
-  modelled. `regulatory_default=True` with `terrain_type` FLAT or
-  FLATSRCS draws a warning: under DFAULT, AERMOD drops FLAT with W206 and
-  runs in elevated terrain. `ControlPathway`'s defaults are exactly that
-  pair, so a default project now carries this warning.
+  (`calc1.f` PITCALC). It raises no message code for them; it only lists
+  them, marked OPENPIT, in the input summary's table of source-receptor
+  pairs for which calculations may not be performed (`inpsum.f` CHKREC).
+  Receptors on the edge are modelled. `regulatory_default=True` with
+  `terrain_type` FLAT or FLATSRCS draws a warning: pyaermod writes FLAT
+  with DFAULT, and AERMOD drops FLAT with W206 and runs in elevated
+  terrain. `ControlPathway`'s defaults are exactly that pair, so a
+  default project now carries this warning. So does a DFAULT deck read
+  back with `read_aermod_input` when its `MODELOPT` names no terrain
+  token: the reader maps that to FLAT, and pyaermod would write it back
+  as `FLAT DFAULT`, although AERMOD runs the original deck in elevated
+  terrain with no W206.
   `tests/test_validator_openpit_method1.py` checks every rule against
   real v26135 runs recorded in `tests/fixtures/validator_openpit/`.
 
