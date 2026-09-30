@@ -234,6 +234,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **`AERMODRunner.run_batch` returned its results in the order the runs
+  finished, not the order of the decks.** `zip(input_files, results)`
+  paired decks with other decks' results whenever a later deck finished
+  first; the 2026-09-29 demonstration pilot had to re-key its first batch
+  by hand. `results[i]` now belongs to `input_files[i]` however the runs
+  finish, and a run that raised in its worker carries its deck's
+  absolute path like every other result. With `stop_on_error=True` the
+  list also holds one result per deck: runs already under way when the
+  batch stops are waited for and filed in their place (they used to be
+  dropped, which shifted every later pair), and a deck never started
+  gets `success=False` with "Not run: the batch stopped after an earlier
+  run failed". The docstring and `docs/common-errors.md` now say that a
+  script calling `run_batch` or `BatchRunner.parameter_sweep` on macOS or
+  Windows must do so under `if __name__ == "__main__":`: those platforms
+  start workers with `spawn`, and without the guard every run came back
+  failed with "A process in the process pool was terminated abruptly".
+  `tests/test_runner_batch.py` makes four decks finish in reverse order
+  and checks the results come back in input order.
+- **`resume_batch` counted runs as done that were not, and a timed-out
+  run left the previous run's `.out` under the deck's name.**
+  `resume_batch` called a deck done when the last 50 lines of its `.out`
+  contained "FINISHES SUCCESSFULLY", which `*** SETUP Finishes
+  Successfully ***` also matches, and it never asked whether the `.out`
+  came from the current deck. On a timeout `AERMODRunner.run` skipped
+  renaming `aermod.out`, so the partial output of the re-run stayed as
+  `aermod.out` and the earlier, successful `<deck>.out` survived: the
+  2026-09-29 defect verification re-ran an edited deck, the re-run timed
+  out, and `resume_batch` still called it done. A run that wrote no
+  `.out` at all was judged by the one an earlier run had left. Now
+  `resume_batch` applies `AERMODRunner.run`'s own test (AERMOD's
+  `*** AERMOD Finishes Successfully ***` line and no fatal error in the
+  final message summary) and requires the `.out` to come from the deck
+  as it is now: AERMOD copies the runstream to the top of the `.out`,
+  and `resume_batch` compares that copy with the deck's text, so a deck
+  written again with the same content stays done and an edited one does
+  not, whatever the file times say. File times decide only what the copy
+  cannot show: a deck with `NO ECHO`, and the files named on `INCLUDED`
+  records, are stale when newer than the `.out`. `run` removes the deck's `.out`, `.err` and `.sum` and any
+  leftover `aermod.out`, `.err` and `.sum` before it starts AERMOD, and
+  keeps a timed-out run's partial output as `<deck>.out`, reported in
+  `output_file`. **A timed-out or crashed re-run no longer leaves the
+  earlier run's output in place.**
+- **`AERMODRunner.run` deleted a deck named `aermod.inp`, EPA's default
+  name.** It replaced `<working_dir>/aermod.inp` with a link to the deck,
+  which was that same file, so the deck was deleted, the link pointed to
+  itself, and the run failed with "AERMOD exited with code 0 but wrote no
+  aermod.out". A deck already named `aermod.inp` in the working directory
+  now runs in place and is left alone, as is a link named `aermod.inp`
+  that points to the deck (the runner used to replace such a link and
+  remove it after the run). **Running any other deck in a directory that
+  holds a deck named `aermod.inp` deleted that deck, and the run then
+  overwrote its `aermod.out`**; such a run now fails before it starts,
+  with "The working directory ... already holds another deck named
+  aermod.inp", and leaves both files alone. Give it its own
+  `working_dir`, or rename the base deck. Where links cannot be made
+  (Windows without the privilege), the copy the runner makes instead is
+  marked by a `.pyaermod-aermod-inp.sha256` file beside it, so that a
+  copy left behind when Python is killed mid-run is replaced by the next
+  run rather than taken for a deck. With a `working_dir` apart from
+  the deck, the link named only the deck's file, so it pointed to a file
+  that did not exist there; it now holds the deck's path relative to the
+  working directory.
+- **A killed AERMOD run was reported as "AERMOD did not report
+  success".** A run stopped by a signal (the pilot ended its slowest
+  run, an area source, with SIGTERM) now reads "AERMOD was stopped by
+  SIGTERM (signal 15) before it finished; its output ends where the run
+  was cut off", and a timeout reads "Execution timed out after N
+  seconds; AERMOD was stopped before it finished". The runner recordings
+  in `tests/fixtures/runner/` gain a run killed with SIGTERM part way
+  through, and the audit's E322 (OPENPIT release height above the pit's
+  effective depth) and E140 (SRCGROUP inside a source block) decks, both
+  of which AERMOD ends with exit code 0 and which the runner reports as
+  failures.
 - **GUI: Results now updates when a run finishes** (defect D2). The shell
   built every tab once per page load, so Results kept saying "No run yet"
   after a run. Results and the Run tab's status are now rebuilt from the

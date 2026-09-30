@@ -10,7 +10,13 @@ These tests pin that rule against real AERMOD v26135 runs recorded in
 * ``runtime_error_e480/``: exits 0 after fatal error E480 (ANNUAL
   averages with four days of met data), the GUI's "Run succeeded" bug;
 * ``setup_error_e500/``: exits 0 after fatal error E500 (a missing
-  surface file) during setup.
+  surface file) during setup;
+* ``setup_error_e322_openpit/`` and ``setup_error_e140_srcgroup/``: the
+  2026-09-29 audit's OPENPIT deck with its release height above the
+  pit's effective depth (E322) and its two-pit deck with SRCGROUP inside
+  the source blocks (E140), both fatal at setup with exit code 0;
+* ``killed_sigterm/``: a run stopped with SIGTERM part way through, which
+  the fake replays by killing itself with the same signal.
 
 The fake ``aermod`` below replays those recordings: it finds the
 recording whose deck matches ``aermod.inp`` and writes back its stdout,
@@ -44,6 +50,9 @@ RECORDINGS = Path(__file__).parent / "fixtures" / "runner"
 SUCCESS = RECORDINGS / "success"
 E480 = RECORDINGS / "runtime_error_e480"
 E500 = RECORDINGS / "setup_error_e500"
+E322 = RECORDINGS / "setup_error_e322_openpit"
+E140 = RECORDINGS / "setup_error_e140_srcgroup"
+KILLED = RECORDINGS / "killed_sigterm"
 
 SUCCESS_WARNINGS = ["W206", "W361", "W362", "W362", "W214", "W403"]
 E480_TEXT = "Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave"
@@ -64,9 +73,22 @@ def _out_text(case: Path) -> str:
 class TestRecordings:
     """The recordings show what the rule is built on."""
 
-    @pytest.mark.parametrize("case", [SUCCESS, E480, E500], ids=lambda p: p.name)
+    @pytest.mark.parametrize("case", [SUCCESS, E480, E500, E322, E140], ids=lambda p: p.name)
     def test_aermod_exits_zero_in_every_case(self, case):
         assert (case / "exit_code.txt").read_text().strip() == "0"
+
+    def test_killed_run_just_stops(self):
+        """SIGTERM leaves the setup banner and nothing that says the run failed."""
+        assert (KILLED / "exit_code.txt").read_text().strip() == "143"
+        text = _out_text(KILLED)
+        assert "*** SETUP Finishes Successfully ***" in text
+        assert "AERMOD Finishes" not in text
+        assert "Message Summary : AERMOD Model Execution" not in text
+        # Only the setup summary is there, and it lists no fatal error.
+        summary = _read_message_summary(KILLED / "aermod.out")
+        assert summary.finished_successfully is False
+        assert summary.counts["E"] == 0
+        assert {m.severity for m in summary.messages} == {"W"}
 
     def test_failed_run_still_prints_the_setup_success_banner(self):
         """Why "FINISHES SUCCESSFULLY" anywhere in the file is not a success test."""
@@ -194,7 +216,10 @@ for case in "{recordings}"/*/; do
     if cmp -s aermod.inp "$case/aermod.inp"; then
         cat "$case/stdout.txt"
         cp "$case/aermod.out" aermod.out
-        exit "$(cat "$case/exit_code.txt")"
+        code="$(cat "$case/exit_code.txt")"
+        # The shell reports death by signal N as 128 + N: die the same way.
+        if [ "$code" -gt 128 ]; then kill -"$((code - 128))" $$; fi
+        exit "$code"
     fi
 done
 echo "no recording for this deck" >&2
@@ -296,8 +321,9 @@ class TestRunnerVerdict:
 
     def test_nonzero_exit_fails_even_with_a_good_out_file(self, replay_bin, tmp_path):
         exe = replay_bin / "aermod"
-        exe.write_text(exe.read_text().replace(
-            'exit "$(cat "$case/exit_code.txt")"', "exit 3"))
+        replay = exe.read_text()
+        assert 'exit "$code"' in replay
+        exe.write_text(replay.replace('exit "$code"', "exit 3"))
         result = _run(SUCCESS, replay_bin, tmp_path / "w")
         assert result.finished_successfully is True
         assert result.fatal_count == 0
@@ -353,6 +379,264 @@ class TestRunnerVerdict:
         assert result.output_file is None
         assert result.error_message == "AERMOD exited with code 0 but wrote no run.out"
 
+    @pytest.mark.parametrize(("case", "codes"), [
+        (E322, ["E322"]),
+        (E140, ["E140", "E140"]),
+    ], ids=["e322_openpit", "e140_srcgroup"])
+    def test_audit_setup_errors_fail(self, replay_bin, tmp_path, case, codes):
+        """The audit's E322 and E140 decks: exit code 0, fatal at setup."""
+        result = _run(case, replay_bin, tmp_path / "w")
+        assert result.return_code == 0
+        assert result.success is False
+        assert result.finished_successfully is False
+        assert [m.code for m in result.fatal_messages] == codes
+        assert result.error_message.startswith(f"{codes[0]} ")
+
+    def test_sigterm_reports_the_signal(self, replay_bin, tmp_path):
+        """A killed run says it was killed, not that a banner is missing."""
+        result = _run(KILLED, replay_bin, tmp_path / "w")
+        assert result.return_code == -15
+        assert result.success is False
+        assert result.output_file == str(tmp_path / "w" / "run.out")
+        assert result.error_message == (
+            "AERMOD was stopped by SIGTERM (signal 15) before it finished; "
+            "its output ends where the run was cut off"
+        )
+
+    def test_earlier_out_does_not_stand_in_for_this_run(self, replay_bin, tmp_path):
+        """A run that writes no .out must not be judged by the last run's."""
+        work = tmp_path / "w"
+        first = _run(SUCCESS, replay_bin, work)
+        assert first.success is True
+        exe = replay_bin / "aermod"
+        exe.write_text("#!/bin/bash\nexit 0\n")
+        result = AERMODRunner(executable_path=exe, log_level="WARNING").run(
+            work / "run.inp", working_dir=work)
+        assert result.success is False
+        assert result.output_file is None
+        assert result.error_message == "AERMOD exited with code 0 but wrote no run.out"
+        assert not (work / "run.out").exists()
+
+    def test_leftover_aermod_out_is_not_adopted(self, tmp_path):
+        """An aermod.out left by an interrupted run is not this run's output."""
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work)
+        shutil.copy(SUCCESS / "aermod.out", work / "aermod.out")
+        exe = tmp_path / "aermod"
+        exe.write_text("#!/bin/bash\nexit 0\n")
+        exe.chmod(0o755)
+        result = AERMODRunner(executable_path=exe, log_level="WARNING").run(inp, working_dir=work)
+        assert result.success is False
+        assert result.output_file is None
+        assert not (work / "aermod.out").exists()
+
+    def test_timeout_keeps_this_runs_partial_out(self, tmp_path):
+        """The .out a timed-out run leaves is its own, not the last run's."""
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work)
+        shutil.copy(SUCCESS / "aermod.out", work / "run.out")  # an earlier run
+        exe = tmp_path / "aermod"
+        exe.write_text(
+            "#!/bin/bash\n"
+            f'cp "{KILLED}/aermod.out" aermod.out\n'
+            "exec sleep 60\n"
+        )
+        exe.chmod(0o755)
+        result = AERMODRunner(executable_path=exe, log_level="WARNING").run(
+            inp, working_dir=work, timeout=5)
+        assert result.success is False
+        assert result.error_message == (
+            "Execution timed out after 5 seconds; AERMOD was stopped before it finished"
+        )
+        assert result.output_file == str(work / "run.out")
+        assert (work / "run.out").read_bytes() == (KILLED / "aermod.out").read_bytes()
+        assert not (work / "aermod.out").exists()
+
+    def test_deck_named_aermod_inp_runs_in_place(self, replay_bin, tmp_path):
+        """EPA's default deck name: the runner used to delete the deck.
+
+        It replaced ``<work_dir>/aermod.inp`` with a link to the deck,
+        which was ``aermod.inp`` itself, so the deck was deleted and the
+        link pointed to itself; AERMOD then found no input.
+        """
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work, "aermod")
+        deck = inp.read_bytes()
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(inp)
+        assert result.success is True, result.error_message
+        assert result.output_file == str(work / "aermod.out")
+        assert not inp.is_symlink()
+        assert inp.read_bytes() == deck
+
+    def test_a_sibling_deck_leaves_aermod_inp_and_its_results(self, replay_bin, tmp_path):
+        """A base deck named aermod.inp beside a variant survives the variant's run.
+
+        The runner used to delete ``<work_dir>/aermod.inp`` to link the
+        variant in its place, and to remove ``aermod.out``, the base
+        deck's results, as a leftover.
+        """
+        work = tmp_path / "w"
+        base = _stage(SUCCESS, work, "aermod")
+        variant = _stage(SUCCESS, work, "case2")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        assert runner.run(base).success is True
+        deck = base.read_bytes()
+        results = (work / "aermod.out").read_bytes()
+
+        result = runner.run(variant)
+        assert result.success is False
+        assert "already holds another deck named aermod.inp" in result.error_message
+        assert result.input_file == str(variant)
+        assert not base.is_symlink()
+        assert base.read_bytes() == deck
+        assert (work / "aermod.out").read_bytes() == results
+        assert not (work / "case2.out").exists()
+
+        # The same variant runs in a working directory of its own.
+        apart = runner.run(variant, working_dir=tmp_path / "apart")
+        assert apart.success is True, apart.error_message
+
+    def test_run_batch_beside_aermod_inp_keeps_it(self, replay_bin, tmp_path):
+        work = tmp_path / "w"
+        base = _stage(SUCCESS, work, "aermod")
+        variant = _stage(SUCCESS, work, "case2")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        results = runner.run_batch([base, variant], n_workers=1)
+        assert [r.success for r in results] == [True, False]
+        assert "named aermod.inp" in results[1].error_message
+        assert base.read_bytes() == (SUCCESS / "aermod.inp").read_bytes()
+        assert (work / "aermod.out").exists()
+
+    @pytest.mark.parametrize("given", ["link", "target"])
+    def test_a_link_named_aermod_inp_to_the_deck_stays(self, replay_bin, tmp_path, given):
+        """``aermod.inp -> real.inp`` runs in place whichever name is given.
+
+        The runner replaced the link with its own, then removed it after
+        the run.
+        """
+        work = tmp_path / "w"
+        real = _stage(SUCCESS, work, "real")
+        link = work / "aermod.inp"
+        link.symlink_to("real.inp")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(link if given == "link" else real)
+        assert result.success is True, result.error_message
+        # The deck is named by the file the link resolves to.
+        assert result.output_file == str(work / "real.out")
+        assert link.is_symlink()
+        assert os.readlink(link) == "real.inp"
+        assert real.read_bytes() == (SUCCESS / "aermod.inp").read_bytes()
+
+    def test_a_link_named_aermod_inp_to_another_deck_is_replaced(self, replay_bin, tmp_path):
+        """A link is this runner's to replace; the deck it pointed to is untouched."""
+        work = tmp_path / "w"
+        other = _stage(E480, work, "other")
+        inp = _stage(SUCCESS, work, "run")
+        (work / "aermod.inp").symlink_to("other.inp")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(inp)
+        assert result.success is True, result.error_message
+        assert not (work / "aermod.inp").is_symlink()
+        assert not (work / "aermod.inp").exists()
+        assert other.read_bytes() == (E480 / "aermod.inp").read_bytes()
+
+    @staticmethod
+    def _no_links(monkeypatch):
+        """Make symbolic links fail, as on Windows without the privilege."""
+        def _refuse(self, *args, **kwargs):
+            raise OSError("symbolic link privilege not held")
+        monkeypatch.setattr(Path, "symlink_to", _refuse)
+
+    def test_the_copy_fallback_cleans_up(self, replay_bin, tmp_path, monkeypatch):
+        self._no_links(monkeypatch)
+        work = tmp_path / "w"
+        result = _run(SUCCESS, replay_bin, work)
+        assert result.success is True, result.error_message
+        assert not (work / "aermod.inp").exists()
+        assert not (work / ".pyaermod-aermod-inp.sha256").exists()
+
+    @pytest.mark.parametrize("next_deck", ["same", "other"])
+    def test_a_copy_left_by_a_killed_runner_is_replaced(self, replay_bin, tmp_path,
+                                                        monkeypatch, next_deck):
+        """The copy fallback's aermod.inp, left when Python is killed mid-run.
+
+        The runner took that copy for another deck named aermod.inp and
+        refused every later run in the directory, this deck's included.
+        Here the fake AERMOD SIGKILLs the Python process that started it,
+        so the runner's cleanup never runs.
+        """
+        work = tmp_path / "w"
+        # The killed run's deck: this one, or another deck (other bytes).
+        first = _stage(SUCCESS if next_deck == "same" else E480, work, "case1")
+        killer = tmp_path / "kill_parent"
+        killer.write_text("#!/bin/bash\nkill -9 $PPID\n")
+        killer.chmod(0o755)
+        child = (
+            "from pathlib import Path\n"
+            "def _refuse(self, *a, **k):\n"
+            "    raise OSError('symbolic link privilege not held')\n"
+            "Path.symlink_to = _refuse\n"
+            "from pyaermod.runner import AERMODRunner\n"
+            f"AERMODRunner(executable_path={str(killer)!r}, log_level='CRITICAL')"
+            f".run({str(first)!r})\n"
+        )
+        env = {**os.environ, "PYTHONPATH": str(Path(pyaermod.__file__).parents[1])}
+        killed = subprocess.run([sys.executable, "-c", child], env=env, timeout=60)
+        assert killed.returncode == -9
+        left = work / "aermod.inp"
+        assert left.is_file() and not left.is_symlink()
+        assert left.read_bytes() == first.read_bytes()
+
+        self._no_links(monkeypatch)
+        deck = first if next_deck == "same" else _stage(SUCCESS, work, "case2")
+        assert (deck.read_bytes() == left.read_bytes()) == (next_deck == "same")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(deck)
+        assert result.success is True, result.error_message
+        assert result.output_file == str(work / f"{deck.stem}.out")
+        assert not left.exists()
+        assert not (work / ".pyaermod-aermod-inp.sha256").exists()
+
+    def test_an_unmarked_copy_of_the_deck_is_kept(self, replay_bin, tmp_path, monkeypatch):
+        """Matching bytes alone do not make aermod.inp the runner's copy.
+
+        A variant copied from a base deck kept as aermod.inp, and not yet
+        edited, has the base deck's bytes; the base deck is still a deck.
+        """
+        self._no_links(monkeypatch)
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work)
+        shutil.copy2(inp, work / "aermod.inp")
+        result = _run(SUCCESS, replay_bin, work)
+        assert result.success is False
+        assert "already holds another deck named aermod.inp" in result.error_message
+        assert (work / "aermod.inp").read_bytes() == inp.read_bytes()
+
+    def test_a_marker_does_not_cover_a_deck_put_in_the_copys_place(self, replay_bin, tmp_path):
+        """The marker names the copy's bytes, so a deck written over it is kept."""
+        work = tmp_path / "w"
+        base = _stage(E480, work, "aermod")
+        (work / ".pyaermod-aermod-inp.sha256").write_text("0" * 64 + "\n")
+        variant = _stage(SUCCESS, work, "case2")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(variant)
+        assert result.success is False
+        assert "already holds another deck named aermod.inp" in result.error_message
+        assert base.read_bytes() == (E480 / "aermod.inp").read_bytes()
+
+    @pytest.mark.parametrize("name", ["run", "aermod"])
+    def test_working_dir_apart_from_the_deck(self, replay_bin, tmp_path, name):
+        """The aermod.inp link reaches a deck in another directory."""
+        inp = _stage(SUCCESS, tmp_path / "decks", name)
+        work = tmp_path / "w"
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(inp, working_dir=work)
+        assert result.success is True, result.error_message
+        assert result.output_file == str(work / f"{name}.out")
+        assert not (work / "aermod.inp").exists()
+        assert inp.read_bytes() == (SUCCESS / "aermod.inp").read_bytes()
+
     def test_run_batch_inherits_the_verdict(self, replay_bin, tmp_path):
         work = tmp_path / "batch"
         inputs = [_stage(SUCCESS, work, "ok"), _stage(E480, work, "annual")]
@@ -403,6 +687,14 @@ class TestExtractErrorMessage:
             "E500 MEOPEN: Fatal Error Occurs Opening the Data File of SURFFILE "
             "(and 1 more fatal error(s))"
         )
+
+    def test_signal_without_a_name(self, tmp_path):
+        proc = CompletedProcess(args=[], returncode=-200, stdout="", stderr="")
+        files = {"error": tmp_path / "run.err", "output": KILLED / "aermod.out"}
+        msg = self._runner(tmp_path)._extract_error_message(
+            proc, files, messages=[], finished_successfully=False,
+        )
+        assert msg.startswith("AERMOD was stopped by signal 200 before it finished")
 
     def test_summary_heading_is_not_taken_for_an_error(self, tmp_path):
         """Without parsed messages the .out scan skips AERMOD's section heading."""

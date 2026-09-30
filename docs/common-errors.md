@@ -82,6 +82,33 @@ them, and which pyaermod helper catches them earlier.
 - **Fix:** `ControlPathway` defaults to `RUN`; if you see `NOT`
   somewhere, that's why.
 
+### "The working directory ... already holds another deck named aermod.inp"
+
+- **Cause:** AERMOD reads its deck from `aermod.inp` in the working
+  directory and writes `aermod.out` there. The runner links your deck
+  to that name and renames the outputs after the run. When the
+  directory already holds a different deck named `aermod.inp`, such as
+  a base case kept under EPA's default name beside its variants, the
+  run would replace that deck and overwrite its `aermod.out`, so the
+  runner refuses and starts nothing. In `run_batch` only the variants
+  fail this way; the `aermod.inp` deck itself runs in place.
+- **Fix:** rename the base deck (`base.inp`), or give the variant its
+  own `working_dir`. A deck that is itself `aermod.inp`, or that
+  `aermod.inp` is a symbolic link to, runs in place and the link is left
+  as it is; its outputs are named after the file the link points to. A
+  link named `aermod.inp` that points to some other file is replaced for
+  the run and removed after it; the file it pointed to is not touched.
+- **Where links cannot be made** (Windows without the symbolic-link
+  privilege), the runner copies the deck to `aermod.inp` for the run and
+  writes `.pyaermod-aermod-inp.sha256` beside it; both are removed after
+  the run. If the Python process is killed mid-run (a closed terminal,
+  Task Manager, a restarted GUI server), they stay behind, and the next
+  run in that directory knows the copy as its own, by the SHA-256 in
+  that file, and replaces it. Any other `aermod.inp` is a deck and is
+  kept, even one with the same bytes as the deck being run (a variant
+  copied from the base deck and not yet edited); a stray copy made by
+  hand, or by a runner older than this marker, has to be deleted by hand.
+
 ### "ANNUAL average requested, ran for single day"
 
 - **Cause:** `met.start_*` / `met.end_*` specify a single day but
@@ -128,6 +155,78 @@ print(summarize_failure(result.input_file, working_dir))
 
 That prints ERRMSG content plus the tail of `.OUT`, which is almost
 always enough to identify the cause without copying files manually.
+
+### "AERMOD was stopped by SIGTERM (signal 15) before it finished"
+
+- **Cause:** something outside AERMOD ended the process: `kill`, a job
+  scheduler's time limit, a closed terminal. On POSIX the runner sees
+  the signal as a negative return code (`result.return_code == -15`)
+  and names it. The `.out` ends wherever the run was cut off; it can
+  hold `*** SETUP Finishes Successfully ***` but never AERMOD's final
+  banner.
+- **Timeouts** read "Execution timed out after N seconds; AERMOD was
+  stopped before it finished". The partial `.out` is kept as
+  `<deck>.out`, so it can be inspected, and it replaces whatever an
+  earlier run of the deck left there.
+- **Fix:** run the deck again with more time. `resume_batch` counts
+  either kind of run as still to do.
+
+## Batch runs
+
+### Every run fails with "A process in the process pool was terminated abruptly"
+
+- **Cause:** the script calls `run_batch` (or `BatchRunner.parameter_sweep`)
+  at the top level, without an `if __name__ == "__main__":` guard. On
+  macOS and Windows, Python starts the worker processes with `spawn`,
+  which imports the calling script again in each worker; each worker
+  then tries to start a batch of its own and stops with "An attempt has
+  been made to start a new process before the current process has
+  finished its bootstrapping phase". Linux uses `fork` and does not
+  show the problem, so a script can work there and fail on a laptop.
+- **Fix:** put the batch under the guard:
+
+```python
+from pyaermod import AERMODRunner
+
+if __name__ == "__main__":
+    runner = AERMODRunner()
+    results = runner.run_batch(["a.inp", "b.inp", "c.inp"], n_workers=3)
+    for deck, result in zip(["a.inp", "b.inp", "c.inp"], results):
+        print(deck, result.success)
+```
+
+### Pairing results with decks
+
+`run_batch` returns the results in the order of its input list, whatever
+order the runs finish in, so `zip(input_files, results)` pairs each deck
+with its own result (earlier versions returned the list in finishing
+order). Each result's `input_file` is the deck's absolute path. With
+`stop_on_error=True` the list still holds one result per deck: runs
+already under way when the batch stops finish and keep their place, and
+a deck that was never started has `success=False` and the
+`error_message` "Not run: the batch stopped after an earlier run
+failed".
+
+### Resuming an interrupted batch
+
+`resume_batch(input_files, output_dir)` counts a deck as done only when
+its `<deck>.out` passes the same test `AERMODRunner.run` applies (the
+`*** AERMOD Finishes Successfully ***` line and no fatal error in the
+final message summary) and came from the deck as it is now. AERMOD
+copies the runstream to the top of the `.out`, and `resume_batch`
+compares that copy with the deck's text. A failed, killed or timed-out
+run, and an `.out` left from before the deck was edited, are all still
+to do.
+
+Because the check reads content, not file times, a script may write
+every deck again before it resumes (as `BatchRunner.parameter_sweep`
+does): a deck written with the same text stays done, and so does one
+copied without `cp -p`. File times decide only what the copy cannot
+show. A deck with `NO ECHO` is run again when it is newer than its
+`.out`, and so is a deck whose `INCLUDED` file (looked up relative to
+the deck's directory) is newer than its `.out`. Met files and other
+inputs the deck names are not checked: after changing one of those,
+delete the affected `.out` files.
 
 ## Before you file a bug
 

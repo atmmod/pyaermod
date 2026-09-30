@@ -1,0 +1,434 @@
+CO STARTING
+   TITLEONE  Killed run: a slow area source, Albany NY met
+   TITLETWO  Stopped with SIGTERM part way through the met data
+   MODELOPT  CONC FLAT DFAULT
+   AVERTIME  1 3 24 PERIOD
+   POLLUTID  SO2
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1   POINT        0.0000       0.0000     0.00
+   SRCPARAM  STACK1   100.000000    65.00   425.00    18.00     3.00
+   LOCATION  AREA1    AREA      -250.0000    -250.0000     0.00
+   SRCPARAM  AREA1    0.0001    2.00   500.00   500.00
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  GRID1    STA
+   GRIDPOLR  GRID1    ORIG        0.00       0.00
+   GRIDPOLR  GRID1    DIST  100  200  300  400  500  600  700  800  900  1000
+   GRIDPOLR  GRID1    GDIR  36  0  10
+   GRIDPOLR  GRID1    END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735.0  1988.0
+   UAIRDATA  14735.0  1988.0
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            6 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       4       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ CO W361       8       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
+ CO W362       8       COCARD: Multiyear 1h NO2/SO2 processing not applicable for     3-hr Ave
+ CO W362       8       COCARD: Multiyear 1h NO2/SO2 processing not applicable for    24-hr Ave
+ RE W214      23       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
+ MX W403      32       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Uses Regulatory DEFAULT Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * NO GAS DEPOSITION Data Provided.
+      * NO PARTICLE DEPOSITION Data Provided.
+      * Model Uses NO DRY DEPLETION. DDPLETE  =  F
+      * Model Uses NO WET DEPLETION. WETDPLT  =  F
+      * Stack-tip Downwash.
+      * Model Accounts for ELEVated Terrain Effects.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: SO2     
+
+ **NOTE: Special processing requirements applicable for the 1-hour SO2 NAAQS have been disabled!!!
+         User has specified non-standard averaging periods:    3-HR  24-HR                
+         High ranked 1-hour values are NOT averaged across the number of years modeled, and
+         complete years of data are NOT required.
+  
+ **Model Calculates  3 Short Term Average(s) of:   1-HR   3-HR  24-HR
+     and Calculates PERIOD Averages
+  
+ **This Run Includes:      2 Source(s);       1 Source Group(s); and     360 Receptor(s)
+
+                with:      1 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      1 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      0 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of PERIOD Averages by Receptor
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =     0.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+                  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+  
+ **Approximate Storage Requirements of Model =      3.6 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                                  *** POINT SOURCE DATA ***
+
+               NUMBER EMISSION RATE                    BASE     STACK   STACK    STACK     STACK    BLDG   URBAN  CAP/  EMIS RATE
+   SOURCE       PART.  (GRAMS/SEC)     X        Y      ELEV.    HEIGHT  TEMP.   EXIT VEL. DIAMETER  EXISTS SOURCE HOR   SCALAR
+     ID         CATS.               (METERS) (METERS) (METERS) (METERS) (DEG.K)  (M/SEC)  (METERS)                      VARY BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ STACK1           0   0.10000E+03       0.0       0.0     0.0    65.00   425.00    18.00     3.00    NO      NO    NO         
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                                  *** AREA SOURCE DATA ***
+
+               NUMBER EMISSION RATE  COORD (SW CORNER)  BASE     RELEASE  X-DIM     Y-DIM    ORIENT.    INIT.   URBAN  EMISSION RATE  AIRCRAFT
+   SOURCE       PART.  (GRAMS/SEC       X        Y      ELEV.    HEIGHT  OF AREA   OF AREA   OF AREA     SZ     SOURCE  SCALAR VARY
+     ID         CATS.   /METER**2)   (METERS) (METERS) (METERS) (METERS) (METERS)  (METERS)   (DEG.)  (METERS)              BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ AREA1            0   0.10000E-03    -250.0    -250.0     0.0     2.00    500.00    500.00      0.00     0.00     NO                     NO 
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        STACK1      , AREA1       ,
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                        *** GRIDDED RECEPTOR NETWORK SUMMARY ***
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                          *** ORIGIN FOR POLAR NETWORK ***
+                                X-ORIG =      0.00 ;   Y-ORIG =       0.00  (METERS)
+
+                                          *** DISTANCE RANGES OF NETWORK ***
+                                                    (METERS)
+
+          100.0,     200.0,     300.0,     400.0,     500.0,     600.0,     700.0,     800.0,     900.0,    1000.0,
+
+
+                                          *** DIRECTION RADIALS OF NETWORK *** 
+                                                    (DEGREES)
+
+          360.0,      10.0,      20.0,      30.0,      40.0,      50.0,      60.0,      70.0,      80.0,      90.0,
+          100.0,     110.0,     120.0,     130.0,     140.0,     150.0,     160.0,     170.0,     180.0,     190.0,
+          200.0,     210.0,     220.0,     230.0,     240.0,     250.0,     260.0,     270.0,     280.0,     290.0,
+          300.0,     310.0,     320.0,     330.0,     340.0,     350.0,
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                                * ELEVATION HEIGHTS IN METERS *
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        100.00       200.00       300.00       400.00       500.00       600.00       700.00       800.00       900.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       10.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       20.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       30.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       40.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       50.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       60.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       70.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       80.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       90.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      100.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      110.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      120.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      130.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      140.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      150.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      160.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      170.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      180.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      190.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      200.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      210.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      220.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      230.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      240.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      250.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      260.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      270.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      280.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      290.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      300.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      310.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      320.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      330.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      340.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      350.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                                * ELEVATION HEIGHTS IN METERS *
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |       1000.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |          0.00
+       10.00 |          0.00
+       20.00 |          0.00
+       30.00 |          0.00
+       40.00 |          0.00
+       50.00 |          0.00
+       60.00 |          0.00
+       70.00 |          0.00
+       80.00 |          0.00
+       90.00 |          0.00
+      100.00 |          0.00
+      110.00 |          0.00
+      120.00 |          0.00
+      130.00 |          0.00
+      140.00 |          0.00
+      150.00 |          0.00
+      160.00 |          0.00
+      170.00 |          0.00
+      180.00 |          0.00
+      190.00 |          0.00
+      200.00 |          0.00
+      210.00 |          0.00
+      220.00 |          0.00
+      230.00 |          0.00
+      240.00 |          0.00
+      250.00 |          0.00
+      260.00 |          0.00
+      270.00 |          0.00
+      280.00 |          0.00
+      290.00 |          0.00
+      300.00 |          0.00
+      310.00 |          0.00
+      320.00 |          0.00
+      330.00 |          0.00
+      340.00 |          0.00
+      350.00 |          0.00
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                                * HILL HEIGHT SCALES IN METERS *
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        100.00       200.00       300.00       400.00       500.00       600.00       700.00       800.00       900.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       10.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       20.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       30.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       40.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       50.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       60.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       70.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       80.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+       90.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      100.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      110.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      120.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      130.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      140.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      150.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      160.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      170.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      180.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      190.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      200.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      210.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      220.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      230.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      240.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      250.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      260.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      270.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      280.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      290.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      300.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      310.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      320.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      330.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      340.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+      350.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                                * HILL HEIGHT SCALES IN METERS *
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |       1000.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |          0.00
+       10.00 |          0.00
+       20.00 |          0.00
+       30.00 |          0.00
+       40.00 |          0.00
+       50.00 |          0.00
+       60.00 |          0.00
+       70.00 |          0.00
+       80.00 |          0.00
+       90.00 |          0.00
+      100.00 |          0.00
+      110.00 |          0.00
+      120.00 |          0.00
+      130.00 |          0.00
+      140.00 |          0.00
+      150.00 |          0.00
+      160.00 |          0.00
+      170.00 |          0.00
+      180.00 |          0.00
+      190.00 |          0.00
+      200.00 |          0.00
+      210.00 |          0.00
+      220.00 |          0.00
+      230.00 |          0.00
+      240.00 |          0.00
+      250.00 |          0.00
+      260.00 |          0.00
+      270.00 |          0.00
+      280.00 |          0.00
+      290.00 |          0.00
+      300.00 |          0.00
+      310.00 |          0.00
+      320.00 |          0.00
+      330.00 |          0.00
+      340.00 |          0.00
+      350.00 |          0.00
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  Killed run: a slow area source, Albany NY met                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***  Stopped with SIGTERM part way through the met data                  ***        19:29:12
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   AERMET2.SFC                                                                        Met Version:  26135
+   Profile file:   AERMET2.PFL                                                                     
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    14735                  Upper air station no.:    14735
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1988                                     Year:   1988
+
+ First 24 hours of scalar data
+ YR MO DY JDY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN    Z0  BOWEN ALBEDO  REF WS   WD     HT  REF TA     HT
