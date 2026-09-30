@@ -30,6 +30,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files written before this change still open.
 
 ### Fixed
+- **`examples/deposition_modeling.py` calculated no deposition.** Its
+  decks set only `OutputPathway.output_type`, which selects nothing in
+  AERMOD, so the particle deck was `MODELOPT CONC FLAT DFAULT`, a
+  concentration-only run; the two gas decks failed validation (GASDEPOS
+  without ALPHA, E198) and were left empty, and `main()` printed the
+  errors and carried on. The example now sets the `ControlPathway` flags
+  that put DEPOS, DDEP and WDEP on MODELOPT, runs the gas decks under
+  ALPHA without DFAULT with the GDSEASON/GDLANUSE site categories that
+  gas dry deposition needs (E244 otherwise), gives every source of the
+  mixed deck deposition inputs (E242 otherwise) and uses POLLUTID OTHER
+  there (a 1-hour PM25 average is E363). Its FLAT particle deck leaves
+  DFAULT off, because DFAULT overrides FLAT with ELEV (W206), which put
+  its 50 m source base above receptors at 0 m. The example and the
+  quickstart state that E242 applies whenever any source has deposition
+  inputs, even with CONC alone, since depletion is then on by default
+  (NODRYDPLT NOWETDPLT turn it off). It no longer passes
+  `deposition_method`, which writes nothing. Its "(g/m2/s)" comment
+  was wrong: AERMOD writes deposition in g/m², totalled over each
+  averaging period, and g/m²/yr for ANNUAL (coset.f MODOPT; output.f
+  PERAVE averages only CONC). The POSTFILE section now shows the
+  columns `read_postfile` returns and recommends `FILEFORM EXP`, since
+  the fixed format prints hourly fluxes as 0.00000. `main()` lets errors
+  through. `docs/quickstart.md`, which told readers to set
+  `output_type="DEPOS"`, now describes the MODELOPT flags and units.
+  `tests/test_example_deposition.py` checks each deck's MODELOPT and
+  runs all three through the real AERMOD binary (skipped without
+  `aermod` on PATH; ANNUAL becomes PERIOD there because the met covers
+  four days), failing on any warning beyond the placeholder
+  SURFDATA/UAIRDATA ones and on a zero PERIOD maximum for any quantity
+  on MODELOPT. Its met, `tests/fixtures/deposition_met/`, is four wet
+  days (28.4 mm) of EPA's AERMET test case EX04 (Houston 1996) run with
+  AERMET v26135; the vendored AERMET2 met has no precipitation, so wet
+  deposition was 0 everywhere. The example's POSTFILE section says that
+  `read_postfile` mislabels the columns of its own decks' POSTFILEs.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
