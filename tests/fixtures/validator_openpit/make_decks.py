@@ -87,12 +87,24 @@ for s in ("PNX", "PNH", "PDP", "PEQ"):
     so += "\n" + PM.format(s=s)
 deck("openpit_errors", "CONC DDEP", so)
 
+# 1c. XINIT between 0 and 1e-5 m: OPARM raises it to 1e-5 m (W320) before
+# computing Deff, so Deff = 1e-3 / (1e-5 * 100) = 1 m and Hs = 1.5 m is
+# E322; the raw 5e-6 m would give Deff = 2 m and no E322. The 1e7:1 aspect
+# ratio draws W392.
+so = "\n".join([
+    "   LOCATION  PSM  OPENPIT  0.0 0.0 0.0",
+    "   SRCPARAM  PSM  1.0E-5  1.5  5.0E-6 100.0 1.0E-3",
+]) + "\n" + PM.format(s="PSM")
+deck("openpit_tiny_dimension", "CONC DDEP", so)
+
 # 2. Method 1 particle arrays (soset.f 1222-1231, INPPDM/INPPHI/INPPDN)
 so = "\n".join([
     "   LOCATION  S1  VOLUME  0.0 0.0 0.0",
     "   SRCPARAM  S1  1.0  10.0  5.0  5.0",
-    # E335 at 0.001 and 1000.5 ; 1000 and 0.0011 accepted
-    "   PARTDIAM  S1  0.001  0.0011  1000.0  1000.5",
+    # E335 at 0.001 and 1001 ; 1000 and 0.0011 accepted. (1001, not
+    # 1000.5: pyaermod writes PARTDIAM to 4 significant figures, so a
+    # read-back 1000.5 is written, and validated, as 1000.)
+    "   PARTDIAM  S1  0.001  0.0011  1000.0  1001.0",
     "   MASSFRAX  S1  0.25  0.25  0.25  0.25",
     "   PARTDENS  S1  2.65  2.65  2.65  2.65",
     "   LOCATION  S2  VOLUME  100.0 0.0 0.0",
