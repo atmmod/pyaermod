@@ -510,7 +510,11 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "ELEVUNIT":
             elev_units = toks[0].upper() if toks else "METERS"
         elif kw == "FLAGPOLE":
-            flagpole = float(toks[0]) if toks else None
+            # A bare FLAGPOLE still switches flagpole receptors on
+            # (coset.f FLAGDF sets FLGPOL; W205) with the default
+            # height 0, and it changes which DISCCART field AERMOD
+            # reads as the flagpole height.
+            flagpole = float(toks[0]) if toks else 0.0
         elif kw == "URBANOPT" and toks:
             urban_lines.append(toks)
         elif kw == "LOW_WIND":
@@ -1615,7 +1619,14 @@ def _series_summary(values: List[float]) -> Tuple[float, int, float]:
 
 
 def _parse_receptors(block: _PathwayBlock,
-                     dropped: Optional[List[int]] = None) -> ReceptorPathway:
+                     dropped: Optional[List[int]] = None,
+                     flat_flagpole: bool = False) -> ReceptorPathway:
+    """Read the RE pathway.
+
+    ``flat_flagpole`` is true for a FLAT run with CO FLAGPOLE, where
+    reset.f DISCAR reads a DISCCART line of three values after the
+    keyword as ``x y zflag`` rather than ``x y zelev``.
+    """
     carts: Dict[str, Dict[str, Any]] = {}
     polars: Dict[str, Dict[str, Any]] = {}
     discretes: List[DiscreteReceptor] = []
@@ -1712,6 +1723,8 @@ def _parse_receptors(block: _PathwayBlock,
             z = values[2] if len(values) > 2 else 0.0
             z_hill = values[3] if len(values) > 3 else 0.0
             z_flag = values[4] if len(values) > 4 else 0.0
+            if flat_flagpole and len(values) == 3:
+                z, z_flag = 0.0, values[2]
             discretes.append(DiscreteReceptor(
                 x_coord=values[0], y_coord=values[1], z_elev=z,
                 z_hill=z_hill, z_flag=z_flag,
@@ -2151,7 +2164,8 @@ def parse_aermod_input(text: str) -> AERMODProject:
             # the deck can be repaired and written back.
             control.chemistry = ChemistryOptions(method=ChemistryMethod.OLM)
         control.chemistry.olm_groups = olm_groups
-    receptors = (_parse_receptors(blocks["RE"], dropped["RE"]) if "RE" in blocks
+    flat_flagpole = not control.elevated_terrain and control.flag_pole_height is not None
+    receptors = (_parse_receptors(blocks["RE"], dropped["RE"], flat_flagpole) if "RE" in blocks
                  else ReceptorPathway())
     meteorology = _parse_meteorology(blocks["ME"], dropped["ME"])
     output = _parse_output(blocks.get("OU", _PathwayBlock("OU")), dropped["OU"])

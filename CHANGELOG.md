@@ -44,6 +44,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CO keywords, the new depletion fields, `method_2`).
 
 ### Fixed
+- **Receptor elevations were not written under elevated terrain, so
+  AERMOD used zero with a warning.** `CartesianGrid.z_elev` and `.z_hill`
+  were never written: every grid of an ELEV run (or a FLAT run under
+  DFAULT, which AERMOD runs as ELEV) without AERMAP rows drew `RE W214
+  ELEV Input Inconsistent With Option: Defaults Used`, and a grid given
+  `grid_elevations` alone stopped with `E218 ... ZHILL`. A
+  `DiscreteReceptor` with a zero hill height was written as `x y zelev`,
+  which is `RE W228 Default(s) Used for Missing Parameters`. The RE
+  writer now gets the run's terrain and flagpole options from
+  `AERMODProject`: under elevated terrain a grid without ELEV / HILL rows
+  gets rows of `z_elev` / `z_hill` (a row of one value is written as
+  `N*value`), and every DISCCART line carries `zelev zhill`. On the v26135
+  binary the demonstration study's decks and a DFAULT grid-plus-discrete
+  deck set up with no W214 or W228, and the concentrations are unchanged
+  where the values were zero.
+- **Under FLAT with CO FLAGPOLE a discrete receptor's elevation was read
+  as its flagpole height.** reset.f DISCAR reads `x y zflag` in that
+  case, and the writer put `z_elev` in the third field: a receptor at
+  100 m elevation sat on a 100 m flagpole. The writer now puts `z_flag`
+  there, and the reader reads it back into `z_flag`. With FLAGPOLE, a
+  `z_flag` of 0 is written as the FLAGPOLE height, the one AERMOD gives a
+  receptor without its own; a Cartesian grid gets FLAG rows only from a
+  non-zero `z_flag`. With `elevated=None`, `ReceptorPathway`,
+  `CartesianGrid` and `DiscreteReceptor.to_aermod_input()` write what
+  they wrote before, and FLAT runs without FLAGPOLE keep the old
+  DISCCART line so the elevation reads back.
+- **A bare `CO FLAGPOLE` was dropped by the reader.** AERMOD reads it as
+  flagpole receptors with a default height of 0 (coset.f FLAGDF, W205),
+  and EPA's surfcoal and four SNC decks use it. The reader stored `None`,
+  the rewritten deck had no FLAGPOLE, and the third DISCCART field (the
+  flagpole height) was then ignored with W229: on a one-day test deck
+  the concentration at a receptor on a 3.4 m flagpole moved from 0.84925
+  to 0.91634. The reader now stores `flag_pole_height=0.0`, and the
+  rewrite reproduces the original run.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with

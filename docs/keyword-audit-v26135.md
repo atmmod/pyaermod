@@ -280,7 +280,16 @@ lines the network ID may be omitted (REPOLR/RECART take a bare
 sub-keyword as the current network), and the keyword columns may be
 blank (setup.f EXKEY inherits the previous keyword), which is how twenty
 EPA decks write their polar blocks. DISCCART takes `x y` alone in FLAT
-runs (a third field is W229 there) or `x y zelev [zhill [zflag]]`.
+runs (a third field is W229 there), `x y zflag` in FLAT runs with CO
+FLAGPOLE, and `x y zelev zhill [zflag]` under elevated terrain (a missing
+hill height is W228); reset.f DISCAR decides by the run's options, and so
+do the reader and the writer (`ControlPathway.elevated_terrain`,
+`.flag_pole_height`). A bare `FLAGPOLE` still switches flagpole receptors
+on (coset.f FLAGDF, height 0, W205) and is read as `flag_pole_height=0.0`.
+Under elevated terrain a Cartesian grid without ELEV and HILL rows is
+W214 (E218 with only one set), so the writer fills them from
+`CartesianGrid.z_elev` / `.z_hill`, a row of one value as `N*value`,
+which STODBL reads as N copies.
 
 **ME (14):** DAYRANGE, NUMYEARS, PROFBASE, PROFFILE, SCIMBYHR, SITEDATA,
 STARTEND, SURFDATA, SURFFILE, UAIRDATA, WDROTATE, WINDCATS, and the nine

@@ -227,7 +227,10 @@ class AERMODProject:
             )),
         ]
         if not event:
-            pathways.append(("RE", self.receptors.to_aermod_input()))
+            pathways.append(("RE", self.receptors.to_aermod_input(
+                elevated=self.control.elevated_terrain,
+                flagpole=self.control.flag_pole_height,
+            )))
         pathways.append(("ME", self.meteorology.to_aermod_input(event_processing=event)))
         if event:
             events = self.events if self.events is not None else EventPathway()
