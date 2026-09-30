@@ -221,6 +221,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with blanks).
 
 ### Changed
+- GUI: the Meteorology step's surface and profile files are the same
+  checked path fields as the import notice's (with **Browse...** in
+  desktop mode): each says when its path is relative, is not a file on
+  this computer, or starts with `~`, which AERMOD does not expand.
+- GUI: Results lists neither a cancelled run nor, when there is no run,
+  the old "Run tab": it says "No run yet. Run AERMOD from the Review &
+  Run step."
 - GUI: `Session.last_completed_run` skips cancelled runs, so Results does
   not show one; New and Open during a run stop the run.
 - GUI: in the source and receptor editors, Close now discards changes,
