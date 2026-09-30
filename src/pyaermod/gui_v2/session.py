@@ -171,7 +171,7 @@ class RunInProgressError(RuntimeError):
     """:meth:`Session.start_run` was called while a run is in progress."""
 
 
-def _call_now(callback: Callable[[], None]) -> None:
+def _call_now(callback: Callable[[], object]) -> None:
     callback()
 
 
@@ -271,7 +271,7 @@ class Session:
         self.run_in_progress: Optional[RunRecord] = None
         self.run_options = RunOptions()
         self.tab_id: Optional[str] = tab_id
-        self.dispatch: Callable[[Callable[[], None]], Any] = _call_now
+        self.dispatch: Callable[[Callable[[], object]], Any] = _call_now
         self._observers: List[Tuple[frozenset, Observer]] = []
         # The background run in progress: its handle and serial number, and
         # the newest progress not yet applied on the owner's thread.
@@ -750,7 +750,7 @@ class Session:
             return None
         return (last - timedelta(hours=1)).date().toordinal() - first.date().toordinal() + 1
 
-    def _dispatch(self, callback: Callable[[], None]) -> None:
+    def _dispatch(self, callback: Callable[[], object]) -> None:
         try:
             self.dispatch(callback)
         except RuntimeError as exc:         # the event loop has closed: the app is stopping

@@ -339,7 +339,7 @@ def _stay_here(step: str) -> None:
     ui.notify(f"Open the {STEP_TITLES.get(step, step)} step to fix this.")
 
 
-def _loop_dispatcher() -> Optional[Callable[[Callable[[], None]], Any]]:
+def _loop_dispatcher() -> Optional[Callable[[Callable[[], object]], Any]]:
     """``call_soon_threadsafe`` of the loop this page is built on, if any."""
     try:
         return asyncio.get_running_loop().call_soon_threadsafe

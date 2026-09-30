@@ -347,7 +347,7 @@ def _startend_window(met: Any) -> Optional[Tuple[datetime, datetime]]:
     if any(f is None for f in fields):
         return None
     try:
-        sy, sm, sd, ey, em, ed = (int(f) for f in fields)
+        sy, sm, sd, ey, em, ed = (int(f) for f in fields if f is not None)
         return datetime(sy, sm, sd), datetime(ey, em, ed) + timedelta(days=1)
     except (TypeError, ValueError, OverflowError):
         return None                     # the base validator reports bad dates
