@@ -57,7 +57,7 @@ def test_j01_build_run_and_read_results(gui, step, known_gap, run_dir):
 
 
 @pytest.mark.aermod_recording("albany_e480")
-def test_j01_results_follow_the_latest_run(gui, step, known_gap, run_dir):
+def test_j01_results_follow_the_latest_run(gui, step, run_dir):
     gui.open()
     enter_reference_scenario(gui)
     gui.project.set_averaging_periods(*E480_AVERAGING_PERIODS)
@@ -69,5 +69,4 @@ def test_j01_results_follow_the_latest_run(gui, step, known_gap, run_dir):
 
     gui.results.open()
     step("results")
-    with known_gap("D2", "Results tab never refreshes after a run"):
-        gui.results.expect_showing_run(run_dir)
+    gui.results.expect_showing_run(run_dir)

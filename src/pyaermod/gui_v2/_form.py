@@ -52,7 +52,7 @@ import contextlib
 import dataclasses
 import types
 import typing
-from typing import Any, Iterable, Optional, Tuple, Union
+from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
 _NUMERIC_TYPES = (int, float)   # bool is excluded on purpose (identity check)
 _UNION_WRAPPERS = ("Optional", "Union")
@@ -246,12 +246,25 @@ def resolve_annotation(obj: Any, fmeta) -> Any:
     return _type_hints(type(obj)).get(fmeta.name, fmeta.type)
 
 
-def emit_field(parent, obj: Any, fmeta) -> None:
+def _notify_on_edit(widget, on_change: Optional[Callable[[], None]]) -> None:
+    """Call ``on_change()`` whenever the user changes ``widget``'s value.
+
+    Attached *after* ``bind_value``, so the binding's initial sync from the
+    object is not mistaken for an edit.
+    """
+    if on_change is None:
+        return
+    widget.on_value_change(lambda _e: on_change())
+
+
+def emit_field(parent, obj: Any, fmeta, *,
+               on_change: Optional[Callable[[], None]] = None) -> None:
     """Render the right widget for a single dataclass field.
 
     ``parent`` is a NiceGUI container (e.g. ``ui.row()``); the widget
     is added to it. Mutates ``obj`` directly via ``setattr`` /
-    ``bind_value`` whenever the user changes the value.
+    ``bind_value`` whenever the user changes the value, and then calls
+    ``on_change()`` if given (never while the widget is being built).
     """
     from nicegui import ui
 
@@ -265,10 +278,16 @@ def emit_field(parent, obj: Any, fmeta) -> None:
         # Optional[str] fields (OutputPathway.summary_file, plot_file, ...)
         # are plain text inputs too; an empty box reads back as "".
         with parent:
-            ui.input(label=label, value=cur or "").bind_value(obj, fname)
+            _notify_on_edit(
+                ui.input(label=label, value=cur or "").bind_value(obj, fname),
+                on_change,
+            )
     elif type_str == "bool":
         with parent:
-            ui.checkbox(label, value=bool(cur)).bind_value(obj, fname)
+            _notify_on_edit(
+                ui.checkbox(label, value=bool(cur)).bind_value(obj, fname),
+                on_change,
+            )
     # List annotations are dispatched before the numeric check on purpose
     # (polygon vertices once crashed the editor as a ``ui.number``); the
     # numeric check below is type-resolved, so the order is belt-and-braces.
@@ -292,6 +311,8 @@ def emit_field(parent, obj: Any, fmeta) -> None:
                         with contextlib.suppress(ValueError):
                             rows.append((float(parts[0]), float(parts[1])))
                 setattr(obj, fname, rows)
+                if on_change is not None:
+                    on_change()
 
             ta.on("update:model-value", _save_verts)
     elif type_str.startswith("List["):
@@ -306,6 +327,8 @@ def emit_field(parent, obj: Any, fmeta) -> None:
                     s.strip() for s in ta.value.splitlines() if s.strip()
                 ]
                 setattr(obj, fname, lines)
+                if on_change is not None:
+                    on_change()
 
             ta.on("update:model-value", _save_strs)
     elif is_numeric_or_numeric_list(annotation):
@@ -336,6 +359,8 @@ def emit_field(parent, obj: Any, fmeta) -> None:
                     # the keyword for anything non-None and then rejects a
                     # list whose length is not 36.
                     setattr(obj, fname, vals or None)
+                    if on_change is not None:
+                        on_change()
 
                 ta.on("update:model-value", _save_nums)
             else:
@@ -346,15 +371,18 @@ def emit_field(parent, obj: Any, fmeta) -> None:
                 # ``value=cur`` only states that intent -- bind_value()
                 # back-syncs obj -> widget at construction, so the
                 # argument itself is inert for the None case.
-                ui.number(
-                    label=label, value=cur, format="%.4f",
-                ).props("clearable").bind_value(obj, fname)
+                _notify_on_edit(ui.number(
+                    label=label, value=cur,
+                ).props("clearable").bind_value(obj, fname), on_change)
     elif is_numeric(annotation):   # int/float, optionally | None
+        # No display ``format``: ui.number rewrites its value to the format
+        # when it loses focus, and bind_value writes that back, so "%.4f"
+        # turned an emission rate of 1.5e-6 g/s/m^2 into 0.0 when the user
+        # merely tabbed through the field.
         with parent:
-            ui.number(
+            _notify_on_edit(ui.number(
                 label=label, value=cur if cur is not None else 0,
-                format="%.4f",
-            ).bind_value(obj, fname)
+            ).bind_value(obj, fname), on_change)
     else:
         # Escape hatch (Enums, nested dataclasses)
         with parent:
@@ -363,10 +391,12 @@ def emit_field(parent, obj: Any, fmeta) -> None:
 
 def emit_form(
     container, obj: Any, *, fields: Optional[Iterable[str]] = None,
+    on_change: Optional[Callable[[], None]] = None,
 ) -> None:
     """Render every field of ``obj`` as a stacked form inside ``container``.
 
     ``fields`` optionally restricts to a subset, preserving order.
+    ``on_change`` is passed to every :func:`emit_field`.
     """
     from nicegui import ui
 
@@ -377,7 +407,7 @@ def emit_form(
             meta = name_to_meta.get(name)
             if meta is None:
                 continue
-            emit_field(ui.row().classes("w-full"), obj, meta)
+            emit_field(ui.row().classes("w-full"), obj, meta, on_change=on_change)
 
 
 __all__ = [

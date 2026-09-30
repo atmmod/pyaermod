@@ -2,9 +2,9 @@
 
 ::: pyaermod.gui_v2
 
-## State
+## Session
 
-::: pyaermod.gui_v2.state
+::: pyaermod.gui_v2.session
 
 ## Project I/O
 

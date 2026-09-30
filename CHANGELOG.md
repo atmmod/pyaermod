@@ -7,7 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
+  UI-free session, with one method per user operation (`new`,
+  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
+  `update_source`, `delete_source`, the same for receptors,
+  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
+  for observers.
+- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
+  the project file format as text.
+- **AERMET runstream options** the current AERMET reads:
+  `AERMETStage1.upper_air_format` (`FSL`, `IGRA`, `6201FB`, `6201VB`),
+  `upper_air_qa_file`, `upper_air_extract_file`, `message_file`,
+  `surface_time_adjustment` and `upper_air_time_adjustment`, `*_audit`
+  and `*_extra` keyword lists, and `onsite` (the new `OnsiteData`: READ
+  and FORMAT records, THRESHOLD, OSHEIGHTS, DELTA_TEMP, OBS/HOUR);
+  `AERMETStage3.site_char` records (`"f s albedo bowen z0"` or tuples)
+  with `frequency` and `sectors`, `aersurf_file`, the secondary-site
+  `secondary_*` fields, `asos_1min_file`, `methods`, `nws_height`,
+  `extra_lines`, the input names `upper_air_qaout`, `surface_qaout` and
+  `onsite_qaout`, and `with_inputs_from(stage1)`.
+  `UpperAirStation.elevation` and `time_zone`. `AERMETRunResult` carries
+  AERMET's parsed messages (`messages`, `errors`, a list of the new
+  `AERMETMessage`), the REPORT summary counts (`message_counts`,
+  `error_count`), `finished_successfully`, `report_file` and
+  `message_file`; `parse_aermet_messages()` and `read_aermet_messages()`
+  read a MESSAGES file. `OnsiteData`, `AERMETMessage`,
+  `parse_aermet_messages` and `read_aermet_messages` are exported from
+  `pyaermod` and `pyaermod.api`.
+
+### Changed
+- GUI: in the source and receptor editors, Close now discards changes,
+  and Add only adds the item on Save.
+- GUI: in the browser, Save on a project that has no file on disk opens
+  Save As.
+- GUI: the app keeps one `Session` per browser tab. A duplicated tab, or
+  a reload of the desktop window, gets its own copy.
+- The GUI project file tags every nested object with `_type` and writes a
+  dict whose keys are not all strings (background `sector_values`) as
+  `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
+  files written before this change still open.
+- **AERMET runs in two stages, and the pipeline returns two results.**
+  AERMET 11 and later merge the data inside METPREP, so
+  `run_aermet_pipeline(stage1, stage2, stage3)` ignores `stage2` (pass
+  `None`; anything else warns) and returns the Stage 1 and METPREP
+  results, with `stage` 1 and 3. `AERMETStage2` still constructs but is
+  deprecated, and its `to_aermet_input()` raises `NotImplementedError`.
+- **Breaking, for decks that AERMET rejected anyway:** a Stage 1 deck
+  with upper air now needs `UpperAirStation.elevation` (AERMET stops with
+  E05 without it) and a time zone (the surface station's is used when the
+  upper-air one is unset); SCRAM and GHCN surface data need
+  `surface_time_adjustment`, since no EPA deck shows which time basis
+  AERMET reads them in; an unknown data format or a station ID with a
+  blank raises `ValueError`. The integer `messages` level is ignored with a
+  `DeprecationWarning` (`message_file` names the MESSAGES file), and
+  `AERMETStage3.merge_file` is ignored (METPREP's DATA keyword is
+  obsolete). `AERMETStage3.num_sectors` other than 1 needs `site_char`
+  records and `sectors`; the monthly `albedo`, `bowen` and `roughness`
+  lists become one sector's FREQ_SECT ANNUAL or MONTHLY SITE_CHAR records.
+  A METPREP deck using SUBNWS with SURFACE data (every NWS-only deck, by
+  the default above) raises `ValueError` when neither `nws_height` nor
+  `station` gives the anemometer height, since AERMET stops with `E72
+  NWS_HGT KEYWORD MISSING`.
+  `AERMETRunner.run_stage` names the deck on AERMET's command line (a deck
+  outside `working_dir` is copied in under its own name) instead of
+  copying it to `aermet.inp`.
+
 ### Fixed
+- **`examples/deposition_modeling.py` calculated no deposition.** Its
+  decks set only `OutputPathway.output_type`, which selects nothing in
+  AERMOD, so the particle deck was `MODELOPT CONC FLAT DFAULT`, a
+  concentration-only run; the two gas decks failed validation (GASDEPOS
+  without ALPHA, E198) and were left empty, and `main()` printed the
+  errors and carried on. The example now sets the `ControlPathway` flags
+  that put DEPOS, DDEP and WDEP on MODELOPT, runs the gas decks under
+  ALPHA without DFAULT with the GDSEASON/GDLANUSE site categories that
+  gas dry deposition needs (E244 otherwise), gives every source of the
+  mixed deck deposition inputs (E242 otherwise) and uses POLLUTID OTHER
+  there (a 1-hour PM25 average is E363). Its FLAT particle deck leaves
+  DFAULT off, because DFAULT overrides FLAT with ELEV (W206), which put
+  its 50 m source base above receptors at 0 m. The example and the
+  quickstart state that E242 applies whenever any source has deposition
+  inputs, even with CONC alone, since depletion is then on by default
+  (NODRYDPLT NOWETDPLT turn it off). It no longer passes
+  `deposition_method`, which writes nothing. Its "(g/m2/s)" comment
+  was wrong: AERMOD writes deposition in g/m², totalled over each
+  averaging period, and g/m²/yr for ANNUAL (coset.f MODOPT; output.f
+  PERAVE averages only CONC). The POSTFILE section now shows the
+  columns `read_postfile` returns and recommends `FILEFORM EXP`, since
+  the fixed format prints hourly fluxes as 0.00000. `main()` lets errors
+  through. `docs/quickstart.md`, which told readers to set
+  `output_type="DEPOS"`, now describes the MODELOPT flags and units.
+  `tests/test_example_deposition.py` checks each deck's MODELOPT and
+  runs all three through the real AERMOD binary (skipped without
+  `aermod` on PATH; ANNUAL becomes PERIOD there because the met covers
+  four days), failing on any warning beyond the placeholder
+  SURFDATA/UAIRDATA ones and on a zero PERIOD maximum for any quantity
+  on MODELOPT. Its met, `tests/fixtures/deposition_met/`, is four wet
+  days (28.4 mm) of EPA's AERMET test case EX04 (Houston 1996) run with
+  AERMET v26135; the vendored AERMET2 met has no precipitation, so wet
+  deposition was 0 everywhere. The example's POSTFILE section says that
+  `read_postfile` mislabels the columns of its own decks' POSTFILEs.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
@@ -74,6 +174,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prints its success banner; the script now names the deck by its
   absolute path, resolved when the script is written, so it runs from
   any directory but only on the machine and checkout that wrote it.
+- **GUI: Results now updates when a run finishes** (defect D2). The shell
+  built every tab once per page load, so Results kept saying "No run yet"
+  after a run. Results and the Run tab's status are now rebuilt from the
+  session's run history.
+- **GUI: New and Open show the project they load** (defect D3). Every
+  widget stayed bound to the replaced project, so the screen kept the
+  old values and later edits went to the discarded project; editing a
+  row of the old table after New also crashed the server. Every step is
+  now rebuilt from the session when the project is replaced.
+- **GUI: Open works on NiceGUI 3** (defect D4) and sends the file as soon
+  as it is chosen. A malformed project file is reported ("Load failed:
+  ...") instead of raising.
+- **GUI: Save As no longer writes to `/tmp`**, which does not exist on
+  Windows. It downloads the file in the browser and asks where to save it
+  through a native dialog in `pyaermod-desktop`.
+- GUI: opening the Meteorology tab no longer marks the project modified,
+  and neither does leaving a number field without editing it.
+- GUI: a browser reload keeps the project and the last run.
+- GUI: the "No sources yet" and "No receptors yet" messages now follow
+  the list.
+- The `pyaermod-desktop` PyInstaller bundle now starts from a launcher
+  script (`packaging/desktop_entry.py`). It used to run
+  `gui_v2/desktop.py` itself, whose relative imports fail when it is the
+  entry script, so the frozen app could not start.
+- **GUI project files kept only part of the project.** `project_io` rebuilt
+  sources, receptors and the top level of each pathway, and left every
+  nested object as a plain dict: a source's `particle_deposition` or
+  `gas_deposition`, background sectors, event periods and the like. It
+  also dropped the rest of `SourcePathway` (background, source groups,
+  emission units, barriers), `AERMODProject.events` and
+  `unparsed_lines`. A file pyaermod had written itself opened
+  "successfully" and then failed at Run with "Could not generate deck":
+  an open pit with size-resolved dry deposition could not survive a Save
+  and an Open. Reading is now driven by the model's type annotations, so
+  every nested object is rebuilt as its class, and every value is checked
+  against the field it fills. Of the 79 AERMOD decks in the repository,
+  4 survived a save and an open unchanged before; all 79 do now, field
+  for field and deck for deck, and the fixture decks are pinned by
+  `tests/test_gui_v2_project_io.py`.
+- **A project file with a value of the wrong type is refused**, naming the
+  file and the field ("Load failed: f.json:
+  project.sources.sources[0].stack_height must be a number, not text
+  'tall'"). Such a file used to load and then break the page, and, as
+  the GUI now keeps the session across reloads, every reload of that tab.
+  So is
+  a source or receptor whose `_type` is unknown (it used to be dropped
+  silently, and the next save lost it), an unknown enum member, a file
+  that is not UTF-8 text, and a document nested too deeply. `load_project`
+  and `project_from_json` raise `ValueError` naming the file for every
+  malformed file; `{"project": []}` used to escape as `AttributeError`.
+- **GUI number fields rounded the project's value to 4 decimals** when
+  they lost focus, and wrote the rounded value back: tabbing through an
+  open pit's emission rate of 1.5e-6 g/s/m² set it to 0.0. They now show
+  and keep the exact value.
+- GUI: a pollutant that AERMOD accepts but the Pollutant list does not
+  name (TSP, PB, NOX ... from a saved file) is shown and kept; it used to
+  stop the Project step from being built.
+- GUI: a part of a page that cannot show the project now says so in
+  place, and the rest of the page is built; one failing section used to
+  leave every later step and the footer empty.
+- GUI: Save reports a file that cannot be written ("Save failed: ...").
+- **Saving no longer writes a project file that cannot be opened again.**
+  `project_to_json` (and so `save_project` and every GUI Save) checks the
+  project with the loader first and raises `ValueError` naming the field,
+  such as "cannot save the project:
+  project.sources.sources[0].emission_rate must be a number, not null"
+  after a number box was emptied. The GUI reports "Save failed: ...",
+  delivers no file and keeps the project marked modified; it used to say
+  "Saved" and hand over a file that "Load failed" refused.
+- **Numbers that are NaN or infinite are refused** when a project file is
+  read or written. Python's `json` accepts `NaN` and `Infinity`; such a
+  file loaded, the source editor could not open, and the deck AERMOD ran
+  said `LOCATION PIT1 OPENPIT nan ...`.
+- GUI: Open accepts a file whatever its name ends in. The file chooser
+  filtered on `.json`, and a file it filtered out was dropped without a
+  message; a project whose name lost its extension would not open.
+- GUI: a Save As name with characters a browser rewrites (`"*:<>?|`) is
+  cleaned the same way, so the header names the file the browser saved.
+- GUI: a run whose runner raises an unexpected exception logs the
+  traceback; a missing AERMOD binary is logged as a warning.
+- **Integer fields reach the deck as integers.** The GUI's number boxes
+  store `2020.0`; STARTEND dates typed on the Meteorology step made Run fail
+  with "Unknown format code 'd' for object of type 'float'", and SURFDATA
+  was written `14735.0  1988.0`. The deck is now written from the project
+  as its file reads back (`project_io.check_project`), which turns whole
+  floats in integer fields into integers and refuses a fraction by field
+  name ("start_year must be a whole number, not 12.5"). Saved files get
+  the integers too.
+- **Whole numbers beyond `2**53` in size are refused** when a project file is read
+  or written. A file with a coordinate of `2**64` loaded, then froze the tab:
+  NiceGUI could not send the value to the browser, and every reload of the
+  tab came back blank.
+- Project files: a list used as the key of an integer-keyed dict (OZONEVAL
+  sector values) is refused naming the field; it used to load and then
+  break the deck writer. `save_project` creates no directory for a
+  refused project and replaces an existing file atomically.
+- GUI: cancelling Open while the file is still being sent no longer puts a
+  `ClientDisconnect` traceback in the server log. Errors in the deck writer
+  and in the project-file reader are logged with their traceback.
 - **`AERSCREENRunResult` named files in a spelling AERSCREEN had not
   written, on macOS and Windows.** The runner found the log by checking
   `<stem>.log` before `aerscreen.log`; a case-insensitive filesystem
@@ -90,53 +289,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
 
-### Added
-- **AERMET runstream options** the current AERMET reads:
-  `AERMETStage1.upper_air_format` (`FSL`, `IGRA`, `6201FB`, `6201VB`),
-  `upper_air_qa_file`, `upper_air_extract_file`, `message_file`,
-  `surface_time_adjustment` and `upper_air_time_adjustment`, `*_audit`
-  and `*_extra` keyword lists, and `onsite` (the new `OnsiteData`: READ
-  and FORMAT records, THRESHOLD, OSHEIGHTS, DELTA_TEMP, OBS/HOUR);
-  `AERMETStage3.site_char` records (`"f s albedo bowen z0"` or tuples)
-  with `frequency` and `sectors`, `aersurf_file`, the secondary-site
-  `secondary_*` fields, `asos_1min_file`, `methods`, `nws_height`,
-  `extra_lines`, the input names `upper_air_qaout`, `surface_qaout` and
-  `onsite_qaout`, and `with_inputs_from(stage1)`.
-  `UpperAirStation.elevation` and `time_zone`. `AERMETRunResult` carries
-  AERMET's parsed messages (`messages`, `errors`, a list of the new
-  `AERMETMessage`), the REPORT summary counts (`message_counts`,
-  `error_count`), `finished_successfully`, `report_file` and
-  `message_file`; `parse_aermet_messages()` and `read_aermet_messages()`
-  read a MESSAGES file. `OnsiteData`, `AERMETMessage`,
-  `parse_aermet_messages` and `read_aermet_messages` are exported from
-  `pyaermod` and `pyaermod.api`.
-
-### Changed
-- **AERMET runs in two stages, and the pipeline returns two results.**
-  AERMET 11 and later merge the data inside METPREP, so
-  `run_aermet_pipeline(stage1, stage2, stage3)` ignores `stage2` (pass
-  `None`; anything else warns) and returns the Stage 1 and METPREP
-  results, with `stage` 1 and 3. `AERMETStage2` still constructs but is
-  deprecated, and its `to_aermet_input()` raises `NotImplementedError`.
-- **Breaking, for decks that AERMET rejected anyway:** a Stage 1 deck
-  with upper air now needs `UpperAirStation.elevation` (AERMET stops with
-  E05 without it) and a time zone (the surface station's is used when the
-  upper-air one is unset); SCRAM and GHCN surface data need
-  `surface_time_adjustment`, since no EPA deck shows which time basis
-  AERMET reads them in; an unknown data format or a station ID with a
-  blank raises `ValueError`. The integer `messages` level is ignored with a
-  `DeprecationWarning` (`message_file` names the MESSAGES file), and
-  `AERMETStage3.merge_file` is ignored (METPREP's DATA keyword is
-  obsolete). `AERMETStage3.num_sectors` other than 1 needs `site_char`
-  records and `sectors`; the monthly `albedo`, `bowen` and `roughness`
-  lists become one sector's FREQ_SECT ANNUAL or MONTHLY SITE_CHAR records.
-  A METPREP deck using SUBNWS with SURFACE data (every NWS-only deck, by
-  the default above) raises `ValueError` when neither `nws_height` nor
-  `station` gives the anemometer height, since AERMET stops with `E72
-  NWS_HGT KEYWORD MISSING`.
-  `AERMETRunner.run_stage` names the deck on AERMET's command line (a deck
-  outside `working_dir` is copied in under its own name) instead of
-  copying it to `aermet.inp`.
+### Removed
+- `pyaermod.gui_v2.state.AppState`, replaced by
+  `pyaermod.gui_v2.session.Session`: `reset()` is now `new()`,
+  `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
+  `mark_clean()` are replaced by the operations that change or save the
+  project. `pyaermod.gui_v2.state._empty_project()` is still importable.
 
 ## [2.2.0] - YYYY-MM-DD
 
