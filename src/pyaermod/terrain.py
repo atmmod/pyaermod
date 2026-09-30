@@ -8,12 +8,13 @@ Requires: pip install pyaermod[terrain]
 """
 
 import logging
+import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, NamedTuple, Optional, Tuple, Union
 
 from ._optional import optional_import, require
 
@@ -183,9 +184,91 @@ class DEMDownloader:
 # ============================================================================
 
 
+# ============================================================================
+# AERMAP'S VERDICT
+# ============================================================================
+#
+# AERMAP ends with a bare STOP, so it exits with code 0 whether or not it
+# worked: a deck with 12 fatal setup errors and a domain outside the DEM
+# (E310, which still leaves empty RECEPTOR and SOURCLOC files behind) both
+# exit 0. Its verdict is in the message file, <input stem>.out, which the
+# main program of aermap.f (AERMAP 24142) ends with one of
+#
+#     *** AERMAP Finishes Successfully ***
+#     *** AERMAP Finishes UN-successfully ***
+#
+# after a "Message Summary For AERMAP Execution" whose "A Total of N Fatal
+# Error Message(s)" counts every error of the run. A run with setup
+# messages also has an earlier "Message Summary For AERMAP Setup" and a
+# "*** SETUP Finishes ... ***" line, so only the last summary is read.
+# SUMTBL writes each message as FORMAT(1X,A2,1X,A1,A3,I8,1X,A6,':',A50,1X,A12):
+# pathway, severity, number, line, routine, text and detail. The
+# recordings in tests/fixtures/aermap_runner/ show all of this.
+
+_AERMAP_SUMMARY_HEADING = re.compile(r"\*\*\* Message Summary", re.IGNORECASE)
+_AERMAP_BANNER = re.compile(
+    r"^[ \t]*\*\*\*[ \t]*AERMAP Finishes (?P<verdict>Successfully|UN-successfully)[ \t]*\*\*\*[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_AERMAP_TOTAL = re.compile(
+    r"^[ \t]*A Total of[ \t]+(\d+)[ \t]+(Fatal Error|Warning) Message",
+    re.IGNORECASE | re.MULTILINE,
+)
+_AERMAP_MESSAGE = re.compile(
+    r"^ (?P<pathway>.{2}) (?P<code>[EW]\d{3})(?P<line>[ \d]{7}\d) "
+    r"(?P<module>.{6}):(?P<body>.*?)\s*$"
+)
+
+
+class _AERMAPVerdict(NamedTuple):
+    finished_successfully: bool
+    fatal_count: Optional[int]
+    warning_count: Optional[int]
+    fatal_errors: List[str]
+
+
+def _read_aermap_verdict(out_file: Path) -> _AERMAPVerdict:
+    """Read the completion banner and the final message summary of an AERMAP ``.out`` file."""
+    text = out_file.read_bytes().decode("latin-1").replace("\r\n", "\n")
+    headings = list(_AERMAP_SUMMARY_HEADING.finditer(text))
+    region = text[headings[-1].start():] if headings else ""
+    banner = _AERMAP_BANNER.search(region)
+    finished = banner is not None and banner.group("verdict").lower() == "successfully"
+    if banner:
+        region = region[:banner.start()]
+    counts = {m.group(2).lower(): int(m.group(1)) for m in _AERMAP_TOTAL.finditer(region)}
+    fatal_errors = []
+    for raw in region.splitlines():
+        m = _AERMAP_MESSAGE.match(raw)
+        if m is None or not m.group("code").startswith("E"):
+            continue
+        body = m.group("body")
+        # A50, 1X, A12: the text and the detail sit at fixed columns.
+        text_part, detail = body[:50].strip(), body[51:].strip()
+        message = f"{m.group('pathway').strip()} {m.group('code')} line {m.group('line').strip()} "
+        message += f"{m.group('module').strip()}: {text_part}"
+        fatal_errors.append(f"{message} {detail}" if detail else message)
+    return _AERMAPVerdict(
+        finished_successfully=finished,
+        fatal_count=counts.get("fatal error"),
+        warning_count=counts.get("warning"),
+        fatal_errors=fatal_errors,
+    )
+
+
 @dataclass
 class AERMAPRunResult:
-    """Result from an AERMAP execution."""
+    """Result from an AERMAP execution.
+
+    ``success`` is AERMAP's own verdict: exit code 0, the message file
+    ``<input stem>.out`` present, its ``*** AERMAP Finishes Successfully
+    ***`` line, and no fatal error in its final message summary. AERMAP
+    exits with code 0 after a fatal error, so the exit code alone says
+    nothing. ``message_file`` is the path of that ``.out`` file,
+    ``fatal_count`` and ``warning_count`` are AERMAP's own totals, and
+    ``fatal_errors`` lists its fatal errors, such as ``"OU E310 line 29
+    CHKEXT: Domain Coordinate is NOT Inside a DEM File. Pt.= 1"``.
+    """
     success: bool
     input_file: str
     return_code: Optional[int] = None
@@ -198,6 +281,11 @@ class AERMAPRunResult:
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     error_message: Optional[str] = None
+
+    finished_successfully: Optional[bool] = None
+    fatal_count: Optional[int] = None
+    warning_count: Optional[int] = None
+    fatal_errors: List[str] = field(default_factory=list)
 
     def __repr__(self) -> str:
         status = "SUCCESS" if self.success else "FAILED"
@@ -284,6 +372,10 @@ class AERMAPRunner:
         # AERMAP fail to locate the runstream and exit without processing
         # (it still returns code 0), so the run silently produces no output.
         input_name = input_path.name
+        # A message file left by an earlier run must not supply this run's
+        # verdict. AERMAP replaces the file anyway when it starts.
+        out_file = work_dir / f"{input_path.stem}.out"
+        out_file.unlink(missing_ok=True)
         start_time = datetime.now()
 
         # Pipe-safe stdout/stderr (file redirect, not OS pipes); see
@@ -327,19 +419,74 @@ class AERMAPRunner:
 
         end_time = datetime.now()
         runtime = (end_time - start_time).total_seconds()
-        success = result.returncode == 0
         captured_out = _read_capped(stdout_path) if stdout_path else None
         captured_err = _read_capped(stderr_path) if stderr_path else None
+
+        # AERMAP names its message file after the input file it was given
+        # (``run.inp`` -> ``run.out``) and exits 0 even after a fatal error;
+        # see the comment above _read_aermap_verdict.
+        verdict = None
+        read_error = None
+        if out_file.exists():
+            try:
+                verdict = _read_aermap_verdict(out_file)
+            except OSError as exc:
+                read_error = f"could not read {out_file}: {exc}"
+
+        success = (
+            result.returncode == 0
+            and verdict is not None
+            and verdict.finished_successfully
+            and not verdict.fatal_count
+            and not verdict.fatal_errors
+        )
+
+        error_message = None
+        if not success:
+            error_message = self._failure_reason(result.returncode, out_file, verdict, read_error)
+            self.logger.error(f"AERMAP run failed: {error_message}")
 
         return AERMAPRunResult(
             success=success,
             input_file=str(input_path),
             return_code=result.returncode,
             runtime_seconds=runtime,
+            message_file=str(out_file) if out_file.exists() else None,
             stdout=captured_out,
             stderr=captured_err,
-            error_message=None if success else f"AERMAP failed with return code {result.returncode}",
+            error_message=error_message,
+            finished_successfully=verdict.finished_successfully if verdict else None,
+            fatal_count=verdict.fatal_count if verdict else None,
+            warning_count=verdict.warning_count if verdict else None,
+            fatal_errors=verdict.fatal_errors if verdict else [],
         )
+
+    @staticmethod
+    def _failure_reason(
+        return_code: int,
+        out_file: Path,
+        verdict: Optional[_AERMAPVerdict],
+        read_error: Optional[str],
+    ) -> str:
+        """Explain a failed run, naming AERMAP's first fatal error when there is one."""
+        if verdict is not None and verdict.fatal_errors:
+            reason = verdict.fatal_errors[0]
+            total = max(verdict.fatal_count or 0, len(verdict.fatal_errors))
+            if total > 1:
+                reason += f" (and {total - 1} more fatal error(s))"
+        elif verdict is not None and verdict.fatal_count:
+            reason = f"AERMAP reported {verdict.fatal_count} fatal error(s) in {out_file.name}"
+        elif read_error is not None:
+            reason = f"AERMAP's verdict is unknown: {read_error}"
+        elif verdict is None:
+            reason = f"AERMAP wrote no message file {out_file.name}"
+        elif not verdict.finished_successfully:
+            reason = f"{out_file.name} lacks AERMAP's '*** AERMAP Finishes Successfully ***' line"
+        else:
+            return f"AERMAP exited with code {return_code}"
+        if return_code != 0:
+            reason += f"; exit code {return_code}"
+        return reason
 
 
 # ============================================================================

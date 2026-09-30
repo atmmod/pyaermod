@@ -8,6 +8,112 @@ effects.
 This guide covers the common things that go wrong and how to use
 pyaermod's `terrain_utils` helpers to diagnose them.
 
+## Writing and running an AERMAP deck
+
+`AERMAPProject.to_aermap_input` writes the runstream of EPA's AERMAP
+24142, the current release (AERMAP has no 26135 release). The deck has
+the pathways in the order AERMAP requires, CO, SO, RE, OU, and looks
+like this for one receptor, a 3 × 2 grid and one stack:
+
+```text
+CO STARTING
+   TITLEONE  pyaermod AERMAP runner recording
+   DATATYPE  DEM
+   DATAFILE  synth.dem
+   DOMAINXY  500050.00 4000050.00 13 500550.00 4000550.00 13
+   ANCHORXY  500000.00 4000000.00 500000.00 4000000.00 13 1
+   TERRHGTS  EXTRACT
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1       POINT      500200.00   4000300.00
+SO FINISHED
+
+RE STARTING
+   DISCCART     500100.00   4000100.00
+   GRIDCART  GRID     STA
+   GRIDCART  GRID     XYINC     500100.00     3     100.00    4000200.00     2     100.00
+   GRIDCART  GRID     END
+RE FINISHED
+
+OU STARTING
+   RECEPTOR  aermap_receptors.out
+   SOURCLOC  aermap_sources.out
+OU FINISHED
+```
+
+```python
+from pyaermod.aermap import AERMAPProject, AERMAPReceptor, AERMAPSource
+from pyaermod.terrain import AERMAPRunner
+
+project = AERMAPProject(
+    dem_files=["synth.dem"], dem_format="DEM",
+    anchor_x=500000.0, anchor_y=4000000.0, utm_zone=13, datum="NAD27",
+    domain_x_min=500050.0, domain_y_min=4000050.0,
+    domain_x_max=500550.0, domain_y_max=4000550.0,
+)
+project.add_receptor(AERMAPReceptor("R1", 500100.0, 4000100.0))
+project.add_source(AERMAPSource("STACK1", 500200.0, 4000300.0))
+project.write("aermap.inp")
+
+result = AERMAPRunner().run("aermap.inp")
+if not result.success:
+    raise RuntimeError(result.error_message)
+```
+
+What the fields mean:
+
+- **Anchor.** `ANCHORXY` ties the user point (`anchor_x`, `anchor_y`)
+  to a UTM point (`anchor_utm_x`, `anchor_utm_y`) in `utm_zone`. The
+  UTM point defaults to the anchor itself, which says the receptor and
+  source coordinates are already UTM. `datum` is written as AERMAP's
+  code: `"NAD27"` 1, `"WGS72"` 2, `"WGS84"` 3, `"NAD83"` 4, or an
+  integer from 0 to 7.
+- **Domain.** `DOMAINXY` is written when all four `domain_*` corners
+  are set, in UTM metres. AERMAP searches only this area for hill
+  heights, and the whole area must lie inside the DEM files, or AERMAP
+  stops with `E310 Domain Coordinate is NOT Inside a DEM File`. Leave
+  the corners unset to let AERMAP use the full extent of the DEM files.
+  `AERMAPProject.from_aermod_project` and `TerrainProcessor` set the
+  domain to the project's extent plus a buffer (1 km for
+  `TerrainProcessor`), so the DEM must cover that buffer too.
+- **Terrain heights.** `terrain_type="EXTRACT"` (the default) takes the
+  elevations from the DEM, and the deck leaves out any elevation you
+  set. `"PROVIDED"` keeps the elevations you give, which every receptor
+  and source must then carry, and has AERMAP compute only the
+  receptors' hill heights; AERMAP writes no source file under
+  `PROVIDED`, so the deck asks for none. `"FLAT"` is not an AERMAP
+  option: a flat run needs no AERMAP, only `TerrainType.FLAT` in the
+  AERMOD deck.
+- **Formats.** `dem_format` is `"NED"` for GeoTIFF or `"DEM"` for the
+  USGS native format.
+- **No IDs, no message file.** AERMAP has no receptor IDs, so
+  `AERMAPReceptor.receptor_id` is not written, and it always writes its
+  messages to `<input stem>.out` beside the input file.
+
+A path with a space is written in double quotes. AERMAP reads at most
+200 characters per field, so a longer path raises `ValueError`; move
+the file or use a relative path.
+
+### Did the run work?
+
+AERMAP exits with code 0 even when fatal errors stop it, and a run that
+fails after setup can still leave empty `RECEPTOR` and `SOURCLOC` files
+behind. `AERMAPRunner` therefore reads AERMAP's verdict from
+`<input stem>.out`: `result.success` is true only when that file ends
+with `*** AERMAP Finishes Successfully ***` and its final message
+summary counts no fatal error. On a failure, `result.error_message`
+names AERMAP's first fatal error, for example
+
+```text
+OU E310 line 29 CHKEXT: Domain Coordinate is NOT Inside a DEM File. Pt.= 1 (and 3 more fatal error(s))
+```
+
+and `result.fatal_errors`, `result.fatal_count`,
+`result.warning_count` and `result.message_file` carry the rest.
+`TerrainProcessor.process` raises `RuntimeError` with that message.
+
 ## DEM data sources
 
 | Source | Resolution | Coverage | Where |
@@ -66,13 +172,13 @@ Requires `rasterio`. Cache the mosaic — reprojection is expensive.
 
 ## Hill-height diagnostics
 
-After running AERMAP, scan its `RECEPTORS.DAT` / `SOURCES.DAT` output
-for anomalies:
+After running AERMAP, scan its receptor file (`OU RECEPTOR`) for
+anomalies:
 
 ```python
 from pyaermod import AERMAPOutputParser, hill_height_diagnostics
-parsed = AERMAPOutputParser().parse_output("AERMAP.OUT")
-flags = hill_height_diagnostics(parsed.receptors)
+receptors = AERMAPOutputParser.parse_receptor_output("aermap_receptors.out")
+flags = hill_height_diagnostics(list(receptors.itertuples()))
 for f in flags:
     print(f.reason, "at", (f.x, f.y))
 ```
@@ -90,7 +196,8 @@ What `hill_height_diagnostics` flags:
 | Symptom | Check |
 |---|---|
 | "receptor outside DEM bounds" | bbox of receptors vs. DEM extent — fetch more tiles |
-| All `zhill` values = 0 | AERMAP didn't pick up terrain file — check CO pathway TERRHGTS path |
+| All `zhill` values = 0 | AERMAP didn't pick up the terrain file — check the CO pathway's `DATAFILE` paths and `DATATYPE` |
+| `result.success` is false with `E310` | the `DOMAINXY` area reaches past the DEM files — fetch more tiles or shrink the domain |
 | `zhill < zelev` on many receptors | datum mismatch between receptors and DEM |
 | Wildly high hill heights | receptor coordinates in feet but treated as meters |
 

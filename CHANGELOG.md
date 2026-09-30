@@ -95,6 +95,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   format, and a `PROVIDED` project with a missing elevation, a grid or
   no discrete receptor. A path with a space is quoted, as AERMAP's
   parser allows, and one over AERMAP's 200-character field raises.
+- **AERMAP runs that failed were reported as successful.** AERMAP ends
+  with a bare `STOP`, so it exits with code 0 after fatal errors, and
+  `AERMAPRunner.run` counted exit code 0 as success. A domain that
+  reaches past the DEM (`OU E310 ... CHKEXT: Domain Coordinate is NOT
+  Inside a DEM File`) came back with `success=True` and empty receptor
+  and source files, and `TerrainProcessor.process` went on to read them;
+  the 11 setup errors of the old writer's deck did the same. `success`
+  now also requires the message file AERMAP writes beside the input
+  (`<input stem>.out`, which the runner now reports as `message_file`),
+  its `*** AERMAP Finishes Successfully ***` line and no fatal error in
+  its final message summary; a message file left by an earlier run is
+  removed first, so it cannot vouch for this one. `run_aermap` and
+  `TerrainProcessor.process`, which raises `RuntimeError` on a failed
+  run, inherit the rule. **Code that relied on the old rule will now
+  see those runs as failures, which they were.** A failed run's
+  `error_message` names AERMAP's first fatal error, such as
+  `OU E310 line 29 CHKEXT: Domain Coordinate is NOT Inside a DEM File.
+  Pt.= 1 (and 3 more fatal error(s))`, instead of a generic string, and
+  `AERMAPRunResult` gains `finished_successfully`, `fatal_count`,
+  `warning_count` (AERMAP's own totals) and `fatal_errors`.
+  `tests/test_aermap_runner_status.py` pins the rule against the runs
+  recorded in `tests/fixtures/aermap_runner/`, and
+  `tests/test_real_aermap.py` repeats it, and the writer's deck, against
+  the binary on the planar DEM, including `TerrainProcessor.process`
+  end to end and a `PROVIDED` run.
 
 ## [2.2.0] - YYYY-MM-DD
 
