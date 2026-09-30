@@ -4,7 +4,8 @@
 #
 # Usage:  tests/fixtures/runner/regenerate.sh [path/to/aermod] [case ...]
 #
-# Each case directory holds the deck, aermod.inp. The script runs that deck
+# Each case directory holds the deck, aermod.inp, and any .dat file the
+# deck names on an INCLUDED record. The script runs that deck
 # with the Albany met files from tests/fixtures/epa_official/ in a scratch
 # directory, then copies back what AERMOD produced: aermod.out, its
 # stdout (stdout.txt) and its exit code (exit_code.txt). With no case
@@ -30,12 +31,16 @@ shift || true
 CASES=("$@")
 if [ ${#CASES[@]} -eq 0 ]; then
     CASES=(success runtime_error_e480 setup_error_e500 setup_error_e322_openpit
-           setup_error_e140_srcgroup killed_sigterm)
+           setup_error_e140_srcgroup killed_sigterm success_no_echo success_included)
 fi
 
 for case in "${CASES[@]}"; do
     work="$(mktemp -d)"
     cp "$HERE/$case/aermod.inp" "$MET/AERMET2.SFC" "$MET/AERMET2.PFL" "$work/"
+    # Files the deck names on INCLUDED records (success_included/grid.dat)
+    for inc in "$HERE/$case"/*.dat; do
+        [ -e "$inc" ] && cp "$inc" "$work/"
+    done
     status=0
     if [ "$case" = killed_sigterm ]; then
         # exec makes the background job AERMOD itself, so $! is its pid.

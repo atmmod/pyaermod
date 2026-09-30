@@ -68,8 +68,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.out` at all was judged by the one an earlier run had left. Now
   `resume_batch` applies `AERMODRunner.run`'s own test (AERMOD's
   `*** AERMOD Finishes Successfully ***` line and no fatal error in the
-  final message summary) and treats an `.out` older than its deck as
-  stale; `run` removes the deck's `.out`, `.err` and `.sum` and any
+  final message summary) and requires the `.out` to come from the deck
+  as it is now: AERMOD copies the runstream to the top of the `.out`,
+  and `resume_batch` compares that copy with the deck's text, so a deck
+  written again with the same content stays done and an edited one does
+  not, whatever the file times say. File times decide only what the copy
+  cannot show: a deck with `NO ECHO`, and the files named on `INCLUDED`
+  records, are stale when newer than the `.out`. `run` removes the deck's `.out`, `.err` and `.sum` and any
   leftover `aermod.out`, `.err` and `.sum` before it starts AERMOD, and
   keeps a timed-out run's partial output as `<deck>.out`, reported in
   `output_file`. **A timed-out or crashed re-run no longer leaves the

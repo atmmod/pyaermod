@@ -22,7 +22,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Sequence, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Union
 
 from ._optional import optional_import, require
 from .runner import _read_message_summary, _severity_count
@@ -170,6 +170,81 @@ class TqdmProgress:
 # Resume / skip-completed
 # ---------------------------------------------------------------------------
 
+# AERMOD reads each runstream record into a CHARACTER*ISTRG buffer (ISTRG
+# = 512 in modules.f), so a longer line is cut there, echo included.
+_RUNSTREAM_RECORD_LEN = 512
+_PATHWAYS = ("CO", "SO", "RE", "ME", "OU", "**")
+
+
+class _RunstreamEcho(NamedTuple):
+    lines: Optional[List[str]]  # None after NO ECHO: AERMOD stops echoing
+    included: List[str]         # files named on INCLUDED records
+
+
+def _runstream_echo(deck_text: str) -> _RunstreamEcho:
+    """The lines AERMOD echoes at the top of the ``.out`` for this deck.
+
+    Mirrors ``SETUP`` in AERMOD's setup.f (v26135): every record up to
+    and including ``OU FINISHED`` is written back with trailing blanks
+    trimmed, a blank record as an empty line, and the ``OU FINISHED``
+    record only up to column 10 + its start column, so a trailing
+    comment on it is dropped. The pathway and keyword fields sit at
+    fixed columns, set by where the first record starts (a shift of up
+    to 3 columns is allowed), and a record with a blank pathway field
+    continues the previous pathway.
+
+    ``NO ECHO`` turns the echo off, so ``lines`` is then None. The
+    records of an ``INCLUDED`` file are never echoed (``INCLUD`` reads
+    them without writing them), so the echo shows only the
+    ``INCLUDED`` record; ``included`` names those files.
+    """
+    lines = deck_text.splitlines()
+    first = lines[0][:_RUNSTREAM_RECORD_LEN] if lines else ""
+    start = next((i for i in range(4) if first[i:i + 1].strip(" ")), 0)
+    echo: Optional[List[str]] = []
+    included: List[str] = []
+    previous_path = ""
+    for line in lines:
+        record = line[:_RUNSTREAM_RECORD_LEN]
+        if not record.strip(" "):
+            if echo is not None:
+                echo.append("")
+            continue
+        upper = record.upper()
+        field1 = upper[start:start + 2].strip(" ")
+        field2 = upper[start + 3:start + 11].strip(" ")
+        if echo is not None:
+            if (field1, field2) == ("OU", "FINISHED"):
+                echo.append(record[:start + 11].rstrip())
+            else:
+                echo.append(record.rstrip())
+        if (field1, field2) == ("NO", "ECHO"):
+            echo = None
+            continue
+        if field1 == "**":
+            continue
+        if field2 == "INCLUDED":
+            rest = record[start + 11:].strip()
+            name = rest[1:].split('"', 1)[0] if rest.startswith('"') else rest.split(" ", 1)[0]
+            if name:
+                included.append(name)
+        path = field1 if field1 in _PATHWAYS else previous_path
+        if path == "OU" and field2 == "FINISHED":
+            break
+        previous_path = path
+    return _RunstreamEcho(echo, included)
+
+
+def _out_echoes_deck(out_path: Path, echo: Sequence[str]) -> bool:
+    """Whether ``out_path`` opens with exactly the runstream echo ``echo``."""
+    with open(out_path, encoding="utf-8", errors="replace") as fh:
+        for expected in echo:
+            line = fh.readline()
+            if not line or line.rstrip() != expected.rstrip():
+                return False
+    return True
+
+
 def _output_is_valid(out_path: Path, input_path: Optional[Path] = None) -> bool:
     """Whether ``out_path`` records a finished, successful run of ``input_path``.
 
@@ -181,15 +256,35 @@ def _output_is_valid(out_path: Path, input_path: Optional[Path] = None) -> bool:
     every run that gets past setup, including runs that fail or are
     killed afterwards.
 
-    When ``input_path`` is given and exists, an ``.out`` older than the
-    deck is stale: it was written by a run of an earlier version of the
-    deck.
+    When ``input_path`` is given and exists, the ``.out`` must also come
+    from this version of the deck. AERMOD copies the runstream to the
+    top of the ``.out``, so the ``.out`` is current when that copy
+    matches the deck's text, whatever the two files' modification times
+    say: a deck written again with the same content still counts as
+    done, and an edited deck does not. Two things the copy cannot show
+    fall back to modification times, and an ``.out`` older than them is
+    stale: a deck with ``NO ECHO``, after which AERMOD copies nothing,
+    and the files a deck names on ``INCLUDED`` records (found relative
+    to the deck's directory), whose records AERMOD never copies.
     """
     if not out_path.exists() or out_path.stat().st_size == 0:
         return False
-    if (input_path is not None and input_path.exists()
-            and out_path.stat().st_mtime < input_path.stat().st_mtime):
-        return False
+    if input_path is not None and input_path.exists():
+        try:
+            echo = _runstream_echo(
+                input_path.read_text(encoding="utf-8", errors="replace"))
+            out_time = out_path.stat().st_mtime
+            if echo.lines is None:
+                if out_time < input_path.stat().st_mtime:
+                    return False
+            elif not _out_echoes_deck(out_path, echo.lines):
+                return False
+            for name in echo.included:
+                inc = input_path.parent / name
+                if inc.exists() and out_time < inc.stat().st_mtime:
+                    return False
+        except OSError:
+            return False
     try:
         summary = _read_message_summary(out_path)
     except OSError:
@@ -209,12 +304,19 @@ def resume_batch(
     An input is 'done' when its ``<stem>.out`` in `output_dir` records a
     successful run by the rule ``AERMODRunner.run`` applies (AERMOD's
     ``*** AERMOD Finishes Successfully ***`` line and no fatal errors in
-    its final message summary), and that ``.out`` is not older than the
-    input file. Everything else is 'todo': no ``.out``, a run that failed
-    or was cut off (killed, timed out), and an ``.out`` left from before
-    the deck was last changed. A deck whose modification time is later
-    than its ``.out``'s only because it was copied (``cp`` without
-    ``-p``) is run again, which is the safe mistake.
+    its final message summary), and that ``.out`` came from the deck as
+    it is now: the runstream AERMOD copies to the top of the ``.out``
+    must match the deck's text. Everything else is 'todo': no ``.out``,
+    a run that failed or was cut off (killed, timed out), and an
+    ``.out`` from before the deck was edited.
+
+    Because the check reads content, a script may write every deck again
+    before it resumes: a deck rewritten with the same text stays 'done',
+    whatever the file times say. File times decide only what the copy
+    cannot show. A deck with ``NO ECHO`` is 'todo' when it is newer than
+    its ``.out``, and so is a deck whose ``INCLUDED`` file (looked up
+    relative to the deck's directory) is newer than its ``.out``. The
+    met files and other inputs a deck names are not checked.
     """
     out_dir = Path(output_dir)
     done: List[Path] = []

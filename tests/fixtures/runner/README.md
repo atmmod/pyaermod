@@ -1,6 +1,6 @@
 # Recorded AERMOD runs for the runner's success rule
 
-These are six real AERMOD runs. `tests/test_runner_status.py` and
+These are eight real AERMOD runs. `tests/test_runner_status.py` and
 `tests/test_runner_batch.py` read them to pin how `AERMODRunner` decides
 whether a run succeeded and how `resume_batch` decides whether a run is
 done, and their fake `aermod` replays them. None of the files is
@@ -11,13 +11,14 @@ hand-edited.
 - **Build:** `scripts/build_aermod.sh` with the script's default flags,
   `-O2 -fbounds-check -Wuninitialized`.
 - **Recorded:** `success/`, `runtime_error_e480/` and `setup_error_e500/`
-  on 2026-09-28 on Linux x86_64 with GNU Fortran 13.3.0; the other three
+  on 2026-09-28 on Linux x86_64 with GNU Fortran 13.3.0; the other five
   on 2026-09-29 on macOS arm64 with GNU Fortran 15.2.0 (Homebrew).
 - **Meteorology:** `../epa_official/AERMET2.SFC` and `AERMET2.PFL`
   (Albany, New York, 1 to 4 March 1988, 96 hours). The decks name the
   files without a directory, so a run needs copies beside the deck.
 
-Every case directory holds the deck (`aermod.inp`), the `aermod.out`
+Every case directory holds the deck (`aermod.inp`), any file the deck
+names on an `INCLUDED` record, the `aermod.out`
 AERMOD wrote, AERMOD's stdout (`stdout.txt`) and its exit code
 (`exit_code.txt`, as the shell reports it). AERMOD wrote nothing to
 stderr in any case.
@@ -30,6 +31,8 @@ stderr in any case.
 | `setup_error_e322_openpit/` | The 2026-09-29 library audit's OPENPIT deck `D_hs_gt_depth`: release height 150 m in a 24,000,000 m³ pit of 600 × 400 m, whose effective depth is 100 m | 0 | Fatal error `SO E322 ... OPARM: Release Height Exceeds Effective Depth for OPENPIT  PIT` during setup (`OPARM` in `soset.f`, which takes the effective depth as volume / (length × width)), then both UN-successfully banners |
 | `setup_error_e140_srcgroup/` | The audit's two-pit deck `H`, with the `SRCGROUP` line pyaermod writes inside each source's block, and `RUNORNOT NOT` | 0 | Fatal error `SO E140 ... SOCARD: Invalid Order of Keyword. The Troubled Keyword is  SRCGROUP`, twice, then both UN-successfully banners |
 | `killed_sigterm/` | The `success/` deck plus a 500 × 500 m AREA source, which makes the run take about 3 s; `regenerate.sh` sends AERMOD SIGTERM 1 s after it starts | 143 (128 + SIGTERM's 15) | No final message summary and no AERMOD banner. The `.out` holds the setup summary, `*** SETUP Finishes Successfully ***` and the input summary up to the met data header, where the kill cut it off; stdout is empty because AERMOD's buffered output was lost with the process |
+| `success_no_echo/` | The `success/` deck with `NO ECHO` as its second line | 0 | The `success/` run's result. The `.out` copies the deck only up to the `NO ECHO` line; after it come only the blank lines of the rest of the deck |
+| `success_included/` | The `success/` deck with its five `GRIDPOLR` records moved to `grid.dat` and read with `INCLUDED grid.dat` | 0 | The `success/` run's result. The `.out` copies the `INCLUDED grid.dat` record, not the records of `grid.dat` |
 
 Things these recordings show, and that the runner relies on:
 
@@ -47,6 +50,12 @@ Things these recordings show, and that the runner relies on:
   setup banner and nothing that says the run failed, so only the absence
   of the final banner shows it did not finish. Python reports the exit
   as `-15` (`subprocess` gives a signal as a negative return code).
+- AERMOD copies the deck to the top of the `.out` (`SETUP` in
+  setup.f): each record with trailing blanks trimmed, a blank record as
+  an empty line, up to and including `OU FINISHED`. `NO ECHO` stops the
+  copy, except for blank records, and the records of an `INCLUDED` file
+  are never copied. `resume_batch` compares this copy with the deck to
+  tell an `.out` of the current deck from an older one.
 - Each message line has the layout of `FORMAT(1X,A2,1X,A1,A3,I8,1X,A12,': ',A50,1X,A12)`
   in `SUMTBL` (aermod.f): pathway, severity, number, line, routine, a
   50-character text and a 12-character detail.

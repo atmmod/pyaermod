@@ -7,7 +7,8 @@ hand. ``resume_batch`` used to count a deck as done when the last 50
 lines of its ``.out`` mentioned "FINISHES SUCCESSFULLY", which the
 ``*** SETUP Finishes Successfully ***`` line of a failed or killed run
 also satisfies, and it took the ``.out`` of an earlier run, or of an
-earlier version of the deck, for the current one.
+earlier version of the deck, for the current one. It now compares the
+runstream AERMOD copies to the top of the ``.out`` with the deck.
 
 The ``.out`` files are the real AERMOD recordings in
 ``tests/fixtures/runner/`` (see its README).
@@ -32,6 +33,8 @@ E500 = RECORDINGS / "setup_error_e500"
 E322 = RECORDINGS / "setup_error_e322_openpit"
 E140 = RECORDINGS / "setup_error_e140_srcgroup"
 KILLED = RECORDINGS / "killed_sigterm"
+NO_ECHO = RECORDINGS / "success_no_echo"
+INCLUDED = RECORDINGS / "success_included"
 
 posix_only = pytest.mark.skipif(
     platform.system() == "Windows", reason="the fake aermod is a bash script",
@@ -43,6 +46,8 @@ def _deck_with_out(tmp_path: Path, case: Path, name: str = "run") -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     inp = tmp_path / f"{name}.inp"
     shutil.copy(case / "aermod.inp", inp)
+    for inc in case.glob("*.dat"):
+        shutil.copy(inc, tmp_path / inc.name)
     out = tmp_path / f"{name}.out"
     shutil.copy(case / "aermod.out", out)
     deck_time = inp.stat().st_mtime
@@ -83,12 +88,45 @@ class TestResumeBatch:
         assert "FINISHES SUCCESSFULLY" in "\n".join(out.read_text().splitlines()[-50:]).upper()
         assert resume_batch([inp], tmp_path)["todo"] == [inp]
 
-    def test_out_older_than_the_deck_is_stale(self, tmp_path):
-        """A deck edited after its run must run again."""
-        inp = _deck_with_out(tmp_path, SUCCESS)
+    @pytest.mark.parametrize("case", [SUCCESS, INCLUDED], ids=lambda p: p.name)
+    def test_deck_written_again_unchanged_is_done(self, tmp_path, case):
+        """A script that writes every deck again before resuming skips nothing it need not.
+
+        ``BatchRunner.parameter_sweep`` and the demonstration study
+        write each deck and then resume. An earlier version of this
+        check called an ``.out`` older than its deck stale, so that
+        workflow re-ran every deck.
+        """
+        inp = _deck_with_out(tmp_path, case)
+        inp.write_text(inp.read_text())
         out_time = (tmp_path / "run.out").stat().st_mtime
         os.utime(inp, (out_time + 60, out_time + 60))
+        assert resume_batch([inp], tmp_path) == {"done": [inp], "todo": []}
+
+    def test_edited_deck_is_todo_whatever_the_file_times(self, tmp_path):
+        """A deck edited after its run must run again, even if the .out looks newer."""
+        inp = _deck_with_out(tmp_path, SUCCESS)
+        inp.write_text(inp.read_text().replace("SRCPARAM  STACK1   100.000000",
+                                               "SRCPARAM  STACK1   10.0000000"))
+        out_time = inp.stat().st_mtime + 60
+        os.utime(tmp_path / "run.out", (out_time, out_time))
         assert resume_batch([inp], tmp_path) == {"done": [], "todo": [inp]}
+
+    def test_no_echo_deck_falls_back_to_file_times(self, tmp_path):
+        """After NO ECHO the .out holds no copy to compare, so the file times decide."""
+        inp = _deck_with_out(tmp_path, NO_ECHO)
+        assert resume_batch([inp], tmp_path)["done"] == [inp]
+        out_time = (tmp_path / "run.out").stat().st_mtime
+        os.utime(inp, (out_time + 60, out_time + 60))
+        assert resume_batch([inp], tmp_path)["todo"] == [inp]
+
+    def test_edited_included_file_is_todo(self, tmp_path):
+        """AERMOD never copies an INCLUDED file's records, so its time decides."""
+        inp = _deck_with_out(tmp_path, INCLUDED)
+        assert resume_batch([inp], tmp_path)["done"] == [inp]
+        out_time = (tmp_path / "run.out").stat().st_mtime
+        os.utime(tmp_path / "grid.dat", (out_time + 60, out_time + 60))
+        assert resume_batch([inp], tmp_path)["todo"] == [inp]
 
     def test_missing_deck_is_judged_by_its_out(self, tmp_path):
         inp = _deck_with_out(tmp_path / "decks", SUCCESS)
@@ -101,6 +139,17 @@ class TestResumeBatch:
 
         inp = _deck_with_out(tmp_path, SUCCESS)
         assert _output_is_valid(tmp_path / "run.out", inp) is True
+
+        real_open = open
+
+        def _open_fails(path, *args, **kwargs):
+            if Path(path).suffix == ".out":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.open", _open_fails)
+        assert _output_is_valid(tmp_path / "run.out", inp) is False
+        monkeypatch.undo()
 
         def _unreadable(path):
             raise PermissionError(13, "Permission denied", str(path))

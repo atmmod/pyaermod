@@ -136,11 +136,21 @@ failed".
 `resume_batch(input_files, output_dir)` counts a deck as done only when
 its `<deck>.out` passes the same test `AERMODRunner.run` applies (the
 `*** AERMOD Finishes Successfully ***` line and no fatal error in the
-final message summary) and is not older than the deck. A failed, killed
-or timed-out run, and an `.out` left from before the deck was edited,
-are all still to do. A deck whose modification time moved only because
-it was copied without `cp -p` is run again, which costs time but never
-a wrong result.
+final message summary) and came from the deck as it is now. AERMOD
+copies the runstream to the top of the `.out`, and `resume_batch`
+compares that copy with the deck's text. A failed, killed or timed-out
+run, and an `.out` left from before the deck was edited, are all still
+to do.
+
+Because the check reads content, not file times, a script may write
+every deck again before it resumes (as `BatchRunner.parameter_sweep`
+does): a deck written with the same text stays done, and so does one
+copied without `cp -p`. File times decide only what the copy cannot
+show. A deck with `NO ECHO` is run again when it is newer than its
+`.out`, and so is a deck whose `INCLUDED` file (looked up relative to
+the deck's directory) is newer than its `.out`. Met files and other
+inputs the deck names are not checked: after changing one of those,
+delete the affected `.out` files.
 
 ## Before you file a bug
 
