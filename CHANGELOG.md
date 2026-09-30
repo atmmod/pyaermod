@@ -16,8 +16,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- GUI (WP-G4): the Run tab is now **Review & Run**. A readiness checklist
+  names each step with a problem that blocks the run (no source, no
+  receptors, no met files, a value the deck cannot be written with, no
+  `aermod` binary) and links to that step, and Run AERMOD stays disabled
+  until it is empty. Warnings that do not block the run follow, among
+  them ANNUAL with less than a year of met data. A read-only deck
+  preview has Copy and Download.
+- GUI: runs happen in the background. A progress bar follows AERMOD's
+  "Now Processing Data For Day No." lines against the days in the
+  surface file, the elapsed time ticks, Cancel stops AERMOD (status
+  "Cancelled"), and every other step and browser tab stays usable. The
+  status reads "Succeeded", "Failed" or "Cancelled"; AERMOD's message
+  counts and a table of its messages (severity, pathway, code, line,
+  text) follow, linking to `docs/common-errors.md` for E101, E480 and
+  E500. A second click on Run while a run is going is ignored, and New or
+  Open during a run stops it.
+- `AERMODRunner.start()` runs AERMOD in the background and returns an
+  `AERMODRun`: `progress` (an `AERMODProgress` with the stage, "setup",
+  "day" or "output", AERMOD's day and year, and the days processed),
+  `cancel()` (SIGTERM, then a kill after `CANCEL_GRACE_SECONDS`), `wait()`,
+  `done`, `result`, and `on_progress`/`on_finish` callbacks. A cancelled
+  run's result has the new `AERMODRunResult.cancelled` set. The process
+  is always reaped, and AERMOD runs still going when Python exits are
+  stopped. `parse_progress_line()` reads one progress line.
+- `aermet.read_surface_period()` reads which hours an AERMET `.SFC` file
+  holds (`SurfaceFilePeriod`: first and last hour, hours, days, station
+  IDs) without loading its data, and `SurfaceFilePeriod.complete_years`
+  is AERMOD's own count of years for a run over the file (checked
+  against AERMOD v26135 on either side of the E480 boundary).
+  `validator_advanced.check_annual_met_coverage()` warns when ANNUAL is
+  requested with no complete year of data (AERMOD's E480), and
+  `surface_file_path()` resolves the surface file as AERMOD opens it.
+- `Session.deck_text()`, `Session.met_period()`, `RunRecord.status`,
+  `RunRecord.progress` and `RunRecord.fraction_done`; `start_run(...,
+  background=True)` with `Session.dispatch` to deliver the run's events
+  on the GUI's event loop; `cancel_run()`; the `run_progress` event; and
+  `RunInProgressError` for a second `start_run` during a run.
+- `docs/common-errors.md` has entries for E480 and E500.
 
 ### Changed
+- GUI: `Session.last_completed_run` skips cancelled runs, so Results does
+  not show one; New and Open during a run stop the run.
 - GUI: in the source and receptor editors, Close now discards changes,
   and Add only adds the item on Save.
 - GUI: in the browser, Save on a project that has no file on disk opens
