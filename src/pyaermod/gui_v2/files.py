@@ -84,12 +84,16 @@ def file_problem(value: Optional[str]) -> Optional[str]:
 
     An empty value is not a problem here (the readiness checks say a file
     is missing). A relative path is: AERMOD would look for it in the run's
-    working directory, not where the user thinks.
+    working directory, not where the user thinks. So is one that starts
+    with ``~``, which AERMOD does not expand (Review & Run blocks such a
+    run, :data:`~pyaermod.gui_v2.pages.run.HOME_MET`).
     """
     text = (value or "").strip()
     if not text:
         return None
-    path = Path(text).expanduser()
+    if text.startswith("~"):
+        return "Give the full path: AERMOD does not expand ~ to your home folder"
+    path = Path(text)
     if not path.is_absolute():
         return "Give the full path: a relative one is read from the run's working directory"
     if not path.exists():

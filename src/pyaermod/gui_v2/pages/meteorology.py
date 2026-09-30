@@ -12,10 +12,15 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Optional, Set
 
-from .._form import emit_fields
+from ..._fields import help_of
+from .. import files
+from .._form import emit_fields, field_label
 from .._layout import Goto, section, step_page
 from .._live import live
 from ..session import Session
+
+#: The met file fields, which WP-G6's checked pickers edit.
+MET_FILES = ("surface_file", "profile_file")
 
 #: The groups of the step, in order; every other field goes under "Advanced".
 GROUPS = (
@@ -49,8 +54,11 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
             grouped: Set[str] = set()
             for title, intro, names in GROUPS:
                 with section(title, intro):
-                    emit_fields(met, [by_name[n] for n in names if n in by_name],
-                                on_change=edited)
+                    if names == MET_FILES:
+                        _met_file_pickers(session, [by_name[n] for n in names])
+                    else:
+                        emit_fields(met, [by_name[n] for n in names if n in by_name],
+                                    on_change=edited)
                 grouped.update(names)
             advanced = [f for f in dataclasses.fields(met) if f.name not in grouped]
             if advanced:
@@ -58,4 +66,16 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
                     emit_fields(met, advanced, on_change=edited)
 
 
-__all__ = ["GROUPS", "render"]
+def _met_file_pickers(session: Session, fmetas: Any) -> None:
+    """The met files as WP-G6's pickers: full-width path fields that say when
+    the path is not a file on this computer (or is relative, or starts with
+    ``~``), with Browse... in desktop mode. Labels and help come from the
+    field metadata, as the form helper's do."""
+    for fmeta in fmetas:
+        field = files.met_file_input(session, fmeta.name, label=field_label(fmeta))
+        text = help_of(fmeta)
+        if text:
+            field.props["hint"] = text
+
+
+__all__ = ["GROUPS", "MET_FILES", "render"]

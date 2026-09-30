@@ -39,6 +39,7 @@ from . import test_gui_v2_smoke as smoke
 from .test_gui_v2_smoke import (
     GuiSession,
     _click,
+    _discard_changes,
     _one,
     _receptors_table,
     _rows_become,
@@ -189,7 +190,7 @@ class TestImportNotice:
         UserInteraction(gui.user, {surface}, None).clear().type(str(sfc))
         await _value_becomes(lambda: surface.error, None)
         # The Meteorology step shows the same file.
-        await _value_becomes(lambda: _one(gui, kind=ui.input, content="surface file").value,
+        await _value_becomes(lambda: _one(gui, kind=ui.input, content="Surface file").value,
                              str(sfc))
         assert gui.session.project.meteorology.surface_file == str(sfc)
         await gui.user.should_see("PyAERMOD — aertest.inp (modified)")
@@ -206,7 +207,7 @@ class TestImportNotice:
         _read_from_path(gui, deck)
         await gui.user.should_see("Found its surface, profile met files beside the deck.")
         await gui.user.should_not_see("Choose the deck's met files")
-        await _value_becomes(lambda: _one(gui, kind=ui.input, content="surface file").value,
+        await _value_becomes(lambda: _one(gui, kind=ui.input, content="Surface file").value,
                              str(tmp_path / "meteorology" / "aermet2.sfc"))
 
     @pytest.mark.asyncio
@@ -249,6 +250,7 @@ class TestImportNotice:
         await gui.user.should_see(kind=ui.card, marker="import-notice")
         await gui.user.should_see("Imported aertest.inp.")
         gui.user.find(kind=ui.button, marker="project-new").click()
+        await _discard_changes(gui)              # an imported deck is not saved yet
         await gui.user.should_not_see(kind=ui.card, marker="import-notice")
         await gui.user.should_see("PyAERMOD — Untitled")
 
@@ -280,11 +282,41 @@ class TestImportNotice:
         assert visited == ["meteorology"]
 
     @pytest.mark.asyncio
-    async def test_without_goto_there_is_no_link(self, gui):
+    async def test_the_notice_links_to_the_meteorology_step(self, gui):
+        # The Project step passes the shell's navigation to the import
+        # controls, so the notice's link opens the Meteorology step.
         await gui.open()
         await _upload_deck(gui, "aertest.inp", AERTEST.read_bytes())
         await gui.user.should_see(kind=ui.card, marker="import-notice")
-        await gui.user.should_not_see(kind=ui.button, content="Go to Meteorology")
+        assert _one(gui, kind=ui.tab_panels).value == "project"
+        gui.user.find(kind=ui.button, content="Go to Meteorology").click()
+        await _value_becomes(lambda: _one(gui, kind=ui.tab_panels).value, "meteorology")
+
+
+class TestMeteorologyStep:
+    @pytest.mark.asyncio
+    async def test_the_met_files_are_checked_pickers(self, gui, tmp_path, monkeypatch):
+        """The Meteorology step's met fields are WP-G6's pickers, so a project
+        built from scratch gets the same checks as an imported one."""
+        monkeypatch.setenv("HOME", str(EPA))
+        await gui.open()
+        surface = _one(gui, kind=ui.input, content="Surface file")
+        UserInteraction(gui.user, {surface}, None).clear().type(str(tmp_path / "nope.sfc"))
+        await _value_becomes(lambda: surface.error, "No such file on this computer")
+        # There is such a file under HOME, but AERMOD would not find it.
+        UserInteraction(gui.user, {surface}, None).clear().type("~/AERMET2.SFC")
+        await _value_becomes(
+            lambda: surface.error,
+            "Give the full path: AERMOD does not expand ~ to your home folder")
+        sfc = EPA / "AERMET2.SFC"
+        UserInteraction(gui.user, {surface}, None).clear().type(str(sfc))
+        await _value_becomes(lambda: surface.error, None)
+        assert gui.session.project.meteorology.surface_file == str(sfc)
+        await gui.user.should_see("PyAERMOD — Untitled (modified)")
+        profile = _one(gui, kind=ui.input, content="Profile file")
+        UserInteraction(gui.user, {profile}, None).clear().type("AERMET2.PFL")
+        await _value_becomes(lambda: profile.error, files.file_problem("AERMET2.PFL"))
+        assert profile.error.startswith("Give the full path")
 
 
 class TestPathImport:
@@ -328,6 +360,7 @@ class TestRecentFiles:
         await gui.user.should_see(kind=ui.button, content="aertest.inp")
         await gui.user.should_see(f"AERMOD deck · {tmp_path}")
         gui.user.find(kind=ui.button, marker="project-new").click()
+        await _discard_changes(gui)              # an imported deck is not saved yet
         await _rows_become(gui, _sources_table, "id", [])
         gui.user.find(kind=ui.button, content="aertest.inp").click()
         await _rows_become(gui, _sources_table, "id", ["STACK1"])

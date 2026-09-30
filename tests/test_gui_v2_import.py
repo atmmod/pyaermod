@@ -295,10 +295,15 @@ class TestFileProblem:
         assert files.file_problem(str(tmp_path / "b.sfc")) == "No such file on this computer"
         assert files.file_problem(str(tmp_path)) == "This is a folder, not a file"
 
-    def test_home_is_expanded(self, tmp_path, monkeypatch):
+    def test_a_path_from_home_is_refused_as_aermod_does_not_expand_it(
+            self, tmp_path, monkeypatch):
+        # Review & Run blocks a met file starting with ~ (run.HOME_MET), and
+        # AERMOD fails such a run with E500: the picker says so too, even
+        # when the file exists under the home folder.
         monkeypatch.setenv("HOME", str(tmp_path))
         (tmp_path / "met.sfc").write_text("x")
-        assert files.file_problem("~/met.sfc") is None
+        assert files.file_problem("~/met.sfc") == (
+            "Give the full path: AERMOD does not expand ~ to your home folder")
 
 
 class TestRecentFiles:
