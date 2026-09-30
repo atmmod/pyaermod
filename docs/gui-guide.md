@@ -40,8 +40,19 @@ Both modes share the same seven-tab layout:
 | **Run** | Dispatch AERMOD against the current project |
 | **Results** | Parsed `.OUT` summary, source list, max concentrations, POSTFILE listing |
 
-The Project tab's "Save" button writes a JSON file you can re-open later;
-the format is documented in `pyaermod.gui_v2.project_io`.
+The Project tab's "Save as..." button saves the project as a JSON file you
+can re-open later with "Open...": in the browser the file arrives as a
+download, and in the desktop app (`pyaermod-desktop`) a save dialog asks
+where to put it, after which "Save" writes back to that file. The format
+is documented in `pyaermod.gui_v2.project_io`.
+
+In the Sources and Receptors editors, "Save" applies your changes and
+"Close" discards them; an item you add appears in the table only once
+you save it.
+
+Each browser tab keeps its own project: reloading the tab brings back the
+project and the last run, but closing the tab or stopping the server
+discards unsaved changes, so save before you do.
 
 ## AERMOD binary
 
@@ -74,9 +85,10 @@ edit via Python directly.
 - Save your project to JSON at every checkpoint — open files reload
   cleanly across pyaermod versions thanks to the `save_format_version`
   field.
-- The Run tab leaves the working directory in place after a run; the
-  Results tab reads from it. Use the working-directory input to point
-  at any prior run's directory to inspect old results.
+- The Run tab leaves the working directory in place after a run. The
+  Results tab shows the latest run of this session and updates when a
+  run finishes; earlier run directories stay on disk but the GUI does
+  not reopen them.
 - For headless / scripted workflows, build `AERMODProject` instances
   in Python directly — the GUI is purely an authoring layer on top of
   the same dataclasses.

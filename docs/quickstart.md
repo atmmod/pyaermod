@@ -257,6 +257,15 @@ keyword: set `ControlPathway(alpha=True, regulatory_default=False)`,
 and give the run `gas_deposition_seasons` and `gas_deposition_land_use`
 (GDSEASON / GDLANUSE) or AERMOD stops with E244.
 
+Which quantities AERMOD calculates is set on MODELOPT through four
+`ControlPathway` flags: `calculate_concentration` (CONC, on by default),
+`calculate_deposition` (DEPOS, total), `calculate_dry_deposition` (DDEP)
+and `calculate_wet_deposition` (WDEP). Any combination can be on, and
+AERMOD writes one set of results per quantity. Deposition comes out in
+g/m², totalled over each averaging period (g/m²/yr for ANNUAL), not as a
+flux per second. `OutputPathway.output_type` selects nothing: a deck that
+sets only it calculates concentration alone.
+
 A source's `deposition_method` (and the `DepositionMethod` enum) writes
 nothing: AERMOD has no METHOD keyword. Plume depletion is set on the
 run with `ControlPathway(dry_depletion=..., wet_depletion=...)`
@@ -264,8 +273,17 @@ run with `ControlPathway(dry_depletion=..., wet_depletion=...)`
 AERMOD's default, depletion on), and a user-specified gas deposition
 velocity with `ControlPathway.gas_deposition_velocity` (CO GASDEPVD).
 
-Set `OutputPathway(output_type="DEPOS")` to get deposition flux instead of
-concentration in the output.
+Once any source has deposition inputs, AERMOD turns on dry and wet
+plume depletion by default, even in a run with CONC alone, and then
+every source needs particle or gas deposition inputs (E242). A source
+without them goes in a run with no deposition sources, or in a
+CONC-only run with `ControlPathway(dry_depletion=False, wet_depletion=False)`
+(NODRYDPLT NOWETDPLT).
+DFAULT forces elevated terrain: with `regulatory_default=True`, a
+`terrain_type` of FLAT is overridden (W206) and the run is modelled as
+ELEV, so a flat-terrain deposition run also sets
+`regulatory_default=False`. `examples/deposition_modeling.py` builds
+gas, particle and mixed decks that run with AERMOD.
 
 ### NO2 Chemistry Options
 
