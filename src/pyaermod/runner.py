@@ -355,6 +355,13 @@ class AERMODRunner:
 
         Returns:
             AERMODRunResult with execution details and file paths
+
+        AERMOD reads ``<working_dir>/aermod.inp``. The runner links the
+        deck to that name for the run and renames ``aermod.out``,
+        ``.err`` and ``.sum`` after the deck. A deck that is already
+        ``aermod.inp``, or that ``aermod.inp`` links to, runs in place.
+        When ``aermod.inp`` is another deck, the run fails without
+        starting AERMOD, so that deck and its ``aermod.out`` are kept.
         """
         input_path = Path(input_file).resolve()
 
@@ -397,6 +404,29 @@ class AERMODRunner:
         lock_path = work_dir / ".pyaermod.lock"
         lock_fh = _acquire_dir_lock(lock_path)
 
+        # AERMOD reads <work_dir>/aermod.inp. It is in place when it is
+        # this deck, or a link to it: run it as it is and leave it there.
+        # A regular file named aermod.inp that is another deck (EPA's
+        # default name, as in a base case beside its variants) must not
+        # be replaced, and the aermod.out this run would write, then
+        # rename, may be that deck's results. Refuse before touching
+        # anything. A link to another file is one this runner left or
+        # one it can re-create, so it is replaced.
+        aermod_inp = work_dir / "aermod.inp"
+        in_place = aermod_inp.exists() and aermod_inp.samefile(input_path)
+        if not in_place and aermod_inp.exists() and not aermod_inp.is_symlink():
+            _release_dir_lock(lock_fh)
+            return AERMODRunResult(
+                success=False,
+                input_file=str(input_path),
+                error_message=(
+                    f"The working directory {work_dir} already holds another deck "
+                    "named aermod.inp, the file AERMOD reads; running this deck "
+                    "there would replace it and overwrite its aermod.out. Rename "
+                    "that deck, or give this run a different working_dir"
+                ),
+            )
+
         # Files left by an earlier run would otherwise stand in for this
         # one's whenever this run writes none: a timeout before AERMOD
         # opens aermod.out, or a crash. The verdict below would then be
@@ -408,16 +438,8 @@ class AERMODRunner:
                 with contextlib.suppress(FileNotFoundError):
                     stale.unlink()
 
-        # Create symlink: aermod.inp -> <input_name>.inp. A deck that is
-        # itself <work_dir>/aermod.inp, EPA's default name, runs in place:
-        # replacing it with the link would delete the deck and leave a
-        # link to itself.
-        aermod_inp = work_dir / "aermod.inp"
-        in_place = (
-            aermod_inp.exists()
-            and not aermod_inp.is_symlink()
-            and aermod_inp.samefile(input_path)
-        )
+        # Create symlink: aermod.inp -> <input_name>.inp, unless the deck
+        # is already in place (see above).
         if not in_place:
             try:
                 if aermod_inp.exists() or aermod_inp.is_symlink():

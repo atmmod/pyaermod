@@ -33,6 +33,23 @@ them, and which pyaermod helper catches them earlier.
 - **Fix:** `ControlPathway` defaults to `RUN`; if you see `NOT`
   somewhere, that's why.
 
+### "The working directory ... already holds another deck named aermod.inp"
+
+- **Cause:** AERMOD reads its deck from `aermod.inp` in the working
+  directory and writes `aermod.out` there. The runner links your deck
+  to that name and renames the outputs after the run. When the
+  directory already holds a different deck named `aermod.inp`, such as
+  a base case kept under EPA's default name beside its variants, the
+  run would replace that deck and overwrite its `aermod.out`, so the
+  runner refuses and starts nothing. In `run_batch` only the variants
+  fail this way; the `aermod.inp` deck itself runs in place.
+- **Fix:** rename the base deck (`base.inp`), or give the variant its
+  own `working_dir`. A deck that is itself `aermod.inp`, or that
+  `aermod.inp` is a symbolic link to, runs in place and the link is left
+  as it is; its outputs are named after the file the link points to. A
+  link named `aermod.inp` that points to some other file is replaced for
+  the run and removed after it; the file it pointed to is not touched.
+
 ### "ANNUAL average requested, ran for single day"
 
 - **Cause:** `met.start_*` / `met.end_*` specify a single day but

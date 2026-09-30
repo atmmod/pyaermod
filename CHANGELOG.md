@@ -84,7 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which was that same file, so the deck was deleted, the link pointed to
   itself, and the run failed with "AERMOD exited with code 0 but wrote no
   aermod.out". A deck already named `aermod.inp` in the working directory
-  now runs in place and is left alone. With a `working_dir` apart from
+  now runs in place and is left alone, as is a link named `aermod.inp`
+  that points to the deck (the runner used to replace such a link and
+  remove it after the run). **Running any other deck in a directory that
+  holds a deck named `aermod.inp` deleted that deck, and the run then
+  overwrote its `aermod.out`**; such a run now fails before it starts,
+  with "The working directory ... already holds another deck named
+  aermod.inp", and leaves both files alone. Give it its own
+  `working_dir`, or rename the base deck. With a `working_dir` apart from
   the deck, the link named only the deck's file, so it pointed to a file
   that did not exist there; it now holds the deck's path relative to the
   working directory.

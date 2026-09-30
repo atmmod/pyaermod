@@ -469,6 +469,78 @@ class TestRunnerVerdict:
         assert not inp.is_symlink()
         assert inp.read_bytes() == deck
 
+    def test_a_sibling_deck_leaves_aermod_inp_and_its_results(self, replay_bin, tmp_path):
+        """A base deck named aermod.inp beside a variant survives the variant's run.
+
+        The runner used to delete ``<work_dir>/aermod.inp`` to link the
+        variant in its place, and to remove ``aermod.out``, the base
+        deck's results, as a leftover.
+        """
+        work = tmp_path / "w"
+        base = _stage(SUCCESS, work, "aermod")
+        variant = _stage(SUCCESS, work, "case2")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        assert runner.run(base).success is True
+        deck = base.read_bytes()
+        results = (work / "aermod.out").read_bytes()
+
+        result = runner.run(variant)
+        assert result.success is False
+        assert "already holds another deck named aermod.inp" in result.error_message
+        assert result.input_file == str(variant)
+        assert not base.is_symlink()
+        assert base.read_bytes() == deck
+        assert (work / "aermod.out").read_bytes() == results
+        assert not (work / "case2.out").exists()
+
+        # The same variant runs in a working directory of its own.
+        apart = runner.run(variant, working_dir=tmp_path / "apart")
+        assert apart.success is True, apart.error_message
+
+    def test_run_batch_beside_aermod_inp_keeps_it(self, replay_bin, tmp_path):
+        work = tmp_path / "w"
+        base = _stage(SUCCESS, work, "aermod")
+        variant = _stage(SUCCESS, work, "case2")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        results = runner.run_batch([base, variant], n_workers=1)
+        assert [r.success for r in results] == [True, False]
+        assert "named aermod.inp" in results[1].error_message
+        assert base.read_bytes() == (SUCCESS / "aermod.inp").read_bytes()
+        assert (work / "aermod.out").exists()
+
+    @pytest.mark.parametrize("given", ["link", "target"])
+    def test_a_link_named_aermod_inp_to_the_deck_stays(self, replay_bin, tmp_path, given):
+        """``aermod.inp -> real.inp`` runs in place whichever name is given.
+
+        The runner replaced the link with its own, then removed it after
+        the run.
+        """
+        work = tmp_path / "w"
+        real = _stage(SUCCESS, work, "real")
+        link = work / "aermod.inp"
+        link.symlink_to("real.inp")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(link if given == "link" else real)
+        assert result.success is True, result.error_message
+        # The deck is named by the file the link resolves to.
+        assert result.output_file == str(work / "real.out")
+        assert link.is_symlink()
+        assert os.readlink(link) == "real.inp"
+        assert real.read_bytes() == (SUCCESS / "aermod.inp").read_bytes()
+
+    def test_a_link_named_aermod_inp_to_another_deck_is_replaced(self, replay_bin, tmp_path):
+        """A link is this runner's to replace; the deck it pointed to is untouched."""
+        work = tmp_path / "w"
+        other = _stage(E480, work, "other")
+        inp = _stage(SUCCESS, work, "run")
+        (work / "aermod.inp").symlink_to("other.inp")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(inp)
+        assert result.success is True, result.error_message
+        assert not (work / "aermod.inp").is_symlink()
+        assert not (work / "aermod.inp").exists()
+        assert other.read_bytes() == (E480 / "aermod.inp").read_bytes()
+
     @pytest.mark.parametrize("name", ["run", "aermod"])
     def test_working_dir_apart_from_the_deck(self, replay_bin, tmp_path, name):
         """The aermod.inp link reaches a deck in another directory."""
