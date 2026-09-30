@@ -19,6 +19,44 @@ them, and which pyaermod helper catches them earlier.
 - **Fix:** check `ControlPathway.averaging_periods` vs.
   `PollutantType`.
 
+### Open pit: "Release Height Exceeds Effective Depth for OPENPIT" (E322)
+
+- **Cause:** an `OpenPitSource` whose `release_height` is above its
+  effective depth, `pit_volume / (x_dimension * y_dimension)`. AERMOD
+  refuses the deck at setup (`soset.f` OPARM).
+- **Fix:** `Validator.validate(project)` reports it as an error, and
+  `project.write()` refuses to write the deck. Lower the release height
+  or check the volume and dimensions.
+
+### Open pit: zero concentration at receptors inside the pit
+
+- **Cause:** AERMOD does not model an `OPENPIT` source at receptors that
+  lie strictly inside the pit; it skips them and leaves 0 for that source
+  there, without any message (`calc1.f` PITCALC). Receptors on the pit's
+  edge are modelled.
+- **Fix:** the validator warns with the number of receptors inside each
+  pit and the first few of their coordinates. Drop those receptors, or
+  read their values as "not modelled" rather than "clean air".
+
+### Particle categories: E335, E332, E334, W334, W330
+
+- **Cause:** `ParticleDepositionParams` values AERMOD rejects: a diameter
+  of 0.001 microns or less, or above 1000 (E335); a mass fraction outside
+  0-1 (E332); a density of 0 or less (E334). AERMOD warns for a density of
+  0.1 g/cm³ or less (W334) and for fractions that sum outside 0.98-1.02
+  (W330). There is no limit on the number of categories.
+- **Fix:** `Validator.validate(project)` reports each with AERMOD's code.
+
+### DFAULT with FLAT terrain (W206)
+
+- **Cause:** `ControlPathway` defaults to `terrain_type=FLAT` with
+  `regulatory_default=True`, which writes `MODELOPT ... FLAT DFAULT`.
+  Under DFAULT, AERMOD drops FLAT with warning W206 and runs the deck in
+  elevated terrain, using the receptor and source elevations.
+- **Fix:** the validator warns. Set `regulatory_default=False` for a
+  flat-terrain run, or `terrain_type=TerrainType.ELEVATED` to write what
+  AERMOD will do.
+
 ## AERMOD runtime failures
 
 ### Immediate crash, ERRMSG.TMP has `E101`
