@@ -1,0 +1,798 @@
+CO STARTING
+   TITLEONE  Albany stack over a repeated year of met data
+   MODELOPT  CONC FLAT DFAULT
+   AVERTIME  1 ANNUAL
+   POLLUTID  SO2
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1   POINT        0.0000       0.0000     0.00
+   SRCPARAM  STACK1   100.000000    65.00   425.00    18.00     3.00
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  GRID1    STA
+   GRIDPOLR  GRID1    ORIG        0.00       0.00
+   GRIDPOLR  GRID1    DIST  300  600
+   GRIDPOLR  GRID1    GDIR  36  0  10
+   GRIDPOLR  GRID1    END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  YEAR.SFC
+   PROFFILE  YEAR.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  1-4
+   MAXTABLE  ALLAVE  10
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            4 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
+ RE W214      20       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
+ MX W403      29       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Uses Regulatory DEFAULT Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * NO GAS DEPOSITION Data Provided.
+      * NO PARTICLE DEPOSITION Data Provided.
+      * Model Uses NO DRY DEPLETION. DDPLETE  =  F
+      * Model Uses NO WET DEPLETION. WETDPLT  =  F
+      * Stack-tip Downwash.
+      * Model Accounts for ELEVated Terrain Effects.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: SO2     
+
+ **Note that special processing requirements apply for the 1-hour SO2 NAAQS - check available guidance.
+   Model will process user-specified ranks of daily maximum 1-hour values averaged across the number of years modeled.
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+     and Calculates ANNUAL Averages
+  
+ **This Run Includes:      1 Source(s);       1 Source Group(s); and      72 Receptor(s)
+
+                with:      1 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      0 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of ANNUAL Averages by Receptor
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+          Model Outputs Tables of Overall Maximum Short Term Values (MAXTABLE Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =     0.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+                  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+  
+ **Approximate Storage Requirements of Model =      3.5 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                                  *** POINT SOURCE DATA ***
+
+               NUMBER EMISSION RATE                    BASE     STACK   STACK    STACK     STACK    BLDG   URBAN  CAP/  EMIS RATE
+   SOURCE       PART.  (GRAMS/SEC)     X        Y      ELEV.    HEIGHT  TEMP.   EXIT VEL. DIAMETER  EXISTS SOURCE HOR   SCALAR
+     ID         CATS.               (METERS) (METERS) (METERS) (METERS) (DEG.K)  (M/SEC)  (METERS)                      VARY BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ STACK1           0   0.10000E+03       0.0       0.0     0.0    65.00   425.00    18.00     3.00    NO      NO    NO         
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        STACK1      ,
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                        *** GRIDDED RECEPTOR NETWORK SUMMARY ***
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                          *** ORIGIN FOR POLAR NETWORK ***
+                                X-ORIG =      0.00 ;   Y-ORIG =       0.00  (METERS)
+
+                                          *** DISTANCE RANGES OF NETWORK ***
+                                                    (METERS)
+
+          300.0,     600.0,
+
+                                          *** DIRECTION RADIALS OF NETWORK *** 
+                                                    (DEGREES)
+
+          360.0,      10.0,      20.0,      30.0,      40.0,      50.0,      60.0,      70.0,      80.0,      90.0,
+          100.0,     110.0,     120.0,     130.0,     140.0,     150.0,     160.0,     170.0,     180.0,     190.0,
+          200.0,     210.0,     220.0,     230.0,     240.0,     250.0,     260.0,     270.0,     280.0,     290.0,
+          300.0,     310.0,     320.0,     330.0,     340.0,     350.0,
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                                * ELEVATION HEIGHTS IN METERS *
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |          0.00         0.00
+       10.00 |          0.00         0.00
+       20.00 |          0.00         0.00
+       30.00 |          0.00         0.00
+       40.00 |          0.00         0.00
+       50.00 |          0.00         0.00
+       60.00 |          0.00         0.00
+       70.00 |          0.00         0.00
+       80.00 |          0.00         0.00
+       90.00 |          0.00         0.00
+      100.00 |          0.00         0.00
+      110.00 |          0.00         0.00
+      120.00 |          0.00         0.00
+      130.00 |          0.00         0.00
+      140.00 |          0.00         0.00
+      150.00 |          0.00         0.00
+      160.00 |          0.00         0.00
+      170.00 |          0.00         0.00
+      180.00 |          0.00         0.00
+      190.00 |          0.00         0.00
+      200.00 |          0.00         0.00
+      210.00 |          0.00         0.00
+      220.00 |          0.00         0.00
+      230.00 |          0.00         0.00
+      240.00 |          0.00         0.00
+      250.00 |          0.00         0.00
+      260.00 |          0.00         0.00
+      270.00 |          0.00         0.00
+      280.00 |          0.00         0.00
+      290.00 |          0.00         0.00
+      300.00 |          0.00         0.00
+      310.00 |          0.00         0.00
+      320.00 |          0.00         0.00
+      330.00 |          0.00         0.00
+      340.00 |          0.00         0.00
+      350.00 |          0.00         0.00
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                  *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                                * HILL HEIGHT SCALES IN METERS *
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |          0.00         0.00
+       10.00 |          0.00         0.00
+       20.00 |          0.00         0.00
+       30.00 |          0.00         0.00
+       40.00 |          0.00         0.00
+       50.00 |          0.00         0.00
+       60.00 |          0.00         0.00
+       70.00 |          0.00         0.00
+       80.00 |          0.00         0.00
+       90.00 |          0.00         0.00
+      100.00 |          0.00         0.00
+      110.00 |          0.00         0.00
+      120.00 |          0.00         0.00
+      130.00 |          0.00         0.00
+      140.00 |          0.00         0.00
+      150.00 |          0.00         0.00
+      160.00 |          0.00         0.00
+      170.00 |          0.00         0.00
+      180.00 |          0.00         0.00
+      190.00 |          0.00         0.00
+      200.00 |          0.00         0.00
+      210.00 |          0.00         0.00
+      220.00 |          0.00         0.00
+      230.00 |          0.00         0.00
+      240.00 |          0.00         0.00
+      250.00 |          0.00         0.00
+      260.00 |          0.00         0.00
+      270.00 |          0.00         0.00
+      280.00 |          0.00         0.00
+      290.00 |          0.00         0.00
+      300.00 |          0.00         0.00
+      310.00 |          0.00         0.00
+      320.00 |          0.00         0.00
+      330.00 |          0.00         0.00
+      340.00 |          0.00         0.00
+      350.00 |          0.00         0.00
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   YEAR.SFC                                                                           Met Version:  26135
+   Profile file:   YEAR.PFL                                                                        
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    14735                  Upper air station no.:    14735
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1988                                     Year:   1988
+
+ First 24 hours of scalar data
+ YR MO DY JDY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN    Z0  BOWEN ALBEDO  REF WS   WD     HT  REF TA     HT
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ ** 01 01   1 01   -2.7  0.062 -9.000 -9.000 -999.   37.      7.9  0.75   1.50   1.00    0.80  318.   10.0  273.8   10.0
+ 88 01 01   1 02   -3.5  0.069 -9.000 -9.000 -999.   44.      8.5  0.75   1.50   1.00    0.90  273.   10.0  273.5   10.0
+ 88 01 01   1 03   -1.6  0.046 -9.000 -9.000 -999.   24.      5.7  0.75   1.50   1.00    0.60  276.   10.0  272.4   10.0
+ 88 01 01   1 04   -1.0  0.034 -9.000 -9.000 -999.   15.      3.6  0.30   0.80   1.00    0.60  200.   10.0  271.5   10.0
+ 88 01 01   1 05   -6.3  0.093 -9.000 -9.000 -999.   68.     11.3  0.75   1.50   1.00    1.20  289.   10.0  271.8   10.0
+ 88 01 01   1 06   -2.8  0.062 -9.000 -9.000 -999.   37.      7.5  0.75   1.50   1.00    0.80  254.   10.0  271.0   10.0
+ 88 01 01   1 07   -3.6  0.069 -9.000 -9.000 -999.   44.      8.5  0.75   1.50   1.00    0.90  264.   10.0  270.9   10.0
+ 88 01 01   1 08   -5.4  0.148 -9.000 -9.000 -999.  137.     54.2  0.75   1.50   0.67    1.30  315.   10.0  271.8   10.0
+ 88 01 01   1 09   25.1  0.321  0.558  0.007  248.  437.   -118.3  0.75   1.50   0.56    1.90  310.   10.0  272.3   10.0
+ 88 01 01   1 10   60.6  0.396  0.949  0.008  506.  599.    -92.0  0.75   1.50   0.52    2.30  315.   10.0  273.0   10.0
+ 88 01 01   1 11   88.3  1.474  1.182  0.005  671. 4000.  -3249.5  0.75   1.50   0.51    7.70  297.    6.1  268.8    2.0
+ 88 01 01   1 12   97.8  0.438  1.247  0.005  711. 2198.    -76.9  0.75   1.50   0.51    2.50  309.   10.0  274.7   10.0
+ 88 01 01   1 13   99.6  0.535  1.277  0.005  749. 1158.   -137.9  0.75   1.50   0.51    3.20  316.   10.0  274.9   10.0
+ 88 01 01   1 14   88.9  0.533  1.248  0.006  781.  941.   -151.8  0.75   1.50   0.51    3.20  290.   10.0  275.3   10.0
+ 88 01 01   1 15   65.9  0.483  1.147  0.007  818.  808.   -152.3  0.75   1.50   0.52    2.90  300.   10.0  275.5   10.0
+ 88 01 01   1 16   31.5  0.453  0.905  0.007  841.  733.   -263.9  0.75   1.50   0.55    2.80  315.   10.0  275.0   10.0
+ 88 01 01   1 17  -15.1  0.430 -9.000 -9.000 -999.  678.    469.5  0.75   1.50   0.62    2.90  308.   10.0  274.3   10.0
+ 88 01 01   1 18  -15.6  0.147 -9.000 -9.000 -999.  249.     18.1  0.75   1.50   0.86    1.90  311.   10.0  273.3   10.0
+ 88 01 01   1 19  -11.2  0.124 -9.000 -9.000 -999.  108.     15.1  0.75   1.50   1.00    1.60  313.   10.0  272.2   10.0
+ 88 01 01   1 20   -7.4  0.100 -9.000 -9.000 -999.   76.     12.2  0.75   1.50   1.00    1.30  326.   10.0  271.3   10.0
+ 88 01 01   1 21  -17.5  0.154 -9.000 -9.000 -999.  146.     18.8  0.75   1.50   1.00    2.00  327.   10.0  270.5   10.0
+ 88 01 01   1 22  -15.8  0.147 -9.000 -9.000 -999.  135.     17.8  0.75   1.50   1.00    1.90  320.   10.0  269.8   10.0
+ 88 01 01   1 23   -2.8  0.062 -9.000 -9.000 -999.   40.      7.5  0.75   1.50   1.00    0.80  284.   10.0  268.7   10.0
+ 88 01 01   1 24  -11.2  0.124 -9.000 -9.000 -999.  104.     15.0  0.75   1.50   1.00    1.60  298.   10.0  268.3   10.0
+
+
+ First hour of profile data
+ YR MO DY HR HEIGHT F  WDIR    WSPD AMB_TMP sigmaA  sigmaW  sigmaV
+ ** 01 01 01   10.0 0  318.    0.80   273.8   48.7    0.11    0.48
+ ** 01 01 01   50.0 0  323.    2.00   275.0   14.7  -99.00    0.50
+ ** 01 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
+
+ F indicates top of profile (=1) or below (=0)
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                   *** THE ANNUAL AVERAGE CONCENTRATION    VALUES AVERAGED OVER   1 YEARS FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     STACK1      , 
+
+                                   *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |       0.16371      0.31266
+       10.00 |       0.19293      0.58107
+       20.00 |       0.24785      1.01642
+       30.00 |       0.23786      0.95421
+       40.00 |       0.17679      0.50133
+       50.00 |       0.14729      0.28231
+       60.00 |       0.14934      0.27520
+       70.00 |       0.21095      0.44501
+       80.00 |       0.45098      0.97931
+       90.00 |       0.97167      1.99727
+      100.00 |       1.72321      3.47677
+      110.00 |       2.42176      4.96958
+      120.00 |       2.64304      5.42148
+      130.00 |       2.22990      4.45837
+      140.00 |       1.46962      2.91076
+      150.00 |       0.74087      1.53488
+      160.00 |       0.31873      0.69752
+      170.00 |       0.19356      0.48889
+      180.00 |       0.17651      0.47139
+      190.00 |       0.16408      0.37961
+      200.00 |       0.15188      0.30190
+      210.00 |       0.14459      0.27187
+      220.00 |       0.13953      0.25285
+      230.00 |       0.13675      0.24214
+      240.00 |       0.13719      0.24037
+      250.00 |       0.14412      0.24481
+      260.00 |       0.15867      0.25765
+      270.00 |       0.17839      0.27728
+      280.00 |       0.20201      0.30033
+      290.00 |       0.22312      0.32164
+      300.00 |       0.23746      0.33481
+      310.00 |       0.24171      0.33650
+      320.00 |       0.23444      0.32712
+      330.00 |       0.21602      0.30976
+      340.00 |       0.19326      0.29154
+      350.00 |       0.17234      0.27943
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+    *** THE   1ST-HIGHEST MAX DAILY 1-HR AVERAGE CONCENTRATION    VALUES AVERAGED OVER   1 YEARS FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     STACK1      , 
+
+                                   *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |       1.84590      2.52815
+       10.00 |       2.36305     14.36448
+       20.00 |       5.45768     32.28202
+       30.00 |       5.36795     31.77029
+       40.00 |       2.24140     13.64578
+       50.00 |       1.84590      2.53554
+       60.00 |       1.84590      3.18574
+       70.00 |       3.41796      9.05553
+       80.00 |      10.49762     28.60087
+       90.00 |      23.31578     51.30004
+      100.00 |      31.88211     64.59593
+      110.00 |      34.78961     64.22236
+      120.00 |      39.99496     76.07952
+      130.00 |      42.00438     55.16028
+      140.00 |      36.18684     48.65928
+      150.00 |      22.84024     33.13439
+      160.00 |       9.81626     15.42827
+      170.00 |       3.19068      8.00022
+      180.00 |       1.89129      9.75843
+      190.00 |       1.84594      4.11572
+      200.00 |       1.84590      3.28426
+      210.00 |       1.84590      2.52815
+      220.00 |       1.84590      2.52815
+      230.00 |       1.84590      2.52815
+      240.00 |       1.84590      2.52815
+      250.00 |       1.84590      2.52815
+      260.00 |       2.38976      2.52815
+      270.00 |       3.87202      3.62901
+      280.00 |       5.36766      5.25779
+      290.00 |       6.29971      6.42735
+      300.00 |       6.53346      6.73350
+      310.00 |       6.01998      6.06784
+      320.00 |       4.86941      4.66481
+      330.00 |       3.66727      3.00038
+      340.00 |       2.87946      2.52815
+      350.00 |       1.84590      2.52815
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+    *** THE   2ND-HIGHEST MAX DAILY 1-HR AVERAGE CONCENTRATION    VALUES AVERAGED OVER   1 YEARS FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     STACK1      , 
+
+                                   *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |       1.84590      2.52815
+       10.00 |       2.36305     14.36448
+       20.00 |       5.45768     32.28202
+       30.00 |       5.36795     31.77029
+       40.00 |       2.24140     13.64578
+       50.00 |       1.84590      2.53554
+       60.00 |       1.84590      3.18574
+       70.00 |       3.41796      9.05553
+       80.00 |      10.49762     28.60087
+       90.00 |      23.31578     51.30004
+      100.00 |      31.88211     64.59593
+      110.00 |      34.78961     64.22236
+      120.00 |      39.99496     76.07952
+      130.00 |      42.00438     55.16028
+      140.00 |      36.18684     48.65928
+      150.00 |      22.84024     33.13439
+      160.00 |       9.81626     15.42827
+      170.00 |       3.19068      8.00022
+      180.00 |       1.89129      9.75843
+      190.00 |       1.84594      4.11572
+      200.00 |       1.84590      3.28426
+      210.00 |       1.84590      2.52815
+      220.00 |       1.84590      2.52815
+      230.00 |       1.84590      2.52815
+      240.00 |       1.84590      2.52815
+      250.00 |       1.84590      2.52815
+      260.00 |       2.38976      2.52815
+      270.00 |       3.87202      3.62901
+      280.00 |       5.36766      5.25779
+      290.00 |       6.29971      6.42735
+      300.00 |       6.53346      6.73350
+      310.00 |       6.01998      6.06784
+      320.00 |       4.86941      4.66481
+      330.00 |       3.66727      3.00038
+      340.00 |       2.87946      2.52815
+      350.00 |       1.84590      2.52815
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  12
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+    *** THE   3RD-HIGHEST MAX DAILY 1-HR AVERAGE CONCENTRATION    VALUES AVERAGED OVER   1 YEARS FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     STACK1      , 
+
+                                   *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |       1.84590      2.52815
+       10.00 |       2.36305     14.36448
+       20.00 |       5.45768     32.28202
+       30.00 |       5.36795     31.77029
+       40.00 |       2.24140     13.64578
+       50.00 |       1.84590      2.53554
+       60.00 |       1.84590      3.18574
+       70.00 |       3.41796      9.05553
+       80.00 |      10.49762     28.60087
+       90.00 |      23.31578     51.30004
+      100.00 |      31.88211     64.59593
+      110.00 |      34.78961     64.22236
+      120.00 |      39.99496     76.07952
+      130.00 |      42.00438     55.16028
+      140.00 |      36.18684     48.65928
+      150.00 |      22.84024     33.13439
+      160.00 |       9.81626     15.42827
+      170.00 |       3.19068      8.00022
+      180.00 |       1.89129      9.75843
+      190.00 |       1.84594      4.11572
+      200.00 |       1.84590      3.28426
+      210.00 |       1.84590      2.52815
+      220.00 |       1.84590      2.52815
+      230.00 |       1.84590      2.52815
+      240.00 |       1.84590      2.52815
+      250.00 |       1.84590      2.52815
+      260.00 |       2.38976      2.52815
+      270.00 |       3.87202      3.62901
+      280.00 |       5.36766      5.25779
+      290.00 |       6.29971      6.42735
+      300.00 |       6.53346      6.73350
+      310.00 |       6.01998      6.06784
+      320.00 |       4.86941      4.66481
+      330.00 |       3.66727      3.00038
+      340.00 |       2.87946      2.52815
+      350.00 |       1.84590      2.52815
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  13
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+    *** THE   4TH-HIGHEST MAX DAILY 1-HR AVERAGE CONCENTRATION    VALUES AVERAGED OVER   1 YEARS FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     STACK1      , 
+
+                                   *** NETWORK ID: GRID1    ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |        300.00       600.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      360.00 |       1.84590      2.52815
+       10.00 |       2.36305     14.36448
+       20.00 |       5.45768     32.28202
+       30.00 |       5.36795     31.77029
+       40.00 |       2.24140     13.64578
+       50.00 |       1.84590      2.53554
+       60.00 |       1.84590      3.18574
+       70.00 |       3.41796      9.05553
+       80.00 |      10.49762     28.60087
+       90.00 |      23.31578     51.30004
+      100.00 |      31.88211     64.59593
+      110.00 |      34.78961     64.22236
+      120.00 |      39.99496     76.07952
+      130.00 |      42.00438     55.16028
+      140.00 |      36.18684     48.65928
+      150.00 |      22.84024     33.13439
+      160.00 |       9.81626     15.42827
+      170.00 |       3.19068      8.00022
+      180.00 |       1.89129      9.75843
+      190.00 |       1.84594      4.11572
+      200.00 |       1.84590      3.28426
+      210.00 |       1.84590      2.52815
+      220.00 |       1.84590      2.52815
+      230.00 |       1.84590      2.52815
+      240.00 |       1.84590      2.52815
+      250.00 |       1.84590      2.52815
+      260.00 |       2.38976      2.52815
+      270.00 |       3.87202      3.62901
+      280.00 |       5.36766      5.25779
+      290.00 |       6.29971      6.42735
+      300.00 |       6.53346      6.73350
+      310.00 |       6.01998      6.06784
+      320.00 |       4.86941      4.66481
+      330.00 |       3.66727      3.00038
+      340.00 |       2.87946      2.52815
+      350.00 |       1.84590      2.52815
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  14
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                              *** THE MAXIMUM   10   1-HR AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     STACK1      , 
+
+                                        ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+ RANK        CONC    (YYMMDDHH) AT      RECEPTOR (XR,YR) OF TYPE    RANK        CONC    (YYMMDDHH) AT      RECEPTOR (XR,YR) OF TYPE 
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    1.      76.07952 (88010111) AT (    519.62,    -300.00)  GP        6.      76.07952 (88012111) AT (    519.62,    -300.00)  GP
+    2.      76.07952 (88010511) AT (    519.62,    -300.00)  GP        7.      76.07952 (88012511) AT (    519.62,    -300.00)  GP
+    3.      76.07952 (88010911) AT (    519.62,    -300.00)  GP        8.      76.07952 (88012911) AT (    519.62,    -300.00)  GP
+    4.      76.07952 (88011311) AT (    519.62,    -300.00)  GP        9.      76.07952 (88020211) AT (    519.62,    -300.00)  GP
+    5.      76.07952 (88011711) AT (    519.62,    -300.00)  GP       10.      76.07952 (88020611) AT (    519.62,    -300.00)  GP
+
+  *** RECEPTOR TYPES:  GC = GRIDCART
+                       GP = GRIDPOLR
+                       DC = DISCCART
+                       DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  15
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                   *** THE SUMMARY OF MAXIMUM ANNUAL RESULTS AVERAGED OVER   1 YEARS ***
+
+
+                                    ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS       5.42148 AT (     519.62,     -300.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          2ND HIGHEST VALUE IS       4.96958 AT (     563.82,     -205.21,     0.00,     0.00,    0.00)  GP  GRID1   
+          3RD HIGHEST VALUE IS       4.45837 AT (     459.63,     -385.67,     0.00,     0.00,    0.00)  GP  GRID1   
+          4TH HIGHEST VALUE IS       3.47677 AT (     590.88,     -104.19,     0.00,     0.00,    0.00)  GP  GRID1   
+          5TH HIGHEST VALUE IS       2.91076 AT (     385.67,     -459.63,     0.00,     0.00,    0.00)  GP  GRID1   
+          6TH HIGHEST VALUE IS       2.64304 AT (     259.81,     -150.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          7TH HIGHEST VALUE IS       2.42176 AT (     281.91,     -102.61,     0.00,     0.00,    0.00)  GP  GRID1   
+          8TH HIGHEST VALUE IS       2.22990 AT (     229.81,     -192.84,     0.00,     0.00,    0.00)  GP  GRID1   
+          9TH HIGHEST VALUE IS       1.99727 AT (     600.00,        0.00,     0.00,     0.00,    0.00)  GP  GRID1   
+         10TH HIGHEST VALUE IS       1.72321 AT (     295.44,      -52.09,     0.00,     0.00,    0.00)  GP  GRID1   
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  16
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                      *** THE SUMMARY OF MAXIMUM   1ST-HIGHEST MAX DAILY  1-HR RESULTS AVERAGED OVER   1 YEARS ***
+
+
+                                    ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS      76.07952 AT (     519.62,     -300.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          2ND HIGHEST VALUE IS      64.59593 AT (     590.88,     -104.19,     0.00,     0.00,    0.00)  GP  GRID1   
+          3RD HIGHEST VALUE IS      64.22236 AT (     563.82,     -205.21,     0.00,     0.00,    0.00)  GP  GRID1   
+          4TH HIGHEST VALUE IS      55.16028 AT (     459.63,     -385.67,     0.00,     0.00,    0.00)  GP  GRID1   
+          5TH HIGHEST VALUE IS      51.30004 AT (     600.00,        0.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          6TH HIGHEST VALUE IS      48.65928 AT (     385.67,     -459.63,     0.00,     0.00,    0.00)  GP  GRID1   
+          7TH HIGHEST VALUE IS      42.00438 AT (     229.81,     -192.84,     0.00,     0.00,    0.00)  GP  GRID1   
+          8TH HIGHEST VALUE IS      39.99496 AT (     259.81,     -150.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          9TH HIGHEST VALUE IS      36.18684 AT (     192.84,     -229.81,     0.00,     0.00,    0.00)  GP  GRID1   
+         10TH HIGHEST VALUE IS      34.78961 AT (     281.91,     -102.61,     0.00,     0.00,    0.00)  GP  GRID1   
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  17
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                      *** THE SUMMARY OF MAXIMUM   2ND-HIGHEST MAX DAILY  1-HR RESULTS AVERAGED OVER   1 YEARS ***
+
+
+                                    ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS      76.07952 AT (     519.62,     -300.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          2ND HIGHEST VALUE IS      64.59593 AT (     590.88,     -104.19,     0.00,     0.00,    0.00)  GP  GRID1   
+          3RD HIGHEST VALUE IS      64.22236 AT (     563.82,     -205.21,     0.00,     0.00,    0.00)  GP  GRID1   
+          4TH HIGHEST VALUE IS      55.16028 AT (     459.63,     -385.67,     0.00,     0.00,    0.00)  GP  GRID1   
+          5TH HIGHEST VALUE IS      51.30004 AT (     600.00,        0.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          6TH HIGHEST VALUE IS      48.65928 AT (     385.67,     -459.63,     0.00,     0.00,    0.00)  GP  GRID1   
+          7TH HIGHEST VALUE IS      42.00438 AT (     229.81,     -192.84,     0.00,     0.00,    0.00)  GP  GRID1   
+          8TH HIGHEST VALUE IS      39.99496 AT (     259.81,     -150.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          9TH HIGHEST VALUE IS      36.18684 AT (     192.84,     -229.81,     0.00,     0.00,    0.00)  GP  GRID1   
+         10TH HIGHEST VALUE IS      34.78961 AT (     281.91,     -102.61,     0.00,     0.00,    0.00)  GP  GRID1   
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  18
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                      *** THE SUMMARY OF MAXIMUM   3RD-HIGHEST MAX DAILY  1-HR RESULTS AVERAGED OVER   1 YEARS ***
+
+
+                                    ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS      76.07952 AT (     519.62,     -300.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          2ND HIGHEST VALUE IS      64.59593 AT (     590.88,     -104.19,     0.00,     0.00,    0.00)  GP  GRID1   
+          3RD HIGHEST VALUE IS      64.22236 AT (     563.82,     -205.21,     0.00,     0.00,    0.00)  GP  GRID1   
+          4TH HIGHEST VALUE IS      55.16028 AT (     459.63,     -385.67,     0.00,     0.00,    0.00)  GP  GRID1   
+          5TH HIGHEST VALUE IS      51.30004 AT (     600.00,        0.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          6TH HIGHEST VALUE IS      48.65928 AT (     385.67,     -459.63,     0.00,     0.00,    0.00)  GP  GRID1   
+          7TH HIGHEST VALUE IS      42.00438 AT (     229.81,     -192.84,     0.00,     0.00,    0.00)  GP  GRID1   
+          8TH HIGHEST VALUE IS      39.99496 AT (     259.81,     -150.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          9TH HIGHEST VALUE IS      36.18684 AT (     192.84,     -229.81,     0.00,     0.00,    0.00)  GP  GRID1   
+         10TH HIGHEST VALUE IS      34.78961 AT (     281.91,     -102.61,     0.00,     0.00,    0.00)  GP  GRID1   
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  19
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                      *** THE SUMMARY OF MAXIMUM   4TH-HIGHEST MAX DAILY  1-HR RESULTS AVERAGED OVER   1 YEARS ***
+
+
+                                    ** CONC OF SO2      IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS      76.07952 AT (     519.62,     -300.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          2ND HIGHEST VALUE IS      64.59593 AT (     590.88,     -104.19,     0.00,     0.00,    0.00)  GP  GRID1   
+          3RD HIGHEST VALUE IS      64.22236 AT (     563.82,     -205.21,     0.00,     0.00,    0.00)  GP  GRID1   
+          4TH HIGHEST VALUE IS      55.16028 AT (     459.63,     -385.67,     0.00,     0.00,    0.00)  GP  GRID1   
+          5TH HIGHEST VALUE IS      51.30004 AT (     600.00,        0.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          6TH HIGHEST VALUE IS      48.65928 AT (     385.67,     -459.63,     0.00,     0.00,    0.00)  GP  GRID1   
+          7TH HIGHEST VALUE IS      42.00438 AT (     229.81,     -192.84,     0.00,     0.00,    0.00)  GP  GRID1   
+          8TH HIGHEST VALUE IS      39.99496 AT (     259.81,     -150.00,     0.00,     0.00,    0.00)  GP  GRID1   
+          9TH HIGHEST VALUE IS      36.18684 AT (     192.84,     -229.81,     0.00,     0.00,    0.00)  GP  GRID1   
+         10TH HIGHEST VALUE IS      34.78961 AT (     281.91,     -102.61,     0.00,     0.00,    0.00)  GP  GRID1   
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year of met data                       ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:00
+                                                                                                                       PAGE  20
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            4 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of         8784 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
+ RE W214      20       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
+ MX W403      29       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+

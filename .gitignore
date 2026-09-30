@@ -53,6 +53,8 @@ coverage.xml
 !tests/fixtures/gui/aermod_recordings/**
 # AERMOD runs for every set of output types (regenerate.sh there)
 !tests/fixtures/postfile_types/**
+# Real AERMOD runs the output parser's tests read
+!tests/fixtures/output_parser/**
 
 # Screenshots the GUI journeys save at every step (tests/e2e)
 test-artifacts/
