@@ -187,6 +187,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plot files are mapped as deposition, in AERMOD's units. The view of a
   run is built by the UI-free `pyaermod.gui_v2.run_results`, the map by
   `gui_v2.results_map`.
+- GUI: **Import deck...** on the Project step imports an AERMOD `.inp`
+  deck (`Session.import_inp`). In a browser the deck is uploaded and read
+  with `read_aermod_input(..., sandbox=True)` from a private temporary
+  folder, so it may name only files beside itself; a deck that names
+  others is refused with every such path listed. In `pyaermod-desktop` a
+  native dialog chooses the deck, and a **Deck file path** field imports
+  a deck on this computer in either mode; such a deck is read as it
+  stands, and the files it reads that are beside it (met, ozone and NOx
+  files, `INCLUDED`, `HOUREMIS`, an hourly `BACKGRND` file, a `MULTYEAR`
+  or `INITFILE` start file) come along as full paths. A notice lists the
+  lines PyAERMOD keeps as written (`unparsed_lines`), names the files the
+  deck reads that are not on this computer, and asks for the met files
+  not yet found, through path fields that say when a file does not exist
+  (with **Browse...** in desktop mode). Every deck under
+  `tests/fixtures/epa_official/` either imports or says why not.
+- GUI: a **Recent files** list on the Project step: projects opened or
+  saved through a path on this computer and decks imported from one,
+  newest first, kept in `~/.pyaermod/recent_files.json`
+  (`$PYAERMOD_RECENT_FILES` overrides it).
+- `PathTraversalError.violations` lists every path of a sandboxed deck
+  that escapes its folder (`SandboxViolation`: the field, the path as
+  the deck wrote it and where it resolves), not only the first, which
+  the message still names.
+- `pyaermod.input_reader.input_files(project)` lists the files AERMOD
+  reads that a project names (`InputFile`: the keyword, as `ME SURFFILE`
+  or `SO HOUREMIS at line 40`, and the path as written), and
+  `anchor_input_files(project, deck_dir)` gives each one named by a
+  relative path that exists beside the deck its full path, so the project
+  runs from any working directory. Files AERMOD writes are left alone.
+- `pyaermod.input_reader.runstream_fields(text)` splits a runstream line
+  into fields as AERMOD does (blanks, and double quotes around a name
+  with blanks).
 
 ### Changed
 - GUI: `Session.last_completed_run` skips cancelled runs, so Results does
@@ -433,6 +465,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and those on `LineSource` and `RLineSource` that the emission rate is
   per unit length; AERMOD reads full side lengths (Xinit, Yinit) and a
   rate per unit area.
+- **`read_aermod_input(..., sandbox=True)` let a deck write or read
+  outside its folder through the lines it keeps verbatim.** Only paths
+  stored on project fields were checked, while `unparsed_lines` go back
+  into the deck as written, and several of them name files AERMOD opens:
+  `CO ERRORFIL /elsewhere/x` (EPA's own `aertest.inp` writes
+  `../Outputs/AERTEST_ERRORS.OUT`), `INCLUDED`, `HOUREMIS`, `BACKGRND
+  HOURLY`, `DEBUGOPT` files, a second `POSTFILE`. A sandboxed deck could
+  therefore still make AERMOD overwrite any file its user can write, or
+  read one from anywhere. Every field of every kept line is now checked, split as
+  AERMOD splits it, and an escape is reported as, for example,
+  `CO ERRORFIL at line 14`. A name the file system cannot resolve (a NUL
+  byte) is refused rather than raised. The `CO EVENTFIL` file, which
+  AERMOD writes and the reader stores as `ControlPathway.eventfil`, is
+  now checked too.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by

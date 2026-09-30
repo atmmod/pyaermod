@@ -21,7 +21,7 @@ from typing import Any, Callable, List, Optional
 from ...input_generator import PollutantType, TerrainType
 from ...naaqs import naaqs_averaging_periods
 from ...validator import VALID_AVERAGING_PERIODS
-from .. import _native
+from .. import _native, files
 from .._layout import Goto, confirm, section, step_page
 from .._live import live
 from ..session import ProjectFileError, Session
@@ -221,9 +221,8 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
 
     ``actions`` are the page's file operations (the shell builds them once
     and shares them with the header); without them the step builds its own.
-    ``goto`` is the shell's navigation. This step does not use it yet: it is
-    kept for WP-G6's deck-import controls, whose notice links to the
-    Meteorology step (see the placeholder below).
+    ``goto`` is the shell's navigation, which WP-G6's deck-import notice
+    uses to link to the Meteorology step.
     """
     from nicegui import ui
 
@@ -241,9 +240,9 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
                 "project-save")
             ui.button("Save as...", on_click=actions.save_as).props("outline").mark(
                 "project-save-as")
-        # WP-G6: the deck-import controls go here, below the file buttons and
-        # outside any live section:
-        #     files.import_controls(session, dialogs=dialogs, goto=goto)
+        # WP-G6's deck import, below the file buttons and outside any live
+        # section: its uploader and subscription live as long as the page.
+        files.import_controls(session, dialogs=dialogs, goto=goto)
 
         @live(session)
         def _settings() -> None:
