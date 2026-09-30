@@ -180,7 +180,9 @@ def _status_card(ui: Any, view: RunView) -> None:
             started = f"{view.started_at:%Y-%m-%d %H:%M:%S}"
             finished = f", finished {view.finished_at:%H:%M:%S}" if view.finished_at else ""
             ui.label(f"Started {started}{finished}").classes("text-body2 text-grey-8")
-        ui.label(f"Working directory: {view.work_dir}").classes("text-body2 text-grey-8")
+        # A path has no spaces to wrap at; let it break anywhere on a phone.
+        ui.label(f"Working directory: {view.work_dir}").classes("text-body2 text-grey-8").style(
+            "overflow-wrap: anywhere")
         if view.out is not None:
             ui.label(f"Output file: {view.out.name}").classes("text-body2 text-grey-8")
 
@@ -532,9 +534,10 @@ def _downloads(ui: Any, view: RunView, *, stale: bool,
                                on_click=lambda f=file: fetch(f)).props("outline")
             if stale:
                 button.disable()
-    with ui.column().classes("q-gutter-none q-mt-xs"):
+    with ui.column().classes("q-gutter-none q-mt-xs w-full"):
         for file in files:
-            ui.label(f"{file.name}: {file.path}").classes("text-caption text-grey-8")
+            ui.label(f"{file.name}: {file.path}").classes("text-caption text-grey-8").style(
+                "overflow-wrap: anywhere")
 
     if view.succeeded and map_choice is not None and any(
             p.output_type == "CONC" for p in view.plots):
