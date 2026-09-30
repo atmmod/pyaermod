@@ -221,6 +221,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with blanks).
 
 ### Changed
+- GUI: the Meteorology step says what the surface file holds, as the next
+  run would read it: the period it covers, the station IDs and first year
+  in its header, and, when ANNUAL is asked for with less than a year of
+  data, AERMOD's E480 warning with a button to the Project step's
+  averaging periods. The header's readiness line and the Meteorology
+  badge count that warning (`Session.validate(check_files=True)` adds
+  `Session.met_coverage()`'s finding), and its item on Review & Run links
+  to both Meteorology and Project.
+- GUI: after a cancelled run the Review & Run and Results badges follow
+  the run before it (or read "not started"), as Results does, instead of
+  "error".
+- GUI: the Output step says that a file name with folders is relative to
+  the working directory and that AERMOD does not create folders.
 - GUI: the Meteorology step's surface and profile files are the same
   checked path fields as the import notice's (with **Browse...** in
   desktop mode): each says when its path is relative, is not a file on
@@ -252,6 +265,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recordings were made again with the real binary.
 
 ### Fixed
+- **GUI: the whole server froze while Results read a finished run.**
+  The view was built on the event loop from the `RUN_FINISHED` observer,
+  so for a large run (tens of thousands of receptors, or a POSTFILE of
+  hundreds of MB) every tab stopped answering, Review & Run kept showing
+  "Running" with a Cancel that did nothing, and the browser could show
+  "Connection lost". `run_results.prepare()` now reads the run's files in
+  a thread of its own; Results says "Reading the results of run N ..."
+  until they are read, and the run's end reaches every page at once. A
+  POSTFILE larger than 100 MB (`POSTFILE_DESIGN_VALUE_MAX_BYTES`) is not
+  read for a design value: the NAAQS row is a screening row that names
+  it. Checksums of a run's files are taken in pieces.
+- **GUI: an imported deck's output folders.** EPA's `aertest.inp`,
+  imported from its path, writes `../Outputs/AERTEST.SUM`,
+  `../plotfiles/...`, `../postfiles/...` and `CO ERRORFIL ../Outputs/...`;
+  run in a blank working directory (a new, empty folder) it passed the
+  checklist and then stopped with four E500 errors. Review & Run now
+  blocks every output file whose folder will not exist where AERMOD runs,
+  names the deck's own folder when that one has it, and clears once the
+  working directory does.
+- **GUI: Results found no plot file or POSTFILE that a deck put in a
+  folder.** Results takes them from the `OU PLOTFILE` and `OU POSTFILE`
+  lines of the deck the run used, resolved against the working
+  directory, and then any other `.PLT` or `.PST` file the run wrote
+  there; so an EPA-layout run has its map, its downloads and a design
+  value from its 1-hour POSTFILE.
 - **`examples/deposition_modeling.py` calculated no deposition.** Its
   decks set only `OutputPathway.output_type`, which selects nothing in
   AERMOD, so the particle deck was `MODELOPT CONC FLAT DFAULT`, a
