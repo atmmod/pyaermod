@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`ControlPathway.debug_options` writes `CO DEBUGOPT`.** AERMOD's debug
+  output (the per-hour AREA.DBG of an open pit, PDEP.DAT and DEPOS.DBG of
+  a deposition run, MODEL, METEOR, PRIME, ...) could only be had by
+  patching the deck text. The field holds the fields of the line as
+  AERMOD reads them, options each optionally followed by a file name
+  (`["AREA", "DEPOS"]`, `["MODEL", "model.dbg"]`), and the writer puts
+  the line after MODELOPT, which coset.f DEBOPT checks DEPOS against
+  (E194 otherwise). `debug_files()` returns the file names, and
+  `read_aermod_input(..., sandbox=True)` now checks them like every other
+  path. The reader fills the field, pooling repeated DEBUGOPT cards as
+  v26135 does and keeping the case of the file names, so `DEBUGOPT` no
+  longer travels in `unparsed_lines`. `pathways.DEBUG_OPTIONS` lists the
+  23 option names of v26135. The demonstration study's one-day DEBUGOPT
+  AREA DEPOS deck is now written from the field, and on the v26135
+  binary its AREA.DBG, PDEP.DAT, DEPOS.DBG and plot file are identical
+  to those of the text-patched deck.
+- **`ControlPathway.dry_depletion` and `.wet_depletion` write the
+  MODELOPT depletion switches.** `True` writes DRYDPLT or WETDPLT, `False`
+  NODRYDPLT or NOWETDPLT, and `None` (the default) neither, which leaves
+  AERMOD's default of depletion on whenever the run has deposition
+  inputs. The reader fills both from MODELOPT; a token that contradicts
+  an earlier one (AERMOD's E149) stays in `extra_model_options`, so the
+  rewritten deck fails the same way.
+- **`ControlPathway.elevated_terrain`** says whether AERMOD runs the deck
+  with elevated terrain: ELEV, the FLAT ELEV pair, and FLAT under DFAULT
+  (which AERMOD overrides with W206) all are.
+
+### Changed
+- **`DepositionMethod` and the per-source `deposition_method` field are
+  documented as inert.** AERMOD has no `METHOD` keyword, so neither has
+  written anything since the writer stopped emitting the E105 card; both
+  stay so existing code and saved projects load, and the docstring points
+  to the fields that do what each member names (`GASDEPVD` / `GASDEPDF`
+  CO keywords, the new depletion fields, `method_2`).
+
 ### Fixed
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`

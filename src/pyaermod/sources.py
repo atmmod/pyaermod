@@ -24,7 +24,20 @@ from .pathways import ChemistryOptions
 # ============================================================================
 
 class DepositionMethod(Enum):
-    """AERMOD deposition method types for the METHOD keyword."""
+    """Labels once written on a per-source ``METHOD`` card.
+
+    AERMOD has no ``METHOD`` keyword (it is not in modules.f; SO E105),
+    so the per-source ``deposition_method`` field that holds these, and
+    this enum, change nothing in a written deck; both are kept so
+    existing code and saved projects still load. What each member
+    stands for is set elsewhere: ``GASDEPVD`` and ``GASDEPDF`` are
+    CO keywords (:attr:`ControlPathway.gas_deposition_velocity`,
+    :attr:`ControlPathway.gas_deposition_defaults`), and ``DRYDPLT`` and
+    ``WETDPLT`` are MODELOPT switches
+    (:attr:`ControlPathway.dry_depletion`,
+    :attr:`ControlPathway.wet_depletion`). Method 2 particle deposition
+    is the ``METHOD_2`` card, from a source's ``method_2``.
+    """
     GASDEPVD = "GASDEPVD"
     GASDEPDF = "GASDEPDF"
     DRYDPLT = "DRYDPLT"

@@ -65,9 +65,9 @@ keywords therefore never reach the validator.
 | OU | 16 | 16 | 0 | 0 |
 | EV | 5 | 5 | 0 | 0 |
 
-Every one of the 115 dispatched keywords is recognised and tested. 104
-have a field on the model; the eleven that are "handled" without one
-(ERRORFIL, DEBUGOPT, NO2EQUIL, EMISFACT, HOUREMIS, INCLUDED, BACKUNIT,
+Every one of the 115 dispatched keywords is recognised and tested. 105
+have a field on the model; the ten that are "handled" without one
+(ERRORFIL, NO2EQUIL, EMISFACT, HOUREMIS, INCLUDED, BACKUNIT,
 SO ELEVUNIT, EVALCART, DISCPOLR, SITEDATA) are stored verbatim by
 decision, each with its reason in "Stored only, by design" below.
 
@@ -147,8 +147,12 @@ HALFLIFE, INITFILE, LOW_WIND, MODELOPT, MULTYEAR, NO2EQUIL, NO2STACK,
 NOXSECTR, NOXVALUE, NOX_FILE, NOX_UNIT, NOX_VALS, O3SECTOR, O3VALUES,
 ORD_DWNW, OZONEFIL, OZONEVAL, OZONUNIT, POLLUTID, RUNORNOT, SAVEFILE,
 TITLEONE, TITLETWO, URBANOPT.
-Of these, DEBUGOPT, ERRORFIL and NO2EQUIL have no field and travel in
-`unparsed_lines` (see "Stored only, by design"); RUNORNOT
+Of these, ERRORFIL and NO2EQUIL have no field and travel in
+`unparsed_lines` (see "Stored only, by design"); DEBUGOPT
+(`ControlPathway.debug_options`, the fields as written: options and the
+file names after them, which keep their case; coset.f DEBOPT pools the
+fields of repeated cards and checks DEPOS against MODELOPT, so the writer
+puts the line after MODELOPT), RUNORNOT
 (`ControlPathway.run_model`), EVENTFIL (`.eventfil` and
 `.eventfil_option`, coset.f EVNTFL: `evfile [SOCONT|DETAIL]`; the bare
 form, AERMOD's EVENTS.INP with W207, is kept verbatim) and URBANOPT are
@@ -179,7 +183,12 @@ in 1-9. Ozone and NOx sector forms are stored per sector
 (`OzoneData.by_sector`, `NOxBackground.by_sector`).
 MODELOPT options with a field: CONC, DEPOS, DDEP, WDEP, FLAT, ELEV,
 DFAULT, ALPHA, BETA, PSDCREDIT (tranche 2: `ControlPathway.alpha` /
-`.beta` / `.psd_credit`), OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2. Terrain follows
+`.beta` / `.psd_credit`), OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2, and the
+depletion switches DRYDPLT / NODRYDPLT and WETDPLT / NOWETDPLT
+(`.dry_depletion` / `.wet_depletion`: True, False, or None for AERMOD's
+default, depletion on whenever the run has deposition inputs; a token
+contradicting an earlier one, E149, is kept in `extra_model_options` so
+the rewrite fails the same way). Terrain follows
 `coset.f` MODOPT: `ELEV` is the token (the writer used to emit
 `ELEVATED`, which is E203), `FLAT` then `ELEV` on one line means flat
 sources in elevated terrain (`TerrainType.FLATSRCS`, which has no token
@@ -368,10 +377,12 @@ are read, reported, written back in their pathway where AERMOD accepts
 them, and the round-trip and acceptance suites cover them; what they do
 not get is a field on the model, for the reason given.
 
-**Whole keywords (11).**
-`ERRORFIL`, `DEBUGOPT` (CO): file names and debug switches for AERMOD's
-own diagnostics; they change no result, and modelling them would invite
-callers to set them where the runner already manages the run directory.
+**Whole keywords (10).**
+`ERRORFIL` (CO): the file name of AERMOD's message file; it changes no
+result, and modelling it would invite callers to set it where the runner
+already manages the run directory. (`DEBUGOPT` was stored this way
+until the demonstration study needed AREA and DEPOS debug output; it is
+now `ControlPathway.debug_options`.)
 `NO2EQUIL` (CO): the equilibrium NO2/NOx ratio of the OLM/PVMRM options,
 one number AERMOD defaults to 0.90; kept verbatim until a caller needs it
 (the validator's chemistry checks do not depend on it).
