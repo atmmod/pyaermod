@@ -10,7 +10,9 @@ from it: the end-to-end journeys' fake AERMOD checks that the GUI writes
 exactly those decks, so this function's body must not change casually:
 a change that alters the deck means recording the scenarios again with
 the real binary (WP-G3 did, when the plot files and POSTFILEs the
-Results step reads became the default).
+Results step reads became the default, and the main merge did, when
+the blank project's terrain became ELEV, the terrain AERMOD runs under
+DFAULT).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from ..input_generator import (
     PollutantType,
     ReceptorPathway,
     SourcePathway,
+    TerrainType,
 )
 
 
@@ -33,6 +36,10 @@ def _empty_project() -> AERMODProject:
             title_one="Untitled run",
             pollutant_id=PollutantType.SO2,
             averaging_periods=["1", "ANNUAL"],
+            # Elevated terrain, which is what AERMOD runs under DFAULT: it
+            # drops FLAT with W206 (coset.f MODOPT), and the validator
+            # warns about FLAT with DFAULT (#25).
+            terrain_type=TerrainType.ELEVATED,
         ),
         sources=SourcePathway(sources=[]),
         receptors=ReceptorPathway(),

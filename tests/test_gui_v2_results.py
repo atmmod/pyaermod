@@ -92,7 +92,7 @@ class TestSuccessfulRun:
         gui.user.find(kind=ui.tab, content="Results").click()
         await gui.user.should_see("Run 1 succeeded")
         await gui.user.should_see(
-            "AERMOD finished successfully with 0 fatal errors and 6 warnings.")
+            "AERMOD finished successfully with 0 fatal errors and 5 warnings.")
         await gui.user.should_see(f"Working directory: {work_dir}")
         await gui.user.should_see("Output file: pyaermod_gui.out")
         await gui.user.should_see("Maximum for each averaging period")
@@ -217,7 +217,7 @@ class TestFailedRun:
         work_dir = tmp_path / "run"
         await _run_in(gui, work_dir, outcome="Failed: E480", shows="Run 1 failed")
         await gui.user.should_see("Run 1 failed")
-        await gui.user.should_see("AERMOD stopped with 1 fatal error and 5 warnings.")
+        await gui.user.should_see("AERMOD stopped with 1 fatal error and 4 warnings.")
         await gui.user.should_see(
             "E480 MAIN: Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave NUMYRS=0")
         await gui.user.should_see("No results are shown for a failed run")

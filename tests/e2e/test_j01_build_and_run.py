@@ -42,7 +42,7 @@ def test_j01_build_run_and_read_results(gui, step, run_dir):
     gui.run.wait_until_finished()
     step("run_finished")
     gui.run.reports_success()
-    gui.run.expect_message_counts(fatal=0, warnings=6)
+    gui.run.expect_message_counts(fatal=0, warnings=5)
 
     gui.results.open()
     step("results")

@@ -3,7 +3,7 @@
   "description": "PLAN-gui.md reference scenario (Albany stack) with averaging periods 1, 3, 24 and PERIOD. Runs to completion.",
   "aermod_version": "26135",
   "fatal_errors": 0,
-  "warnings": 6,
+  "warnings": 5,
   "informational": 0,
   "finishes_successfully": true,
   "exit_code": 0,

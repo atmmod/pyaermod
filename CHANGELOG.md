@@ -398,6 +398,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
+- GUI: a new project asks for elevated terrain (`MODELOPT CONC ELEV
+  DFAULT`). It asked for FLAT with DFAULT, which AERMOD drops with W206
+  and runs as ELEV, and which the validator now warns about (#25), so
+  every new project's Project badge and readiness line showed that
+  warning. The run is the one AERMOD made before: the `albany_success`,
+  `albany_e480` and `missing_met` recordings, made again with the real
+  binary, have the same concentrations and maxima and one warning fewer
+  (no W206). FLAT stays available once DFAULT is off.
 - GUI: the Meteorology step says what the surface file holds, as the next
   run would read it: the period it covers, the station IDs and first year
   in its header, and, when ANNUAL is asked for with less than a year of

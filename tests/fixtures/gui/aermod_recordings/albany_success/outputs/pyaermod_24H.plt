@@ -1,5 +1,5 @@
 * AERMOD (26135 ):  Albany stack reference scenario                                         09/30/26
-* AERMET ( 26135):                                                                          14:58:50
+* AERMET ( 26135):                                                                          17:14:53
 * MODELING OPTIONS USED:   RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 *         PLOT FILE OF  HIGH   1ST HIGH 24-HR VALUES FOR SOURCE GROUP: ALL     
 *         FOR A TOTAL OF   360 RECEPTORS.

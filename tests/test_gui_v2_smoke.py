@@ -568,12 +568,15 @@ class TestProjectOptions:
         await gui.open()
         _one(gui, kind=ui.checkbox, content="Dry deposition (DDEP)").value = True
         _one(gui, kind=ui.checkbox, content="Regulatory default options (DFAULT)").value = False
-        _one(gui, kind=ui.select, content="Terrain").value = "ELEVATED"
+        # A new project's terrain is ELEVATED, the terrain AERMOD runs under
+        # DFAULT; without DFAULT, FLAT is the user's to choose.
+        assert gui.session.project.control.terrain_type.value == "ELEVATED"
+        _one(gui, kind=ui.select, content="Terrain").value = "FLAT"
         await _value_becomes(lambda: gui.session.project.control.regulatory_default, False)
         control = gui.session.project.control
         assert control.calculate_dry_deposition is True
-        assert control.terrain_type.value == "ELEVATED"
-        assert "MODELOPT  CONC DDEP ELEV" in gui.session.project.to_aermod_input(validate=False)
+        assert control.terrain_type.value == "FLAT"
+        assert "MODELOPT  CONC DDEP FLAT" in gui.session.project.to_aermod_input(validate=False)
         _click(gui, _step_tab(gui, "Output"))
         await _value_becomes(lambda: _one(gui, kind=ui.input, content="Output quantities").value,
                              "CONC DDEP")
@@ -2034,7 +2037,7 @@ class TestReviewAndRun:
         await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Failed: E480")
-        await gui.user.should_see("AERMOD reported 1 fatal error, 5 warnings and 0 "
+        await gui.user.should_see("AERMOD reported 1 fatal error, 4 warnings and 0 "
                                   "informational messages.")
         await gui.user.should_see("AERMOD messages")
         await gui.user.should_see("Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave NUMYRS=0")
@@ -2193,7 +2196,7 @@ class TestReviewAndRun:
         await gui.user.should_not_see("Before you run")      # no ANNUAL, no warning
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Succeeded in")
-        await gui.user.should_see("AERMOD reported 0 fatal errors, 6 warnings and 0 "
+        await gui.user.should_see("AERMOD reported 0 fatal errors, 5 warnings and 0 "
                                   "informational messages.")
         await gui.user.should_see("AERMOD finished")
         await gui.user.should_see("Output file: pyaermod_gui.out")    # Results followed
