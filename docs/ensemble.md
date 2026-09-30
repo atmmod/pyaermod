@@ -10,8 +10,8 @@ that builds the project for one row. It then does four things:
 - It records each run in a manifest as the run finishes.
 - It picks up where it stopped when you run the same design again.
 
-`collect_plotfiles` then reads the PLOTFILEs of every finished run into
-one table.
+`collect_plotfiles` then reads the PLOTFILEs of the design's finished
+runs into one table.
 
 ```python
 from pyaermod.ensemble import collect_plotfiles, run_design
@@ -34,7 +34,7 @@ if __name__ == "__main__":                 # required on macOS and Windows
                         executable="bin/aermod")
     print(result.n_run, "runs made,", result.n_skipped, "already done,",
           result.n_failed, "failed")
-    table = collect_plotfiles("study/runs")   # also writes plotfiles.csv/.npz
+    table = result.collect_plotfiles()     # also writes plotfiles.csv/.npz
 ```
 
 ## Why one directory per run
@@ -60,33 +60,57 @@ directory (`rewrite_output_names`), so `../shared/pit.plt` becomes
 MAXIFILE, RANKFILE, SEASONHR, EVALFILE, TOXXFILE, MAXDAILY, MXDYBYYR,
 MAXDCONT, EVENTFIL, SAVEFILE, MULTYEAR and the SCIMBYHR summary files.
 
-It also links the surface and profile met files into the directory, and
-the deck names them without a directory. This has three benefits:
+The same goes for the output lines that `input_reader` keeps verbatim,
+because the project model has no field for them
+(`AERMODProject.unparsed_lines`): a PLOTFILE with a rank below FIRST
+(`2ND`, `8TH`) or with a unit number, a second POSTFILE, ERRORFIL and
+the file names of DEBUGOPT, as well as those of the keywords above. The
+field that holds the file name is the one AERMOD's setup routines read
+it from (`ouset.f`, `coset.f`). These files are listed in the entry's
+`outputs` with the others, so resume and `collect_plotfiles` see them
+too.
 
-- The deck does not depend on where the met files live.
+It also links every file the deck has AERMOD read into the directory,
+and the deck names them without a directory:
+
+- the surface and profile met files (`SURFFILE`, `PROFFILE`);
+- `INITFILE`, the `MULTYEAR` initial file, `OZONEFIL` and `NOX_FILE`
+  files, whole-domain or by sector;
+- from the lines kept verbatim, `HOUREMIS` files, hourly `BACKGRND`
+  files and `INCLUDED` files.
+
+A relative path is taken relative to the current directory when
+`run_design` is called. Linking has three benefits:
+
+- The deck does not depend on where the input files live.
 - The deck stays within AERMOD's 200-character limit on a file name
   (`ILEN_FLD` in `modules.f`). With v26135, a 201-character `SURFFILE`
   path fails with E291 "Filename specified is too long" and then E500.
 - The deck text stays the same on every machine.
 
-Where links cannot be made, the met files are copied. Other files AERMOD
-reads, such as `INITFILE`, `HOUREMIS` and background or ozone files, are
-not moved. Give them as absolute paths.
+Where links cannot be made, the files are copied. Two different input
+files with the same name, or an input file named like an output, are an
+error, since both would be one file in the run directory. An `INCLUDED`
+file is linked as it is: the file names inside it are not rewritten.
 
 ## Run IDs
 
-A run's ID is the SHA-256 of the canonical JSON of four things:
+A run's ID is the SHA-256 of the canonical JSON of five things:
 
 - the row's factors;
 - the SHA-256 of the AERMOD binary;
 - the SHA-256 of the surface and profile met files;
-- `SCHEMA_VERSION`, now 1.
+- the SHA-256 of the other files the deck reads (see above), by role:
+  the keyword, as in `HOUREMIS`, then `HOUREMIS.2` for a second,
+  different file;
+- `SCHEMA_VERSION`, now 2.
 
 The payload looks like this:
 
 ```json
 {"binary_sha256":"…","factors":{"density":1.0,"diameter_um":2.5},
- "met_sha256":{"profile":"…","surface":"…"},"schema_version":1}
+ "input_files_sha256":{"HOUREMIS":"…"},
+ "met_sha256":{"profile":"…","surface":"…"},"schema_version":2}
 ```
 
 `canonical_json` sorts keys, writes no whitespace, and writes floats in
@@ -104,8 +128,12 @@ never depends on how Python happened to print something.
 The ID does not depend on paths, dates or the machine. What follows from
 that:
 
-- **A new binary or an edited met file** gives new IDs, so its runs go to
-  new directories and the old runs are kept.
+- **A new binary, or an edited met or emission file,** gives new IDs,
+  so its runs go to new directories and the old runs are kept. An
+  emission profile kept in a `HOUREMIS` file is therefore part of the
+  run's identity even when no factor names it: on 2026-09-30, with
+  v26135, scaling a `HOUREMIS` file by ten between two calls made a new
+  run whose period concentrations were ten times as large.
 - **Two rows with the same factors** are an error, because they would be
   the same run.
 - **A factor is anything that defines the run.** Put the met set or the
@@ -138,6 +166,7 @@ columns, is written at the end.
 | `input_sha256` | The SHA-256 of the deck as written |
 | `binary`, `binary_sha256`, `aermod_version` | The binary's path and SHA-256, and the version in the `.out` banner (`26135`) |
 | `met_files`, `met_sha256` | The source path and SHA-256 of each met file |
+| `input_files`, `input_files_sha256` | The same for the other input files, by role (`HOUREMIS`, ...) |
 | `outputs` | The output file names by keyword, such as `{"PLOTFILE": ["pit.plt"]}` |
 | `git_commit`, `git_dirty`, `pyaermod_version` | pyaermod's commit, when it runs from a git checkout, and whether its tracked files differed from it |
 | `runtime_seconds`, `started`, `finished` | The run's wall time and local start and end times |
@@ -148,7 +177,8 @@ columns, is written at the end.
 Run the same design again with the same root. A run is skipped only when
 all of these hold:
 
-1. Its entry says `success` for the same deck text (`input_sha256`).
+1. Its entry says `success` for the same deck text (`input_sha256`) and
+   the same binary, met and input files (their SHA-256).
 2. The deck on disk is that deck.
 3. Its `.out` has AERMOD's success banner and AERMOD's copy of that deck
    at the top. This is the rule `runner_utils.resume_batch` applies.
@@ -172,8 +202,18 @@ others are made.
 ## Collecting the PLOTFILEs
 
 `collect_plotfiles(root)` returns a pandas DataFrame with one row per
-receptor of each PLOTFILE of each successful run. It reads the files
-with `aermod_outputs.read_plotfile`.
+receptor of each PLOTFILE of each successful run of the latest
+`run_design` call on that root. It reads the files with
+`aermod_outputs.read_plotfile`. `result.collect_plotfiles()` does the
+same for the runs of one `DesignResult`.
+
+- **Which runs.** The manifest keeps every run ever made under the root:
+  those of rows since dropped from the design, and those made with an
+  earlier binary or met file. `run_design` writes the IDs of its own
+  runs to `root/design.json`, and `collect_plotfiles` reads only those
+  by default. Pass `run_ids=` to choose others, such as
+  `run_ids=result.manifest.entries` for every run. A root written
+  before `design.json` existed gives every successful run.
 
 - **Columns.** The first three are `run_id`, `plotfile` (the file name)
   and `receptor` (the row's position in its file, from 0). After them

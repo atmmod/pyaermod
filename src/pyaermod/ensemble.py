@@ -13,25 +13,32 @@ Each run is known by its **run ID**, the SHA-256 of the canonical JSON
 (:func:`canonical_json`) of::
 
     {"binary_sha256": ..., "factors": {...},
+     "input_files_sha256": {"HOUREMIS": ..., ...},
      "met_sha256": {"profile": ..., "surface": ...},
      "schema_version": SCHEMA_VERSION}
 
 that is, of the row's factors, the SHA-256 of the AERMOD binary, the
-SHA-256 of the surface and profile met files, and the version of this
-scheme. The ID does not depend on file paths or on when the run was
-made. A new binary or an edited met file makes a new run, in a new
-directory; the old one is kept.
+SHA-256 of the surface and profile met files and of every other file
+the deck has AERMOD read (``HOUREMIS``, an hourly ``BACKGRND`` file,
+``OZONEFIL``, ``NOX_FILE``, ``INITFILE``, the ``MULTYEAR`` initial file,
+``INCLUDED``; see :func:`run_design`), and the version of this scheme.
+The ID does not depend on file paths or on when the run was made. A new
+binary or an edited met or emission file makes a new run, in a new
+directory; the old one is kept, and ``root/design.json`` names the runs
+of the latest call, which :func:`collect_plotfiles` reads by default.
 
 Layout under ``root``::
 
     root/
       manifest.json         one entry per run ID (EnsembleManifest)
       manifest.csv          the same, one row per run
+      design.json           the run IDs of the latest run_design call
       runs/<run ID>/
         run.inp             the deck
         factors.json        what the run ID was computed from
-        <surface>, <profile>  links to the met files (copies where
-                            links cannot be made)
+        <surface>, <profile>, <other input files>
+                            links to the files the deck reads (copies
+                            where links cannot be made)
         run.out, run.err, run.sum, PLOTFILEs, ...
 
 Why one directory per run: AERMOD reads ``aermod.inp`` and writes its
@@ -41,8 +48,9 @@ that directory for the length of a run
 run one after another whatever ``n_workers`` is, and decks naming the
 same output file overwrite each other's results. :func:`run_design`
 therefore rewrites every output file name the deck gives (PLOTFILE,
-POSTFILE, SUMMFILE, MAXIFILE, RANKFILE, ...) to its bare file name
-inside the run's directory.
+POSTFILE, SUMMFILE, MAXIFILE, RANKFILE, ERRORFIL, DEBUGOPT, ..., also in
+the lines :mod:`pyaermod.input_reader` keeps verbatim) to its bare file
+name inside the run's directory.
 """
 
 from __future__ import annotations
@@ -73,7 +81,8 @@ logger = logging.getLogger(__name__)
 
 #: Version of the run-ID scheme and of the manifest entry. It is part of
 #: every run ID, so changing what goes into an ID means raising it.
-SCHEMA_VERSION = 1
+#: 2: the ID also hashes the input files other than the met files.
+SCHEMA_VERSION = 2
 
 #: The deck's file name in each run directory.
 DECK_NAME = "run.inp"
@@ -83,6 +92,8 @@ RUNS_DIR = "runs"
 MANIFEST_NAME = "manifest.json"
 #: The file in each run directory recording what its run ID hashes.
 FACTORS_NAME = "factors.json"
+#: The file under ``root`` naming the runs of the latest run_design call.
+DESIGN_NAME = "design.json"
 
 # AERMOD keeps a runstream field in CHARACTER*200 (ILEN_FLD in
 # modules.f) and refuses a longer file name with E291, "Filename
@@ -110,6 +121,13 @@ _RESERVED_FILES = frozenset({
 # Outputs a finished run must still have for resume to skip it. AERMOD
 # opens these at setup (ouset.f), so a successful run always leaves them.
 _REQUIRED_OUTPUTS = ("PLOTFILE", "POSTFILE")
+
+# The met files' roles in the run ID, by the keyword that names them.
+_MET_ROLES = {"SURFFILE": "surface", "PROFFILE": "profile"}
+
+
+def _describe_input(keyword: str) -> str:
+    return f"{_MET_ROLES[keyword]} met file" if keyword in _MET_ROLES else f"{keyword} file"
 
 _VERSION_BANNER = re.compile(r"\*\*\*\s*AERMOD\s*-\s*VERSION\s+(\S+)\s*\*\*\*")
 
@@ -197,12 +215,14 @@ def run_id_payload(
     factors: Mapping[str, Any],
     binary_sha256: str,
     met_sha256: Mapping[str, str],
+    input_files_sha256: Optional[Mapping[str, str]] = None,
     schema_version: int = SCHEMA_VERSION,
 ) -> Dict[str, Any]:
     """What a run ID is the hash of (see :func:`run_id`)."""
     return {
         "binary_sha256": binary_sha256,
         "factors": dict(factors),
+        "input_files_sha256": dict(input_files_sha256 or {}),
         "met_sha256": dict(met_sha256),
         "schema_version": schema_version,
     }
@@ -212,14 +232,19 @@ def run_id(
     factors: Mapping[str, Any],
     binary_sha256: str,
     met_sha256: Mapping[str, str],
+    input_files_sha256: Optional[Mapping[str, str]] = None,
     schema_version: int = SCHEMA_VERSION,
 ) -> str:
     """The run ID: SHA-256 of the canonical JSON of the factors and versions.
 
     ``met_sha256`` maps each met file's role (``"surface"``,
-    ``"profile"``) to the SHA-256 of its bytes.
+    ``"profile"``) to the SHA-256 of its bytes, and
+    ``input_files_sha256`` does the same for the other files the deck
+    reads, whose roles are their keywords (``"HOUREMIS"``, and
+    ``"HOUREMIS.2"`` for a second, different file).
     """
-    payload = run_id_payload(factors, binary_sha256, met_sha256, schema_version)
+    payload = run_id_payload(factors, binary_sha256, met_sha256, input_files_sha256,
+                             schema_version)
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
@@ -228,7 +253,7 @@ def run_id(
 # ---------------------------------------------------------------------------
 
 class _Slot:
-    """One file name a deck gives for AERMOD to write."""
+    """One file name a deck gives, as a field of the project model."""
 
     def __init__(self, keyword: str, obj: Any, attr: Any):
         self.keyword = keyword
@@ -249,8 +274,94 @@ class _Slot:
             setattr(self.obj, self.attr, name)
 
 
-def _output_slots(project: Any) -> Iterator[_Slot]:
-    """Every field of ``project`` that names a file AERMOD writes."""
+class _FieldSlot:
+    """One file name in a line the reader kept verbatim (an UnparsedLine)."""
+
+    def __init__(self, keyword: str, line: Any, index: int):
+        self.keyword = keyword
+        self.line = line
+        self.index = index
+
+    def get(self) -> Optional[str]:
+        return self.line.fields[self.index]
+
+    def set(self, name: str) -> None:
+        self.line.fields[self.index] = name
+
+
+# Where the file names sit in a line the reader keeps verbatim
+# (AERMODProject.unparsed_lines): (pathway, keyword) -> the indexes into
+# UnparsedLine.fields, the data fields after the keyword, of the names.
+# "*" matches any pathway. From the RUNST1(LOCB(n):LOCE(n)) reads of
+# v26135's setup routines, n - 3 being the index here: ouset.f OUPLOT,
+# PERPLT, OUPOST, PERPST, OUMXFL, OURANK, OUTOXX, OUSEAS, OUEVAL,
+# OUSUMM, OUMAXDLY, OUMXDLY_BYYR, OUMAXD_CONT; coset.f ERRFIL, EVNTFL,
+# SAVEFL, INITFL, MYEAR, DEBOPT, OZONEFIL, NOXFILE; soset.f HREMIS,
+# BACKGRND; setup.f INCLUDED.
+_FieldRule = Callable[[List[str]], List[int]]
+
+
+def _first_is(fields: List[str], *words: str) -> bool:
+    return bool(fields) and fields[0].upper() in words
+
+
+# DEBUGOPT's options (coset.f DEBOPT, DEBUGOPT_ARRAY); any other field
+# is the file name of the option before it.
+_DEBUG_OPTIONS = frozenset({
+    "MODEL", "METEOR", "AREA", "LINE", "RLINE", "PRIME", "PVMRM", "OLM", "ARM2",
+    "GRSM", "DEPOS", "AWMADW", "TTRM", "TTRM2", "PLATFORM", "URBANDB", "BLPDBUG",
+    "SWPOINT", "AIRCRAFT", "HBPDBG", "SBARRIER", "BAREDGE", "VBARRIER",
+})
+
+_UNPARSED_OUTPUTS: Dict[Tuple[str, str], _FieldRule] = {
+    # PLOTFILE PERIOD|ANNUAL grp file [unit]; PLOTFILE ave grp rank file [unit]
+    ("OU", "PLOTFILE"): lambda f: [2] if _first_is(f, "PERIOD", "ANNUAL") else [3],
+    ("OU", "POSTFILE"): lambda f: [3],          # ave grp format file [unit]
+    ("OU", "MAXIFILE"): lambda f: [3],          # ave grp thresh file [unit]
+    ("OU", "RANKFILE"): lambda f: [2],          # ave nval file [unit]
+    ("OU", "TOXXFILE"): lambda f: [2],          # ave cutoff file [unit]
+    ("OU", "SEASONHR"): lambda f: [1],          # grp file [unit]
+    ("OU", "EVALFILE"): lambda f: [1],          # srcid file [unit]
+    ("OU", "SUMMFILE"): lambda f: [0],
+    ("OU", "MAXDAILY"): lambda f: [1],          # grp file [unit]
+    ("OU", "MXDYBYYR"): lambda f: [1],
+    # MAXDCONT grp rank1 THRESH value file [unit] | grp rank1 rank2 file [unit]
+    ("OU", "MAXDCONT"): lambda f: [4] if len(f) > 2 and f[2].upper() == "THRESH" else [3],
+    ("CO", "ERRORFIL"): lambda f: [0],          # [file]; bare: ERRORS.LST
+    ("CO", "EVENTFIL"): lambda f: [0],          # [file [option]]
+    ("CO", "SAVEFILE"): lambda f: [0, 2],       # [file [dayinc [file2]]]
+    ("CO", "MULTYEAR"): lambda f: [1] if _first_is(f, "H6H") else [0],
+    ("CO", "DEBUGOPT"): lambda f: [i for i, t in enumerate(f) if t.upper() not in _DEBUG_OPTIONS],
+}
+
+_UNPARSED_INPUTS: Dict[Tuple[str, str], _FieldRule] = {
+    ("SO", "HOUREMIS"): lambda f: [0],          # file srcid(s)
+    # BACKGRND [SECTn] HOURLY file [format]
+    ("SO", "BACKGRND"): lambda f: [i + 1 for i, t in enumerate(f) if t.upper() == "HOURLY"],
+    # OZONEFIL [SECTn] file [units [format]]; NOX_FILE likewise
+    ("CO", "OZONEFIL"): lambda f: [1] if f and f[0].upper().startswith("SECT") else [0],
+    ("CO", "NOX_FILE"): lambda f: [1] if f and f[0].upper().startswith("SECT") else [0],
+    ("CO", "INITFILE"): lambda f: [0],          # [file]; bare: SAVE.FIL
+    ("CO", "MULTYEAR"): lambda f: [2] if _first_is(f, "H6H") else [1],
+    ("*", "INCLUDED"): lambda f: [0],
+}
+
+
+def _unparsed_slots(project: Any, rules: Mapping[Tuple[str, str], _FieldRule]
+                    ) -> Iterator[_FieldSlot]:
+    for line in getattr(project, "unparsed_lines", None) or []:
+        keyword = line.keyword.upper()
+        rule = rules.get((line.pathway.upper(), keyword)) or rules.get(("*", keyword))
+        if rule is None:
+            continue
+        for index in rule(line.fields):
+            if index < len(line.fields):
+                yield _FieldSlot(keyword, line, index)
+
+
+def _output_slots(project: Any) -> Iterator[Union[_Slot, _FieldSlot]]:
+    """Every field of ``project`` that names a file AERMOD writes, then
+    every such field of the lines kept verbatim."""
     out = project.output
     for attr, keyword in (("summary_file", "SUMMFILE"), ("plot_file", "PLOTFILE"),
                           ("postfile", "POSTFILE")):
@@ -277,6 +388,35 @@ def _output_slots(project: Any) -> Iterator[_Slot]:
     if scim is not None:
         yield _Slot("SCIMBYHR", scim, "surface_summary_file")
         yield _Slot("SCIMBYHR", scim, "profile_summary_file")
+    yield from _unparsed_slots(project, _UNPARSED_OUTPUTS)
+
+
+def _input_slots(project: Any) -> Iterator[Union[_Slot, _FieldSlot]]:
+    """Every field of ``project`` that names a file AERMOD reads, the met
+    files first, then every such field of the lines kept verbatim."""
+    met = project.meteorology
+    yield _Slot("SURFFILE", met, "surface_file")
+    yield _Slot("PROFFILE", met, "profile_file")
+    control = project.control
+    if control.init_file is not None:
+        yield _Slot("INITFILE", control.init_file, "filename")
+    if control.multiyear is not None:
+        yield _Slot("MULTYEAR", control.multiyear, "init_file")
+    chem = control.chemistry
+    if chem is not None:
+        ozone = chem.ozone_data
+        if ozone is not None:
+            yield _Slot("OZONEFIL", ozone, "ozone_file")
+            for sector in sorted(ozone.by_sector):
+                yield _Slot("OZONEFIL", ozone.by_sector[sector], "hourly_file")
+        nox = chem.nox_background
+        if nox is not None:
+            yield _Slot("NOX_FILE", nox, "hourly_file")
+            for sector in sorted(nox.by_sector):
+                yield _Slot("NOX_FILE", nox.by_sector[sector], "hourly_file")
+        else:
+            yield _Slot("NOX_FILE", chem, "nox_file")
+    yield from _unparsed_slots(project, _UNPARSED_INPUTS)
 
 
 def _basename(name: str) -> str:
@@ -290,13 +430,24 @@ def rewrite_output_names(project: Any, prefix: str = "") -> Dict[str, List[str]]
     Each name becomes ``prefix`` + its bare file name, so
     ``../plotfiles/pit.plt`` becomes ``pit.plt`` and AERMOD writes it
     beside the deck. ``project`` is changed in place. Returns the new
-    names by keyword, such as ``{"PLOTFILE": ["pit.plt"]}``. Raises
-    ``ValueError`` when two outputs would end up with the same name.
+    names by keyword, such as ``{"PLOTFILE": ["pit.plt"]}``.
+
+    The names in the lines :mod:`pyaermod.input_reader` keeps verbatim
+    (:attr:`~pyaermod.input_generator.AERMODProject.unparsed_lines`) are
+    renamed too: a PLOTFILE with a rank below FIRST or with a unit, a
+    second POSTFILE, and the file fields of MAXIFILE, RANKFILE,
+    TOXXFILE, SEASONHR, EVALFILE, SUMMFILE, MAXDAILY, MXDYBYYR,
+    MAXDCONT, ERRORFIL, EVENTFIL, SAVEFILE, MULTYEAR and DEBUGOPT.
+
+    Raises ``ValueError`` when two outputs would end up with the same
+    name (compared ignoring case, since the disk may ignore it), or when
+    a new name is longer than AERMOD's :data:`MAX_FILENAME_LENGTH`
+    characters.
 
     Only files AERMOD writes are renamed. Files it reads (met data,
     ``INITFILE``, ``HOUREMIS``, background and ozone files) are left as
-    they are, so a relative one must be relative to the directory the
-    deck runs in.
+    they are here; :func:`run_design` links those into each run's
+    directory itself.
     """
     names: Dict[str, List[str]] = {}
     seen: Dict[str, str] = {}
@@ -348,6 +499,9 @@ class EnsembleManifestEntry(RunManifestEntry):
     aermod_version: Optional[str] = None   # from the .out banner, e.g. "26135"
     met_files: Dict[str, str] = field(default_factory=dict)   # role -> source path
     met_sha256: Dict[str, str] = field(default_factory=dict)  # role -> SHA-256
+    # The other files the deck reads (HOUREMIS, ...): role -> source path, SHA-256
+    input_files: Dict[str, str] = field(default_factory=dict)
+    input_files_sha256: Dict[str, str] = field(default_factory=dict)
     outputs: Dict[str, List[str]] = field(default_factory=dict)  # keyword -> names
     git_commit: Optional[str] = None       # pyaermod's commit, when in a checkout
     git_dirty: Optional[bool] = None
@@ -481,6 +635,10 @@ class DesignResult(Mapping):
         """
         return self.run_seconds / self.elapsed_seconds if self.elapsed_seconds > 0 else 0.0
 
+    def collect_plotfiles(self, out_stem: Optional[Union[str, Path]] = "plotfiles"):
+        """:func:`collect_plotfiles` for these runs only."""
+        return collect_plotfiles(self.root, run_ids=list(self.runs), out_stem=out_stem)
+
     def to_dataframe(self):
         """One row per run, indexed by run ID: the factors, then the status."""
         import pandas as pd
@@ -595,7 +753,7 @@ class _Planned:
     run_dir: Path
     deck_text: str
     entry: EnsembleManifestEntry
-    met_links: Dict[str, Tuple[Path, str]]  # role -> (source, link name)
+    links: List[Tuple[Path, str]]  # (source, link name) of each input file
     done: bool = False
 
 
@@ -603,11 +761,17 @@ def _is_done(entry: Optional[RunManifestEntry], plan: _Planned) -> bool:
     """Whether the manifest's run of ``plan`` finished and its files are intact.
 
     The entry must say success for this very deck (the SHA-256 of the
-    deck text), the deck on disk must be that deck, the ``.out`` must
+    deck text) with the same binary, met and input files (their
+    SHA-256), the deck on disk must be that deck, the ``.out`` must
     carry AERMOD's success banner and a copy of this deck (the rule of
-    ``resume_batch``), and every output the run named must still exist.
+    ``resume_batch``), and every PLOTFILE and POSTFILE the run named
+    must still exist.
     """
     if not isinstance(entry, EnsembleManifestEntry) or entry.status != "success":
+        return False
+    want = plan.entry
+    if (entry.schema_version, entry.binary_sha256, entry.met_sha256, entry.input_files_sha256) != (
+            want.schema_version, want.binary_sha256, want.met_sha256, want.input_files_sha256):
         return False
     sha = hashlib.sha256(plan.deck_text.encode("utf-8")).hexdigest()
     deck = plan.run_dir / DECK_NAME
@@ -652,26 +816,35 @@ def run_design(
     :class:`~pyaermod.input_generator.AERMODProject`. :func:`run_design`
     works on a deep copy of it:
 
-    1. The met files it names (a relative path is taken relative to the
-       current directory) are hashed, and the run ID is computed from the
-       factors, the binary's and the met files' SHA-256 (:func:`run_id`).
-    2. The run's directory is ``root/runs/<run ID>``. The met files are
+    1. The files it has AERMOD read are hashed: the met files
+       (``SURFFILE``, ``PROFFILE``), ``INITFILE``, the ``MULTYEAR``
+       initial file, ``OZONEFIL`` and ``NOX_FILE`` files, and, in the
+       lines kept verbatim, ``HOUREMIS``, hourly ``BACKGRND`` files and
+       ``INCLUDED`` files. A relative path is taken relative to the
+       current directory. The run ID is computed from the factors and
+       the SHA-256 of the binary and of these files (:func:`run_id`), so
+       editing an emission file makes a new run.
+    2. The run's directory is ``root/runs/<run ID>``. The input files are
        linked into it and the deck names them by their bare names, and
        every output file name is rewritten to a bare name in the same
        directory (:func:`rewrite_output_names`), so no run can overwrite
-       another's files.
+       another's files. An ``INCLUDED`` file is linked as it is: the
+       file names inside it are not rewritten.
     3. The deck is written there as ``run.inp`` and run with
        :class:`~pyaermod.runner.AERMODRunner`, ``n_workers`` at a time.
 
     The manifest ``root/manifest.json`` gets an entry per run before any
     run starts, and each entry is updated (and the file saved) as its run
     finishes, so it always shows which runs have finished. ``manifest.csv``
-    beside it is written at the end.
+    beside it is written at the end. ``root/design.json`` lists this
+    call's run IDs, in row order, before any run starts; the manifest
+    keeps the runs of earlier calls too.
 
     With ``resume=True`` (the default), a run is skipped when its
-    manifest entry says it succeeded for the same deck text, the deck on
-    disk is that deck, its ``.out`` has AERMOD's success banner and a
-    copy of that deck, and its output files are all present. Any other
+    manifest entry says it succeeded for the same deck text and input
+    files, the deck on disk is that deck, its ``.out`` has AERMOD's
+    success banner and a copy of that deck, and its PLOTFILEs and
+    POSTFILEs are all present. Any other
     run is made again: a run that failed or was cut off, one whose
     ``build_fn`` now writes a different deck, and one whose files were
     removed. Running the same design again after an interrupt therefore
@@ -703,9 +876,10 @@ def run_design(
         A :class:`DesignResult`: the runs keyed by run ID, in row order.
 
     Raises:
-        FileNotFoundError: a met file does not exist.
-        ValueError: duplicate rows, a met file path longer than AERMOD's
-            200 characters, or output file names that collide.
+        FileNotFoundError: a met file or other input file does not exist.
+        ValueError: duplicate rows, an input file name longer than
+            AERMOD's 200 characters, or input and output file names that
+            collide in the run directory.
     """
     started = time.perf_counter()
     design = _rows_as_dicts(rows)
@@ -720,25 +894,40 @@ def run_design(
     from . import __version__ as pyaermod_version
 
     manifest = EnsembleManifest.load(root_path / MANIFEST_NAME)
-    met_cache: Dict[Path, str] = {}
+    file_cache: Dict[Path, str] = {}
     plans: List[_Planned] = []
     by_id: Dict[str, int] = {}
 
     for index, factors in enumerate(design):
         project = copy.deepcopy(build_fn(dict(factors)))
-        met = project.meteorology
         met_sha: Dict[str, str] = {}
         met_src: Dict[str, Path] = {}
-        for role, attr in (("surface", "surface_file"), ("profile", "profile_file")):
-            src = Path(getattr(met, attr)).expanduser()
+        input_sha: Dict[str, str] = {}
+        input_src: Dict[str, Path] = {}
+        role_of: Dict[Path, str] = {}
+        per_keyword: Dict[str, int] = {}
+        named: List[Tuple[Any, Path]] = []
+        for slot in _input_slots(project):
+            given = slot.get()
+            what = _describe_input(slot.keyword)
+            if not given and slot.keyword not in _MET_ROLES:
+                continue
+            src = Path(given or "").expanduser()
             src = (src if src.is_absolute() else Path.cwd() / src).resolve()
             if not src.is_file():
-                raise FileNotFoundError(f"design row {index}: {role} met file not found: {src}")
-            if src not in met_cache:
-                met_cache[src] = file_sha256(src)
-            met_sha[role] = met_cache[src]
-            met_src[role] = src
-        rid = run_id(factors, binary_sha, met_sha)
+                raise FileNotFoundError(f"design row {index}: {what} not found: {src}")
+            if src not in file_cache:
+                file_cache[src] = file_sha256(src)
+            named.append((slot, src))
+            if slot.keyword in _MET_ROLES:
+                role = _MET_ROLES[slot.keyword]
+                met_sha[role], met_src[role] = file_cache[src], src
+            elif src not in role_of:
+                n = per_keyword[slot.keyword] = per_keyword.get(slot.keyword, 0) + 1
+                role = slot.keyword if n == 1 else f"{slot.keyword}.{n}"
+                role_of[src] = role
+                input_sha[role], input_src[role] = file_cache[src], src
+        rid = run_id(factors, binary_sha, met_sha, input_sha)
         if rid in by_id:
             raise ValueError(
                 f"design rows {by_id[rid]} and {index} have the same factors "
@@ -755,22 +944,25 @@ def run_design(
                 "the run directory by the runner; choose other names"
             )
         taken |= _RESERVED_FILES
-        links: Dict[str, Tuple[Path, str]] = {}
-        for role, attr in (("surface", "surface_file"), ("profile", "profile_file")):
-            name = met_src[role].name
-            if len(name) > MAX_FILENAME_LENGTH:
-                raise ValueError(
-                    f"design row {index}: the {role} met file name {name!r} is "
-                    f"longer than AERMOD's {MAX_FILENAME_LENGTH} characters"
-                )
-            if name.lower() in taken:
-                raise ValueError(
-                    f"design row {index}: the {role} met file {name!r} has the "
-                    "name of another file in the run directory; rename one of them"
-                )
-            taken.add(name.lower())
-            links[role] = (met_src[role], name)
-            setattr(met, attr, name)
+        link_name: Dict[Path, str] = {}
+        for slot, src in named:
+            name = link_name.get(src)
+            if name is None:
+                name = src.name
+                what = _describe_input(slot.keyword)
+                if len(name) > MAX_FILENAME_LENGTH:
+                    raise ValueError(
+                        f"design row {index}: the {what} name {name!r} is "
+                        f"longer than AERMOD's {MAX_FILENAME_LENGTH} characters"
+                    )
+                if name.lower() in taken:
+                    raise ValueError(
+                        f"design row {index}: the {what} {name!r} has the name of "
+                        "another file in the run directory; rename one of them"
+                    )
+                taken.add(name.lower())
+                link_name[src] = name
+            slot.set(name)
 
         deck_text = project.to_aermod_input(validate=validate)
         run_dir = runs_dir / rid
@@ -785,12 +977,15 @@ def run_design(
             binary_sha256=binary_sha,
             met_files={role: str(p) for role, p in met_src.items()},
             met_sha256=met_sha,
+            input_files={role: str(p) for role, p in input_src.items()},
+            input_files_sha256=input_sha,
             outputs=outputs,
             git_commit=commit,
             git_dirty=dirty,
             pyaermod_version=pyaermod_version,
         )
-        plan = _Planned(index, rid, dict(factors), run_dir, deck_text, entry, links)
+        plan = _Planned(index, rid, dict(factors), run_dir, deck_text, entry,
+                        list(link_name.items()))
         plan.done = resume and _is_done(manifest.entries.get(rid), plan)
         plans.append(plan)
 
@@ -803,15 +998,19 @@ def run_design(
             for name in names:
                 with contextlib.suppress(FileNotFoundError):
                     (plan.run_dir / name).unlink()
-        for src, name in plan.met_links.values():
+        for src, name in plan.links:
             _link_or_copy(src, plan.run_dir / name)
-        payload = run_id_payload(plan.factors, binary_sha, plan.entry.met_sha256)
+        payload = run_id_payload(plan.factors, binary_sha, plan.entry.met_sha256,
+                                 plan.entry.input_files_sha256)
         _write_text_atomic(plan.run_dir / FACTORS_NAME,
                            json.dumps(json.loads(canonical_json(payload)), indent=2,
                                       sort_keys=True) + "\n")
         _write_text_atomic(plan.run_dir / DECK_NAME, plan.deck_text)
         manifest.put(plan.entry, save=False)
     manifest.save()
+    _write_text_atomic(root_path / DESIGN_NAME, json.dumps(
+        {"schema_version": SCHEMA_VERSION, "run_ids": [p.run_id for p in plans]},
+        indent=2) + "\n")
 
     logger.info("Design %s: %d runs, %d already done, %d to run on %d worker(s)",
                 root_path, len(plans), len(plans) - len(todo), len(todo), n_workers)
@@ -893,7 +1092,11 @@ def collect_plotfiles(
     """Read the PLOTFILEs of a design's successful runs into one tidy table.
 
     One row per receptor of each PLOTFILE of each run whose manifest
-    entry says ``success`` (only those in ``run_ids``, when given). The
+    entry says ``success``, among the runs of ``run_ids``. By default
+    those are the runs of the latest :func:`run_design` call on
+    ``root`` (``root/design.json``), not every run the manifest holds:
+    it keeps the runs of rows since dropped and of an earlier binary or
+    met file too. Pass ``run_ids=manifest.entries`` for all of them. The
     columns are ``run_id``, ``plotfile`` (its file name), ``receptor``
     (the row's position in its file, from 0), then AERMOD's own columns
     in lower case with underscores: ``x``, ``y``, ``average_conc``,
@@ -921,6 +1124,8 @@ def collect_plotfiles(
 
     root_path = Path(root).resolve()
     manifest = EnsembleManifest.load(root_path / MANIFEST_NAME)
+    if run_ids is None and (root_path / DESIGN_NAME).exists():
+        run_ids = json.loads((root_path / DESIGN_NAME).read_text(encoding="utf-8"))["run_ids"]
     wanted = None if run_ids is None else set(run_ids)
     frames = []
     for rid, entry in manifest.entries.items():
@@ -965,6 +1170,7 @@ def collect_plotfiles(
 
 __all__ = [
     "DECK_NAME",
+    "DESIGN_NAME",
     "MAX_FILENAME_LENGTH",
     "SCHEMA_VERSION",
     "DesignResult",

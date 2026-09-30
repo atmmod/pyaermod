@@ -225,23 +225,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build_fn, root, n_workers)` runs one AERMOD run per design row, each in
   its own directory `root/runs/<run ID>`, `n_workers` at a time. It
   rewrites every output file name in the deck to a bare name in that
-  directory (`rewrite_output_names`), and links the met files in beside
-  the deck. The run ID is the SHA-256 of the canonical JSON
-  (`canonical_json`) of the row's factors, the binary's SHA-256, the met
-  files' SHA-256 and `SCHEMA_VERSION`. The manifest `root/manifest.json`
-  (`EnsembleManifest`, a `RunManifest` of `EnsembleManifestEntry`) is
-  saved as each run finishes. Each entry records:
+  directory (`rewrite_output_names`), including those in the lines
+  `input_reader` keeps verbatim (a PLOTFILE ranked below FIRST or with a
+  unit, a second POSTFILE, ERRORFIL, DEBUGOPT). It links every file the
+  deck reads in beside the deck: the met files, `INITFILE`, the
+  `MULTYEAR` initial file, `OZONEFIL`, `NOX_FILE`, and `HOUREMIS`,
+  hourly `BACKGRND` and `INCLUDED` files. The run ID is the SHA-256 of
+  the canonical JSON (`canonical_json`) of the row's factors, the
+  binary's SHA-256, the SHA-256 of the met files and of the other input
+  files, and `SCHEMA_VERSION` (2), so an edited emission file makes a new
+  run. The manifest `root/manifest.json` (`EnsembleManifest`, a
+  `RunManifest` of `EnsembleManifestEntry`) is saved as each run
+  finishes. Each entry records:
   - the factors;
-  - the deck's, the binary's and the met files' SHA-256;
+  - the deck's, the binary's, the met files' and the other input files'
+    SHA-256;
   - AERMOD's version banner;
   - pyaermod's git commit;
   - the status, the warnings and the wall time.
 
   Running the same design again skips the runs that finished for the
-  same deck and makes the rest, so an interrupted design resumes where
-  it stopped. `collect_plotfiles(root)` reads every successful run's
-  PLOTFILEs into one table, one row per receptor, keyed by run ID, and
-  writes it as CSV and NumPy `.npz`. No new dependency is added.
+  same deck and input files and makes the rest, so an interrupted design
+  resumes where it stopped. `collect_plotfiles(root)` reads the PLOTFILEs
+  of the successful runs of the latest `run_design` call on the root
+  (listed in `root/design.json`; `DesignResult.collect_plotfiles()` for
+  one result's runs) into one table, one row per receptor, keyed by run
+  ID, and writes it as CSV and NumPy `.npz`. No new dependency is added.
   `DesignResult` reports `elapsed_seconds`, the runs' own `run_seconds`
   and their ratio, `concurrency`. On 2026-09-30 a four-run design of
   60-second runs took 240.9 s on one worker and 64.6 s on

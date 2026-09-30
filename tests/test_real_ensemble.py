@@ -8,7 +8,11 @@ With AERMOD v26135, the release the recordings in
 PLOTFILE values match them to AERMOD's print precision (the replaying
 tests in ``tests/test_ensemble.py`` rely on those). A sweep over two
 particle size distributions (the 2026-09-29 audit's crash) must return
-one result per distribution.
+one result per distribution. The design's ``extras`` row, whose hourly
+emission file, second POSTFILE and 2ND PLOTFILE the model holds only as
+lines kept verbatim, must keep every output in its run directory, and
+scaling its emission file by ten must make a new run whose
+concentrations are ten times as large.
 """
 
 from __future__ import annotations
@@ -97,3 +101,30 @@ def test_size_distribution_sweep(tmp_path):
 def _data_rows_differ(texts: list) -> bool:
     rows = [[ln for ln in t.splitlines() if not ln.startswith("*")] for t in texts]
     return all(rows) and rows[0] != rows[1]
+
+
+def test_extras_and_an_edited_emission_file(tmp_path, monkeypatch):
+    houremis = tmp_path / "in" / "houremis.dat"
+    houremis.parent.mkdir()
+    houremis.write_text(design.houremis_lines())
+    monkeypatch.setattr(design, "HOUREMIS", houremis)
+    root = tmp_path / "design"
+    first = run_design([design.EXTRAS_ROW], design.build, root, n_workers=1)
+    old = next(iter(first.values()))
+    assert old.success, old.entry.error_message
+    for names in old.entry.outputs.values():
+        for name in names:
+            assert (old.run_dir / name).stat().st_size > 0, name
+    if old.entry.aermod_version == RECORDED_VERSION:
+        for name in ("pit.plt", "pit_1h.plt", "pit_1h_2nd.plt"):
+            _assert_same_field(old.run_dir / name, FIXTURES / "extras" / "outputs" / name)
+    assert not (root / "shared").exists() and not (root / "runs" / "shared").exists()
+
+    houremis.write_text(design.houremis_lines(scale=10.0))
+    again = run_design([design.EXTRAS_ROW], design.build, root, n_workers=1)
+    new = next(iter(again.values()))
+    assert again.n_skipped == 0 and new.success and new.run_id != old.run_id
+    before = read_plotfile(old.run_dir / "pit.plt").values("AVERAGE_CONC")
+    after = read_plotfile(new.run_dir / "pit.plt").values("AVERAGE_CONC")
+    assert after == pytest.approx([10 * v for v in before], rel=1e-3, abs=1e-4)
+    assert set(collect_plotfiles(root, out_stem=None)["run_id"]) == {new.run_id}

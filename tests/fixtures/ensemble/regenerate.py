@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 """Re-record the AERMOD runs of design.py (see README.md).
 
-Usage:  python tests/fixtures/ensemble/regenerate.py path/to/aermod
+Usage:  python tests/fixtures/ensemble/regenerate.py path/to/aermod [case ...]
 
-Runs every row of design.RECORDED_ROWS through pyaermod.ensemble.run_design
+Runs every row of design.RECORDED_ROWS (or only the named cases) through pyaermod.ensemble.run_design
 with the given AERMOD in a scratch directory, then copies each run back
 into a directory named after its "case" factor: the deck as aermod.inp,
 AERMOD's .out as aermod.out, its stdout as stdout.txt, its exit code as
 exit_code.txt, and the files the deck names for AERMOD to write under
-outputs/.
+outputs/. It also writes houremis.dat, the extras row's hourly emission
+file (design.houremis_lines()).
 """
 
 from __future__ import annotations
@@ -26,9 +27,11 @@ import design  # noqa: E402
 from pyaermod.ensemble import run_design  # noqa: E402
 
 
-def main(exe: str) -> None:
+def main(exe: str, cases: list) -> None:
+    design.HOUREMIS.write_text(design.houremis_lines())
+    rows = [r for r in design.RECORDED_ROWS if not cases or r["case"] in cases]
     with tempfile.TemporaryDirectory() as tmp:
-        result = run_design(design.RECORDED_ROWS, design.build, tmp, n_workers=4,
+        result = run_design(rows, design.build, tmp, n_workers=4,
                             executable=exe, resume=False)
         for run in result.values():
             case = HERE / run.factors["case"]
@@ -48,6 +51,6 @@ def main(exe: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:
         sys.exit(__doc__)
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2:])

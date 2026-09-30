@@ -36,6 +36,7 @@ from pyaermod import ensemble, runner_utils
 from pyaermod.aermod_outputs import read_plotfile
 from pyaermod.ensemble import (
     DECK_NAME,
+    DESIGN_NAME,
     SCHEMA_VERSION,
     EnsembleManifest,
     EnsembleManifestEntry,
@@ -46,7 +47,9 @@ from pyaermod.ensemble import (
     run_design,
     run_id,
 )
+from pyaermod.input_reader import parse_aermod_input
 from pyaermod.runner_utils import RunManifest, RunManifestEntry
+from pyaermod.unparsed import UnparsedLine
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ensemble"
 _spec = importlib.util.spec_from_file_location("ensemble_design", FIXTURES / "design.py")
@@ -64,7 +67,13 @@ for case in "{recordings}"/*/; do
         name="$(basename "$case")"
         echo "$name" >> "{bindir}/calls.log"
         if [ -f "{bindir}/hold" ] && grep -qx "$name" "{bindir}/hold"; then sleep 120; fi
-        if [ -f "{bindir}/delay" ]; then sleep "$(cat "{bindir}/delay")"; fi
+        if [ -f "{bindir}/delay" ]; then
+            # Count, as each run ends, the runs in progress at that moment
+            touch "{bindir}/running.$name"
+            sleep "$(cat "{bindir}/delay")"
+            ls "{bindir}"/running.* | wc -l >> "{bindir}/overlap.log"
+            rm -f "{bindir}/running.$name"
+        fi
         cat "$case/stdout.txt"
         cp "$case/aermod.out" aermod.out
         cp "$case"/outputs/* .
@@ -172,19 +181,27 @@ class TestRunId:
         # The scheme is pinned here character by character: changing it
         # must come with a new SCHEMA_VERSION.
         text = ('{"binary_sha256":"b","factors":{"d":2.5,"met":"COR"},'
-                '"met_sha256":{"profile":"p","surface":"s"},"schema_version":1}')
+                '"input_files_sha256":{"HOUREMIS":"h"},'
+                '"met_sha256":{"profile":"p","surface":"s"},"schema_version":2}')
         expected = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        assert SCHEMA_VERSION == 1
-        assert run_id({"met": "COR", "d": 2.5}, "b", {"surface": "s", "profile": "p"}) == expected
+        assert SCHEMA_VERSION == 2
+        assert run_id({"met": "COR", "d": 2.5}, "b", {"surface": "s", "profile": "p"},
+                      {"HOUREMIS": "h"}) == expected
+
+    def test_no_other_input_files(self):
+        text = ('{"binary_sha256":"b","factors":{},"input_files_sha256":{},'
+                '"met_sha256":{},"schema_version":2}')
+        assert run_id({}, "b", {}) == hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def test_factor_order_does_not_matter(self):
         met = {"surface": "s", "profile": "p"}
         assert run_id({"a": 1, "b": 2}, "x", met) == run_id({"b": 2, "a": 1}, "x", met)
 
-    @pytest.mark.parametrize("change", ["factor", "binary", "met", "schema"])
+    @pytest.mark.parametrize("change", ["factor", "binary", "met", "input", "schema"])
     def test_every_part_changes_the_id(self, change):
         args = dict(factors={"d": 2.5}, binary_sha256="b",
-                    met_sha256={"surface": "s", "profile": "p"}, schema_version=1)
+                    met_sha256={"surface": "s", "profile": "p"},
+                    input_files_sha256={"HOUREMIS": "h"}, schema_version=2)
         base = run_id(**args)
         if change == "factor":
             args["factors"] = {"d": 10.0}
@@ -192,8 +209,10 @@ class TestRunId:
             args["binary_sha256"] = "c"
         elif change == "met":
             args["met_sha256"] = {"surface": "s2", "profile": "p"}
+        elif change == "input":
+            args["input_files_sha256"] = {"HOUREMIS": "h2"}
         else:
-            args["schema_version"] = 2
+            args["schema_version"] = 3
         assert run_id(**args) != base
 
     def test_file_sha256(self, tmp_path):
@@ -272,6 +291,72 @@ class TestRewriteOutputNames:
         }
         assert out.rank_files[0].filename == "r.rnk"
         assert project.meteorology.scim.profile_summary_file == "ps.dat"
+
+    def test_lines_kept_verbatim_are_renamed(self):
+        """Outputs the model cannot hold stay as UnparsedLines when a deck
+        is read; their file names are rewritten too."""
+        deck = design.build(design.ROWS[0]).to_aermod_input(validate=False)
+        deck = deck.replace("CO FINISHED", (
+            "   ERRORFIL  ../logs/errors.lst\n"
+            "   DEBUGOPT  MODEL  /tmp/dbg/model.dbg  METEOR\n"
+            "CO FINISHED"))
+        deck = deck.replace("OU FINISHED", (
+            "   POSTFILE  PERIOD  ALL  PLOT  ../shared/post_a.pst\n"
+            "   POSTFILE  1  ALL  PLOT  /tmp/shared/post_b.pst\n"
+            "   PLOTFILE  1  ALL  8TH  /tmp/shared/pit_1h_h8h.plt\n"
+            "   PLOTFILE  PERIOD  ALL  ../shared/unit.plt  41\n"
+            "OU FINISHED"))
+        project = parse_aermod_input(deck)
+        kept = {(u.pathway, u.keyword) for u in project.unparsed_lines}
+        assert {("CO", "ERRORFIL"), ("CO", "DEBUGOPT"), ("OU", "POSTFILE"),
+                ("OU", "PLOTFILE")} <= kept
+        names = rewrite_output_names(project, prefix="r_")
+        assert names == {
+            "PLOTFILE": ["r_pit.plt", "r_pit_1h.plt", "r_pit_1h_h8h.plt", "r_unit.plt"],
+            "POSTFILE": ["r_post_a.pst", "r_post_b.pst"],
+            "ERRORFIL": ["r_errors.lst"], "DEBUGOPT": ["r_model.dbg"],
+        }
+        text = project.to_aermod_input(validate=False)
+        assert "PLOTFILE  PERIOD  ALL  r_unit.plt  41" in text
+        assert "PLOTFILE  1  ALL  8TH  r_pit_1h_h8h.plt" in text
+        assert "POSTFILE  1  ALL  PLOT  r_post_b.pst" in text
+        assert "DEBUGOPT  MODEL  r_model.dbg  METEOR" in text
+        for gone in ("/tmp/shared", "/tmp/dbg", "../"):
+            assert gone not in text
+
+    @pytest.mark.parametrize(("pathway", "keyword", "fields", "renamed"), [
+        ("OU", "PLOTFILE", ["ANNUAL", "ALL", "d/a.plt"], ["ANNUAL", "ALL", "a.plt"]),
+        ("OU", "PLOTFILE", ["24", "ALL", "2ND", "d/a.plt", "30"],
+         ["24", "ALL", "2ND", "a.plt", "30"]),
+        ("OU", "POSTFILE", ["1", "ALL", "UNFORM", "d/p.bin"], ["1", "ALL", "UNFORM", "p.bin"]),
+        ("OU", "MAXIFILE", ["1", "ALL", "10.", "d/m.max", "44"],
+         ["1", "ALL", "10.", "m.max", "44"]),
+        ("OU", "RANKFILE", ["1", "10", "d/r.rnk"], ["1", "10", "r.rnk"]),
+        ("OU", "TOXXFILE", ["1", "1.0", "d/t.tox"], ["1", "1.0", "t.tox"]),
+        ("OU", "SEASONHR", ["ALL", "d/s.shr"], ["ALL", "s.shr"]),
+        ("OU", "EVALFILE", ["PIT", "d/e.evl"], ["PIT", "e.evl"]),
+        ("OU", "SUMMFILE", ["d/s.sum"], ["s.sum"]),
+        ("OU", "MAXDAILY", ["ALL", "d/md.dat"], ["ALL", "md.dat"]),
+        ("OU", "MXDYBYYR", ["ALL", "d/my.dat"], ["ALL", "my.dat"]),
+        ("OU", "MAXDCONT", ["ALL", "1", "THRESH", "5.", "d/mc.dat"],
+         ["ALL", "1", "THRESH", "5.", "mc.dat"]),
+        ("OU", "MAXDCONT", ["ALL", "1", "8", "d/mc.dat"], ["ALL", "1", "8", "mc.dat"]),
+        ("CO", "ERRORFIL", [], []),                      # AERMOD's ERRORS.LST
+        ("CO", "EVENTFIL", ["d/ev.inp", "SOCONT"], ["ev.inp", "SOCONT"]),
+        ("CO", "SAVEFILE", ["d/a.sav", "5", "e/b.sav"], ["a.sav", "5", "b.sav"]),
+        ("CO", "MULTYEAR", ["H6H", "d/y2.sav", "d/y1.sav"], ["H6H", "y2.sav", "d/y1.sav"]),
+        ("CO", "MULTYEAR", ["d/y2.sav", "d/y1.sav"], ["y2.sav", "d/y1.sav"]),
+        ("CO", "DEBUGOPT", ["model", "d/m.dbg", "PRIME", "d/p.dbg"],
+         ["model", "m.dbg", "PRIME", "p.dbg"]),
+        # Files AERMOD reads are left for run_design to link
+        ("SO", "HOUREMIS", ["d/he.dat", "PIT"], ["d/he.dat", "PIT"]),
+        ("OU", "NOHEADER", ["ALL"], ["ALL"]),
+    ])
+    def test_every_verbatim_output_keyword(self, pathway, keyword, fields, renamed):
+        project = self._project()
+        project.unparsed_lines = [UnparsedLine(pathway, keyword, list(fields))]
+        rewrite_output_names(project)
+        assert project.unparsed_lines[0].fields == renamed
 
     def test_names_that_collide_raise(self):
         project = self._project()
@@ -382,7 +467,8 @@ class TestRunDesign:
         payload = json.loads((run.run_dir / "factors.json").read_text())
         assert payload == {
             "binary_sha256": file_sha256(replay_bin / "aermod"),
-            "factors": design.ROWS[0], "met_sha256": _met_sha(), "schema_version": 1,
+            "factors": design.ROWS[0], "input_files_sha256": {},
+            "met_sha256": _met_sha(), "schema_version": 2,
         }
         text = canonical_json(payload)
         assert hashlib.sha256(text.encode()).hexdigest() == run.run_id
@@ -404,6 +490,7 @@ class TestRunDesign:
             assert raw["aermod_version"] == "26135"
             assert raw["met_sha256"] == _met_sha()
             assert raw["met_files"]["surface"] == str((design.MET / "AERMET2.SFC").resolve())
+            assert raw["input_files"] == {} and raw["input_files_sha256"] == {}
             assert raw["outputs"] == {"PLOTFILE": ["pit.plt", "pit_1h.plt"]}
             assert raw["schema_version"] == SCHEMA_VERSION
             assert [w.split()[0] for w in raw["warnings"]] == ["W403", "W496"]
@@ -550,6 +637,78 @@ class TestRunDesign:
         out.write_text(out.read_text().replace("AERMOD Finishes Successfully", "cut off"))
         assert _design(replay_bin, root, rows=design.ROWS[:1], n_workers=1).n_run == 1
 
+    def test_extras_run(self, replay_bin, tmp_path):
+        """HOUREMIS, a second POSTFILE and a 2ND PLOTFILE, all held only as
+        lines kept verbatim: the outputs land in the run directory and the
+        emission file is hashed and linked."""
+        root = tmp_path / "d"
+        result = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        run = next(iter(result.values()))
+        assert run.success, run.entry.error_message
+        deck = (run.run_dir / DECK_NAME).read_text()
+        assert deck == (FIXTURES / "extras" / "aermod.inp").read_text()
+        assert "HOUREMIS  houremis.dat  PIT" in deck
+        assert run.entry.outputs == {
+            "PLOTFILE": ["pit.plt", "pit_1h.plt", "pit_1h_2nd.plt"],
+            "POSTFILE": ["pit_per.pst", "pit_1h.bin"],
+        }
+        for names in run.entry.outputs.values():
+            for name in names:
+                assert (run.run_dir / name).read_bytes() == \
+                    (FIXTURES / "extras" / "outputs" / name).read_bytes()
+        assert run.entry.input_files == {"HOUREMIS": str(design.HOUREMIS.resolve())}
+        assert run.entry.input_files_sha256 == {"HOUREMIS": file_sha256(design.HOUREMIS)}
+        link = run.run_dir / "houremis.dat"
+        assert link.is_symlink() and link.resolve() == design.HOUREMIS.resolve()
+        assert run.run_id == run_id(design.EXTRAS_ROW, file_sha256(replay_bin / "aermod"),
+                                    _met_sha(), run.entry.input_files_sha256)
+        assert not (root / "shared").exists() and not (root / "runs" / "shared").exists()
+
+    @pytest.mark.parametrize("name", ["pit_per.pst", "pit_1h.bin", "pit_1h_2nd.plt"])
+    def test_a_missing_postfile_or_verbatim_plotfile_runs_again(self, replay_bin, tmp_path,
+                                                                name):
+        root = tmp_path / "d"
+        first = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        run = next(iter(first.values()))
+        (run.run_dir / name).unlink()
+        again = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        assert again.n_run == 1 and again.n_skipped == 0 and again.all_succeeded
+        assert _calls(replay_bin) == ["extras", "extras"]
+        assert (run.run_dir / name).exists()
+
+    def test_an_edited_emission_file_is_a_new_run(self, replay_bin, tmp_path, monkeypatch):
+        """Editing the HOUREMIS file the deck names makes a new run, in a
+        new directory, even though the deck text is the same."""
+        houremis = tmp_path / "in" / "houremis.dat"
+        houremis.parent.mkdir()
+        houremis.write_text(design.houremis_lines())
+        monkeypatch.setattr(design, "HOUREMIS", houremis)
+        root = tmp_path / "d"
+        first = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        old = next(iter(first.values()))
+        houremis.write_text(design.houremis_lines(scale=10.0))
+        again = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        new = next(iter(again.values()))
+        assert again.n_skipped == 0 and again.n_run == 1 and new.success
+        assert new.run_id != old.run_id and old.run_dir.exists()
+        assert new.entry.input_files_sha256["HOUREMIS"] == file_sha256(houremis)
+        assert new.entry.input_files_sha256 != old.entry.input_files_sha256
+        assert (new.run_dir / DECK_NAME).read_text() == (old.run_dir / DECK_NAME).read_text()
+        assert json.loads((root / DESIGN_NAME).read_text())["run_ids"] == [new.run_id]
+        assert set(collect_plotfiles(root, out_stem=None)["run_id"]) == {new.run_id}
+
+    def test_a_changed_input_hash_under_the_same_id_runs_again(self, replay_bin, tmp_path):
+        """_is_done compares the recorded input hashes too, not only the ID."""
+        root = tmp_path / "d"
+        first = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        rid = next(iter(first))
+        manifest = EnsembleManifest.load(root / "manifest.json")
+        manifest.entries[rid].input_files_sha256 = {"HOUREMIS": "0" * 64}
+        manifest.save()
+        again = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        assert again.n_run == 1 and again[rid].entry.input_files_sha256 == \
+            {"HOUREMIS": file_sha256(design.HOUREMIS)}
+
     def test_failed_run(self, replay_bin, tmp_path):
         root = tmp_path / "d"
         rows = [design.ROWS[0], design.FAILING_ROW]
@@ -593,13 +752,17 @@ class TestRunDesign:
         assert seen == [("start", 2), ("update", 1), ("update", 1), ("finish",)]
 
     def test_runs_overlap(self, replay_bin, tmp_path):
-        """Four one-directory-each runs of 2 s on four workers overlap."""
-        (replay_bin / "delay").write_text("2\n")
+        """Four one-directory-each runs of 3 s on four workers overlap.
+
+        The fake counts, as each run ends, the runs still in progress, so
+        this does not depend on how long the workers take to start.
+        """
+        (replay_bin / "delay").write_text("3\n")
         result = _design(replay_bin, tmp_path / "d")
         assert result.all_succeeded
-        assert result.run_seconds >= 4 * 2.0
-        assert result.elapsed_seconds < 4 * 2.0
-        assert result.concurrency > 1.5
+        assert result.run_seconds >= 4 * 3.0
+        in_progress = [int(n) for n in (replay_bin / "overlap.log").read_text().split()]
+        assert len(in_progress) == 4 and max(in_progress) >= 2
 
     def test_a_worker_that_fails_is_recorded(self, replay_bin, tmp_path):
         exe = replay_bin / "aermod"
@@ -724,6 +887,125 @@ class TestRunDesignRefusals:
         assert not met.is_symlink()
         assert met.read_bytes() == (design.MET / "AERMET2.SFC").read_bytes()
 
+    def test_every_input_keyword_is_hashed_and_linked(self, exe, tmp_path, monkeypatch):
+        from pyaermod.pathways import (
+            BackgroundSpec,
+            ChemistryMethod,
+            ChemistryOptions,
+            InitFile,
+            MultiYear,
+            NOxBackground,
+            OzoneData,
+        )
+
+        data = tmp_path / "data"
+        data.mkdir()
+        for name in ("o3.dat", "o3s1.dat", "nox.dat", "noxs1.dat", "init.sav", "y1.sav",
+                     "he1.dat", "he2.dat", "bg.dat", "o3u.dat", "inc.dat"):
+            (data / name).write_text(name + "\n")
+        (data / "sub").mkdir()
+        (data / "sub" / "init2.sav").write_text("init2\n")
+        monkeypatch.chdir(data)
+
+        def build(factors):
+            project = design.build(factors)
+            control = project.control
+            control.init_file = InitFile("init.sav")          # relative: from the cwd
+            control.multiyear = MultiYear("y2.sav", init_file=str(data / "y1.sav"))
+            control.chemistry = ChemistryOptions(
+                method=ChemistryMethod.GRSM,
+                ozone_data=OzoneData(ozone_file=str(data / "o3.dat"),
+                                     by_sector={1: BackgroundSpec(hourly_file="o3s1.dat")}),
+                nox_background=NOxBackground(
+                    hourly_file="nox.dat",
+                    by_sector={1: BackgroundSpec(hourly_file="noxs1.dat")}),
+            )
+            project.unparsed_lines = [
+                UnparsedLine("SO", "HOUREMIS", ["he1.dat", "PIT"]),
+                UnparsedLine("SO", "HOUREMIS", [str(data / "he1.dat"), "PIT2"]),  # same file
+                UnparsedLine("SO", "HOUREMIS", ["he2.dat", "PIT3"]),
+                UnparsedLine("SO", "BACKGRND", ["SECT1", "HOURLY", "bg.dat"]),
+                UnparsedLine("CO", "OZONEFIL", ["SECT2", "o3u.dat", "PPB"]),
+                UnparsedLine("RE", "INCLUDED", ["inc.dat"]),
+                UnparsedLine("CO", "INITFILE", []),
+                UnparsedLine("CO", "MULTYEAR", ["H6H", "y3.sav", "sub/init2.sav"]),
+            ]
+            return project
+
+        result = run_design(design.ROWS[:1], build, tmp_path / "d", n_workers=1,
+                            executable=exe, validate=False)
+        run = next(iter(result.values()))
+        roles = {
+            "INITFILE": "init.sav", "MULTYEAR": "y1.sav", "OZONEFIL": "o3.dat",
+            "OZONEFIL.2": "o3s1.dat", "NOX_FILE": "nox.dat", "NOX_FILE.2": "noxs1.dat",
+            "HOUREMIS": "he1.dat", "HOUREMIS.2": "he2.dat", "BACKGRND": "bg.dat",
+            "OZONEFIL.3": "o3u.dat", "INCLUDED": "inc.dat", "MULTYEAR.2": "sub/init2.sav",
+        }
+        assert run.entry.input_files == {r: str(data / n) for r, n in roles.items()}
+        assert run.entry.input_files_sha256 == {r: file_sha256(data / n)
+                                                for r, n in roles.items()}
+        deck = (run.run_dir / DECK_NAME).read_text()
+        for line in ("INITFILE  init.sav", "OZONEFIL  o3.dat", "HOUREMIS  he1.dat  PIT2",
+                     "BACKGRND  SECT1  HOURLY  bg.dat", "OZONEFIL  SECT2  o3u.dat  PPB",
+                     "INCLUDED  inc.dat", "MULTYEAR  H6H  y3.sav  init2.sav"):
+            assert line in deck, line
+        assert str(data) not in deck
+        for name in set(Path(n).name for n in roles.values()):
+            assert (run.run_dir / name).resolve() == (data / name).resolve() or \
+                (run.run_dir / name).resolve() == (data / "sub" / name).resolve()
+
+    def test_nox_file_shorthand_is_an_input(self, exe, tmp_path):
+        """And a bare INITFILE (AERMOD's SAVE.FIL) names no file to link."""
+        from pyaermod.pathways import ChemistryMethod, ChemistryOptions, InitFile
+
+        nox = tmp_path / "nox.dat"
+        nox.write_text("x\n")
+
+        def build(factors):
+            project = design.build(factors)
+            project.control.chemistry = ChemistryOptions(method=ChemistryMethod.GRSM,
+                                                         nox_file=str(nox))
+            project.control.init_file = InitFile()
+            return project
+
+        result = run_design(design.ROWS[:1], build, tmp_path / "d", n_workers=1,
+                            executable=exe, validate=False)
+        assert next(iter(result.values())).entry.input_files == {"NOX_FILE": str(nox)}
+
+    def test_missing_input_file(self, exe, tmp_path):
+        def build(factors):
+            project = design.build(factors)
+            project.unparsed_lines = [UnparsedLine("SO", "HOUREMIS", ["gone.dat", "PIT"])]
+            return project
+
+        with pytest.raises(FileNotFoundError, match="HOUREMIS file not found"):
+            run_design(design.ROWS[:1], build, tmp_path / "d", executable=exe)
+
+    def test_two_input_files_with_one_name(self, exe, tmp_path):
+        for sub in ("a", "b"):
+            (tmp_path / sub).mkdir()
+            (tmp_path / sub / "he.dat").write_text(sub)
+
+        def build(factors):
+            project = design.build(factors)
+            project.unparsed_lines = [
+                UnparsedLine("SO", "HOUREMIS", [str(tmp_path / "a" / "he.dat"), "PIT"]),
+                UnparsedLine("SO", "HOUREMIS", [str(tmp_path / "b" / "he.dat"), "PIT2"]),
+            ]
+            return project
+
+        with pytest.raises(ValueError, match=r"HOUREMIS file 'he\.dat' has the name of another"):
+            run_design(design.ROWS[:1], build, tmp_path / "d", executable=exe)
+
+    def test_empty_met_file_name(self, exe, tmp_path):
+        def build(factors):
+            project = design.build(factors)
+            project.meteorology.profile_file = ""
+            return project
+
+        with pytest.raises(FileNotFoundError, match="profile met file not found"):
+            run_design(design.ROWS[:1], build, tmp_path / "d", executable=exe)
+
     def test_empty_design(self, exe, tmp_path):
         result = run_design([], design.build, tmp_path / "d", executable=exe)
         assert len(result) == 0 and result.concurrency == 0.0
@@ -835,6 +1117,32 @@ class TestCollectPlotfiles:
         table = collect_plotfiles(root, run_ids=[rid], out_stem=None)
         assert set(table["run_id"]) == {rid} and len(table) == 2 * 72
         assert not (root / "plotfiles.csv").exists()
+
+    def test_defaults_to_the_latest_design(self, replay_bin, tmp_path):
+        """A row dropped from the design stays in the manifest but not in
+        the default collection."""
+        root = tmp_path / "d"
+        both = _design(replay_bin, root, rows=design.ROWS[:2], n_workers=2)
+        one = _design(replay_bin, root, rows=design.ROWS[:1], n_workers=1)
+        assert len(one.manifest.entries) == 2
+        assert json.loads((root / DESIGN_NAME).read_text()) == {
+            "schema_version": SCHEMA_VERSION, "run_ids": list(one)}
+        assert set(collect_plotfiles(root, out_stem=None)["run_id"]) == set(one)
+        assert set(one.collect_plotfiles(out_stem=None)["run_id"]) == set(one)
+        everything = collect_plotfiles(root, run_ids=one.manifest.entries, out_stem=None)
+        assert set(everything["run_id"]) == set(both)
+        # A root written before design.json existed: every successful run
+        (root / DESIGN_NAME).unlink()
+        assert set(collect_plotfiles(root, out_stem=None)["run_id"]) == set(both)
+
+    def test_verbatim_plotfile_is_collected(self, replay_bin, tmp_path):
+        root = tmp_path / "d"
+        result = _design(replay_bin, root, rows=[design.EXTRAS_ROW], n_workers=1)
+        table = result.collect_plotfiles()
+        assert sorted(set(table["plotfile"])) == ["pit.plt", "pit_1h.plt", "pit_1h_2nd.plt"]
+        second = table[table.plotfile == "pit_1h_2nd.plt"]
+        assert len(second) == 72 and set(second["rank"]) == {"2ND"}
+        assert (root / "plotfiles.csv").exists()
 
     def test_out_stem_elsewhere(self, replay_bin, tmp_path):
         root = tmp_path / "d"
