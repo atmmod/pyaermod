@@ -248,7 +248,10 @@ class TestPath:
         expected = read_aermod_input(deck)
         assert ([s.source_id for s in session.project.sources.sources]
                 == [s.source_id for s in expected.sources.sources])
+        assert session.project.control.title_one == expected.control.title_one
         assert len(report.unparsed) == len(expected.unparsed_lines)
+        assert report.name == deck.name and report.path == deck
+        assert session.title == f"PyAERMOD — {deck.name} (modified)"
 
 
 class TestSessionLifecycle:

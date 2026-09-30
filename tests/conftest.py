@@ -112,19 +112,17 @@ def fake_aermod_exe(tmp_path):
     return exe
 
 
-@pytest.fixture(scope="session")
-def _recent_files_scratch(tmp_path_factory):
-    return tmp_path_factory.mktemp("recent") / "recent_files.json"
-
-
 @pytest.fixture(autouse=True)
-def _private_recent_files_list(request, monkeypatch, _recent_files_scratch):
+def _private_recent_files_list(request, monkeypatch, tmp_path_factory):
     """Keep the GUI's recent-files list (WP-G6) out of the real home directory.
 
     A test that opens or saves a project by path through the GUI adds it to
     the list; ``PYAERMOD_RECENT_FILES`` points it at a scratch file instead
-    of ``~/.pyaermod/recent_files.json``. The GUI journeys are left alone:
-    each starts its server with a fresh home, and so a list of its own.
+    of ``~/.pyaermod/recent_files.json``. Each test gets a list of its own,
+    so no test sees the files an earlier one opened. The GUI journeys are
+    left alone: each starts its server with a fresh home, and so a list of
+    its own.
     """
     if request.node.get_closest_marker("e2e") is None:
-        monkeypatch.setenv("PYAERMOD_RECENT_FILES", str(_recent_files_scratch))
+        scratch = tmp_path_factory.mktemp("recent") / "recent_files.json"
+        monkeypatch.setenv("PYAERMOD_RECENT_FILES", str(scratch))

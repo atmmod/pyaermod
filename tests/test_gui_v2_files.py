@@ -128,9 +128,15 @@ async def test_every_epa_deck_uploads_or_says_why_not(gui, deck, tmp_path):
         await gui.user.should_see("PyAERMOD — Untitled")
 
 
-@pytest.mark.parametrize("deck", EPA_DECKS, ids=[d.name for d in EPA_DECKS])
+# Every EPA deck is read from its path by the T0 test of the same name in
+# tests/test_gui_v2_import.py; here two stand for them in the GUI: the deck
+# J5 imports, with several kept lines, and one with a single kept line.
+PATH_DECKS = [EPA / "aertest.inp", EPA / "olmgrp.inp"]
+
+
+@pytest.mark.parametrize("deck", PATH_DECKS, ids=[d.name for d in PATH_DECKS])
 @pytest.mark.asyncio
-async def test_every_epa_deck_imports_from_its_path(gui, deck):
+async def test_an_epa_deck_imports_from_its_path(gui, deck):
     await gui.open()
     _read_from_path(gui, deck)
     await gui.user.should_see(f"Imported {deck.name}")
@@ -302,10 +308,6 @@ class TestPathImport:
 # ---------------------------------------------------------------------
 
 class TestRecentFiles:
-    @pytest.fixture(autouse=True)
-    def _own_list(self, tmp_path, monkeypatch):
-        monkeypatch.setenv(files.RECENT_FILES_ENV, str(tmp_path / "recent.json"))
-
     @pytest.mark.asyncio
     async def test_no_list_until_a_file_is_opened_by_path(self, gui):
         await gui.open()
@@ -378,10 +380,9 @@ class TestRecentFiles:
 
 class TestDesktop:
     @pytest.fixture(autouse=True)
-    def _desktop(self, tmp_path, monkeypatch):
+    def _desktop(self, monkeypatch):
         from pyaermod.gui_v2 import _native
         monkeypatch.setattr(_native, "native_window", lambda: object())
-        monkeypatch.setenv(files.RECENT_FILES_ENV, str(tmp_path / "recent.json"))
         self.asked: list = []
         self.answers: list = []
 
