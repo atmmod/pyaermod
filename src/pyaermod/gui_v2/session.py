@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..aermet import SurfaceFilePeriod
     from ..runner import AERMODProgress, AERMODRun, AERMODRunner, AERMODRunResult
     from ..unparsed import UnparsedLine
-    from ..validator import ValidationResult
+    from ..validator import ValidationError, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,25 @@ class RunOptions:
 
     working_dir: str = ""
     timeout_s: int = 600
+
+
+@dataclass(frozen=True)
+class MetCoverage:
+    """The surface file a run would read, as :meth:`Session.met_coverage` finds it.
+
+    ``path`` is the file resolved as AERMOD will open it (None when none is
+    set, or when AERMOD would not find it: a relative path with a blank
+    working directory, or one starting with ``~``); ``period`` what it
+    holds and ``problem`` why it could not be read (see
+    :meth:`Session.met_period`); ``warnings`` the
+    :func:`~pyaermod.validator_advanced.check_annual_met_coverage` finding
+    (ANNUAL with less than a year of data, which AERMOD aborts with E480).
+    """
+
+    path: Optional[Path] = None
+    period: Optional[SurfaceFilePeriod] = None
+    problem: Optional[str] = None
+    warnings: Tuple[ValidationError, ...] = ()
 
 
 class ProjectFileError(ValueError):
@@ -768,10 +787,23 @@ class Session:
         self._changed(part)
 
     def validate(self, check_files: bool = False) -> ValidationResult:
-        """Validate the project, keep the result and emit VALIDATION_CHANGED."""
+        """Validate the project, keep the result and emit VALIDATION_CHANGED.
+
+        With ``check_files`` the files are checked on disk, and the surface
+        file is read for the warning that ANNUAL needs a year of met data
+        (:meth:`met_coverage`), which ``Validator.validate`` does not
+        read: the header's readiness line and the step badges count it
+        as the Review & Run step does.
+        """
         from ..validator import Validator
 
-        self.validation = Validator.validate(self.project, check_files=check_files)
+        result = Validator.validate(self.project, check_files=check_files)
+        if check_files:
+            try:
+                result.errors.extend(self.met_coverage().warnings)
+            except Exception:           # a surface file the reader trips on
+                logger.exception("checking the met data's coverage raised")
+        self.validation = result
         self._emit(Change(SessionEvent.VALIDATION_CHANGED))
         return self.validation
 
@@ -821,6 +853,31 @@ class Session:
             return path, None, f"{path} is a directory, not a surface file"
         except (OSError, ValueError) as exc:
             return path, None, f"{path} could not be read: {exc}"
+
+    def met_coverage(self) -> MetCoverage:
+        """The surface file the next run would read, what it holds, and the
+        ANNUAL warning (see :class:`MetCoverage`). Emits nothing.
+
+        The file is resolved against :attr:`run_options`' working
+        directory. With a blank one the run goes to a new, empty folder, so
+        a relative surface file is not read from the server's own
+        directory; nor is one starting with ``~``, which AERMOD does not
+        expand. Review & Run blocks both (``run.RELATIVE_MET``,
+        ``run.HOME_MET``).
+        """
+        from ..validator_advanced import check_annual_met_coverage
+
+        working_dir = str(self.run_options.working_dir or "").strip()
+        name = str(self.project.meteorology.surface_file or "").strip().strip('"')
+        if not name or name.startswith("~") or (not working_dir and not Path(name).is_absolute()):
+            return MetCoverage()
+        base_dir = working_dir or None
+        path, period, problem = self.met_period(base_dir)
+        warnings: Tuple[ValidationError, ...] = ()
+        if period is not None:
+            warnings = tuple(check_annual_met_coverage(self.project, base_dir=base_dir,
+                                                       period=period))
+        return MetCoverage(path, period, problem, warnings)
 
     def start_run(self, *, working_dir: Union[str, Path, None] = None, timeout: int = 600,
                   runner: Optional[AERMODRunner] = None,
@@ -1050,6 +1107,7 @@ __all__ = [
     "DeckError",
     "DeckImport",
     "DeckImportError",
+    "MetCoverage",
     "ProjectFileError",
     "RunInProgressError",
     "RunOptions",

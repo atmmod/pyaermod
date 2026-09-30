@@ -36,15 +36,21 @@ from pyaermod.gui_v2 import files
 from pyaermod.input_reader import PathTraversalError, read_aermod_input
 
 from . import test_gui_v2_smoke as smoke
+from .test_gui_v2_run import epa_layout
 from .test_gui_v2_smoke import (
     GuiSession,
+    _badge_reads,
     _click,
+    _current_step,
     _discard_changes,
     _one,
+    _open_albany,
+    _periods_select,
     _receptors_table,
     _rows_become,
     _settle,
     _sources_table,
+    _step_tab,
     _title_input,
     _value_becomes,
 )
@@ -317,6 +323,71 @@ class TestMeteorologyStep:
         UserInteraction(gui.user, {profile}, None).clear().type("AERMET2.PFL")
         await _value_becomes(lambda: profile.error, files.file_problem("AERMET2.PFL"))
         assert profile.error.startswith("Give the full path")
+
+
+    @pytest.mark.asyncio
+    async def test_the_step_says_what_the_surface_file_holds(self, gui, tmp_path):
+        """The period, the header's stations and first year, and the ANNUAL
+        warning, which the header and the badge count too (E480)."""
+        await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        profile = _one(gui, kind=ui.input, content="Profile file")
+        UserInteraction(gui.user, {profile}, None).clear().type(str(EPA / "AERMET2.PFL"))
+        await gui.user.should_see("AERMET2.SFC holds 1988-03-01 to 1988-03-04 (4 days, 96 hours).")
+        await gui.user.should_see("Its header names surface station 14735 and upper-air "
+                                  "station 00014735; its data start in 1988.")
+        await gui.user.should_see("ANNUAL averages need at least one full year of met data, "
+                                  "but AERMET2.SFC holds 1988-03-01 to 1988-03-04")
+        await _value_becomes(lambda: _one(gui, kind=ui.label, marker="readiness").text,
+                             "Ready to run, with 1 warning")
+        await _badge_reads(gui, "Meteorology", "warning")
+        # The other fix is on the Project step.
+        _click(gui, _step_tab(gui, "Meteorology"))
+        gui.user.find(kind=ui.button,
+                      content="Change the averaging periods on the Project step").click()
+        await _value_becomes(lambda: _current_step(gui), "project")
+        with gui.user:
+            _periods_select(gui).value = ["1", "3", "24", "PERIOD"]
+        await _value_becomes(lambda: _one(gui, kind=ui.label, marker="readiness").text,
+                             "Ready to run")
+        await _badge_reads(gui, "Meteorology", "complete")
+        await gui.user.should_not_see("ANNUAL averages need at least one full year")
+        await gui.user.should_see("AERMET2.SFC holds 1988-03-01 to 1988-03-04 (4 days, 96 hours).")
+
+    @pytest.mark.asyncio
+    async def test_review_and_run_links_the_annual_warning_to_both_steps(self, gui, tmp_path):
+        await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        await gui.user.should_see("Before you run")
+        links = {link.text: link.props["href"] for link in gui.user.find(kind=ui.link).elements
+                 if link.text.startswith("Go to ")}
+        assert links == {"Go to Meteorology": "#meteorology", "Go to Project": "#project"}
+
+
+class TestImportedOutputFolders:
+    """EPA's aertest.inp writes into ../Outputs, ../plotfiles and ../postfiles."""
+
+    @pytest.mark.asyncio
+    async def test_a_deck_imported_from_its_path_needs_its_output_folders(self, gui, tmp_path):
+        deck = epa_layout(tmp_path / "aermod_test_cases")
+        inputs = deck.parent
+        await gui.open()
+        _read_from_path(gui, deck)
+        await gui.user.should_see("Imported aertest.inp")
+        _click(gui, _step_tab(gui, "Review & Run"))
+        await gui.user.should_see(
+            "OU SUMMFILE ../Outputs/AERTEST.SUM is in a folder, ../Outputs, which a blank "
+            "working directory (a new, empty folder) does not have")
+        await gui.user.should_see("CO ERRORFIL ../Outputs/AERTEST_ERRORS.OUT is in a folder")
+        await gui.user.should_see(f"such as the deck's own folder, {inputs}")
+        await gui.user.should_not_see("Nothing blocks the run.")
+        run = _one(gui, kind=ui.button, content="Run AERMOD")
+        assert not run.enabled
+        # Run where EPA runs it, the deck's own folder: nothing blocks.
+        box = _one(gui, kind=ui.input, content="Working directory")
+        UserInteraction(gui.user, {box}, None).type(str(inputs))
+        await _value_becomes(lambda: _one(gui, kind=ui.button, content="Run AERMOD").enabled,
+                             True)
+        await gui.user.should_see("Nothing blocks the run.")
+        await gui.user.should_not_see("is in a folder, ../Outputs")
 
 
 class TestPathImport:

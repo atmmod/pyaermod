@@ -21,7 +21,8 @@ Everything the checklist knows comes from the library:
 :class:`~pyaermod.validator.Validator`,
 :func:`~pyaermod.validator_advanced.check_annual_met_coverage` (ANNUAL
 with less than a year of met data, which AERMOD aborts with E480) and
-:meth:`Session.deck_text`.
+:meth:`Session.deck_text`, whose output files must be in folders that
+exist where AERMOD runs (it does not create them, and stops with E500).
 
 Runs, New and Open: replacing the project stops its run (see
 :meth:`Session.new`); a second Run while one is in progress is ignored.
@@ -33,6 +34,7 @@ shell passes ``goto(step_id)`` (step ids in :data:`STEP_IDS`).
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -89,10 +91,18 @@ class ChecklistItem:
 
     step: str
     problems: List[str] = field(default_factory=list)
+    # Other steps where the problems can also be fixed (ANNUAL with short
+    # met data: longer met files, or other averaging periods on Project).
+    also: List[str] = field(default_factory=list)
 
     @property
     def title(self) -> str:
         return STEP_TITLES.get(self.step, self.step)
+
+    @property
+    def links(self) -> List[str]:
+        """The steps its links open, its own first (Review & Run has none)."""
+        return [s for s in [self.step, *self.also] if s != "run"]
 
 
 @dataclass
@@ -167,6 +177,78 @@ RELATIVE_MET = ("{label} {name} is a relative path, which AERMOD looks for in it
                 "file's full path, or set the working directory below")
 
 
+#: The deck keywords whose lines name files AERMOD writes (coset.f and
+#: ouset.f, v26135). DEBUGOPT and MULTYEAR also name files it reads,
+#: whose folders must exist as well.
+OUTPUT_KEYWORDS = frozenset({
+    "CO ERRORFIL", "CO SAVEFILE", "CO EVENTFIL", "CO DEBUGOPT", "CO MULTYEAR",
+    "OU SUMMFILE", "OU PLOTFILE", "OU POSTFILE", "OU MAXIFILE", "OU RANKFILE",
+    "OU SEASONHR", "OU EVALFILE", "OU TOXXFILE", "OU MAXDAILY", "OU MXDYBYYR",
+    "OU MAXDCONT",
+})
+
+#: An output file in a folder, with a blank working directory: the run
+#: goes to a new, empty folder, where no folder of the deck exists.
+RELATIVE_OUTPUT = ("{keyword} {name} is in a folder, {folder}, which a blank working "
+                   "directory (a new, empty folder) does not have, and AERMOD does not "
+                   "create folders: set the working directory below to a folder that has "
+                   "{folder}{hint}")
+
+#: An output file whose folder does not exist where AERMOD will run.
+MISSING_OUTPUT_FOLDER = ("{keyword} {name} is in a folder that does not exist, {where}, and "
+                         "AERMOD does not create folders: create it, or set the working "
+                         "directory below to a folder that has {folder}{hint}")
+
+
+def output_folders(deck: str) -> List[Tuple[str, str, str]]:
+    """``[(keyword, path as written, folder)]`` for every file the deck has
+    AERMOD write in a folder (any field of an :data:`OUTPUT_KEYWORDS` line
+    that names one); a bare file name goes in the working directory itself."""
+    from ..run_results import deck_lines
+
+    found = []
+    for keyword, fields in deck_lines(deck):
+        if keyword not in OUTPUT_KEYWORDS:
+            continue
+        for value in fields:
+            folder = Path(value).parent
+            if str(folder) not in ("", "."):
+                found.append((keyword, value, str(folder)))
+    return found
+
+
+def _missing_output_folders(session: Session, deck: str, working_dir: str
+                            ) -> List[Tuple[str, str]]:
+    """``[(step, problem)]`` for each output file whose folder AERMOD will not find."""
+    base = Path(working_dir).expanduser() if working_dir else None
+    imported = session.last_import.path if session.last_import is not None else None
+    deck_dir = imported.parent if imported is not None else None
+    found = []
+    for keyword, name, folder in output_folders(deck):
+        path = Path(name)
+        if path.is_absolute():
+            target = path.parent
+        elif base is None:
+            target = None
+        else:
+            # Lexically: the run creates the working directory itself.
+            target = Path(os.path.normpath(base / path)).parent
+        if target is not None and target.is_dir():
+            continue
+        hint = ""
+        if (not path.is_absolute() and deck_dir is not None and base != deck_dir
+                and (deck_dir / path).parent.is_dir()):
+            hint = f", such as the deck's own folder, {deck_dir}"
+        step = "output" if keyword.startswith("OU ") else "run"
+        if target is None:
+            found.append((step, RELATIVE_OUTPUT.format(keyword=keyword, name=name,
+                                                       folder=folder, hint=hint)))
+        else:
+            found.append((step, MISSING_OUTPUT_FOLDER.format(
+                keyword=keyword, name=name, folder=folder, where=target, hint=hint)))
+    return found
+
+
 #: A met file whose path starts with ``~``. AERMOD does not expand ``~``:
 #: it would look for a folder named ``~`` in its working directory (E500).
 HOME_MET = ("{label} {name} starts with ~, which AERMOD does not expand to your home "
@@ -202,14 +284,15 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
 
     Validator errors, a deck the project cannot be written as, a met file
     named by a relative path while the working directory is blank, a met
-    file whose path starts with ``~`` (which AERMOD does not expand), and a
+    file whose path starts with ``~`` (which AERMOD does not expand), an
+    output file in a folder that will not exist where AERMOD runs
+    (:func:`output_folders`; an imported deck's ``../Outputs/X.SUM``), and a
     missing AERMOD binary block the run; validator warnings, a surface
     file that cannot be read, and ANNUAL with less than a year of met
     data (:func:`~pyaermod.validator_advanced.check_annual_met_coverage`)
     do not.
     """
     from ...validator import Validator
-    from ...validator_advanced import check_annual_met_coverage
 
     blocking: Dict[str, ChecklistItem] = {}
     warnings: Dict[str, ChecklistItem] = {}
@@ -234,7 +317,9 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
         _add(blocking, "run", NO_BINARY)
 
     working_dir = str(session.run_options.working_dir or "").strip()
-    base_dir = working_dir or None
+    if deck is not None:
+        for step, missing in _missing_output_folders(session, deck, working_dir):
+            _add(blocking, step, missing)
     home = _home_met_files(project.meteorology)
     for label, name in home:
         _add(blocking, "meteorology", HOME_MET.format(label=label, name=name))
@@ -242,18 +327,21 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
     for label, name in relative:
         _add(blocking, "meteorology", RELATIVE_MET.format(label=label, name=name))
 
-    path, period, problem = (None, None, None)
-    if "surface file" not in dict(relative + home):
-        # Not read from the server's own directory, nor from the home
-        # folder: AERMOD would see neither.
-        path, period, problem = session.met_period(base_dir)
+    # Not read from the server's own directory with a blank working
+    # directory, nor from the home folder: AERMOD would see neither.
+    coverage = session.met_coverage()
+    path, period, problem = coverage.path, coverage.period, coverage.problem
     summary = None
     if problem is not None:
         _add(warnings, "meteorology", f"surface file {problem}")
     elif period is not None:
         summary = f"{path.name if path else 'The surface file'} holds {period.describe()}."
-        for finding in check_annual_met_coverage(project, base_dir=base_dir, period=period):
-            _add(warnings, _step_for_pathway(finding.pathway), finding.message)
+        for finding in coverage.warnings:
+            step = _step_for_pathway(finding.pathway)
+            _add(warnings, step, finding.message)
+            # The other fix: averaging periods without ANNUAL.
+            if "project" not in warnings[step].also and step != "project":
+                warnings[step].also.append("project")
 
     return Review(blocking=_ordered(blocking), warnings=_ordered(warnings), deck=deck,
                   met_file=path, met_summary=summary)
@@ -590,9 +678,10 @@ def _checklist_item(ui: Any, item: ChecklistItem, go: Goto, *, color: str, icon:
             ui.label(item.title).classes("text-weight-medium")
             for problem in item.problems:
                 ui.label(problem[:1].upper() + problem[1:]).classes("text-body2")
-        if item.step != "run":
-            ui.link(f"Go to {item.title}", f"#{item.step}").on(
-                "click", lambda step=item.step: go(step))
+        with ui.column().classes("q-gutter-none"):
+            for step in item.links:
+                ui.link(f"Go to {STEP_TITLES.get(step, step)}", f"#{step}").on(
+                    "click", lambda step=step: go(step))
 
 
 def _copy(ui: Any, text: str) -> None:
@@ -635,6 +724,7 @@ def _message_table(ui: Any, record: RunRecord) -> None:
 __all__ = [
     "CANCEL_WITHOUT_OUTPUT_S",
     "COMMON_ERRORS",
+    "OUTPUT_KEYWORDS",
     "STEP_IDS",
     "STEP_TITLES",
     "ChecklistItem",
@@ -643,6 +733,7 @@ __all__ = [
     "elapsed_text",
     "help_url",
     "message_counts_text",
+    "output_folders",
     "progress_text",
     "render",
     "review",

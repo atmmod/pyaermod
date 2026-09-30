@@ -8,6 +8,7 @@ the journeys (J2, J6, J9) check what the page shows.
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,7 +22,22 @@ from pyaermod.runner import AERMODMessage, AERMODProgress, AERMODRunResult
 from pyaermod.validator import ValidationError
 
 REPO = Path(__file__).resolve().parent.parent
-ALBANY_SFC = REPO / "tests" / "fixtures" / "epa_official" / "AERMET2.SFC"
+EPA = REPO / "tests" / "fixtures" / "epa_official"
+ALBANY_SFC = EPA / "AERMET2.SFC"
+
+
+def epa_layout(root: Path, outputs: bool = True) -> Path:
+    """EPA's aertest.inp in the archive's folders: ``inputs/`` beside
+    ``meteorology/`` and, with ``outputs``, ``Outputs/``, ``plotfiles/`` and
+    ``postfiles/``. Returns the deck."""
+    folders = ("inputs", "meteorology") + (("Outputs", "plotfiles", "postfiles")
+                                           if outputs else ())
+    for folder in folders:
+        (root / folder).mkdir(parents=True)
+    shutil.copy(EPA / "aertest.inp", root / "inputs")
+    shutil.copy(EPA / "AERMET2.SFC", root / "meteorology" / "aermet2.sfc")
+    shutil.copy(EPA / "AERMET2.PFL", root / "meteorology" / "aermet2.pfl")
+    return root / "inputs" / "aertest.inp"
 
 
 def _ready_session(periods=("1", "3", "24", "PERIOD")) -> Session:
@@ -127,6 +143,53 @@ class TestReview:
             run_page.HOME_MET.format(label="surface file", name="~/AERMET2.SFC"),
             run_page.HOME_MET.format(label="profile file", name="~/AERMET2.PFL")]
         assert found.met_summary is None and found.met_file is None
+
+    def test_an_imported_decks_output_folders_must_exist_where_aermod_runs(self, tmp_path,
+                                                                            monkeypatch):
+        """EPA's aertest.inp writes ../Outputs, ../plotfiles and ../postfiles:
+        a blank working directory (a new, empty folder) has none of them."""
+        monkeypatch.setattr(run_page, "_aermod_available", lambda: True)
+        session = Session()
+        session.import_inp(epa_layout(tmp_path / "aermod_test_cases"))
+        found = run_page.review(session)
+        assert not found.ready
+        assert _steps(found.blocking) == ["output", "run"]
+        inputs = tmp_path / "aermod_test_cases" / "inputs"
+        hint = f", such as the deck's own folder, {inputs}"
+        output, errors = found.blocking
+        assert output.problems == [
+            f"OU {kw} {name} is in a folder, {folder}, which a blank working directory (a new, "
+            "empty folder) does not have, and AERMOD does not create folders: set the working "
+            f"directory below to a folder that has {folder}{hint}"
+            for kw, name, folder in (
+                ("SUMMFILE", "../Outputs/AERTEST.SUM", "../Outputs"),
+                ("PLOTFILE", "../plotfiles/AERTEST_01H.PLT", "../plotfiles"),
+                ("POSTFILE", "../postfiles/AERTEST_01H.PST", "../postfiles"))]
+        # CO ERRORFIL is kept as written: no step edits it.
+        assert errors.problems == [
+            "CO ERRORFIL ../Outputs/AERTEST_ERRORS.OUT is in a folder, ../Outputs, which a "
+            "blank working directory (a new, empty folder) does not have, and AERMOD does "
+            f"not create folders: set the working directory below to a folder that has "
+            f"../Outputs{hint}"]
+        # Run in the deck's own folder, as EPA runs it: nothing blocks.
+        session.run_options.working_dir = str(inputs)
+        assert run_page.review(session).ready
+
+    def test_an_output_folder_missing_from_the_working_directory_blocks(self, tmp_path,
+                                                                        monkeypatch):
+        monkeypatch.setattr(run_page, "_aermod_available", lambda: True)
+        session = Session()
+        session.import_inp(epa_layout(tmp_path / "cases", outputs=False))
+        session.run_options.working_dir = str(tmp_path / "cases" / "inputs")
+        found = run_page.review(session)
+        missing = tmp_path / "cases" / "plotfiles"
+        assert (f"OU PLOTFILE ../plotfiles/AERTEST_01H.PLT is in a folder that does not exist, "
+                f"{missing}, and AERMOD does not create folders: create it, or set the "
+                "working directory below to a folder that has ../plotfiles"
+                ) in found.blocking[0].problems
+        # A bare file name is written in the working directory itself.
+        assert run_page.output_folders("OU STARTING\n   SUMMFILE  A.SUM\nOU FINISHED\n") == []
+        assert run_page.output_folders("OU STARTING\n   SUMMFILE  ./A.SUM\n") == []
 
     def test_a_deck_the_project_cannot_be_written_as_names_the_step(self):
         s = _ready_session()

@@ -107,7 +107,10 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
             with section("Tables in the .out file"):
                 emit_fields(out, [by_name[n] for n in TABLE_FIELDS if n in by_name],
                             on_change=edited)
-            with section("Other output files", "Written in the run's working directory."):
+            with section("Other output files",
+                         "A name without a folder is written in the run's working directory; "
+                         "a path with folders is relative to it, and AERMOD does not create "
+                         "the folders."):
                 emit_fields(out, [by_name[n] for n in FILE_FIELDS if n in by_name],
                             on_change=edited)
             advanced = [f for f in dataclasses.fields(out) if f.name not in grouped]
