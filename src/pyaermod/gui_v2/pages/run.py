@@ -172,21 +172,42 @@ RELATIVE_MET = ("{label} {name} is a relative path, which AERMOD looks for in it
                 "file's full path, or set the working directory below")
 
 
-def _relative_met_files(met: Any) -> List[Tuple[str, str]]:
-    """``[(label, path)]`` for the met files ``met`` names by a relative path."""
+#: A met file whose path starts with ``~``. AERMOD does not expand ``~``:
+#: it would look for a folder named ``~`` in its working directory (E500).
+HOME_MET = ("{label} {name} starts with ~, which AERMOD does not expand to your home "
+            "folder: give the file's full path")
+
+
+def _met_files(met: Any) -> List[Tuple[str, str]]:
+    """``[(label, path)]`` for the met files ``met`` names."""
     found = []
     for label, attr in (("surface file", "surface_file"), ("profile file", "profile_file")):
         name = str(getattr(met, attr, "") or "").strip().strip('"')
-        if name and not Path(name).expanduser().is_absolute():
+        if name:
             found.append((label, name))
     return found
+
+
+def _home_met_files(met: Any) -> List[Tuple[str, str]]:
+    """``[(label, path)]`` for the met files ``met`` names by a path starting with ``~``."""
+    return [(label, name) for label, name in _met_files(met) if name.startswith("~")]
+
+
+def _relative_met_files(met: Any) -> List[Tuple[str, str]]:
+    """``[(label, path)]`` for the met files ``met`` names by a relative path.
+
+    A path starting with ``~`` is left to :func:`_home_met_files`.
+    """
+    return [(label, name) for label, name in _met_files(met)
+            if not name.startswith("~") and not Path(name).is_absolute()]
 
 
 def review(session: Session, *, have_binary: bool = True) -> Review:
     """Review the session's project for a run. Emits nothing.
 
     Validator errors, a deck the project cannot be written as, a met file
-    named by a relative path while the working directory is blank, and a
+    named by a relative path while the working directory is blank, a met
+    file whose path starts with ``~`` (which AERMOD does not expand), and a
     missing AERMOD binary block the run; validator warnings, a surface
     file that cannot be read, and ANNUAL with less than a year of met
     data (:func:`~pyaermod.validator_advanced.check_annual_met_coverage`)
@@ -219,13 +240,17 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
 
     working_dir = str(session.run_options.working_dir or "").strip()
     base_dir = working_dir or None
+    home = _home_met_files(project.meteorology)
+    for label, name in home:
+        _add(blocking, "meteorology", HOME_MET.format(label=label, name=name))
     relative = [] if working_dir else _relative_met_files(project.meteorology)
     for label, name in relative:
         _add(blocking, "meteorology", RELATIVE_MET.format(label=label, name=name))
 
     path, period, problem = (None, None, None)
-    if "surface file" not in dict(relative):
-        # Not read from the server's own directory: AERMOD would not see it.
+    if "surface file" not in dict(relative + home):
+        # Not read from the server's own directory, nor from the home
+        # folder: AERMOD would see neither.
         path, period, problem = session.met_period(base_dir)
     summary = None
     if problem is not None:

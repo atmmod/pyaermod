@@ -329,12 +329,13 @@ def surface_file_path(met: Any, base_dir: Union[str, Path, None] = None) -> Opti
 
     AERMOD opens a relative path from its working directory, so a
     relative ``surface_file`` is joined to ``base_dir`` when one is given.
-    None when no surface file is set.
+    AERMOD does not expand ``~``, so neither does this: ``~/met.sfc`` is a
+    relative path to a folder named ``~``. None when no surface file is set.
     """
     name = (getattr(met, "surface_file", "") or "").strip().strip('"')
     if not name:
         return None
-    path = Path(name).expanduser()
+    path = Path(name)
     if not path.is_absolute() and base_dir is not None and str(base_dir).strip():
         path = Path(base_dir).expanduser() / path
     return path

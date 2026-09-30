@@ -159,6 +159,12 @@ class TestCheckAnnualMetCoverage:
         [finding] = check_annual_met_coverage(project, base_dir=tmp_path)
         assert "met.sfc holds 1988-03-01" in finding.message
 
+    def test_a_tilde_is_not_expanded_as_aermod_does_not_expand_it(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        project = _annual_project("~/met.sfc")
+        assert surface_file_path(project.meteorology) == Path("~/met.sfc")
+        assert surface_file_path(project.meteorology, tmp_path) == tmp_path / "~" / "met.sfc"
+
     def test_an_unreadable_or_unset_file_says_nothing(self, tmp_path):
         assert check_annual_met_coverage(_annual_project(str(tmp_path / "nope.sfc"))) == []
         assert check_annual_met_coverage(_annual_project("")) == []

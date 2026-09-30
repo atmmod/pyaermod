@@ -63,7 +63,9 @@ stays disabled until the checklist is empty. A met file given by a
 relative path counts as such a problem while the working directory is
 blank, because AERMOD opens relative paths from its working directory
 and a blank one is a new, empty temporary folder: give the full path or
-set the working directory. Warnings that do not stop the run follow
+set the working directory. So does a met file whose path starts with
+`~`, because AERMOD does not expand `~` to your home folder: give the
+full path. Warnings that do not stop the run follow
 under "Before you run", among them ANNUAL averages with less than a year
 of met data, which AERMOD would abort with fatal error E480. Below them
 is a read-only preview of the deck the run will use, with Copy and

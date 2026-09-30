@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps its name until the step navigation arrives). A readiness checklist
   names each step with a problem that blocks the run (no source, no
   receptors, no met files, a met file named by a relative path while the
-  working directory is blank, a value the deck cannot be written with, no
+  working directory is blank, a met file whose path starts with `~`, which
+  AERMOD does not expand, a value the deck cannot be written with, no
   `aermod` binary) and links to that step, and Run AERMOD stays disabled
   until it is empty. Warnings that do not block the run follow, among
   them ANNUAL with less than a year of met data. A read-only deck

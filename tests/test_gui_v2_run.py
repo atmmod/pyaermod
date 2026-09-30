@@ -108,6 +108,26 @@ class TestReview:
         found = run_page.review(s)
         assert found.ready and found.met_summary.startswith("AERMET2.SFC holds")
 
+    @pytest.mark.parametrize("working_dir", ["", "WORKDIR"])
+    def test_a_met_file_starting_with_a_tilde_blocks_the_run(self, tmp_path, monkeypatch,
+                                                             working_dir):
+        """AERMOD does not expand ~ (the deck says SURFFILE ~/...), so the review
+        must not read the file from the home folder and call the run ready."""
+        monkeypatch.setenv("HOME", str(ALBANY_SFC.parent))    # the files are "at ~"
+        s = _ready_session(("1", "ANNUAL"))
+        s.project.meteorology.surface_file = "~/AERMET2.SFC"
+        s.project.meteorology.profile_file = "~/AERMET2.PFL"
+        s.run_options.working_dir = str(tmp_path) if working_dir else ""
+        assert "   SURFFILE  ~/AERMET2.SFC" in s.deck_text().splitlines()
+        found = run_page.review(s)
+        assert not found.ready
+        [item] = found.blocking
+        assert item.step == "meteorology"
+        assert item.problems == [
+            run_page.HOME_MET.format(label="surface file", name="~/AERMET2.SFC"),
+            run_page.HOME_MET.format(label="profile file", name="~/AERMET2.PFL")]
+        assert found.met_summary is None and found.met_file is None
+
     def test_a_deck_the_project_cannot_be_written_as_names_the_step(self):
         s = _ready_session()
         s.project.meteorology.start_year = 2020.5

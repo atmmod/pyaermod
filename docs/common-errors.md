@@ -47,6 +47,7 @@ them, and which pyaermod helper catches them earlier.
 - **Cause:** AERMOD could not open a met file (`SURFFILE` or `PROFFILE`,
   named at the end of the message). A relative path is opened from the
   directory AERMOD runs in, not from where the deck was written. AERMOD
+  does not expand `~`, so `~/met.sfc` is a relative path too. AERMOD
   stops during setup and still exits with code 0.
 - **Fix:** give the full path, or copy the file into the working
   directory. `Validator.validate(project, check_files=True)` checks the
