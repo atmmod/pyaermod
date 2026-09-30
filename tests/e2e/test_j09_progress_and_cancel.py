@@ -5,8 +5,9 @@ count, and other steps stay usable during the run. Cancel stops the
 process without leaving an orphaned ``aermod``, and the status reads
 "Cancelled". WP-G2's review added two checks (PLAN-gui.md, "Notes from
 WP-G2"): a double-click on Run starts exactly one AERMOD, and another
-browser tab stays usable while a run goes on. WP-G4's review added a
-third: New during a run stops AERMOD and leaves no progress or Cancel.
+browser tab stays usable while a run goes on. WP-G4's review added two
+more: New during a run stops AERMOD and leaves no progress or Cancel,
+and stopping the server (SIGTERM or SIGHUP) stops AERMOD too.
 
 The long run is a recording replayed with a pause between stdout lines,
 so these tests belong to tier T2 only: the real binary finishes the
@@ -18,7 +19,9 @@ cancelled run never reaches the E480 check, so its outcome is irrelevant.
 
 from __future__ import annotations
 
+import os
 import re
+import signal
 import time
 
 import pytest
@@ -116,3 +119,23 @@ def test_j09_new_during_a_run_stops_it_and_clears_its_progress(gui, step, run_di
         time.sleep(0.1)
         left = [pid for pid in left if process_running(pid)]
     assert not left, f"New left aermod running: pids {left}"
+
+
+@SLOW
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP"])
+def test_j09_stopping_the_server_stops_aermod(gui, step, run_dir, journey, sig):
+    """A service manager stops the server with SIGTERM, a closed terminal with
+    SIGHUP; neither may leave AERMOD writing into the working directory."""
+    if not hasattr(signal, sig):
+        pytest.skip(f"no {sig} on this platform")
+    _start_long_run(gui, run_dir)
+    gui.run.expect_progress_day(61)
+    step("running")
+    started = journey.server.fake_events("start")
+    assert started, "AERMOD was never started"
+    journey.page.close()                    # the user has gone; the run goes on
+    server = journey.server.proc
+    os.kill(server.pid, getattr(signal, sig))   # the server only, not its group
+    server.wait(timeout=30)
+    left = [e["pid"] for e in started if process_running(e["pid"])]
+    assert not left, f"stopping the server with {sig} left aermod running: pids {left}"

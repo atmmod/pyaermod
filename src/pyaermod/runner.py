@@ -937,10 +937,19 @@ class AERMODProgress:
 _ACTIVE_RUNS: "weakref.WeakSet[AERMODRun]" = weakref.WeakSet()
 
 
-@atexit.register
-def _stop_active_runs() -> None:
+def stop_active_runs() -> None:
+    """Kill every background AERMOD run still going in this process.
+
+    Runs when Python exits normally (``atexit``), which covers a clean
+    exit and Ctrl+C but not a process killed by a signal it does not
+    handle, such as SIGTERM: a server should also call this from its own
+    shutdown hook (the GUI does, from NiceGUI's ``app.on_shutdown``).
+    """
     for run in list(_ACTIVE_RUNS):
         run._kill()
+
+
+_stop_active_runs = atexit.register(stop_active_runs)
 
 
 class AERMODRun:

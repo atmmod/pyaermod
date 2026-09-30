@@ -245,6 +245,33 @@ def _quiet_cancelled_uploads() -> None:
         uvicorn_error.addFilter(_UPLOAD_FILTER)
 
 
+# --- WP-G4: no AERMOD outlives the server.
+def _stop_runs_on_shutdown() -> None:
+    """Stop background AERMOD runs when the server stops, however it is stopped.
+
+    ``atexit`` alone misses SIGTERM: uvicorn shuts the app down on it and
+    then re-raises it with the default handler, so Python never runs its
+    exit hooks. NiceGUI's ``on_shutdown`` runs in that shutdown. SIGHUP
+    (a closed terminal), which uvicorn does not handle, is turned into
+    SIGTERM so it takes the same path. Only the main thread can install a
+    signal handler; the desktop app serves from a thread of its own and
+    stops runs through ``atexit`` when its window closes.
+    """
+    import signal
+    import threading
+
+    from nicegui import app
+
+    from ..runner import stop_active_runs
+
+    app.on_shutdown(stop_active_runs)
+    hup = getattr(signal, "SIGHUP", None)
+    if (hup is not None and threading.current_thread() is threading.main_thread()
+            and signal.getsignal(hup) is signal.SIG_DFL):
+        signal.signal(hup, lambda _sig, _frame: signal.raise_signal(signal.SIGTERM))
+# --- end WP-G4
+
+
 def build_and_run(
     *,
     host: str = "127.0.0.1",
@@ -273,6 +300,7 @@ def build_and_run(
 
     build_app()
     _quiet_cancelled_uploads()
+    _stop_runs_on_shutdown()
     ui.run(
         host=host,
         port=port,
