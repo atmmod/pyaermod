@@ -227,10 +227,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rewrites every output file name in the deck to a bare name in that
   directory (`rewrite_output_names`), including those in the lines
   `input_reader` keeps verbatim (a PLOTFILE ranked below FIRST or with a
-  unit, a second POSTFILE, ERRORFIL, DEBUGOPT). It links every file the
+  unit, a second POSTFILE, ERRORFIL) and the debug files of
+  `ControlPathway.debug_options` (CO DEBUGOPT), so two runs on two
+  workers write their own debug files. It links every file the
   deck reads in beside the deck: the met files, `INITFILE`, the
-  `MULTYEAR` initial file, `OZONEFIL`, `NOX_FILE`, and `HOUREMIS`,
-  hourly `BACKGRND` and `INCLUDED` files. The run ID is the SHA-256 of
+  `MULTYEAR` initial file, `OZONEFIL`, `NOX_FILE`, the `HOUREMIS` files
+  of `SourcePathway.hourly_emissions`, and, from the lines kept
+  verbatim, `HOUREMIS`, hourly `BACKGRND` and `INCLUDED` files. The run ID is the SHA-256 of
   the canonical JSON (`canonical_json`) of the row's factors, the
   binary's SHA-256, the SHA-256 of the met files and of the other input
   files, and `SCHEMA_VERSION` (2), so an edited emission file makes a new

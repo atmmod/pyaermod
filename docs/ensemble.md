@@ -58,13 +58,19 @@ rewrites every output file name in the deck to a bare name inside that
 directory (`rewrite_output_names`), so `../shared/pit.plt` becomes
 `pit.plt`. The keywords covered are PLOTFILE, POSTFILE, SUMMFILE,
 MAXIFILE, RANKFILE, SEASONHR, EVALFILE, TOXXFILE, MAXDAILY, MXDYBYYR,
-MAXDCONT, EVENTFIL, SAVEFILE, MULTYEAR and the SCIMBYHR summary files.
+MAXDCONT, EVENTFIL, SAVEFILE, MULTYEAR, the SCIMBYHR summary files and
+the debug files of DEBUGOPT (`ControlPathway.debug_options`: every field
+that is not an option name is the file of the option before it). A debug
+option given without a file name writes AERMOD's default name
+(`MODEL.DBG`, `AREA.DBG`, ...), and DEPOS writes `GDEP.DAT`,
+`PDEP.DAT` and `DEPOS.DBG`; those land in the run's own directory
+already.
 
 The same goes for the output lines that `input_reader` keeps verbatim,
 because the project model has no field for them
 (`AERMODProject.unparsed_lines`): a PLOTFILE with a rank below FIRST
-(`2ND`, `8TH`) or with a unit number, a second POSTFILE, ERRORFIL and
-the file names of DEBUGOPT, as well as those of the keywords above. The
+(`2ND`, `8TH`) or with a unit number, a second POSTFILE and ERRORFIL,
+as well as those of the keywords above. The
 field that holds the file name is the one AERMOD's setup routines read
 it from (`ouset.f`, `coset.f`). These files are listed in the entry's
 `outputs` with the others, so resume and `collect_plotfiles` see them
@@ -76,6 +82,7 @@ and the deck names them without a directory:
 - the surface and profile met files (`SURFFILE`, `PROFFILE`);
 - `INITFILE`, the `MULTYEAR` initial file, `OZONEFIL` and `NOX_FILE`
   files, whole-domain or by sector;
+- the `HOUREMIS` files of `SourcePathway.hourly_emissions`;
 - from the lines kept verbatim, `HOUREMIS` files, hourly `BACKGRND`
   files and `INCLUDED` files.
 
@@ -167,7 +174,7 @@ columns, is written at the end.
 | `binary`, `binary_sha256`, `aermod_version` | The binary's path and SHA-256, and the version in the `.out` banner (`26135`) |
 | `met_files`, `met_sha256` | The source path and SHA-256 of each met file |
 | `input_files`, `input_files_sha256` | The same for the other input files, by role (`HOUREMIS`, ...) |
-| `outputs` | The output file names by keyword, such as `{"PLOTFILE": ["pit.plt"]}` |
+| `outputs` | The output file names by keyword, such as `{"PLOTFILE": ["pit.plt"]}`. After a successful run, `DEBUGOPT` lists only the debug files AERMOD wrote (see Resuming) |
 | `git_commit`, `git_dirty`, `pyaermod_version` | pyaermod's commit, when it runs from a git checkout, and whether its tracked files differed from it |
 | `runtime_seconds`, `started`, `finished` | The run's wall time and local start and end times |
 | `return_code`, `warning_count`, `fatal_count`, `warnings`, `error_message` | AERMOD's exit code and message summary |
@@ -182,7 +189,11 @@ all of these hold:
 2. The deck on disk is that deck.
 3. Its `.out` has AERMOD's success banner and AERMOD's copy of that deck
    at the top. This is the rule `runner_utils.resume_batch` applies.
-4. Its PLOTFILEs and POSTFILEs are still there.
+4. Its PLOTFILEs and POSTFILEs are still there, and so are the debug
+   files it wrote. AERMOD does not write every debug file a deck names:
+   with DEPOS not followed by MODEL, `coset.f` sends MODEL's output to
+   `DEPOS.DBG` (checked on v26135), so after a successful run the entry's
+   `outputs["DEBUGOPT"]` keeps only the files that exist.
 
 Every other run is made again. That covers:
 

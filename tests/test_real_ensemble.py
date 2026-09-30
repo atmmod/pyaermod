@@ -12,7 +12,9 @@ one result per distribution. The design's ``extras`` row, whose hourly
 emission file, second POSTFILE and 2ND PLOTFILE the model holds only as
 lines kept verbatim, must keep every output in its run directory, and
 scaling its emission file by ten must make a new run whose
-concentrations are ten times as large.
+concentrations are ten times as large. A design with
+``ControlPathway.debug_options`` on two workers must leave each run's
+AREA and METEOR debug files in its own directory.
 """
 
 from __future__ import annotations
@@ -128,3 +130,38 @@ def test_extras_and_an_edited_emission_file(tmp_path, monkeypatch):
     after = read_plotfile(new.run_dir / "pit.plt").values("AVERAGE_CONC")
     assert after == pytest.approx([10 * v for v in before], rel=1e-3, abs=1e-4)
     assert set(collect_plotfiles(root, out_stem=None)["run_id"]) == {new.run_id}
+
+
+def test_debug_files_on_two_workers(tmp_path):
+    """ControlPathway.debug_options names files outside the run directory
+    (one relative, one absolute): each run writes its own AREA and METEOR
+    debug files in its own directory, the manifest records them, and a
+    run whose debug file is removed is made again."""
+    def build(factors):
+        project = design.build(factors)
+        project.control.debug_options = [
+            "AREA", "../shared/area.dbg", "METEOR", "/nonexistent-pyaermod-dir/met.dbg",
+        ]
+        return project
+
+    root = tmp_path / "design"
+    rows = design.ROWS[:2]
+    result = run_design(rows, build, root, n_workers=2)
+    assert result.all_succeeded, [r.entry.error_message for r in result.values()]
+    runs = list(result.values())
+    assert len({r.run_dir for r in runs}) == 2
+    for run in runs:
+        assert run.entry.outputs["DEBUGOPT"] == ["area.dbg", "met.dbg"]
+        assert "DEBUGOPT  AREA  area.dbg  METEOR  met.dbg" in (run.run_dir / "run.inp").read_text()
+        for name in ("area.dbg", "met.dbg"):
+            assert (run.run_dir / name).stat().st_size > 0
+    # The AREA debug output follows the particle size, so the runs'
+    # files differ: neither run wrote over the other's.
+    assert (runs[0].run_dir / "area.dbg").read_bytes() != (runs[1].run_dir / "area.dbg").read_bytes()
+    assert not (tmp_path / "shared").exists() and not (root / "shared").exists()
+
+    assert run_design(rows, build, root, n_workers=2).n_skipped == 2
+    (runs[1].run_dir / "met.dbg").unlink()
+    again = run_design(rows, build, root, n_workers=2)
+    assert again.n_run == 1 and not again[runs[1].run_id].skipped
+    assert (runs[1].run_dir / "met.dbg").stat().st_size > 0

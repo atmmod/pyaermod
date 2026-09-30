@@ -74,6 +74,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
+from .pathways import DEBUG_OPTIONS
 from .runner import AERMODRunner, AERMODRunResult, _batch_worker
 from .runner_utils import ProgressReporter, RunManifest, RunManifestEntry, _output_is_valid
 
@@ -120,7 +121,14 @@ _RESERVED_FILES = frozenset({
 
 # Outputs a finished run must still have for resume to skip it. AERMOD
 # opens these at setup (ouset.f), so a successful run always leaves them.
-_REQUIRED_OUTPUTS = ("PLOTFILE", "POSTFILE")
+# DEBUGOPT: the debug files a successful run wrote (see _drop_unwritten).
+_REQUIRED_OUTPUTS = ("PLOTFILE", "POSTFILE", "DEBUGOPT")
+
+# Outputs AERMOD may leave unwritten in a successful run: coset.f opens
+# a named debug file only when its option applies (PRIME without a
+# building, AREA without an area-type source) and sends MODEL's output
+# to DEPOS.DBG when DEPOS is not followed by MODEL (checked on v26135).
+_MAYBE_UNWRITTEN = ("DEBUGOPT",)
 
 # The met files' roles in the run ID, by the keyword that names them.
 _MET_ROLES = {"SURFFILE": "surface", "PROFFILE": "profile"}
@@ -274,6 +282,22 @@ class _Slot:
             setattr(self.obj, self.attr, name)
 
 
+class _ItemSlot:
+    """One file name that is an item of a list of strings
+    (``ControlPathway.debug_options``)."""
+
+    def __init__(self, keyword: str, items: List[str], index: int):
+        self.keyword = keyword
+        self.items = items
+        self.index = index
+
+    def get(self) -> Optional[str]:
+        return self.items[self.index]
+
+    def set(self, name: str) -> None:
+        self.items[self.index] = name
+
+
 class _FieldSlot:
     """One file name in a line the reader kept verbatim (an UnparsedLine)."""
 
@@ -307,11 +331,7 @@ def _first_is(fields: List[str], *words: str) -> bool:
 
 # DEBUGOPT's options (coset.f DEBOPT, DEBUGOPT_ARRAY); any other field
 # is the file name of the option before it.
-_DEBUG_OPTIONS = frozenset({
-    "MODEL", "METEOR", "AREA", "LINE", "RLINE", "PRIME", "PVMRM", "OLM", "ARM2",
-    "GRSM", "DEPOS", "AWMADW", "TTRM", "TTRM2", "PLATFORM", "URBANDB", "BLPDBUG",
-    "SWPOINT", "AIRCRAFT", "HBPDBG", "SBARRIER", "BAREDGE", "VBARRIER",
-})
+_DEBUG_OPTIONS = frozenset(DEBUG_OPTIONS)
 
 _UNPARSED_OUTPUTS: Dict[Tuple[str, str], _FieldRule] = {
     # PLOTFILE PERIOD|ANNUAL grp file [unit]; PLOTFILE ave grp rank file [unit]
@@ -359,7 +379,7 @@ def _unparsed_slots(project: Any, rules: Mapping[Tuple[str, str], _FieldRule]
                 yield _FieldSlot(keyword, line, index)
 
 
-def _output_slots(project: Any) -> Iterator[Union[_Slot, _FieldSlot]]:
+def _output_slots(project: Any) -> Iterator[Union[_Slot, _ItemSlot, _FieldSlot]]:
     """Every field of ``project`` that names a file AERMOD writes, then
     every such field of the lines kept verbatim."""
     out = project.output
@@ -384,6 +404,12 @@ def _output_slots(project: Any) -> Iterator[Union[_Slot, _FieldSlot]]:
         yield _Slot("SAVEFILE", control.save_file, "alternate_filename")
     if control.multiyear is not None:
         yield _Slot("MULTYEAR", control.multiyear, "save_file")
+    # CO DEBUGOPT (ControlPathway.debug_options): each field that is not
+    # an option name is the file of the option before it.
+    debug = control.debug_options
+    for i, tok in enumerate(debug):
+        if tok.upper() not in _DEBUG_OPTIONS:
+            yield _ItemSlot("DEBUGOPT", debug, i)
     scim = project.meteorology.scim
     if scim is not None:
         yield _Slot("SCIMBYHR", scim, "surface_summary_file")
@@ -416,6 +442,9 @@ def _input_slots(project: Any) -> Iterator[Union[_Slot, _FieldSlot]]:
                 yield _Slot("NOX_FILE", nox.by_sector[sector], "hourly_file")
         else:
             yield _Slot("NOX_FILE", chem, "nox_file")
+    # SO HOUREMIS cards the model holds (SourcePathway.hourly_emissions)
+    for card in getattr(project.sources, "hourly_emissions", None) or []:
+        yield _Slot("HOUREMIS", card, "filename")
     yield from _unparsed_slots(project, _UNPARSED_INPUTS)
 
 
@@ -437,7 +466,11 @@ def rewrite_output_names(project: Any, prefix: str = "") -> Dict[str, List[str]]
     renamed too: a PLOTFILE with a rank below FIRST or with a unit, a
     second POSTFILE, and the file fields of MAXIFILE, RANKFILE,
     TOXXFILE, SEASONHR, EVALFILE, SUMMFILE, MAXDAILY, MXDYBYYR,
-    MAXDCONT, ERRORFIL, EVENTFIL, SAVEFILE, MULTYEAR and DEBUGOPT.
+    MAXDCONT, ERRORFIL, EVENTFIL, SAVEFILE, MULTYEAR and DEBUGOPT. The
+    debug files of ``ControlPathway.debug_options`` are renamed under
+    ``DEBUGOPT``; a debug option given without a file name writes
+    AERMOD's default name (``MODEL.DBG``, ``AREA.DBG``, ...) in the
+    working directory, which is the run's own directory already.
 
     Raises ``ValueError`` when two outputs would end up with the same
     name (compared ignoring case, since the disk may ignore it), or when
@@ -502,7 +535,8 @@ class EnsembleManifestEntry(RunManifestEntry):
     # The other files the deck reads (HOUREMIS, ...): role -> source path, SHA-256
     input_files: Dict[str, str] = field(default_factory=dict)
     input_files_sha256: Dict[str, str] = field(default_factory=dict)
-    outputs: Dict[str, List[str]] = field(default_factory=dict)  # keyword -> names
+    # keyword -> names; after a successful run, DEBUGOPT keeps the files written
+    outputs: Dict[str, List[str]] = field(default_factory=dict)
     git_commit: Optional[str] = None       # pyaermod's commit, when in a checkout
     git_dirty: Optional[bool] = None
     pyaermod_version: Optional[str] = None
@@ -765,7 +799,7 @@ def _is_done(entry: Optional[RunManifestEntry], plan: _Planned) -> bool:
     SHA-256), the deck on disk must be that deck, the ``.out`` must
     carry AERMOD's success banner and a copy of this deck (the rule of
     ``resume_batch``), and every PLOTFILE and POSTFILE the run named
-    must still exist.
+    must still exist, as must every debug file it wrote.
     """
     if not isinstance(entry, EnsembleManifestEntry) or entry.status != "success":
         return False
@@ -798,6 +832,21 @@ def _finish_entry(entry: EnsembleManifestEntry, result: AERMODRunResult) -> None
         entry.aermod_version = _aermod_version(Path(result.output_file))
 
 
+def _drop_unwritten(entry: EnsembleManifestEntry, run_dir: Path) -> None:
+    """After a successful run, drop from ``entry.outputs`` the debug files
+    the deck named but AERMOD did not open, so ``outputs`` lists the
+    files the run wrote and resuming it does not wait for them."""
+    for keyword in _MAYBE_UNWRITTEN:
+        names = entry.outputs.get(keyword)
+        if names is None:
+            continue
+        kept = [n for n in names if (run_dir / n).exists()]
+        if kept:
+            entry.outputs[keyword] = kept
+        else:
+            del entry.outputs[keyword]
+
+
 def run_design(
     rows: Iterable[Mapping[str, Any]],
     build_fn: Callable[[Dict[str, Any]], Any],
@@ -818,9 +867,10 @@ def run_design(
 
     1. The files it has AERMOD read are hashed: the met files
        (``SURFFILE``, ``PROFFILE``), ``INITFILE``, the ``MULTYEAR``
-       initial file, ``OZONEFIL`` and ``NOX_FILE`` files, and, in the
-       lines kept verbatim, ``HOUREMIS``, hourly ``BACKGRND`` files and
-       ``INCLUDED`` files. A relative path is taken relative to the
+       initial file, ``OZONEFIL`` and ``NOX_FILE`` files, the
+       ``HOUREMIS`` files of ``SourcePathway.hourly_emissions``, and, in
+       the lines kept verbatim, ``HOUREMIS``, hourly ``BACKGRND`` files
+       and ``INCLUDED`` files. A relative path is taken relative to the
        current directory. The run ID is computed from the factors and
        the SHA-256 of the binary and of these files (:func:`run_id`), so
        editing an emission file makes a new run.
@@ -843,8 +893,8 @@ def run_design(
     With ``resume=True`` (the default), a run is skipped when its
     manifest entry says it succeeded for the same deck text and input
     files, the deck on disk is that deck, its ``.out`` has AERMOD's
-    success banner and a copy of that deck, and its PLOTFILEs and
-    POSTFILEs are all present. Any other
+    success banner and a copy of that deck, and its PLOTFILEs,
+    POSTFILEs and the debug files it wrote are all present. Any other
     run is made again: a run that failed or was cut off, one whose
     ``build_fn`` now writes a different deck, and one whose files were
     removed. Running the same design again after an interrupt therefore
@@ -1022,6 +1072,8 @@ def run_design(
 
     def _record(plan: _Planned, result: AERMODRunResult) -> None:
         _finish_entry(plan.entry, result)
+        if plan.entry.status == "success":
+            _drop_unwritten(plan.entry, plan.run_dir)
         manifest.put(plan.entry)
         results[plan.run_id] = result
         if reporter is not None:

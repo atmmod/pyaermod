@@ -294,7 +294,9 @@ class TestRewriteOutputNames:
 
     def test_lines_kept_verbatim_are_renamed(self):
         """Outputs the model cannot hold stay as UnparsedLines when a deck
-        is read; their file names are rewritten too."""
+        is read; their file names are rewritten too. DEBUGOPT is read into
+        ControlPathway.debug_options, whose file names are rewritten in
+        place."""
         deck = design.build(design.ROWS[0]).to_aermod_input(validate=False)
         deck = deck.replace("CO FINISHED", (
             "   ERRORFIL  ../logs/errors.lst\n"
@@ -308,8 +310,9 @@ class TestRewriteOutputNames:
             "OU FINISHED"))
         project = parse_aermod_input(deck)
         kept = {(u.pathway, u.keyword) for u in project.unparsed_lines}
-        assert {("CO", "ERRORFIL"), ("CO", "DEBUGOPT"), ("OU", "POSTFILE"),
-                ("OU", "PLOTFILE")} <= kept
+        assert {("CO", "ERRORFIL"), ("OU", "POSTFILE"), ("OU", "PLOTFILE")} <= kept
+        assert ("CO", "DEBUGOPT") not in kept
+        assert project.control.debug_options == ["MODEL", "/tmp/dbg/model.dbg", "METEOR"]
         names = rewrite_output_names(project, prefix="r_")
         assert names == {
             "PLOTFILE": ["r_pit.plt", "r_pit_1h.plt", "r_pit_1h_h8h.plt", "r_unit.plt"],
@@ -321,8 +324,29 @@ class TestRewriteOutputNames:
         assert "PLOTFILE  1  ALL  8TH  r_pit_1h_h8h.plt" in text
         assert "POSTFILE  1  ALL  PLOT  r_post_b.pst" in text
         assert "DEBUGOPT  MODEL  r_model.dbg  METEOR" in text
+        assert project.control.debug_options == ["MODEL", "r_model.dbg", "METEOR"]
         for gone in ("/tmp/shared", "/tmp/dbg", "../"):
             assert gone not in text
+
+    def test_debug_option_files(self):
+        """Every field of ControlPathway.debug_options that is not an
+        option name is a file; options are matched in any case, and an
+        option without a file name keeps AERMOD's default."""
+        project = self._project()
+        project.control.debug_options = ["model", "../d/m.dbg", "AREA", "METEOR",
+                                         r"C:\d\met.dbg", "DEPOS"]
+        names = rewrite_output_names(project)
+        assert names["DEBUGOPT"] == ["m.dbg", "met.dbg"]
+        assert project.control.debug_options == ["model", "m.dbg", "AREA", "METEOR",
+                                                 "met.dbg", "DEPOS"]
+        assert "DEBUGOPT  model  m.dbg  AREA  METEOR  met.dbg  DEPOS" in \
+            project.to_aermod_input(validate=False)
+
+    def test_a_debug_file_named_like_another_output_raises(self):
+        project = self._project()
+        project.control.debug_options = ["AREA", "../other/pit.plt"]
+        with pytest.raises(ValueError, match="both be written"):
+            rewrite_output_names(project)
 
     @pytest.mark.parametrize(("pathway", "keyword", "fields", "renamed"), [
         ("OU", "PLOTFILE", ["ANNUAL", "ALL", "d/a.plt"], ["ANNUAL", "ALL", "a.plt"]),
@@ -972,6 +996,28 @@ class TestRunDesignRefusals:
                             executable=exe, validate=False)
         assert next(iter(result.values())).entry.input_files == {"NOX_FILE": str(nox)}
 
+    def test_modelled_houremis_is_an_input(self, exe, tmp_path):
+        """SourcePathway.hourly_emissions (the HOUREMIS cards the model
+        holds) is hashed and linked like a HOUREMIS line kept verbatim."""
+        from pyaermod.sources import HourlyEmissionFile
+
+        he = tmp_path / "data" / "pit.emi"
+        he.parent.mkdir()
+        he.write_text(design.houremis_lines())
+
+        def build(factors):
+            project = design.build(factors)
+            project.sources.hourly_emissions = [HourlyEmissionFile(str(he), ["PIT"])]
+            return project
+
+        result = run_design(design.ROWS[:1], build, tmp_path / "d", n_workers=1,
+                            executable=exe)
+        run = next(iter(result.values()))
+        assert run.entry.input_files == {"HOUREMIS": str(he)}
+        assert run.entry.input_files_sha256 == {"HOUREMIS": file_sha256(he)}
+        assert "HOUREMIS  pit.emi  PIT" in (run.run_dir / DECK_NAME).read_text()
+        assert (run.run_dir / "pit.emi").resolve() == he.resolve()
+
     def test_missing_input_file(self, exe, tmp_path):
         def build(factors):
             project = design.build(factors)
@@ -1011,6 +1057,102 @@ class TestRunDesignRefusals:
         assert len(result) == 0 and result.concurrency == 0.0
         assert result.to_dataframe().empty
         assert EnsembleManifest.load(tmp_path / "d" / "manifest.json").to_dataframe().empty
+
+
+# ---------------------------------------------------------------------------
+# Debug files (CO DEBUGOPT, ControlPathway.debug_options)
+# ---------------------------------------------------------------------------
+
+# Answers any deck as AERMOD answered the recorded run d2p5_rho1: the
+# deck's own echo, then the rest of that run's .out, stdout and
+# PLOTFILEs. It writes the debug files listed in {bindir}/write, one
+# per line, as AERMOD writes only the debug files whose option applies.
+_ANSWER = """#!/bin/bash
+rec="{recordings}/d2p5_rho1"
+n=$(awk 'END {{ print NR }}' "$rec/aermod.inp")
+awk 1 aermod.inp > aermod.out
+tail -n +$((n + 1)) "$rec/aermod.out" >> aermod.out
+cat "$rec/stdout.txt"
+cp "$rec"/outputs/* .
+basename "$PWD" >> "{bindir}/calls.log"
+while read -r f; do [ -n "$f" ] && echo "debug output of $PWD" > "$f"; done < "{bindir}/write"
+exit 0
+"""
+
+#: The debug options of these tests: AREA with a file outside the run
+#: directory, METEOR with an absolute one, and MODEL with a file the
+#: fake does not write, as AERMOD does not when DEPOS sends MODEL's
+#: output to DEPOS.DBG.
+DEBUG_OPTIONS = ["AREA", "../shared/area.dbg", "METEOR", "/nonexistent-pyaermod-dir/met.dbg",
+                 "MODEL", "model.dbg"]
+
+
+@posix_only
+class TestDebugFiles:
+    @pytest.fixture()
+    def answer_bin(self, tmp_path):
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        exe = bindir / "aermod"
+        exe.write_text(_ANSWER.format(recordings=FIXTURES, bindir=bindir))
+        exe.chmod(0o755)
+        (bindir / "write").write_text("area.dbg\nmet.dbg\n")
+        return bindir
+
+    @staticmethod
+    def _build(factors):
+        project = design.build(factors)
+        project.control.debug_options = list(DEBUG_OPTIONS)
+        return project
+
+    def _run(self, bindir, root, n_workers=2):
+        return run_design(design.ROWS[:2], self._build, root, n_workers=n_workers,
+                          executable=bindir / "aermod")
+
+    def test_each_run_writes_its_own_debug_files(self, answer_bin, tmp_path):
+        result = self._run(answer_bin, tmp_path / "d")
+        assert result.all_succeeded, [r.entry.error_message for r in result.values()]
+        dirs = {r.run_dir for r in result.values()}
+        assert len(dirs) == 2
+        for run in result.values():
+            deck = (run.run_dir / DECK_NAME).read_text()
+            assert "DEBUGOPT  AREA  area.dbg  METEOR  met.dbg  MODEL  model.dbg" in deck
+            for name in ("area.dbg", "met.dbg"):
+                assert (run.run_dir / name).read_text() == f"debug output of {run.run_dir}\n"
+            # model.dbg was named but not written, so it is not recorded
+            assert run.entry.outputs["DEBUGOPT"] == ["area.dbg", "met.dbg"]
+        manifest = EnsembleManifest.load(tmp_path / "d" / "manifest.json")
+        assert all(e.outputs["DEBUGOPT"] == ["area.dbg", "met.dbg"]
+                   for e in manifest.entries.values())
+        assert not (tmp_path / "shared").exists()
+
+    def test_resume_checks_the_debug_files(self, answer_bin, tmp_path):
+        root = tmp_path / "d"
+        first = self._run(answer_bin, root)
+        again = self._run(answer_bin, root)
+        assert again.n_skipped == 2 and again.n_run == 0
+        victim = next(iter(first.values()))
+        (victim.run_dir / "met.dbg").unlink()
+        third = self._run(answer_bin, root)
+        assert third.n_run == 1 and third[victim.run_id].skipped is False
+        assert (victim.run_dir / "met.dbg").exists()
+        assert _calls(answer_bin).count(victim.run_id) == 2
+
+    def test_no_debug_file_written(self, answer_bin, tmp_path):
+        (answer_bin / "write").write_text("")
+        result = self._run(answer_bin, tmp_path / "d", n_workers=1)
+        assert result.all_succeeded
+        assert all("DEBUGOPT" not in r.entry.outputs for r in result.values())
+        assert self._run(answer_bin, tmp_path / "d", n_workers=1).n_skipped == 2
+
+    def test_a_failed_run_keeps_every_name(self, answer_bin, tmp_path):
+        """The names stay recorded, so a later attempt removes what a
+        failed one left."""
+        (answer_bin / "aermod").write_text("#!/bin/bash\necho partial > area.dbg\nexit 1\n")
+        result = self._run(answer_bin, tmp_path / "d", n_workers=1)
+        for run in result.values():
+            assert run.entry.status == "failed"
+            assert run.entry.outputs["DEBUGOPT"] == ["area.dbg", "met.dbg", "model.dbg"]
 
 
 # ---------------------------------------------------------------------------
