@@ -545,9 +545,9 @@ class OutputPage(_Step):
     NAME = "Output"
 
     def expect_output_type(self, output_type: str) -> None:
-        """What AERMOD computes (MODELOPT), as the Output step shows it."""
-        expect(self.field("output quantities")).to_have_value(
-            re.compile(rf"\b{re.escape(output_type)}\b"))
+        """What AERMOD computes (MODELOPT), as the Output step shows it: exactly
+        ``output_type``, e.g. ``"CONC"`` or ``"CONC DDEP"``."""
+        expect(self.field("output quantities")).to_have_value(output_type)
 
 
 class RunPage(_Step):

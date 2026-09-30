@@ -20,8 +20,10 @@ STEPS = ("Project", "Sources", "Receptors", "Meteorology", "Output", "Review & R
 
 SIZES = {"desktop": {"width": 1280, "height": 900}, "phone": {"width": 390, "height": 844}}
 
-# Controls outside the window, ignoring those inside a table's own
-# horizontal scroller and those in a step list folded away off-screen.
+# Controls outside the window, ignoring those inside a table (which scrolls
+# sideways in its own frame) and those in the step list (the tab list named
+# "Steps") while it is folded away off-screen. Found by role and name, not
+# by Quasar's classes.
 _OUTSIDE = """() => {
   const width = document.documentElement.clientWidth;
   const outside = [];
@@ -30,8 +32,8 @@ _OUTSIDE = """() => {
     const box = el.getBoundingClientRect();
     if (box.width === 0 && box.height === 0) continue;
     if (getComputedStyle(el).visibility === 'hidden') continue;
-    if (el.closest('.q-table__middle')) continue;
-    if (el.closest('.q-drawer') && box.right <= 0) continue;
+    if (el.closest('table, [role=table], [role=grid]')) continue;
+    if (el.closest('[role=tablist][aria-label="Steps"]') && box.right <= 0) continue;
     if (box.left < -1 || box.right > width + 1) {
       const name = el.getAttribute('aria-label') || el.innerText || el.getAttribute('name') || el.tagName;
       outside.push(`${name.trim().slice(0, 40)} [${Math.round(box.left)}, ${Math.round(box.right)}]`);

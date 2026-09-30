@@ -291,9 +291,11 @@ def build_app() -> None:
         with ui.left_drawer(bordered=True).props(
                 f"width=232 breakpoint={DRAWER_BREAKPOINT}") as drawer:
             ui.label("Steps").classes("text-overline text-grey-8 q-px-md q-pt-sm")
+            # Named, so tests and assistive technology can tell the step
+            # list from any other set of tabs.
             with ui.tabs(value=start, on_change=remember).props(
                     'vertical inline-label no-caps align="left" active-bg-color="blue-1"'
-                    ' indicator-color="primary"').classes("w-full") as tabs:
+                    ' indicator-color="primary" aria-label="Steps"').classes("w-full") as tabs:
                 handles = {}
                 badges = {}
                 for step in STEPS:
