@@ -1785,9 +1785,15 @@ class SourcePathway:
         return ids
 
     def _per_source_groups(self) -> Dict[str, List[str]]:
-        """Each group named in a source's ``source_groups``, with the IDs
-        that name it, in the order the sources are defined (a BUOYLINE
-        source contributes its segment IDs)."""
+        """Each group named in a source's ``source_groups``, keyed by its
+        upper-case name, with the IDs that name it, in the order the
+        sources are defined (a BUOYLINE source contributes its segment
+        IDs).
+
+        AERMOD upper-cases every card before reading it (aermod.f
+        LWRUPR), so ``Pit`` and ``PIT`` are one group and ``a1`` and
+        ``A1`` one source; an ID is listed once however it is spelled.
+        """
         members: Dict[str, List[str]] = {}
         for source in self.sources:
             if isinstance(source, BuoyLineSource):
@@ -1795,8 +1801,12 @@ class SourcePathway:
             else:
                 ids = [source.source_id]
             for name in source.source_groups:
-                bucket = members.setdefault(name, [])
-                bucket.extend(i for i in ids if i not in bucket)
+                bucket = members.setdefault(name.upper(), [])
+                seen = {m.upper() for m in bucket}
+                for i in ids:
+                    if i.upper() not in seen:
+                        bucket.append(i)
+                        seen.add(i.upper())
         return members
 
     def add_hourly_emissions(self, path: Union[str, Path],
@@ -1924,30 +1934,37 @@ class SourcePathway:
             # continuation cards of that group. Naming ALL adds nothing:
             # every source is in ALL, and a source ID on the ALL card is
             # E203.
+            #
+            # Groups are matched by their upper-case name, as AERMOD
+            # reads them (aermod.f LWRUPR): SOGRP takes a card naming an
+            # existing group as a continuation of the group defined
+            # *last*, so ``Pit`` written apart from ``PIT`` would put its
+            # members in whatever group came between, with no message.
             all_ids = self._collect_all_source_ids()
             by_name: Dict[str, List[SourceGroupDefinition]] = {}
             for group in self.group_definitions:
-                by_name.setdefault(group.group_name, []).append(group)
+                by_name.setdefault(group.group_name.upper(), []).append(group)
             hoisted = self._per_source_groups()
             for name in hoisted:
                 by_name.setdefault(name, [])
-            write_all = (bool(all_ids) or any(n.upper() == "ALL" for n in by_name)
+            write_all = (bool(all_ids) or "ALL" in by_name
                          if self.include_all_group is None else self.include_all_group)
             if write_all:
-                all_members = [m for n, defs in by_name.items() if n.upper() == "ALL"
-                               for g in defs for m in g.member_source_ids]
+                all_members = [m for g in by_name.get("ALL", []) for m in g.member_source_ids]
                 lines.append("   SRCGROUP  ALL" + ("  " + " ".join(all_members)
                                                    if all_members else ""))
             for name, defs in by_name.items():
-                if name.upper() == "ALL":
+                if name == "ALL":
                     continue
                 for group in defs:
                     lines.extend(_group_lines("SRCGROUP", group))
-                defined = {m for g in defs for m in g.member_source_ids}
-                extra = [m for m in hoisted.get(name, []) if m not in defined]
+                defined = {m.upper() for g in defs for m in g.member_source_ids}
+                extra = [m for m in hoisted.get(name, []) if m.upper() not in defined]
+                # Continuations carry the definition's spelling, if any.
+                label = defs[0].group_name if defs else name
                 for start in range(0, len(extra), _GROUP_IDS_PER_CARD):
                     lines.extend(_group_lines("SRCGROUP", SourceGroupDefinition(
-                        name, extra[start:start + _GROUP_IDS_PER_CARD])))
+                        label, extra[start:start + _GROUP_IDS_PER_CARD])))
 
         lines.append("SO FINISHED")
         return "\n".join(lines)

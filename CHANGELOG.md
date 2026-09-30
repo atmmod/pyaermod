@@ -70,12 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cards of one group stay together); other groups follow, ten IDs to a
   card; `ALL` adds nothing, because every source is in it; a BUOYLINE
   source contributes its segment IDs; and PSDCREDIT decks still write no
-  SRCGROUP (E105). The field and its meaning are unchanged, for all
-  thirteen source classes, but a source's own `to_aermod_input()` no
-  longer contains any SRCGROUP line. The two-OPENPIT deck, a one-source
-  `ALL` deck and a mixed deck now run to completion on the v26135
-  binary (`tests/test_real_aermod_source_writers.py` when `aermod` is on
-  PATH).
+  SRCGROUP (E105). Group names and member IDs are matched in upper
+  case, as AERMOD reads every card (aermod.f LWRUPR): `Pit` on one
+  source and `PIT` on another are one group, written as one block
+  (written apart with `ROAD` between them, AERMOD filed the second
+  card's source under ROAD, with no message). The field and its meaning
+  are unchanged, for all thirteen source classes, but a source's own
+  `to_aermod_input()` no longer contains any SRCGROUP line. The
+  two-OPENPIT deck, a one-source `ALL` deck and a mixed deck now run to
+  completion on the v26135 binary, and the mixed-case deck gives the
+  group table intended (`tests/test_real_aermod_source_writers.py` when
+  `aermod` is on PATH).
 - **`AreaSource` called Xinit and Yinit half-widths, and so did the
   teaching material.** AERMOD places an AREA source by its southwest
   corner and takes Xinit and Yinit as full side lengths, turning the

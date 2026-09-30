@@ -95,6 +95,35 @@ def test_two_sources_grouped_by_source_groups_run(tmp_path):
     assert any(ln.split()[:3] == ["PITS", "PIT", ","] and "PIT2" in ln for ln in out.splitlines())
 
 
+def _group_table(out: str):
+    """The group table AERMOD prints: group ID -> member IDs."""
+    groups = {}
+    lines = out.splitlines()
+    start = next(i for i, ln in enumerate(lines) if "*** SOURCE IDs DEFINING SOURCE GROUPS ***" in ln)
+    for ln in lines[start + 1:]:
+        if "***" in ln and groups:
+            break
+        toks = ln.replace(",", " ").split()
+        if len(toks) >= 2 and toks[0] != "SRCGROUP" and not toks[0].startswith("-"):
+            groups[toks[0]] = toks[1:]
+    return groups
+
+
+def test_group_names_spelled_differently_are_one_group(tmp_path):
+    """``Pit`` on one source and ``PIT`` on another, with ``ROAD`` between:
+    written apart, AERMOD files the second card under ROAD (SOGRP takes it
+    as a continuation of the group defined last) and says nothing."""
+    a1 = AreaSource("A1", 0.0, 0.0, emission_rate=1e-5, initial_lateral_dimension=100.0,
+                    initial_vertical_dimension=100.0, source_groups=["Pit", "ROAD"])
+    a2 = AreaSource("A2", 300.0, 300.0, emission_rate=1e-5, initial_lateral_dimension=100.0,
+                    initial_vertical_dimension=100.0, source_groups=["PIT"])
+    result, _ = _run(tmp_path, "case", SourcePathway(sources=[a1, a2]))
+    assert result.success, result.error_message
+    groups = _group_table(Path(result.output_file).read_text())
+    assert groups["PIT"] == ["A1", "A2"]
+    assert groups["ROAD"] == ["A1"]
+
+
 def test_a_source_in_group_all_runs(tmp_path):
     """``source_groups=["ALL", ...]`` used to write ``SRCGROUP ALL PIT``,
     SO E203 even with one source."""

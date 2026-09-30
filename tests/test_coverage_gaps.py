@@ -254,6 +254,39 @@ class TestSourceGroupAllTypes:
             "   SRCGROUP  G2       A1",
         ]
 
+    def test_group_names_are_matched_in_upper_case(self):
+        """AERMOD upper-cases every card (aermod.f LWRUPR), and SOGRP takes
+        a card naming an existing group as a continuation of the group
+        defined last. ``Pit`` and ``PIT`` written apart, with ``ROAD``
+        between, put A2 in ROAD instead of PIT on v26135 (review deck
+        caseA), with no message; they must be one block."""
+        a1 = AreaSource(source_id="A1", x_coord=0, y_coord=0, source_groups=["Pit", "ROAD"])
+        a2 = AreaSource(source_id="A2", x_coord=300, y_coord=300, source_groups=["PIT"])
+        cards = [ln for ln in SourcePathway(sources=[a1, a2]).to_aermod_input().splitlines()
+                 if "SRCGROUP" in ln]
+        assert cards == [
+            "   SRCGROUP  ALL",
+            "   SRCGROUP  PIT      A1 A2",
+            "   SRCGROUP  ROAD     A1",
+        ]
+
+    def test_source_groups_join_a_definition_spelled_differently(self):
+        """A source naming ``g1`` joins the definition ``G1``, not the group
+        defined after it (review deck caseB gave ``G2  A2, A3``), and a
+        member the definition lists as ``a1`` is not repeated."""
+        a1 = AreaSource(source_id="A1", x_coord=0, y_coord=0, source_groups=["g1"])
+        a2 = AreaSource(source_id="A2", x_coord=300, y_coord=300)
+        a3 = AreaSource(source_id="A3", x_coord=600, y_coord=0, source_groups=["g1"])
+        so = SourcePathway(sources=[a1, a2, a3], group_definitions=[
+            SourceGroupDefinition("G1", ["a1"]), SourceGroupDefinition("G2", ["A2"])])
+        cards = [ln for ln in so.to_aermod_input().splitlines() if "SRCGROUP" in ln]
+        assert cards == [
+            "   SRCGROUP  ALL",
+            "   SRCGROUP  G1       a1",
+            "   SRCGROUP  G1       A3",
+            "   SRCGROUP  G2       A2",
+        ]
+
     def test_long_member_lists_are_split_into_continuation_cards(self):
         """AERMOD reads 512 characters of a line (ISTRG); a group gathered
         from many sources is written ten IDs to a card."""
