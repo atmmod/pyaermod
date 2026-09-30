@@ -136,18 +136,18 @@ class TestSuccessfulRun:
         image = _one(gui, kind=ui.image, marker="results-map")
         alt = image.props["alt"]
         assert alt.startswith("Concentration map of the 1ST highest 1-HR values")
-        assert "pyaermod_gui_01H.PLT: 360 receptors, highest 76.07952" in alt
+        assert "pyaermod_01H.plt: 360 receptors, highest 76.07952" in alt
         assert "at (519.62, -300.00)" in alt
         # The map is drawn in the background, a moment after the page.
         await _value_becomes(lambda: _one(gui, kind=ui.image, marker="results-map").source[:22],
                              "data:image/png;base64,")
-        await gui.user.should_see("Drawn from pyaermod_gui_01H.PLT; the tables hold the values.")
+        await gui.user.should_see("Drawn from pyaermod_01H.plt; the tables hold the values.")
 
         choose = _one(gui, kind=ui.select, content="Map shows")
         assert len(choose.options) == 4
         with gui.user:
             choose.value = 3                                # PERIOD
-        await gui.user.should_see("Drawn from pyaermod_gui_PER.PLT; the tables hold the values.")
+        await gui.user.should_see("Drawn from pyaermod_PERIOD.plt; the tables hold the values.")
         alt = _one(gui, kind=ui.image, marker="results-map").props["alt"]
         assert "PERIOD average values" in alt and "highest 5.40459" in alt
 
@@ -160,10 +160,15 @@ class TestSuccessfulRun:
         [row] = _one(gui, kind=ui.table, marker="results-naaqs").rows
         assert row["standard"] == "SO2 1-hour (99th percentile of daily max)"
         assert row["level"] == "196.4 µg/m³ (75 ppb)"
+        # The deck asks for a 1-hour POSTFILE (pyaermod_01H.pst), so the
+        # design value is computed from it. Over four days the form's rank
+        # is the highest daily maximum, which is AERMOD's 1-hour maximum
+        # (the 2nd-highest daily maximum there is 54.30861).
         assert row["value"] == "76.07952 µg/m³" and row["at"] == "(519.62, -300.00)"
-        # Four days of met and no POSTFILE: a screen against the maximum.
-        assert row["basis"] == "screening"
-        assert row["verdict"] == "Below the NAAQS (so is any design value)"
+        assert row["basis"] == "design value"
+        assert row["how"] == ("design value computed by pyaermod from pyaermod_01H.pst "
+                              "(4 days of hourly values; the NAAQS form needs 3 years)")
+        assert row["verdict"] == "Below the NAAQS"
 
     @pytest.mark.asyncio
     async def test_downloads_are_the_files_on_disk(self, gui, recorded_aermod, tmp_path):
@@ -176,8 +181,10 @@ class TestSuccessfulRun:
         out = await _download(gui, "Download AERMOD output (.out)")
         assert out == (work_dir / "pyaermod_gui.out").read_bytes()
         assert b"AERMOD Finishes Successfully" in out
-        plot = await _download(gui, "Download plot file pyaermod_gui_24H.PLT")
-        assert plot == (work_dir / "pyaermod_gui_24H.PLT").read_bytes()
+        plot = await _download(gui, "Download plot file pyaermod_24H.plt")
+        assert plot == (work_dir / "pyaermod_24H.plt").read_bytes()
+        post = await _download(gui, "Download POSTFILE pyaermod_PERIOD.pst")
+        assert post == (work_dir / "pyaermod_PERIOD.pst").read_bytes()
 
     @pytest.mark.asyncio
     async def test_kmz_needs_a_utm_zone_and_holds_the_run(self, gui, recorded_aermod, tmp_path):
