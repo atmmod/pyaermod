@@ -25,12 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `NAAQSStandard.level_ugm3` and `pyaermod.naaqs.ppb_to_ugm3`: a
   standard's level in µg/m³, the unit AERMOD reports, converting ppb at
   the 25 °C and 760 mm Hg of 40 CFR 50.3 (75 ppb of SO2 is 196.4 µg/m³).
-- `OutputPathway.plot_each_period`: a file-name stem that writes a
-  `PLOTFILE` of source group ALL for every averaging period of the run
-  (`<stem>_01H.PLT`, `<stem>_PER.PLT`, ...), taking the periods from
-  `ControlPathway.averaging_periods` when the deck is written. Short-term
-  files are written only with a receptor table, since AERMOD refuses a
-  FIRST-highest plot file without one (E203).
 
 - GUI Results step (WP-G5): it names the run it shows and whether AERMOD
   completed it, and a failed run shows its fatal errors and no values.
@@ -49,11 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pyaermod.gui_v2.run_results`, the map by `gui_v2.results_map`.
 
 ### Changed
-- GUI: a new project asks AERMOD for a plot file for each averaging
-  period (`pyaermod_gui_01H.PLT`, ...), which the Results step draws its
-  concentration map from. The `albany_success`, `albany_e480` and
-  `missing_met` recordings were made again with the real binary for the
-  new decks.
 - GUI: in the source and receptor editors, Close now discards changes,
   and Add only adds the item on Save.
 - GUI: in the browser, Save on a project that has no file on disk opens

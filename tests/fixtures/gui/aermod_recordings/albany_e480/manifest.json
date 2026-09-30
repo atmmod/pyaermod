@@ -7,9 +7,9 @@
   "informational": 0,
   "finishes_successfully": false,
   "exit_code": 0,
-  "build": "EPA AERMOD v26135 source compiled with GNU Fortran 15.2.0 (Homebrew GCC) -O2 by scripts/build_aermod.sh (FFLAGS -O2 -fbounds-check -Wuninitialized), macOS arm64",
-  "aermod_sha256": "10e2746af42a3da0fa196a6c2f3a8f8f18ad6cd51260f033f500761856eeabd1",
-  "recorded": "2026-09-29",
+  "build": "EPA AERMOD v26135 source compiled with gfortran -O2 by scripts/build_aermod.sh (FFLAGS -O2 -fbounds-check -Wuninitialized)",
+  "aermod_sha256": "4d7d4829b2fca38e1488fa0722397846f6b6efefaa02002f433eefc898d33435",
+  "recorded": "2026-09-28",
   "command": "aermod",
   "working_directory": "a fresh temporary directory holding aermod.inp and the met files it names",
   "recorder": "python scripts/record_aermod_fixtures.py",
@@ -22,9 +22,7 @@
   "stdout": "stdout.txt",
   "stderr": "stderr.txt",
   "outputs": [
-    "aermod.out",
-    "pyaermod_gui_01H.PLT",
-    "pyaermod_gui_ANN.PLT"
+    "aermod.out"
   ],
   "gzipped_outputs": [],
   "maxima": {}

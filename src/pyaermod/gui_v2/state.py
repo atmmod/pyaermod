@@ -22,10 +22,6 @@ from ..input_generator import (
     SourcePathway,
 )
 
-#: The stem of the plot files a new project writes, one per averaging
-#: period (``pyaermod_gui_01H.PLT``, ...), after the deck's own name.
-PLOT_FILE_STEM = "pyaermod_gui"
-
 
 def _empty_project() -> AERMODProject:
     """Return a blank AERMODProject suitable as a starting point."""
@@ -40,9 +36,7 @@ def _empty_project() -> AERMODProject:
         meteorology=MeteorologyPathway(
             surface_file="", profile_file="",
         ),
-        # A plot file for every averaging period: the Results step draws
-        # its concentration map from them (PLAN-gui.md, WP-G5).
-        output=OutputPathway(plot_each_period=PLOT_FILE_STEM),
+        output=OutputPathway(),
     )
 
 

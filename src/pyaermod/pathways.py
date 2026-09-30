@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:
     from .sources import SourceGroupDefinition
@@ -978,25 +978,6 @@ class MeteorologyPathway:
 # OUTPUT PATHWAY
 # ============================================================================
 
-def _plot_period_label(period: Any) -> Optional[Tuple[str, str]]:
-    """``(AVERTIME token, file-name tag)`` of one averaging period.
-
-    ``1`` -> ``("1", "01H")``, ``24.0`` -> ``("24", "24H")`` and
-    ``"PERIOD"`` -> ``("PERIOD", "PER")``; None for anything else.
-    """
-    text = str(period).strip().upper()
-    words = {"PERIOD": "PER", "ANNUAL": "ANN", "MONTH": "MON"}
-    if text in words:
-        return text, words[text]
-    try:
-        hours = float(text)
-    except ValueError:
-        return None
-    if hours != int(hours) or hours < 1:
-        return None
-    return str(int(hours)), f"{int(hours):02d}H"
-
-
 def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
     """PLOTFILE parameters for one averaging period.
 
@@ -1256,14 +1237,6 @@ class OutputPathway:
     # Per-group plot files: list of (averaging_period, source_group, filename)
     plot_file_groups: List[Tuple[str, str, str]] = field(default_factory=list)
 
-    # A file-name stem: write a PLOTFILE of source group ALL for every
-    # averaging period of the run, named "<stem>_01H.PLT", "<stem>_24H.PLT",
-    # "<stem>_PER.PLT", "<stem>_ANN.PLT", "<stem>_MON.PLT" (highest value
-    # at each receptor; see plot_each_period_files). The periods come from
-    # ControlPathway.averaging_periods when AERMODProject writes the deck,
-    # so the plot files follow the periods. None writes none.
-    plot_each_period: Optional[str] = None
-
     # Output type (CONC, DEPOS, DDEP, WDEP). Retained for callers that
     # set it, but AERMOD has no per-file output type: PLOTFILE and
     # POSTFILE take no such field, and writing one is a fatal "Too Many
@@ -1299,35 +1272,9 @@ class OutputPathway:
     max_daily_contributions: List[MaxDailyContribution] = field(
         default_factory=list)
 
-    def plot_each_period_files(self, averaging_periods: Sequence[Any]) -> List[Tuple[str, str]]:
-        """``(averaging period, file name)`` of each :attr:`plot_each_period` file.
-
-        A short-term (or MONTH) plot file asks for the FIRST highest value,
-        which AERMOD accepts only when a RECTABLE requests that rank
-        (``OUPLOT`` E203 "Invalid Parameter ... HIVALU" otherwise, checked
-        against v26135), so without :attr:`receptor_table` only the PERIOD
-        and ANNUAL files are written.
-        """
-        if not self.plot_each_period:
-            return []
-        files = []
-        for period in averaging_periods:
-            label = _plot_period_label(period)
-            if label is None:
-                continue
-            ave, tag = label
-            if ave not in ("PERIOD", "ANNUAL") and not self.receptor_table:
-                continue
-            files.append((ave, f"{self.plot_each_period}_{tag}.PLT"))
-        return files
-
     def to_aermod_input(self, event_processing: bool = False,
-                        event_output: Optional[str] = None,
-                        averaging_periods: Optional[Sequence[Any]] = None) -> str:
+                        event_output: Optional[str] = None) -> str:
         """Generate AERMOD OU pathway text.
-
-        ``averaging_periods`` are the run's (ControlPathway.averaging_periods);
-        they are needed only for :attr:`plot_each_period`.
 
         ``event_processing`` writes the OU pathway of an EVENT deck, which
         evset.f EV_OUCARD reads: FILEFORM and EVENTOUT, nothing else (a
@@ -1401,9 +1348,6 @@ class OutputPathway:
             lines.append(
                 f"   PLOTFILE  {_plotfile_fields(avg_period, src_group, filename)}"
             )
-
-        for ave, filename in self.plot_each_period_files(averaging_periods or []):
-            lines.append(f"   PLOTFILE  {_plotfile_fields(ave, 'ALL', filename)}")
 
         # Postfile:
         #   POSTFILE PERIOD|ANNUAL grpid format filename [unit]
