@@ -18,7 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ALPHA without DFAULT with the GDSEASON/GDLANUSE site categories that
   gas dry deposition needs (E244 otherwise), gives every source of the
   mixed deck deposition inputs (E242 otherwise) and uses POLLUTID OTHER
-  there (a 1-hour PM25 average is E363). It no longer passes
+  there (a 1-hour PM25 average is E363). Its FLAT particle deck leaves
+  DFAULT off, because DFAULT overrides FLAT with ELEV (W206), which put
+  its 50 m source base above receptors at 0 m. The example and the
+  quickstart state that E242 applies whenever any source has deposition
+  inputs, even with CONC alone, since depletion is then on by default
+  (NODRYDPLT NOWETDPLT turn it off). It no longer passes
   `deposition_method`, which writes nothing. Its "(g/m2/s)" comment
   was wrong: AERMOD writes deposition in g/m², totalled over each
   averaging period, and g/m²/yr for ANNUAL (coset.f MODOPT; output.f
@@ -29,8 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `output_type="DEPOS"`, now describes the MODELOPT flags and units.
   `tests/test_example_deposition.py` checks each deck's MODELOPT and
   runs all three through the real AERMOD binary (skipped without
-  `aermod` on PATH; ANNUAL becomes PERIOD there because the vendored met
-  covers four days).
+  `aermod` on PATH; ANNUAL becomes PERIOD there because the met covers
+  four days), failing on any warning beyond the placeholder
+  SURFDATA/UAIRDATA ones and on a zero PERIOD maximum for any quantity
+  on MODELOPT. Its met, `tests/fixtures/deposition_met/`, is four wet
+  days (28.4 mm) of EPA's AERMET test case EX04 (Houston 1996) run with
+  AERMET v26135; the vendored AERMET2 met has no precipitation, so wet
+  deposition was 0 everywhere. The example's POSTFILE section says that
+  `read_postfile` mislabels the columns of its own decks' POSTFILEs.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with

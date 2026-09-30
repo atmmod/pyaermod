@@ -29,9 +29,16 @@ Units: AERMOD reports concentration in micrograms/m**3 but deposition
 in g/m**2, totalled (not averaged) over each averaging period; ANNUAL
 deposition is g/m**2/yr (coset.f MODOPT and output.f PERAVE).
 
-Dry and wet depletion of the plume switch on by themselves once a
-source has deposition inputs (soset.f); add "NODRYDPLT" or "NOWETDPLT"
-to ControlPathway.extra_model_options to turn either off.
+Dry and wet depletion of the plume switch on by themselves once any
+source has deposition inputs, even in a CONC-only run (soset.f SOCARD);
+add "NODRYDPLT" or "NOWETDPLT" to ControlPathway.extra_model_options to
+turn either off. While depletion or any deposition output is on, every
+source needs particle or gas deposition inputs (soset.f SRCQA, E242).
+
+Terrain: DFAULT forces elevated terrain and overrides FLAT with warning
+W206 (coset.f MODOPT), so every deck here that asks for FLAT also sets
+regulatory_default=False. A regulatory (DFAULT) run keeps elevated
+terrain and gives its receptors elevations, from AERMAP for example.
 
 The decks name met_2023.sfc / met_2023.pfl as placeholders; put your
 own AERMET output there (wet deposition needs its precipitation fields).
@@ -194,7 +201,10 @@ def example_2_particle_deposition():
         )
     )
 
-    # Method 1 particle deposition runs under the regulatory DFAULT option.
+    # Method 1 particle deposition needs no ALPHA, but this deck asks for
+    # FLAT terrain, and DFAULT would override that with elevated terrain
+    # (W206, coset.f MODOPT): the 50 m source base would then sit above
+    # receptors at 0 m. So regulatory_default is off, as in the gas decks.
     control = ControlPathway(
         title_one="Particle Deposition Example",
         title_two="Concentration with total, dry and wet deposition",
@@ -205,6 +215,7 @@ def example_2_particle_deposition():
         calculate_deposition=True,       # MODELOPT DEPOS (dry + wet)
         calculate_dry_deposition=True,   # MODELOPT DDEP
         calculate_wet_deposition=True,   # MODELOPT WDEP
+        regulatory_default=False,        # keeps FLAT (DFAULT forces ELEV)
     )
 
     receptors = ReceptorPathway()
@@ -294,10 +305,12 @@ def example_3_multi_source_groups():
         )
     )
 
-    # A source with no deposition inputs cannot join this run: once any
-    # deposition is calculated, AERMOD needs particle or gas deposition
-    # inputs for every source (soset.f SRCQA, E242). Model such a source
-    # in a separate concentration-only run.
+    # A source with no deposition inputs cannot join this run. Once any
+    # source has deposition inputs, dry and wet depletion are on by
+    # default, and then AERMOD needs particle or gas deposition inputs for
+    # every source (soset.f SRCQA, E242) -- even in a run with CONC alone.
+    # Model such a source in a run that has no deposition sources, or add
+    # "NODRYDPLT" and "NOWETDPLT" to extra_model_options in a CONC-only run.
 
     # Define source groups
     sources.group_definitions = [
@@ -409,7 +422,15 @@ def example_4_postfile_with_deposition():
     print(f"Max deposition at ({peak['x']}, {peak['y']}) on {peak['date']}")
 
   The reader labels the value columns concentration, dry_depo and
-  wet_depo, so it fits only a CONC DDEP WDEP run.
+  wet_depo whatever MODELOPT says, so this recipe fits only a CONC DDEP
+  WDEP run, and none of Examples 1-3 is one. On their POSTFILEs it
+  mislabels columns without any error: for CONC DDEP (Examples 1 and 3)
+  dry deposition lands in 'zelev'; for CONC DEPOS DDEP WDEP (Example 2)
+  'dry_depo' holds total deposition, 'wet_depo' dry deposition and
+  'zelev' wet deposition. Either way the later columns shift as well, so
+  'grp' reads '1-HR' and 'date' reads 'ALL'. Until the reader takes its
+  columns from the file, check them against the POSTFILE's own header
+  line, which names every column in order.
 """)
 
     print("  See notebook 06_Postfile_Analysis.ipynb for interactive examples.")

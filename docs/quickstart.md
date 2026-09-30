@@ -264,10 +264,18 @@ and `calculate_wet_deposition` (WDEP). Any combination can be on, and
 AERMOD writes one set of results per quantity. Deposition comes out in
 g/m², totalled over each averaging period (g/m²/yr for ANNUAL), not as a
 flux per second. `OutputPathway.output_type` selects nothing: a deck that
-sets only it calculates concentration alone. Once any deposition is on,
-every source needs particle or gas deposition inputs (E242).
-`examples/deposition_modeling.py` builds gas, particle and mixed decks
-that run with AERMOD.
+sets only it calculates concentration alone.
+
+Once any source has deposition inputs, AERMOD turns on dry and wet
+plume depletion by default, even in a run with CONC alone, and then
+every source needs particle or gas deposition inputs (E242). A source
+without them goes in a run with no deposition sources, or in a
+CONC-only run with `extra_model_options=["NODRYDPLT", "NOWETDPLT"]`.
+DFAULT forces elevated terrain: with `regulatory_default=True`, a
+`terrain_type` of FLAT is overridden (W206) and the run is modelled as
+ELEV, so a flat-terrain deposition run also sets
+`regulatory_default=False`. `examples/deposition_modeling.py` builds
+gas, particle and mixed decks that run with AERMOD.
 
 ### NO2 Chemistry Options
 

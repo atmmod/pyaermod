@@ -11,13 +11,16 @@ ControlPathway ``calculate_*`` flags.
 
 The first tests check each deck's MODELOPT and the keywords AERMOD
 needs for it. The last runs every deck through the real AERMOD binary
-(skipped when ``aermod`` is not on PATH) and checks that it finishes
-and writes deposition tables in g/m**2.
+(skipped when ``aermod`` is not on PATH), on four wet days of EPA's
+Houston met (tests/fixtures/deposition_met), and checks that it
+finishes, warns only about the placeholder SURFDATA/UAIRDATA, and gives
+a non-zero PERIOD maximum for every quantity on MODELOPT.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 from pathlib import Path
 
@@ -27,7 +30,8 @@ from pyaermod import AERMODRunner
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "examples" / "deposition_modeling.py"
-FIXT = REPO / "tests" / "fixtures" / "epa_official"
+MET = REPO / "tests" / "fixtures" / "deposition_met"
+MET_STEM = "HOUSTON_1996-02-26_29"
 
 # deck name -> (example function, MODELOPT tokens it must carry,
 #               tokens it must not carry)
@@ -39,8 +43,8 @@ DECKS = {
     ),
     "particle_deposition.inp": (
         "example_2_particle_deposition",
-        {"CONC", "DEPOS", "DDEP", "WDEP", "DFAULT"},
-        set(),
+        {"CONC", "DEPOS", "DDEP", "WDEP", "FLAT"},
+        {"DFAULT"},  # DFAULT overrides FLAT with ELEV (W206)
     ),
     "multi_source_deposition.inp": (
         "example_3_multi_source_groups",
@@ -49,6 +53,20 @@ DECKS = {
     ),
 }
 GAS_DECKS = ("gas_deposition.inp", "multi_source_deposition.inp")
+
+# Column heading of each MODELOPT quantity in AERMOD's result tables
+QUANTITY_LABEL = {
+    "CONC": "AVERAGE CONC",
+    "DEPOS": "TOTAL DEPO",
+    "DDEP": "DRY DEPO",
+    "WDEP": "WET DEPO",
+}
+# The only warnings a run of the example may give: the decks' SURFDATA
+# and UAIRDATA are placeholders (station 0, year 2020), so AERMOD warns
+# that they do not match the met file (W530) and takes the file's year
+# (W492). Anything else, such as W206 (DFAULT overriding a non-DFAULT
+# option) or W496 (no precipitation for wet deposition), fails the run.
+ALLOWED_WARNINGS = {"W530", "W492"}
 
 
 def _load_example():
@@ -119,6 +137,7 @@ def test_every_source_has_deposition_inputs(decks):
     deck = (decks / "multi_source_deposition.inp").read_text()
     sources = {fields[0] for fields in _cards(deck, "LOCATION")}
     with_inputs = {fields[0] for kw in ("GASDEPOS", "PARTDIAM") for fields in _cards(deck, kw)}
+    assert sources == {"COMB1", "MATL1"}
     assert sources == with_inputs
 
 
@@ -133,27 +152,61 @@ def test_example_states_deposition_units():
     assert "g/m**2/yr" in text
 
 
+def _warnings(out: str) -> set[str]:
+    """Codes of the warnings in AERMOD's message summaries."""
+    return set(re.findall(r"^ [A-Z]{2} (W\d{3}) ", out, flags=re.MULTILINE))
+
+
+def _period_maxima(out: str) -> dict[str, float]:
+    """First-group 1ST HIGHEST value of each MAXIMUM PERIOD summary, by column heading."""
+    maxima = {}
+    for block in out.split("THE SUMMARY OF MAXIMUM PERIOD")[1:]:
+        label = re.search(r"^GROUP ID\s+(.+?)\s+RECEPTOR", block, flags=re.MULTILINE).group(1)
+        value = re.search(r"1ST HIGHEST VALUE IS\s+(\S+)", block).group(1)
+        maxima[label] = float(value)
+    return maxima
+
+
+def test_period_maxima_reads_each_summary():
+    out = (
+        "*** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***\n"
+        "GROUP ID                           DRY DEPO                RECEPTOR  (XR, YR)\n"
+        "ALL       1ST HIGHEST VALUE IS       0.02393 AT (    -100.00,      500.00)\n"
+        "*** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***\n"
+        "GROUP ID                           WET DEPO                RECEPTOR  (XR, YR)\n"
+        "ALL       1ST HIGHEST VALUE IS       0.04199 AT (       0.00,     -100.00)\n"
+    )
+    assert _period_maxima(out) == {"DRY DEPO": 0.02393, "WET DEPO": 0.04199}
+
+
 @pytest.mark.skipif(shutil.which("aermod") is None, reason="AERMOD binary not found on PATH")
 @pytest.mark.parametrize("deck_name", sorted(DECKS))
 def test_deck_runs_with_real_aermod(decks, tmp_path, deck_name):
-    # The vendored met is four days of 1988 (AERMET2), and an ANNUAL
+    # Four days of EPA's Houston met with 28.4 mm of rain, so wet
+    # deposition and wet depletion have something to act on. An ANNUAL
     # average on less than a year of met is E480, so this run asks for
     # PERIOD instead; everything else is the example's deck as written.
-    shutil.copy(FIXT / "AERMET2.SFC", tmp_path / "met_2023.sfc")
-    shutil.copy(FIXT / "AERMET2.PFL", tmp_path / "met_2023.pfl")
+    shutil.copy(MET / f"{MET_STEM}.SFC", tmp_path / "met_2023.sfc")
+    shutil.copy(MET / f"{MET_STEM}.PFL", tmp_path / "met_2023.pfl")
     deck = (decks / deck_name).read_text()
     (avertime,) = _cards(deck, "AVERTIME")
     assert "ANNUAL" in avertime
     deck = deck.replace("AVERTIME  ANNUAL", "AVERTIME  PERIOD")
+    (modelopt,) = _cards(deck, "MODELOPT")
     inp = tmp_path / deck_name
     inp.write_text(deck)
 
     result = AERMODRunner().run(str(inp), working_dir=str(tmp_path), timeout=600)
 
-    out = " ".join(Path(result.output_file).read_text(encoding="latin-1").split())
+    out = Path(result.output_file).read_text(encoding="latin-1")
     assert result.success, result.error_message
-    assert "DRY DEPOSITION VALUES" in out
+    assert _warnings(out) <= ALLOWED_WARNINGS, sorted(_warnings(out) - ALLOWED_WARNINGS)
+    assert "Overrides" not in out  # e.g. W206: DFAULT overriding FLAT
     assert "IN GRAMS/M**2" in out
-    if deck_name == "particle_deposition.inp":
-        assert "TOTAL DEPOSITION VALUES" in out
-        assert "WET DEPOSITION VALUES" in out
+    maxima = _period_maxima(out)
+    for quantity in ("CONC", "DEPOS", "DDEP", "WDEP"):
+        label = QUANTITY_LABEL[quantity]
+        if quantity in modelopt:
+            assert maxima.get(label, 0.0) > 0.0, (label, maxima)
+        else:
+            assert label not in maxima, (label, maxima)
