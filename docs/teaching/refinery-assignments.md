@@ -694,17 +694,18 @@ Source type: **Area (Rectangular)**
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `TANKS` | Crude tank farm |
-| X Coordinate | `279150` | Center of the tank farm |
+| X Coordinate | `279150` | Southwest corner of the tank farm |
 | Y Coordinate | `3291300` | South of the process area |
 | Base Elevation | `5.0` | |
 | Release Height | `15.0` | Tank top height (~15 m for large tanks) |
-| Half-Width Y | `75.0` | 150 m total north-south |
-| Half-Width X | `100.0` | 200 m total east-west |
+| X Side Length (Xinit) | `200.0` | 200 m east-west |
+| Y Side Length (Yinit) | `150.0` | 150 m north-south |
 | Rotation Angle | `0` | Aligned with grid |
 | Emission Rate | `0.000010` | 0.00001 g/s/m2 — small fugitive rate |
 
 > **Emission rate calculation:**
-> Area = 150 m x 200 m = 30,000 m2.
+> Area = 200 m x 150 m = 30,000 m2 (AERMOD takes Xinit and Yinit as the
+> full side lengths from the southwest corner, not half-widths).
 > Total emission = 0.00001 x 30,000 = **0.3 g/s** from the entire tank farm.
 > This is small compared to the stacks — fugitive SO2 from tanks is minor.
 
@@ -722,8 +723,8 @@ Source type: **Area (Rectangular)**
 | Y Coordinate | `3291400` | |
 | Base Elevation | `5.0` | |
 | Release Height | `4.0` | Vehicle height |
-| Half-Width Y | `15.0` | 30 m north-south |
-| Half-Width X | `40.0` | 80 m east-west |
+| X Side Length (Xinit) | `80.0` | 80 m east-west |
+| Y Side Length (Yinit) | `30.0` | 30 m north-south |
 | Rotation Angle | `0` | |
 | Emission Rate | `0.000005` | 0.000005 g/s/m2 — very low SO2 |
 

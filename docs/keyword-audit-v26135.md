@@ -54,6 +54,17 @@ those keywords populate (e.g. `NO2STACK`/`OZONEVAL`/`OZONEFIL` →
 `GRIDPOLR` → `_validate_cartesian_grid`/`_validate_polar_grid`). Unhandled
 keywords therefore never reach the validator.
 
+The OPENPIT and Method 1 rules follow v26135's own checks and carry
+AERMOD's message codes: `SRCPARAM` limits from `soset.f` OPARM (W320,
+E209, W392, and E322 for a release height above the effective depth,
+which AERMOD refuses), the `PARTDIAM`/`MASSFRAX`/`PARTDENS` ranges from
+INPPDM, INPPHI and INPPDN (E335, E332, E334, W334) and SRCQA's count and
+sum checks (E240, W330 at ±2%, with no limit on the number of
+categories), a warning for receptors inside a pit, which `calc1.f`
+PITCALC skips, and W206 for DFAULT with FLAT. Each is checked against a
+real run in `tests/fixtures/validator_openpit/`
+(`tests/test_validator_openpit_method1.py`).
+
 ## Summary
 
 | Pathway | v26135 keywords | Handled + tested | Handled + untested | Unhandled |
@@ -194,10 +205,12 @@ the rewrite fails the same way). Terrain follows
 `coset.f` MODOPT: `ELEV` is the token (the writer used to emit
 `ELEVATED`, which is E203), `FLAT` then `ELEV` on one line means flat
 sources in elevated terrain (`TerrainType.FLATSRCS`, which has no token
-of its own and is written as that pair), a `FLAT` after `ELEV` is
-ignored (W206), and a MODELOPT with no terrain token runs with ELEV
+of its own and is written as that pair; `ELEV FLAT` in the other order
+means the same). A MODELOPT with no terrain token runs with ELEV
 (MODOPT leaves ELEV only for FLAT), so the reader reads it as
-`TerrainType.ELEVATED`. Every other option token (FASTALL, SCREEN, TOXICS,
+`TerrainType.ELEVATED`. With `DFAULT`, AERMOD sets ELEV, drops any `FLAT` with
+W206 and runs in elevated terrain, so the validator warns when
+`regulatory_default=True` meets `FLAT` or `FLATSRCS`. Every other option token (FASTALL, SCREEN, TOXICS,
 PSDCREDIT, NOCHKD, NOURBTRAN, VECTORWS, SCIM, ...) is kept in
 `ControlPathway.extra_model_options` and written back as given.
 `URBANOPT` follows `coset.f` URBOPT: with one card the fields are
@@ -406,7 +419,11 @@ one number AERMOD defaults to 0.90; kept verbatim until a caller needs it
 O3VALUES, `TEMPORAL_FLAG_COUNTS`) and HOUREMIS names a file whose record
 layout varies by source type; both are pure data the model would only
 copy, and EPA's hrdow (33 EMISFACT lines) and mcr (HOUREMIS) decks reach
-parity with the lines carried verbatim.
+parity with the lines carried verbatim. The writer can also generate a
+HOUREMIS card and its rate-only file for AREA, AREACIRC, AREAPOLY,
+OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources
+(`SourcePathway.hourly_emissions`,
+`pyaermod.hourly_emissions`); a deck that is read keeps its card verbatim.
 `INCLUDED` (SO, RE, EV): a file of more cards. Reading it would mean
 resolving a path at parse time; the writer keeps the card and AERMOD
 reads the file where it always did (EPA's lovett, flatelev and multurb

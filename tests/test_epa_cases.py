@@ -223,9 +223,18 @@ class TestAllsrcsOutputParsing:
         assert result.max_value == pytest.approx(316456.68934, abs=1e-2)
 
     def test_period_max_concentration(self, allsrcs_output):
-        """PERIOD max should be 11819.89828."""
+        """PERIOD max is RLINEB2's 88881.24949, the highest in AERMOD's table.
+
+        ALLSRCS has one source group per source and no ALL group, and its
+        PERIOD summary continues over four pages, four groups a page. The
+        parser used to read the first page only and report CIRC's
+        11819.89828.
+        """
         result = allsrcs_output.concentrations["PERIOD"]
-        assert result.max_value == pytest.approx(11819.89828, abs=1e-2)
+        assert result.max_value == pytest.approx(88881.24949, abs=1e-2)
+        assert tuple(result.max_location) == pytest.approx((60.0, -60.0))
+        assert result.data["group"].nunique() == 13
+        assert result.max_row["group"] == "RLINEB2"
 
 
 # ============================================================================

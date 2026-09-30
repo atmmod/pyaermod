@@ -1,0 +1,86 @@
+CO STARTING
+   TITLEONE  pit D_hs_gt_depth
+   MODELOPT  CONC DEPOS DDEP FLAT DFAULT
+   AVERTIME  1 PERIOD
+   POLLUTID  PM10
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  PIT      OPENPIT    -300.0000    -200.0000     0.00
+   SRCPARAM  PIT        0.000010   150.00   600.00   400.00  24000000.00
+   PARTDIAM  PIT      1  2.5  5  10  20
+   MASSFRAX  PIT      0.200000  0.200000  0.200000  0.200000  0.200000
+   PARTDENS  PIT      2.65  2.65  2.65  2.65  2.65
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDCART  G1       STA
+                       XYINC    -1000.00    21   100.00    -1000.00    21   100.00
+   GRIDCART  G1       END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  1-10
+   MAXTABLE  ALLAVE  10
+   PLOTFILE  PERIOD  ALL  D_hs_gt_depth_per.plt
+   POSTFILE  1  ALL  PLOT  D_hs_gt_depth_1h.pst
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            1 Fatal Error Message(s)
+ A Total of            3 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E322      11        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PIT
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ RE W214      21       RECART: ELEV Input Inconsistent With Option: Defaults Used           G1
+ MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMOD - VERSION 26135  ***   ***  pit D_hs_gt_depth                                                   ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:33:11
+                                                                                                                       PAGE   1
+ *** MODELOPTs:  
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            1 Fatal Error Message(s)
+ A Total of            3 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E322      11        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PIT
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ RE W214      21       RECART: ELEV Input Inconsistent With Option: Defaults Used           G1
+ MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ***************************************
+    *** AERMOD Finishes UN-successfully ***
+    ***************************************
+

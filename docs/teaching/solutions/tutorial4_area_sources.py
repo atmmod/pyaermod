@@ -66,16 +66,16 @@ def build_project() -> AERMODProject:
     ))
 
     # --- Rectangular area source: Stockpile ---
-    # 100 m x 50 m, centered at (500000, 3870000)
-    # Half-widths: initial_lateral_dimension=25 (Y), initial_vertical_dimension=50 (X)
+    # 100 m (x) by 50 m (y), southwest corner at (500000, 3870000).
+    # Xinit and Yinit are full side lengths, not half-widths (soset.f APARM).
     sources.add_source(AreaSource(
         source_id="PILE1",
         x_coord=500_000.0,
         y_coord=3_870_000.0,
         base_elevation=0.0,
         release_height=2.0,     # Dust lifts ~2 m above pile
-        initial_lateral_dimension=25.0,   # Half-width Y (50 m total)
-        initial_vertical_dimension=50.0,  # Half-width X (100 m total)
+        initial_lateral_dimension=100.0,  # Xinit: 100 m side in x
+        initial_vertical_dimension=50.0,  # Yinit: 50 m side in y
         angle=0.0,              # Aligned with grid
         emission_rate=0.000100, # 0.0001 g/s/m2
     ))

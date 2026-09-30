@@ -1,0 +1,89 @@
+CO STARTING
+   TITLEONE  pit H
+   MODELOPT  CONC FLAT DFAULT
+   AVERTIME  1 PERIOD
+   POLLUTID  PM10
+   RUNORNOT  NOT
+CO FINISHED
+
+SO STARTING
+   LOCATION  PIT      OPENPIT    -300.0000    -200.0000     0.00
+   SRCPARAM  PIT        0.000010     0.00   600.00   400.00  24000000.00
+   SRCGROUP  PITS     PIT
+   LOCATION  PIT2     OPENPIT     500.0000     500.0000     0.00
+   SRCPARAM  PIT2       0.000010     0.00   200.00   200.00   2000000.00
+   SRCGROUP  PITS     PIT2
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDCART  G1       STA
+                       XYINC    -1000.00    21   100.00    -1000.00    21   100.00
+   GRIDCART  G1       END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  1-10
+   MAXTABLE  ALLAVE  10
+   PLOTFILE  PERIOD  ALL  H_per.plt
+   POSTFILE  1  ALL  PLOT  H_1h.pst
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            2 Fatal Error Message(s)
+ A Total of            3 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E140      13       SOCARD: Invalid Order of Keyword. The Troubled Keyword is      SRCGROUP
+ SO E140      14       SOCARD: Invalid Order of Keyword. The Troubled Keyword is      SRCGROUP
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ RE W214      22       RECART: ELEV Input Inconsistent With Option: Defaults Used           G1
+ MX W403      31       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMOD - VERSION 26135  ***   ***  pit H                                                               ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:33:12
+                                                                                                                       PAGE   1
+ *** MODELOPTs:  
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            2 Fatal Error Message(s)
+ A Total of            3 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E140      13       SOCARD: Invalid Order of Keyword. The Troubled Keyword is      SRCGROUP
+ SO E140      14       SOCARD: Invalid Order of Keyword. The Troubled Keyword is      SRCGROUP
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ RE W214      22       RECART: ELEV Input Inconsistent With Option: Defaults Used           G1
+ MX W403      31       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ***************************************
+    *** AERMOD Finishes UN-successfully ***
+    ***************************************
+

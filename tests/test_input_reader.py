@@ -187,6 +187,30 @@ OU FINISHED
         assert isinstance(p.sources.sources[0], AreaSource)
         assert p.sources.sources[0].emission_rate == 0.01
 
+    def test_area_source_szinit(self):
+        """The sixth SRCPARAM value of an AREA source is Szinit (soset.f
+        APARM); the reader used to drop it, so a rewritten deck lost it."""
+        p = self._with_sources(
+            "   LOCATION  R0010201 AREA  -979.412  1660.587  0.000\n"
+            "   SRCPARAM  R0010201   1.0   2.0  30.480  262.73  73.2  3.0"
+        )
+        src = p.sources.sources[0]
+        assert (src.initial_lateral_dimension, src.initial_vertical_dimension,
+                src.angle, src.initial_sigma_z) == (30.48, 262.73, 73.2, 3.0)
+        card = next(ln.split() for ln in p.to_aermod_input(validate=False).splitlines()
+                    if ln.split()[:1] == ["SRCPARAM"])
+        assert card[-2:] == ["73.20", "3.00"]
+
+    def test_area_source_without_yinit_is_square(self):
+        """APARM with Xinit alone sets Yinit = Xinit (IFC 6)."""
+        p = self._with_sources(
+            "   LOCATION  A1   AREA   0.0  0.0  0.0\n"
+            "   SRCPARAM  A1  0.01  3.0  40.0"
+        )
+        src = p.sources.sources[0]
+        assert src.initial_lateral_dimension == src.initial_vertical_dimension == 40.0
+        assert src.initial_sigma_z == 0.0
+
     def test_volume_source(self):
         p = self._with_sources(
             "   LOCATION  V1   VOLUME   0.0  0.0  0.0\n"

@@ -1,0 +1,125 @@
+CO STARTING
+   TITLEONE  method1
+   MODELOPT  CONC DDEP
+   AVERTIME  1 PERIOD
+   POLLUTID  PM10
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  S1  VOLUME  0.0 0.0 0.0
+   SRCPARAM  S1  1.0  10.0  5.0  5.0
+   PARTDIAM  S1  0.001  0.0011  1000.0  1001.0
+   MASSFRAX  S1  0.25  0.25  0.25  0.25
+   PARTDENS  S1  2.65  2.65  2.65  2.65
+   LOCATION  S2  VOLUME  100.0 0.0 0.0
+   SRCPARAM  S2  1.0  10.0  5.0  5.0
+   PARTDIAM  S2  1  2  3
+   MASSFRAX  S2  1.1  -0.1  0.0
+   PARTDENS  S2  2.65  2.65  2.65
+   LOCATION  S3  VOLUME  200.0 0.0 0.0
+   SRCPARAM  S3  1.0  10.0  5.0  5.0
+   PARTDIAM  S3  1  2
+   MASSFRAX  S3  0.49  0.49
+   PARTDENS  S3  2.65  2.65
+   LOCATION  S4  VOLUME  300.0 0.0 0.0
+   SRCPARAM  S4  1.0  10.0  5.0  5.0
+   PARTDIAM  S4  1  2
+   MASSFRAX  S4  0.475  0.5
+   PARTDENS  S4  2.65  2.65
+   LOCATION  S5  VOLUME  400.0 0.0 0.0
+   SRCPARAM  S5  1.0  10.0  5.0  5.0
+   PARTDIAM  S5  1  2
+   MASSFRAX  S5  0.521  0.5
+   PARTDENS  S5  2.65  2.65
+   LOCATION  S6  VOLUME  500.0 0.0 0.0
+   SRCPARAM  S6  1.0  10.0  5.0  5.0
+   PARTDIAM  S6  1  2  3
+   MASSFRAX  S6  0.4  0.3  0.3
+   PARTDENS  S6  0.1  0.0  0.11
+   LOCATION  S7  VOLUME  600.0 0.0 0.0
+   SRCPARAM  S7  1.0  10.0  5.0  5.0
+   PARTDIAM  S7  1  2  3
+   MASSFRAX  S7  0.5  0.5
+   PARTDENS  S7  2.65  2.65  2.65
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  1000.0  1000.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            6 Fatal Error Message(s)
+ A Total of            5 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E335      12       INPPDM: Particle Diameter Out-of-Range for Source                    S1
+ SO E335      12       INPPDM: Particle Diameter Out-of-Range for Source                    S1
+ SO E332      18       INPPHI: Mass Fraction Parameter Out-of-Range for Source              S2
+ SO E332      18       INPPHI: Mass Fraction Parameter Out-of-Range for Source              S2
+ SO E334      39       INPPDN: Particle Density Out-of-Range for Source                     S6
+ SO E240      46        SRCQA: Inconsistent Number of Particle Categories for               S7
+  
+    ********   WARNING MESSAGES   ******** 
+ SO W334      39       INPPDN: Particle Density Out-of-Range for Source                     S6
+ SO W330      46        SRCQA: Mass Fraction Parameters Do Not Sum to 1. for Src            S4
+ SO W330      46        SRCQA: Mass Fraction Parameters Do Not Sum to 1. for Src            S5
+ RE W228      49       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      58       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMOD - VERSION 26135  ***   ***  method1                                                             ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:36
+                                                                                                                       PAGE   1
+ *** MODELOPTs:  
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            6 Fatal Error Message(s)
+ A Total of            5 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E335      12       INPPDM: Particle Diameter Out-of-Range for Source                    S1
+ SO E335      12       INPPDM: Particle Diameter Out-of-Range for Source                    S1
+ SO E332      18       INPPHI: Mass Fraction Parameter Out-of-Range for Source              S2
+ SO E332      18       INPPHI: Mass Fraction Parameter Out-of-Range for Source              S2
+ SO E334      39       INPPDN: Particle Density Out-of-Range for Source                     S6
+ SO E240      46        SRCQA: Inconsistent Number of Particle Categories for               S7
+  
+    ********   WARNING MESSAGES   ******** 
+ SO W334      39       INPPDN: Particle Density Out-of-Range for Source                     S6
+ SO W330      46        SRCQA: Mass Fraction Parameters Do Not Sum to 1. for Src            S4
+ SO W330      46        SRCQA: Mass Fraction Parameters Do Not Sum to 1. for Src            S5
+ RE W228      49       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      58       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ***************************************
+    *** AERMOD Finishes UN-successfully ***
+    ***************************************
+
