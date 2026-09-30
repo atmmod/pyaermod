@@ -400,9 +400,15 @@ def import_controls(session: Session, *, dialogs: Any = None,
                 'role=list aria-label="Recent files"').mark("recent-files"):
             for entry in entries:
                 with ui.row().classes("items-center no-wrap").props("role=listitem"):
-                    ui.button(entry.path.name, on_click=lambda _e, en=entry: _reopen(en)).props(
-                        f'flat no-caps dense aria-label="Reopen {entry.path.name}"'
-                    ).tooltip(str(entry.path))
+                    button = ui.button(entry.path.name,
+                                       on_click=lambda _e, en=entry: _reopen(en))
+                    button.props("flat no-caps dense").tooltip(str(entry.path))
+                    # The folder is in the name, so two decks of one name in
+                    # different folders are two different buttons. Set as a
+                    # value, not parsed from a props string, so a folder
+                    # with a quote in it cannot break it.
+                    button.props["aria-label"] = (
+                        f"Reopen {entry.path.name} from {entry.path.parent}")
                     kind = "project" if entry.kind == PROJECT else "AERMOD deck"
                     state = "" if entry.exists else ", missing"
                     ui.label(f"{kind}{state} · {entry.path.parent}").classes(

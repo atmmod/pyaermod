@@ -38,6 +38,7 @@ from pyaermod.input_reader import PathTraversalError, read_aermod_input
 from . import test_gui_v2_smoke as smoke
 from .test_gui_v2_smoke import (
     GuiSession,
+    _click,
     _one,
     _receptors_table,
     _rows_become,
@@ -330,6 +331,27 @@ class TestRecentFiles:
         await _rows_become(gui, _sources_table, "id", [])
         gui.user.find(kind=ui.button, content="aertest.inp").click()
         await _rows_become(gui, _sources_table, "id", ["STACK1"])
+
+    @pytest.mark.asyncio
+    async def test_decks_of_one_name_are_told_apart_by_their_folder(self, gui, tmp_path):
+        first, second = tmp_path / "first" / "aertest.inp", tmp_path / "second" / "aertest.inp"
+        for deck in (first, second):
+            deck.parent.mkdir()
+        shutil.copy(AERTEST, first)
+        second.write_text(AERTEST.read_text(encoding="utf-8").replace(
+            "A Simple Example Problem", "The second copy"), encoding="utf-8")
+        await gui.open()
+        for deck in (first, second):
+            _read_from_path(gui, deck)
+            await gui.user.should_see(f"Imported aertest.inp from {deck.parent}.")
+        await gui.user.should_see(f"AERMOD deck · {first.parent}")
+        buttons = {b.props.get("aria-label"): b for b in
+                   gui.user.find(kind=ui.button, content="aertest.inp").elements}
+        assert set(buttons) == {f"Reopen aertest.inp from {first.parent}",
+                                f"Reopen aertest.inp from {second.parent}"}
+        _click(gui, buttons[f"Reopen aertest.inp from {first.parent}"])
+        await _value_becomes(lambda: _title_input(gui).value,
+                             "A Simple Example Problem for the AERMOD Model with PRIME")
 
     @pytest.mark.asyncio
     async def test_a_project_saved_by_path_is_listed_and_reopens(self, gui, tmp_path,
