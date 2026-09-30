@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`pyaermod.psd`: particle size distributions for Method 1
+  deposition.** Size data usually arrive as cumulative mass at a few
+  cut points (AP-42's particle size multipliers `k`) or as a lognormal
+  fit, while AERMOD wants one diameter, mass fraction and density per
+  category. `bins_from_cut_points()` interpolates the cumulative mass
+  linearly in `ln d` between cut points, `bins_from_lognormal()` bins a
+  lognormal truncated to the edges, and `bins_from_cdf()` takes any
+  cumulative distribution; each returns a `SizeDistribution` whose
+  fractions sum to 1, which reports the mass left out below and above
+  the edges and an `anchor_ratio` that scales an emission rate given
+  for PM30 (or another anchor size) to the modelled mass. The anchor's
+  mass is counted from the first edge, so the PM30 rate is spread over
+  the bins, including the share below the first edge, while mass
+  between the last edge and a larger anchor is lost.
+  `SizeDistribution.to_deposition_params()` returns the
+  `ParticleDepositionParams` a source's `particle_deposition` takes.
+  Each bin's diameter is its mean-mass diameter
+  `((d1³ + d1²d2 + d1d2² + d2³)/4)^(1/3)`, which reproduces EPA
+  surfcoal's 0.63/1.85/3.88/7.77 µm from the edges 0/1/2.5/5/10, or its
+  settling-equivalent diameter. `aerodynamic_to_stokes()` and
+  `stokes_to_aerodynamic()` solve AERMOD's own settling equation
+  (`VDP1` in `soset.f`, Stokes with a Cunningham slip factor), so a
+  Stokes diameter at the real density settles exactly like the
+  aerodynamic diameter at 1.0; the textbook `d_a/sqrt(rho)` settles
+  11% too fast at 0.78 µm and 2.65 g/cm³. `settling_velocity()` matches
+  the `Vg` of all 64 categories of a real v26135 run recorded with
+  `DEBUGOPT DEPOS` in `tests/fixtures/psd/`. Documented in
+  `docs/psd.md` and `docs/api/psd.md`.
 - **The EPA build scripts build into a directory you choose and say what
   they built.** `scripts/build_aermod.sh`, `build_bpip.sh`,
   `build_aersurface.sh` and `build_aerscreen.sh` always wrote into the
