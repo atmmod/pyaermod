@@ -37,6 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **`AERMODRunner.run_batch` returned its results in the order the runs
+  finished, not the order of the decks.** `zip(input_files, results)`
+  paired decks with other decks' results whenever a later deck finished
+  first; the 2026-09-29 demonstration pilot had to re-key its first batch
+  by hand. `results[i]` now belongs to `input_files[i]` however the runs
+  finish, and a run that raised in its worker carries its deck's
+  absolute path like every other result. With `stop_on_error=True` the
+  list still holds only the runs that finished before the stop, now in
+  input order. The docstring and `docs/common-errors.md` now say that a
+  script calling `run_batch` or `BatchRunner.parameter_sweep` on macOS or
+  Windows must do so under `if __name__ == "__main__":`: those platforms
+  start workers with `spawn`, and without the guard every run came back
+  failed with "A process in the process pool was terminated abruptly".
+  `tests/test_runner_batch.py` makes four decks finish in reverse order
+  and checks the results come back in input order.
 - **`resume_batch` counted runs as done that were not, and a timed-out
   run left the previous run's `.out` under the deck's name.**
   `resume_batch` called a deck done when the last 50 lines of its `.out`

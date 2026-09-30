@@ -1,6 +1,9 @@
-"""Batch runs: what ``resume_batch`` counts as done.
+"""Batch runs: results in input order, and what ``resume_batch`` counts as done.
 
-``resume_batch`` used to count a deck as done when the last 50
+``AERMODRunner.run_batch`` used to return its results in the order the
+runs finished, so ``zip(input_files, results)`` paired decks with other
+decks' results; the 2026-09-29 pilot had to re-key its first batch by
+hand. ``resume_batch`` used to count a deck as done when the last 50
 lines of its ``.out`` mentioned "FINISHES SUCCESSFULLY", which the
 ``*** SETUP Finishes Successfully ***`` line of a failed or killed run
 also satisfies, and it took the ``.out`` of an earlier run, or of an
@@ -128,3 +131,76 @@ def test_timed_out_rerun_is_todo(tmp_path):
     result = AERMODRunner(executable_path=exe, log_level="WARNING").run(inp, timeout=5)
     assert result.success is False
     assert resume_batch([inp], tmp_path) == {"done": [], "todo": [inp]}
+
+
+# ---------------------------------------------------------------------------
+# run_batch returns results in input order
+# ---------------------------------------------------------------------------
+
+# A fake aermod whose deck says which deck must finish before it does
+# ("** after <name>"). It waits for that deck's marker file, writes the
+# successful recording as its aermod.out and leaves its own marker, so the
+# runs finish in the order the chain sets, not the order they were given.
+_CHAINED = """#!/bin/bash
+me="$(basename "$(readlink aermod.inp)" .inp)"
+after="$(sed -n 's/^\\*\\* after //p' aermod.inp)"
+if [ -n "$after" ]; then
+    for _ in $(seq 3000); do
+        [ -e "{markers}/$after.done" ] && break
+        sleep 0.1
+    done
+    [ -e "{markers}/$after.done" ] || exit 7
+    sleep 1
+fi
+cp "{success}/aermod.out" aermod.out
+touch "{markers}/$me.done"
+exit 0
+"""
+
+
+@posix_only
+def test_run_batch_returns_input_order_whatever_order_runs_finish(tmp_path):
+    """Four decks that finish in reverse order come back in input order."""
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    exe = tmp_path / "aermod"
+    exe.write_text(_CHAINED.format(markers=markers, success=SUCCESS))
+    exe.chmod(0o755)
+
+    names = ["a", "b", "c", "d"]
+    finish_after = {"a": "b", "b": "c", "c": "d", "d": None}  # d, c, b, a
+    deck = (SUCCESS / "aermod.inp").read_text()
+    inputs = []
+    for name in names:
+        work = tmp_path / name  # one directory each, so the runs overlap
+        work.mkdir()
+        inp = work / f"{name}.inp"
+        after = finish_after[name]
+        inp.write_text((f"** after {after}\n" if after else "") + deck)
+        inputs.append(inp)
+
+    runner = AERMODRunner(executable_path=exe, log_level="WARNING")
+    results = runner.run_batch(inputs, n_workers=4, timeout=300)
+
+    assert [r.success for r in results] == [True] * 4, [r.error_message for r in results]
+    finished = sorted(results, key=lambda r: r.end_time)
+    assert [Path(r.input_file).stem for r in finished] == ["d", "c", "b", "a"]
+    assert [r.input_file for r in results] == [str(p.resolve()) for p in inputs]
+    for inp, result in zip(inputs, results):
+        assert result.output_file == str(inp.with_suffix(".out").resolve())
+
+
+@posix_only
+def test_run_batch_stop_on_error_keeps_input_order(tmp_path):
+    """With stop_on_error the runs that finished still come back in input order."""
+    exe = tmp_path / "aermod"
+    exe.write_text("#!/bin/bash\nexit 0\n")
+    exe.chmod(0o755)
+    runner = AERMODRunner(executable_path=exe, log_level="CRITICAL")
+    missing = [tmp_path / f"missing{i}.inp" for i in range(3)]
+    results = runner.run_batch(missing, n_workers=1, stop_on_error=True)
+    assert 1 <= len(results) <= 3
+    assert all(not r.success for r in results)
+    resolved = [p.resolve() for p in missing]
+    positions = [resolved.index(Path(r.input_file)) for r in results]
+    assert positions == sorted(positions)

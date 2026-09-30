@@ -689,18 +689,39 @@ class AERMODRunner:
         """
         Run multiple AERMOD simulations in parallel
 
+        The results come back in the order of ``input_files``, whatever
+        order the runs finish in: ``results[i]`` belongs to
+        ``input_files[i]``, and its ``input_file`` is that deck's
+        absolute path.
+
+        The runs happen in worker processes. On macOS and Windows those
+        are started with ``spawn``, which imports the calling script
+        again in every worker, so a script must call ``run_batch`` from
+        under ``if __name__ == "__main__":``. Without the guard each
+        worker stops with Python's "An attempt has been made to start a
+        new process before the current process has finished its
+        bootstrapping phase" and every run comes back failed with "A
+        process in the process pool was terminated abruptly"::
+
+            if __name__ == "__main__":
+                results = runner.run_batch(decks, n_workers=4)
+
         Args:
             input_files: List of input file paths
             n_workers: Number of parallel workers
             timeout: Timeout per run (seconds)
-            stop_on_error: Whether to stop if any run fails
+            stop_on_error: Stop at the first failed run. Runs not yet
+                started are cancelled, and the list then holds only the
+                runs that finished before the stop, still in input order.
 
         Returns:
-            List of AERMODRunResult objects
+            List of AERMODRunResult objects, in the order of ``input_files``
         """
         self.logger.info(f"Starting batch run: {len(input_files)} files, {n_workers} workers")
 
-        results = []
+        # Results are filed by the index of their deck, so the list comes
+        # back in input order however the runs finish.
+        results_by_index: Dict[int, AERMODRunResult] = {}
         failed_count = 0
 
         exe_path = str(self.executable)
@@ -708,45 +729,42 @@ class AERMODRunner:
             # Dispatch via a module-level function so workers don't
             # have to pickle `self` (which includes a Logger + Handler
             # that aren't fork-safe under spawn).
-            future_to_file = {
-                executor.submit(_batch_worker, exe_path, str(inp), timeout): inp
-                for inp in input_files
+            future_to_index = {
+                executor.submit(_batch_worker, exe_path, str(inp), timeout): i
+                for i, inp in enumerate(input_files)
             }
 
             # Process completed jobs
-            for future in as_completed(future_to_file):
-                input_file = future_to_file[future]
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                input_file = input_files[index]
 
                 try:
                     result = future.result()
-                    results.append(result)
-
+                except Exception as e:
+                    self.logger.error(f"✗ {input_file}: Exception: {e}")
+                    result = AERMODRunResult(
+                        success=False,
+                        input_file=str(Path(input_file).resolve()),
+                        error_message=str(e)
+                    )
+                else:
                     if result.success:
                         self.logger.info(f"✓ {Path(result.input_file).name} ({result.runtime_seconds:.1f}s)")
                     else:
-                        failed_count += 1
                         self.logger.error(f"✗ {Path(result.input_file).name}: {result.error_message}")
+                results_by_index[index] = result
 
-                        if stop_on_error:
-                            self.logger.error("Stopping batch run due to error")
-                            # Cancel pending futures
-                            for f in future_to_file:
-                                f.cancel()
-                            break
-
-                except Exception as e:
+                if not result.success:
                     failed_count += 1
-                    self.logger.error(f"✗ {input_file}: Exception: {e}")
-
-                    results.append(AERMODRunResult(
-                        success=False,
-                        input_file=str(input_file),
-                        error_message=str(e)
-                    ))
-
                     if stop_on_error:
+                        self.logger.error("Stopping batch run due to error")
+                        # Cancel pending futures
+                        for f in future_to_index:
+                            f.cancel()
                         break
 
+        results = [results_by_index[i] for i in sorted(results_by_index)]
         success_count = len(results) - failed_count
         self.logger.info(
             f"Batch complete: {success_count}/{len(results)} succeeded, "
