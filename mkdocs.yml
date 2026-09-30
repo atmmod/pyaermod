@@ -38,6 +38,7 @@ nav:
       - AERMAP Troubleshooting: aermap-troubleshooting.md
       - Common Errors: common-errors.md
       - Regulatory Matrix: regulatory-matrix.md
+      - Particle Size Distributions: psd.md
   - Validation: validation.md
   - Design-Value Validation: design-value-validation.md
   - Keyword Audit (v26135): keyword-audit-v26135.md
@@ -60,6 +61,7 @@ nav:
           - input_reader: api/input_reader.md
           - unparsed: api/unparsed.md
           - source_importers: api/source_importers.md
+          - psd: api/psd.md
       - Validation:
           - validator: api/validator.md
           - validator_advanced: api/validator_advanced.md

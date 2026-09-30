@@ -39,8 +39,8 @@ which reproduces the 0.63, 1.85, 3.88 and 7.77 micron diameters of EPA's
 alternative is the settling-equivalent diameter
 ``sqrt((d2^2 - d1^2) / (2 ln(d2/d1)))`` (:func:`settling_equivalent_diameter`).
 
-Example
--------
+Examples
+--------
 AP-42 section 13.2.4 (aggregate handling) gives particle size multipliers
 k of 0.053, 0.20, 0.35, 0.48 and 0.74 for the mass below 2.5, 5, 10, 15
 and 30 microns. With the mass below 2.5 microns spread log-linearly down
