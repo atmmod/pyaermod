@@ -93,12 +93,23 @@ class Pager:
     Only that page's rows are sent to the browser, so a project with ten
     thousand receptors costs no more to show than one with ten. The page
     survives rebuilds of the table (it is not part of the project) and is
-    kept in range when rows go away.
+    kept in range when rows go away. With a ``session``, it goes back to the
+    first page whenever the project is replaced (New, Open): build the
+    pager before the table's live section, so it is reset before the
+    table is rebuilt.
     """
 
-    def __init__(self, per_page: int = ROWS_PER_PAGE):
+    def __init__(self, per_page: int = ROWS_PER_PAGE, *, session: Optional[Session] = None):
         self.per_page = per_page
         self.page = 0
+        if session is not None:
+            from nicegui import ui
+
+            def first_page(_change: Any) -> None:
+                self.page = 0
+
+            ui.context.client.on_delete(
+                session.subscribe(SessionEvent.PROJECT_REPLACED, first_page))
 
     def pages(self, total: int) -> int:
         return max(1, -(-total // self.per_page))

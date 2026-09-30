@@ -659,6 +659,24 @@ class TestLongTables:
         assert [r["label"] for r in _receptors_table(gui).rows][:2] == ["DISC24", "DISC25"]
 
 
+    @pytest.mark.asyncio
+    async def test_a_newly_opened_project_starts_on_the_first_page(self, gui, tmp_path):
+        from pyaermod.receptors import DiscreteReceptor
+        project = _albany_project(["1"], "a.sfc")
+        project.receptors.discrete_receptors = [
+            DiscreteReceptor(x_coord=float(i), y_coord=0.0) for i in range(60)]
+        path = save_project(project, tmp_path / "sixty.json")
+        session = await gui.open()
+        session.open_json(path)                                  # a saved project fixture
+        await gui.user.should_see("Receptors 1–25 of 61")
+        _click(gui, next(b for b in gui.user.find(kind=ui.button).elements
+                         if b.props.get("aria-label") == "Next page"))
+        await gui.user.should_see("Receptors 26–50 of 61")
+        session.open_json(path)                                  # the same file, opened again
+        await gui.user.should_see("Receptors 1–25 of 61")
+        assert [r["label"] for r in _receptors_table(gui).rows][1] == "DISC0"
+
+
 class TestEntryPoints:
     def test_main_calls_build_and_run(self, monkeypatch):
         from pyaermod import gui_v2

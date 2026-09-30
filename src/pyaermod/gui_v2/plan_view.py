@@ -37,6 +37,12 @@ MAX_LABELS = 40
 
 _WIDTH = 640.0
 _MARGIN_LEFT = 64.0
+#: Left of the y tick labels: the rotated "y (m)" title and a gap.
+_Y_TITLE_BAND = 34.0
+#: Widths of a tick label's characters at the 22 px a phone draws them with
+#: (sans-serif; measured in Chromium), so the margin fits the longest label.
+_CHAR_WIDTH = {"-": 7.4, ".": 6.2}
+_DIGIT_WIDTH = 12.3
 _MARGIN_RIGHT = 16.0
 _MARGIN_TOP = 28.0
 _MARGIN_BOTTOM = 44.0
@@ -71,14 +77,33 @@ def _fmt(value: float) -> str:
     return f"{value:.1f}".rstrip("0").rstrip(".")
 
 
-def _tick_label(value: float) -> str:
-    return f"{value:g}" if abs(value) < 1e6 else f"{value:.3g}"
+def _tick_label(value: float, step: float) -> str:
+    """A tick in whole metres, or with as many decimals as ``step`` needs.
+
+    Every tick gets all its digits, so neighbouring ticks never read alike
+    (UTM northings such as 4699500 and 4700000 included).
+    """
+    decimals = max(0, -math.floor(math.log10(step))) if step > 0 else 0
+    text = f"{value:.{decimals}f}"
+    return "0" if float(text) == 0 else text
+
+
+def _tick_labels(lo: float, hi: float) -> List[Tuple[float, str]]:
+    step = nice_step(hi - lo)
+    return [(value, _tick_label(value, step)) for value in _ticks(lo, hi)]
+
+
+def _left_margin(labels: Iterable[str]) -> float:
+    """The left margin that holds the widest y label beside the axis title."""
+    widest = max((sum(_CHAR_WIDTH.get(c, _DIGIT_WIDTH) for c in label) for label in labels),
+                 default=0.0)
+    return max(_MARGIN_LEFT, _Y_TITLE_BAND + widest)
 
 
 class _Frame:
     """Maps model coordinates to the SVG's, with one scale for x and y."""
 
-    def __init__(self, points: Sequence[Point]):
+    def __init__(self, points: Sequence[Point], left: float = _MARGIN_LEFT):
         xs = [p[0] for p in points] or [0.0]
         ys = [p[1] for p in points] or [0.0]
         xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
@@ -91,14 +116,15 @@ class _Frame:
         half_y = max(ymax - ymin, span * 0.25) / 2 + pad
         self.x0, self.x1 = cx - half_x, cx + half_x
         self.y0, self.y1 = cy - half_y, cy + half_y
-        plot_w = _WIDTH - _MARGIN_LEFT - _MARGIN_RIGHT
+        self.left = left
+        plot_w = _WIDTH - left - _MARGIN_RIGHT
         self.scale = plot_w / (self.x1 - self.x0)
         plot_h = (self.y1 - self.y0) * self.scale
         self.height = plot_h + _MARGIN_TOP + _MARGIN_BOTTOM
         self.bottom = _MARGIN_TOP + plot_h
 
     def px(self, x: float, y: float) -> Tuple[str, str]:
-        return (_fmt(_MARGIN_LEFT + (x - self.x0) * self.scale),
+        return (_fmt(self.left + (x - self.x0) * self.scale),
                 _fmt(self.bottom - (y - self.y0) * self.scale))
 
 
@@ -154,6 +180,12 @@ def plan_view_svg(project: Any) -> str:
     for _, _, pts in receptors:
         every_point.extend(pts)
     frame = _Frame(every_point)
+    # Widen the left margin for long y labels (UTM northings have 7 digits).
+    # The labels depend on the frame only through its y range, which the
+    # margin barely moves, so a second frame is enough.
+    left = _left_margin(t for _, t in _tick_labels(frame.y0, frame.y1))
+    if left > _MARGIN_LEFT:
+        frame = _Frame(every_point, left=left)
     summary = _summary(len(footprints), receptor_count)
 
     out: List[str] = [
@@ -217,22 +249,22 @@ def plan_view_svg(project: Any) -> str:
 
 
 def _axes(frame: _Frame) -> Iterable[str]:
-    left, right = _MARGIN_LEFT, _WIDTH - _MARGIN_RIGHT
+    left, right = frame.left, _WIDTH - _MARGIN_RIGHT
     top, bottom = _MARGIN_TOP, frame.bottom
     yield (f'<rect x="{_fmt(left)}" y="{_fmt(top)}" width="{_fmt(right - left)}" '
            f'height="{_fmt(bottom - top)}" fill="white" stroke="{AXIS_COLOUR}"/>')
-    for value in _ticks(frame.x0, frame.x1):
+    for value, label in _tick_labels(frame.x0, frame.x1):
         x, _ = frame.px(value, frame.y0)
         yield (f'<line x1="{x}" y1="{_fmt(top)}" x2="{x}" y2="{_fmt(bottom)}" '
                f'stroke="{GRID_COLOUR}"/>')
         yield (f'<text x="{x}" y="{_fmt(bottom + 16)}" fill="{AXIS_COLOUR}" '
-               f'text-anchor="middle">{_tick_label(value)}</text>')
-    for value in _ticks(frame.y0, frame.y1):
+               f'text-anchor="middle">{label}</text>')
+    for value, label in _tick_labels(frame.y0, frame.y1):
         _, y = frame.px(frame.x0, value)
         yield (f'<line x1="{_fmt(left)}" y1="{y}" x2="{_fmt(right)}" y2="{y}" '
                f'stroke="{GRID_COLOUR}"/>')
         yield (f'<text x="{_fmt(left - 6)}" y="{_fmt(float(y) + 4)}" fill="{AXIS_COLOUR}" '
-               f'text-anchor="end">{_tick_label(value)}</text>')
+               f'text-anchor="end">{label}</text>')
     yield (f'<text x="{_fmt((left + right) / 2)}" y="{_fmt(bottom + 36)}" fill="{AXIS_COLOUR}" '
            f'text-anchor="middle">x (m)</text>')
     yield (f'<text x="14" y="{_fmt((top + bottom) / 2)}" fill="{AXIS_COLOUR}" '
@@ -240,7 +272,7 @@ def _axes(frame: _Frame) -> Iterable[str]:
 
 
 def _legend(frame: _Frame, summary: str, anything: bool) -> Iterable[str]:
-    left = _MARGIN_LEFT
+    left = frame.left
     if not anything:
         yield (f'<text x="{_fmt(_WIDTH / 2)}" y="{_fmt((_MARGIN_TOP + frame.bottom) / 2)}" '
                f'fill="{AXIS_COLOUR}" text-anchor="middle">{escape(summary)}</text>')

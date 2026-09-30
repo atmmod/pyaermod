@@ -129,7 +129,7 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
     from .sources import ROW_ACTIONS_SLOT, editor_body
 
     del goto
-    pager = Pager()
+    pager = Pager(session=session)
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
         with dialogs, ui.dialog().mark("editor-dialog") as dialog, \

@@ -236,7 +236,7 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
     from nicegui import ui
 
     del goto
-    pager = Pager()
+    pager = Pager(session=session)
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
         with dialogs, ui.dialog().mark("editor-dialog") as dialog, \

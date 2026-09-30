@@ -87,3 +87,35 @@ def test_ten_thousand_receptors_are_quick_and_bounded():
     assert time.perf_counter() - start < 1.0
     assert "10000 discrete receptors" in svg
     assert len(re.findall(r"M[-\d.]+ [-\d.]+h0", svg)) == 10_000 <= MAX_POINTS
+
+
+def _tick_texts(root):
+    """The x and y tick labels, told apart by their text-anchor."""
+    texts = [t for t in root.iter(f"{SVG}text") if t.get("fill") == "#616161"
+             and t.get("class") != "summary" and "(m)" not in t.text]
+    return ([t.text for t in texts if t.get("text-anchor") == "middle"],
+            [t.text for t in texts if t.get("text-anchor") == "end"])
+
+
+def test_utm_coordinates_get_every_digit_and_the_room_for_them():
+    """UTM northings are above 1e6: every tick keeps its digits, so no two read alike."""
+    project = _empty_project()
+    project.sources.sources.append(PointSource("STACK1", 600500.0, 4700500.0))
+    project.receptors.cartesian_grids.append(CartesianGrid(
+        grid_name="UTM", x_init=599500.0, y_init=4699500.0, x_num=21, y_num=21,
+        x_delta=100.0, y_delta=100.0))
+    root = ET.fromstring(plan_view_svg(project))
+    xs, ys = _tick_texts(root)
+    assert len(ys) >= 3 and len(set(ys)) == len(ys), ys
+    assert all(re.fullmatch(r"4\d{6}", y) for y in ys), ys
+    assert "4700000" in ys and "600000" in xs
+    # The left margin grows with the labels: the plot's frame starts further right.
+    frame = next(r for r in root.iter(f"{SVG}rect"))
+    assert float(frame.get("x")) > 64.0
+
+
+def test_small_spans_keep_their_decimals():
+    project = _empty_project()
+    project.sources.sources += [PointSource("A", 0.0, 0.0), PointSource("B", 3.0, 2.0)]
+    xs, ys = _tick_texts(ET.fromstring(plan_view_svg(project)))
+    assert "0.5" in xs + ys and len(set(xs)) == len(xs) and "0" in xs
