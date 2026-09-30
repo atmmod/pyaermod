@@ -1,0 +1,44 @@
+CO STARTING
+   TITLEONE  run_design test extras
+   MODELOPT  CONC DDEP FLAT
+   AVERTIME  1 PERIOD
+   POLLUTID  OTHER
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  PIT      OPENPIT    -300.0000    -200.0000     0.00
+   SRCPARAM  PIT        0.000010     0.00   600.00   400.00  24000000.00
+   PARTDIAM  PIT      10
+   MASSFRAX  PIT      1.000000
+   PARTDENS  PIT      1
+** Lines kept verbatim from the source deck; pyaermod has no model for them.
+   HOUREMIS  houremis.dat  PIT
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  POL      STA
+   GRIDPOLR  POL      ORIG        0.00       0.00
+   GRIDPOLR  POL      DIST  1000  2000
+   GRIDPOLR  POL      GDIR  36  10  10
+   GRIDPOLR  POL      END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  1-2
+   PLOTFILE  PERIOD  ALL  pit.plt
+   PLOTFILE  1  ALL  FIRST  pit_1h.plt
+   POSTFILE  PERIOD  ALL  PLOT  pit_per.pst
+** Lines kept verbatim from the source deck; pyaermod has no model for them.
+   POSTFILE  1  ALL  UNFORM  pit_1h.bin
+   PLOTFILE  1  ALL  2ND  pit_1h_2nd.plt
+OU FINISHED

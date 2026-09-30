@@ -395,9 +395,10 @@ class TestBatchExceptionHandling:
                 ["a.inp", "b.inp"], n_workers=1, stop_on_error=True
             )
 
-        # Should have stopped after first exception
-        assert len(results) == 1
-        assert not results[0].success
+        # Stopped after the first exception; the second run, already
+        # finished, still gets its place in the list
+        assert [r.error_message for r in results] == ["Crash 1", "Crash 2"]
+        assert not any(r.success for r in results)
 
 
 # ============================================================================
@@ -427,21 +428,22 @@ class TestRunnerPathSearch:
         inp = tmp_path / "test.inp"
         inp.write_text("CO STARTING\nCO FINISHED")
 
-        # Create the output file that AERMOD would produce, under the name
-        # AERMOD gives it (the runner renames it test.out): that of a real,
-        # successful run (tests/fixtures/runner/README.md)
-        out_file = tmp_path / "aermod.out"
+        # The mocked AERMOD writes aermod.out during the run, as the real
+        # binary does, with the .out of a real, successful run
+        # (tests/fixtures/runner/README.md). A test.out placed before the
+        # run would be an earlier run's, which run() removes first.
         success_out = Path(__file__).parent / "fixtures" / "runner" / "success" / "aermod.out"
-        out_file.write_bytes(success_out.read_bytes())
+
+        def _aermod(args, cwd, **kwargs):
+            (Path(cwd) / "aermod.out").write_bytes(success_out.read_bytes())
+            return CompletedProcess(args=args, returncode=0, stdout="", stderr="")
 
         runner = AERMODRunner(executable_path=str(fake_exe), log_level="DEBUG")
-        with patch("pyaermod.runner.subprocess.run") as mock_run:
-            mock_run.return_value = CompletedProcess(
-                args=[], returncode=0, stdout="", stderr=""
-            )
+        with patch("pyaermod.runner.subprocess.run", side_effect=_aermod):
             result = runner.run(str(inp), working_dir=str(tmp_path))
 
         assert result.success
+        assert result.output_file == str(tmp_path / "test.out")
 
 
 class TestValidateInputErrorReading:

@@ -133,7 +133,7 @@ def test_a_crashed_run_does_not_claim_an_earlier_runs_out_file(fake, tmp_path, b
     assert result.output_file is None
     assert result.messages == [] and result.message_counts == {}
     assert result.error_message.startswith(
-        "AERMOD was stopped by signal 11 (SIGSEGV) before writing deck.out")
+        "AERMOD was stopped by SIGSEGV (signal 11) before it finished, and wrote no deck.out")
     assert "E480" not in result.error_message
 
 
@@ -170,7 +170,8 @@ def test_a_run_past_its_timeout_is_killed(tmp_path):
     run = runner.start(_deck(tmp_path), timeout=0.3)
     result = run.wait(10)
     assert result.success is False and not result.cancelled
-    assert result.error_message == "Execution timed out after 0.3 seconds"
+    assert result.error_message == (
+        "Execution timed out after 0.3 seconds; AERMOD was stopped before it finished")
     assert not process_running(run.pid)
 
 

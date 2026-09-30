@@ -48,6 +48,7 @@ from .aermet import (
     AERMETStage2,
     AERMETStage3,
     AERMETStation,
+    OnsiteData,
     ProfileFileHeader,
     SurfaceFileHeader,
     UpperAirStation,
@@ -56,8 +57,11 @@ from .aermet import (
     write_aermet_runfile,
 )
 from .aermet_runner import (
+    AERMETMessage,
     AERMETRunner,
     AERMETRunResult,
+    parse_aermet_messages,
+    read_aermet_messages,
     run_aermet_pipeline,
 )
 from .aermod_outputs import (
@@ -116,6 +120,18 @@ from .design_values import (
     read_mxdybyyr,
     so2_1hr_design_value,
 )
+from .ensemble import (
+    DesignResult,
+    DesignRun,
+    EnsembleManifest,
+    EnsembleManifestEntry,
+    canonical_json,
+    collect_plotfiles,
+    rewrite_output_names,
+    run_design,
+    run_id,
+)
+from .hourly_emissions import WindEmissionProfile, ap42_wind_profile, write_hourly_emissions
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -139,6 +155,7 @@ from .input_generator import (
     EventPeriod,
     GasDepositionDefaults,
     GasDepositionParams,
+    HourlyEmissionFile,
     InitFile,
     LineSource,
     MaxDailyContribution,
@@ -255,6 +272,7 @@ from .runner import (
     AERMODRunner,
     AERMODRunResult,
     BatchRunner,
+    SweepResults,
     parse_aermod_messages,
     run_aermod,
 )
@@ -351,6 +369,7 @@ __all__ = [
     "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea", "UnparsedLine",
     "EmissionUnits", "SolidBarrier", "SolidBarrierSegment", "VegetativeBarrier",
     "ScimOptions", "RankFile", "SeasonHourFile", "EvalFile", "ToxxFile",
+    "HourlyEmissionFile", "WindEmissionProfile", "ap42_wind_profile", "write_hourly_emissions",
     # validation
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution
@@ -359,7 +378,10 @@ __all__ = [
     "ProgressReporter", "NoOpProgress", "LoggingProgress", "TqdmProgress",
     "ERRMSGInfo", "RunManifestEntry",
     "extract_errmsg", "tail_output", "summarize_failure",
-    "resume_batch", "RunManifest", "generate_slurm_script",
+    "resume_batch", "RunManifest", "generate_slurm_script", "SweepResults",
+    "run_design", "collect_plotfiles", "run_id", "canonical_json",
+    "rewrite_output_names", "DesignResult", "DesignRun",
+    "EnsembleManifest", "EnsembleManifestEntry",
     # outputs
     "AERMODResults", "ModelRunInfo", "ConcentrationResult", "AERMODOutputParser",
     "ReceptorInfo", "SourceSummary", "parse_aermod_output", "quick_summary",
@@ -375,6 +397,7 @@ __all__ = [
     "AERMETStage3", "SurfaceFileHeader", "ProfileFileHeader",
     "write_aermet_runfile", "read_surface_file", "read_profile_file",
     "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
+    "OnsiteData", "AERMETMessage", "parse_aermet_messages", "read_aermet_messages",
     "AERSURFACEConfig", "AERSURFACERunner", "AERSURFACERunResult",
     "AERSCREENConfig", "AERSCREENSourceType", "AERSCREENRunner",
     "AERSCREENRunResult", "AERSCREENSummary", "AERSCREENImpact",

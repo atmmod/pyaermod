@@ -1,0 +1,121 @@
+** AERMAP - VERSION 24142                                              09/29/26
+**                                                                     19:31:05
+
+** AERMAP Input File
+** pyaermod AERMAP runner recording
+**
+
+CO STARTING
+   TITLEONE  pyaermod AERMAP runner recording
+   DATATYPE  DEM
+   DATAFILE  synth.dem
+   DOMAINXY  499000.00 3999000.00 13 501600.00 4001600.00 13
+   ANCHORXY  500000.00 4000000.00 500000.00 4000000.00 13 1
+   TERRHGTS  EXTRACT
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  STACK1       POINT      500200.00   4000300.00
+SO FINISHED
+
+RE STARTING
+   DISCCART     500100.00   4000100.00
+   GRIDCART  GRID     STA
+   GRIDCART  GRID     XYINC     500100.00     3     100.00    4000200.00     2     100.00
+   GRIDCART  GRID     END
+RE FINISHED
+
+OU STARTING
+   RECEPTOR  aermap_receptors.out
+   SOURCLOC  aermap_sources.out
+OU FINISHED
+
+ Exiting DEMCHK
+  
+ Finished Reading Input DEM Data
+  
+ Exiting CHKADJ
+ Exiting DOMCNV
+ Exiting RECCNV
+ Exiting SRCCNV
+ Exiting CHKEXT
+ Exiting DEMREC
+ Exiting DEMSRC
+ *** AERMAP - VERSION 24142 ***    ***  pyaermod AERMAP runner recording                                    ***        09/29/26
+                                   ***                                                                      ***        19:31:05
+
+
+  *** Message Summary For AERMAP Setup ***
+
+ --------- Summary of Total Messages --------
+  
+ A Total of          4 Fatal Error Message(s)
+ A Total of          0 Warning Message(s)
+ A Total of          0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              1
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              2
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              3
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              4
+  
+    ********   WARNING MESSAGES   ******** 
+               ***  NONE  ***        
+  
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMAP - VERSION 24142 ***    ***  pyaermod AERMAP runner recording                                    ***        09/29/26
+                                   ***                                                                      ***        19:31:05
+
+
+                                            ***     AERMAP SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  
+ **This Run Includes:       1  DEM File(s)
+  
+ **This Run Includes:       7  Receptor(s); and        1  Source(s)
+  
+ **The Input Receptors and Sources Were Assigned a NADA Value of  1:  North American Datum of 1927            
+
+ **The Input Receptors and Sources Are Offset:        0.00 meters East;         0.00 meters North
+      from the User-specified Anchor Point at:   500000.00 meters East;   4000000.00 meters North;  Zone  13
+  
+ **Terrain heights were EXTRACTed from DEM data
+  
+ **The Following Debug Output Files Have Been Automatically Generated:
+
+   DOMDETAIL.OUT - Details of User-specified Domain and Relation to DEM Files
+   MAPDETAIL.OUT - Details Regarding Input DEM Files
+   MAPPARAMS.OUT - Summary of DEM File Parameters and DEM File Adjacency
+ *** AERMAP - VERSION 24142 ***    ***  pyaermod AERMAP runner recording                                    ***        09/29/26
+                                   ***                                                                      ***        19:31:05
+
+ *** Message Summary For AERMAP Execution ***
+
+ --------- Summary of Total Messages --------
+  
+ A Total of          4 Fatal Error Message(s)
+ A Total of          0 Warning Message(s)
+ A Total of          0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              1
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              2
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              3
+ OU E310      29 CHKEXT:Domain Coordinate is NOT Inside a DEM File. Pt.=              4
+  
+    ********   WARNING MESSAGES   ******** 
+               ***  NONE  ***        
+  
+
+    ***************************************
+    *** AERMAP Finishes UN-successfully ***
+    ***************************************
+

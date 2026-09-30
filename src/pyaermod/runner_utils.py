@@ -20,11 +20,12 @@ import json
 import logging
 import os
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Sequence, Union
+from typing import Any, ClassVar, Dict, List, NamedTuple, Optional, Protocol, Sequence, Type, TypeVar, Union
 
 from ._optional import optional_import, require
+from .runner import _read_message_summary, _severity_count
 
 _tqdm_mod = optional_import("tqdm")
 HAS_TQDM = _tqdm_mod is not None
@@ -169,15 +170,129 @@ class TqdmProgress:
 # Resume / skip-completed
 # ---------------------------------------------------------------------------
 
-def _output_is_valid(out_path: Path) -> bool:
-    """Heuristic: treat an .OUT file as valid if it exists AND ends
-    with the 'AERMOD Finishes Successfully' marker."""
+# AERMOD reads each runstream record into a CHARACTER*ISTRG buffer (ISTRG
+# = 512 in modules.f), so a longer line is cut there, echo included.
+_RUNSTREAM_RECORD_LEN = 512
+_PATHWAYS = ("CO", "SO", "RE", "ME", "OU", "**")
+
+
+class _RunstreamEcho(NamedTuple):
+    lines: Optional[List[str]]  # None after NO ECHO: AERMOD stops echoing
+    included: List[str]         # files named on INCLUDED records
+
+
+def _runstream_echo(deck_text: str) -> _RunstreamEcho:
+    """The lines AERMOD echoes at the top of the ``.out`` for this deck.
+
+    Mirrors ``SETUP`` in AERMOD's setup.f (v26135): every record up to
+    and including ``OU FINISHED`` is written back with trailing blanks
+    trimmed, a blank record as an empty line, and the ``OU FINISHED``
+    record only up to column 10 + its start column, so a trailing
+    comment on it is dropped. The pathway and keyword fields sit at
+    fixed columns, set by where the first record starts (a shift of up
+    to 3 columns is allowed), and a record with a blank pathway field
+    continues the previous pathway.
+
+    ``NO ECHO`` turns the echo off, so ``lines`` is then None. The
+    records of an ``INCLUDED`` file are never echoed (``INCLUD`` reads
+    them without writing them), so the echo shows only the
+    ``INCLUDED`` record; ``included`` names those files.
+    """
+    lines = deck_text.splitlines()
+    first = lines[0][:_RUNSTREAM_RECORD_LEN] if lines else ""
+    start = next((i for i in range(4) if first[i:i + 1].strip(" ")), 0)
+    echo: Optional[List[str]] = []
+    included: List[str] = []
+    previous_path = ""
+    for line in lines:
+        record = line[:_RUNSTREAM_RECORD_LEN]
+        if not record.strip(" "):
+            if echo is not None:
+                echo.append("")
+            continue
+        upper = record.upper()
+        field1 = upper[start:start + 2].strip(" ")
+        field2 = upper[start + 3:start + 11].strip(" ")
+        if echo is not None:
+            if (field1, field2) == ("OU", "FINISHED"):
+                echo.append(record[:start + 11].rstrip())
+            else:
+                echo.append(record.rstrip())
+        if (field1, field2) == ("NO", "ECHO"):
+            echo = None
+            continue
+        if field1 == "**":
+            continue
+        if field2 == "INCLUDED":
+            rest = record[start + 11:].strip()
+            name = rest[1:].split('"', 1)[0] if rest.startswith('"') else rest.split(" ", 1)[0]
+            if name:
+                included.append(name)
+        path = field1 if field1 in _PATHWAYS else previous_path
+        if path == "OU" and field2 == "FINISHED":
+            break
+        previous_path = path
+    return _RunstreamEcho(echo, included)
+
+
+def _out_echoes_deck(out_path: Path, echo: Sequence[str]) -> bool:
+    """Whether ``out_path`` opens with exactly the runstream echo ``echo``."""
+    with open(out_path, encoding="utf-8", errors="replace") as fh:
+        for expected in echo:
+            line = fh.readline()
+            if not line or line.rstrip() != expected.rstrip():
+                return False
+    return True
+
+
+def _output_is_valid(out_path: Path, input_path: Optional[Path] = None) -> bool:
+    """Whether ``out_path`` records a finished, successful run of ``input_path``.
+
+    The test is the runner's own (``AERMODRunner.run``): the final
+    message summary ends with ``*** AERMOD Finishes Successfully ***``
+    and lists no fatal error. Searching the end of the file for
+    "FINISHES SUCCESSFULLY", as this check used to, also accepts
+    ``*** SETUP Finishes Successfully ***``, which AERMOD prints before
+    every run that gets past setup, including runs that fail or are
+    killed afterwards.
+
+    When ``input_path`` is given and exists, the ``.out`` must also come
+    from this version of the deck. AERMOD copies the runstream to the
+    top of the ``.out``, so the ``.out`` is current when that copy
+    matches the deck's text, whatever the two files' modification times
+    say: a deck written again with the same content still counts as
+    done, and an edited deck does not. Two things the copy cannot show
+    fall back to modification times, and an ``.out`` older than them is
+    stale: a deck with ``NO ECHO``, after which AERMOD copies nothing,
+    and the files a deck names on ``INCLUDED`` records (found relative
+    to the deck's directory), whose records AERMOD never copies.
+    """
     if not out_path.exists() or out_path.stat().st_size == 0:
         return False
-    # Read the tail
-    tail = tail_output(out_path, n_lines=50)
-    joined = "\n".join(tail).upper()
-    return "FINISHES SUCCESSFULLY" in joined or "RUN SUCCESSFULLY" in joined
+    if input_path is not None and input_path.exists():
+        try:
+            echo = _runstream_echo(
+                input_path.read_text(encoding="utf-8", errors="replace"))
+            out_time = out_path.stat().st_mtime
+            if echo.lines is None:
+                if out_time < input_path.stat().st_mtime:
+                    return False
+            elif not _out_echoes_deck(out_path, echo.lines):
+                return False
+            for name in echo.included:
+                inc = input_path.parent / name
+                if inc.exists() and out_time < inc.stat().st_mtime:
+                    return False
+        except OSError:
+            return False
+    try:
+        summary = _read_message_summary(out_path)
+    except OSError:
+        return False
+    return (
+        summary.finished_successfully
+        and _severity_count(summary.messages, summary.counts, "E") == 0
+    )
 
 
 def resume_batch(
@@ -186,8 +301,22 @@ def resume_batch(
 ) -> Dict[str, List[Path]]:
     """Partition `input_files` into 'done' and 'todo' lists.
 
-    An input is 'done' if a sibling `.out` in `output_dir` has the
-    AERMOD success marker.
+    An input is 'done' when its ``<stem>.out`` in `output_dir` records a
+    successful run by the rule ``AERMODRunner.run`` applies (AERMOD's
+    ``*** AERMOD Finishes Successfully ***`` line and no fatal errors in
+    its final message summary), and that ``.out`` came from the deck as
+    it is now: the runstream AERMOD copies to the top of the ``.out``
+    must match the deck's text. Everything else is 'todo': no ``.out``,
+    a run that failed or was cut off (killed, timed out), and an
+    ``.out`` from before the deck was edited.
+
+    Because the check reads content, a script may write every deck again
+    before it resumes: a deck rewritten with the same text stays 'done',
+    whatever the file times say. File times decide only what the copy
+    cannot show. A deck with ``NO ECHO`` is 'todo' when it is newer than
+    its ``.out``, and so is a deck whose ``INCLUDED`` file (looked up
+    relative to the deck's directory) is newer than its ``.out``. The
+    met files and other inputs a deck names are not checked.
     """
     out_dir = Path(output_dir)
     done: List[Path] = []
@@ -195,7 +324,7 @@ def resume_batch(
     for inp in input_files:
         inp_path = Path(inp)
         out_path = out_dir / f"{inp_path.stem}.out"
-        (done if _output_is_valid(out_path) else todo).append(inp_path)
+        (done if _output_is_valid(out_path, inp_path) else todo).append(inp_path)
     return {"done": done, "todo": todo}
 
 
@@ -211,6 +340,9 @@ class RunManifestEntry:
     error_message: Optional[str] = None
 
 
+_Manifest = TypeVar("_Manifest", bound="RunManifest")
+
+
 @dataclass
 class RunManifest:
     """Tracks a batch's per-run state in a JSON file.
@@ -218,30 +350,46 @@ class RunManifest:
     Use-cases:
     - Persist partial batch progress across restarts
     - Post-hoc inspection of which inputs succeeded / failed
+
+    A subclass can store richer entries by setting ``entry_type`` to a
+    subclass of :class:`RunManifestEntry`, as
+    :class:`pyaermod.ensemble.EnsembleManifest` does. ``load`` builds
+    entries of that type and ignores keys it does not know, so a file
+    written with more fields still loads. ``save`` replaces the file in
+    one step, so a process killed while saving leaves the previous file
+    whole.
     """
     path: Path
     entries: Dict[str, RunManifestEntry] = field(default_factory=dict)
 
+    entry_type: ClassVar[Type[RunManifestEntry]] = RunManifestEntry
+
     @classmethod
-    def load(cls, path: Union[str, Path]) -> RunManifest:
+    def load(cls: Type[_Manifest], path: Union[str, Path]) -> _Manifest:
         p = Path(path)
         if not p.exists():
             return cls(path=p)
         data = json.loads(p.read_text(encoding="utf-8"))
+        known = {f.name for f in fields(cls.entry_type)}
         return cls(
             path=p,
-            entries={k: RunManifestEntry(**v) for k, v in data.items()},
+            entries={
+                k: cls.entry_type(**{n: x for n, x in v.items() if n in known})
+                for k, v in data.items()
+            },
         )
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(
             json.dumps({k: asdict(v) for k, v in self.entries.items()}, indent=2),
             encoding="utf-8",
         )
+        os.replace(tmp, self.path)
 
     def mark(self, input_file: str, status: str, **kw: Any) -> None:
-        e = self.entries.get(input_file) or RunManifestEntry(input_file=input_file)
+        e = self.entries.get(input_file) or self.entry_type(input_file=input_file)
         e.status = status
         for k, v in kw.items():
             setattr(e, k, v)

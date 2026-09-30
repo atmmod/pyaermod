@@ -250,7 +250,8 @@ class TestAERMAPOutputParser:
 
         df = AERMAPOutputParser.parse_receptor_output(output_file)
         assert len(df) == 3
-        assert list(df.columns) == ["x", "y", "zelev", "zhill"]
+        assert list(df.columns) == ["x", "y", "zelev", "zhill", "network", "row", "col"]
+        assert df["network"].isna().all()
         assert df.iloc[0]["x"] == pytest.approx(500000.0)
         assert df.iloc[0]["zelev"] == pytest.approx(125.3)
         assert df.iloc[1]["zhill"] == pytest.approx(155.8)
@@ -365,7 +366,7 @@ class TestTerrainProcessor:
         assert len(aermap.dem_files) == 2
         assert len(aermap.sources) == 1
         assert aermap.sources[0].source_id == "STK1"
-        assert aermap.grid_receptor is True
+        assert len(aermap.grids) == 1
         assert len(aermap.receptors) == 1  # 1 discrete
 
     def test_create_aermap_project_generates_valid_input(self, simple_aermod_project):

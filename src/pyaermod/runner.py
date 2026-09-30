@@ -7,6 +7,7 @@ and batch processing capabilities.
 
 import atexit
 import contextlib
+import hashlib
 import logging
 import os
 import platform
@@ -17,6 +18,7 @@ import subprocess
 import threading
 import time
 import weakref
+from collections.abc import ItemsView, Mapping, ValuesView
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -71,6 +73,16 @@ _MESSAGE_LINE = re.compile(
 # errors and 999 warnings of about 95 bytes each, so a 1 MB tail always
 # contains it when the run got as far as writing the final summary.
 _SUMMARY_TAIL_BYTES = 1_000_000
+
+# The files AERMOD writes as aermod.out, aermod.err and aermod.sum, which
+# the runner renames after the deck: <stem>.out, <stem>.err, <stem>.sum.
+_OUTPUT_SUFFIXES = {"output": ".out", "error": ".err", "summary": ".sum"}
+
+# Where symbolic links fail (Windows without the privilege), the runner
+# copies the deck to aermod.inp instead. This file, beside the copy,
+# holds the copy's SHA-256, so that a copy left behind when the Python
+# process was killed is known as the runner's, not taken for a deck.
+_COPY_MARKER = ".pyaermod-aermod-inp.sha256"
 
 
 @dataclass(frozen=True)
@@ -361,6 +373,16 @@ class AERMODRunner:
 
         Returns:
             AERMODRunResult with execution details and file paths
+
+        AERMOD reads ``<working_dir>/aermod.inp``. The runner links the
+        deck to that name for the run and renames ``aermod.out``,
+        ``.err`` and ``.sum`` after the deck. A deck that is already
+        ``aermod.inp``, or that ``aermod.inp`` links to, runs in place.
+        When ``aermod.inp`` is another deck, the run fails without
+        starting AERMOD, so that deck and its ``aermod.out`` are kept.
+        Where links cannot be made, the deck is copied to ``aermod.inp``
+        instead; a copy the runner left behind (its process killed
+        mid-run) is replaced, not taken for another deck.
         """
         input_path = Path(input_file).resolve()
 
@@ -379,7 +401,9 @@ class AERMODRunner:
         self.logger.debug(f"  Working dir: {work_dir}")
         self.logger.debug(f"  Timeout: {timeout}s")
 
-        lock_fh, aermod_inp = self._stage(input_path, work_dir)
+        staged = self._stage(input_path, work_dir)
+        if isinstance(staged, AERMODRunResult):
+            return staged
 
         start_time = datetime.now()
 
@@ -430,7 +454,8 @@ class AERMODRunner:
                                  capture_output=capture_output)
 
         except subprocess.TimeoutExpired:
-            return self._timed_out(input_path, start_time, timeout)
+            # subprocess.run has killed AERMOD.
+            return self._timed_out(input_path, work_dir, start_time, timeout)
 
         except Exception as e:
             end_time = datetime.now()
@@ -453,7 +478,7 @@ class AERMODRunner:
                 if fh is not None:
                     with contextlib.suppress(Exception):
                         fh.close()
-            self._unstage(lock_fh, aermod_inp)
+            self._unstage(staged)
 
     def start(self,
               input_file: Union[str, Path],
@@ -502,7 +527,7 @@ class AERMODRunner:
         work_dir.mkdir(parents=True, exist_ok=True)
         return work_dir
 
-    def _stage(self, input_path: Path, work_dir: Path) -> Tuple[Any, Path]:
+    def _stage(self, input_path: Path, work_dir: Path) -> Union["_Staged", AERMODRunResult]:
         """Lock ``work_dir`` and point its ``aermod.inp`` at the deck.
 
         AERMOD reads from a fixed filename (aermod.inp) in its working
@@ -513,51 +538,87 @@ class AERMODRunner:
         clobber each other's symlinks + outputs, so this first acquires an
         exclusive lock on a sentinel file (blocking until it is free).
         :meth:`_unstage` releases it.
+
+        Returns the :class:`_Staged` run, or a failed :class:`AERMODRunResult`
+        (the lock already released) when ``aermod.inp`` is another deck.
         """
         lock_path = work_dir / ".pyaermod.lock"
         lock_fh = _acquire_dir_lock(lock_path)
 
-        # Create symlink: aermod.inp -> <input_name>.inp
+        # AERMOD reads <work_dir>/aermod.inp. It is in place when it is
+        # this deck, or a link to it: run it as it is and leave it there.
+        # A regular file named aermod.inp that is another deck (EPA's
+        # default name, as in a base case beside its variants) must not
+        # be replaced, and the aermod.out this run would write, then
+        # rename, may be that deck's results. Refuse before touching
+        # anything. A link to another file is one this runner left or
+        # one it can re-create, so it is replaced, and so is a copy this
+        # runner made (see _is_runner_copy).
         aermod_inp = work_dir / "aermod.inp"
-        try:
-            if aermod_inp.exists() or aermod_inp.is_symlink():
-                aermod_inp.unlink()
-            aermod_inp.symlink_to(input_path.name)
-        except OSError:
-            # Fallback: copy the file
-            import shutil
-            shutil.copy2(str(input_path), str(aermod_inp))
-        return lock_fh, aermod_inp
+        copy_marker = work_dir / _COPY_MARKER
+        in_place = aermod_inp.exists() and aermod_inp.samefile(input_path)
+        if (not in_place and aermod_inp.exists() and not aermod_inp.is_symlink()
+                and not _is_runner_copy(aermod_inp, copy_marker)):
+            _release_dir_lock(lock_fh)
+            return AERMODRunResult(
+                success=False,
+                input_file=str(input_path),
+                error_message=(
+                    f"The working directory {work_dir} already holds another deck "
+                    "named aermod.inp, the file AERMOD reads; running this deck "
+                    "there would replace it and overwrite its aermod.out. Rename "
+                    "that deck, or give this run a different working_dir"
+                ),
+            )
+
+        # Files left by an earlier run would otherwise stand in for this
+        # one's whenever this run writes none: a timeout before AERMOD
+        # opens aermod.out, a cancel, or a crash. The verdict would then be
+        # read from the old .out, and resume_batch would count the deck
+        # as done. Remove this deck's outputs, and AERMOD's own
+        # aermod.out/.err/.sum, before AERMOD starts.
+        input_name = input_path.stem
+        for suffix in _OUTPUT_SUFFIXES.values():
+            for stale in (work_dir / f"{input_name}{suffix}", work_dir / f"aermod{suffix}"):
+                with contextlib.suppress(FileNotFoundError):
+                    stale.unlink()
+
+        # Create symlink: aermod.inp -> <input_name>.inp, unless the deck
+        # is already in place (see above).
+        if not in_place:
+            try:
+                if aermod_inp.exists() or aermod_inp.is_symlink():
+                    aermod_inp.unlink()
+                aermod_inp.symlink_to(os.path.relpath(input_path, work_dir))
+            except (OSError, ValueError):
+                # Fallback: copy the file (ValueError: relpath across
+                # Windows drives). Mark the copy first, so that one left
+                # by a killed process is still known as the runner's.
+                copy_marker.write_text(_sha256(input_path) + "\n")
+                shutil.copy2(str(input_path), str(aermod_inp))
+        return _Staged(lock_fh, aermod_inp, copy_marker, in_place)
 
     @staticmethod
-    def _unstage(lock_fh: Any, aermod_inp: Path) -> None:
-        """Remove the ``aermod.inp`` link or copy and release the directory lock."""
-        if aermod_inp.exists() or aermod_inp.is_symlink():
-            with contextlib.suppress(OSError):
-                aermod_inp.unlink()
-        _release_dir_lock(lock_fh)
+    def _unstage(staged: "_Staged") -> None:
+        """Remove the ``aermod.inp`` link or copy and release the directory lock.
+
+        A deck that was already ``aermod.inp`` stays: it is the user's.
+        """
+        if not staged.in_place:
+            for made in (staged.aermod_inp, staged.copy_marker):
+                if made.exists() or made.is_symlink():
+                    with contextlib.suppress(OSError):
+                        made.unlink()
+        _release_dir_lock(staged.lock_fh)
 
     def _collect(self, result: "subprocess.CompletedProcess[str]", input_path: Path,
                  work_dir: Path, start_time: datetime, *, capture_output: bool = True,
                  cancelled: bool = False) -> AERMODRunResult:
         """Rename AERMOD's outputs, read its verdict and build the result."""
         input_name = input_path.stem
-        output_files = {
-            'output': work_dir / f"{input_name}.out",
-            'error': work_dir / f"{input_name}.err",
-            'summary': work_dir / f"{input_name}.sum"
-        }
+        output_files = _output_files(work_dir, input_name)
 
-        # Rename AERMOD's default output files to match the input name
-        written = set()
-        for suffix in ['.out', '.err', '.sum']:
-            aermod_file = work_dir / f"aermod{suffix}"
-            target_file = work_dir / f"{input_name}{suffix}"
-            if aermod_file.exists():
-                if target_file.exists():
-                    target_file.unlink()
-                aermod_file.rename(target_file)
-                written.add(suffix)
+        _rename_aermod_outputs(work_dir, input_name)
 
         end_time = datetime.now()
         runtime = (end_time - start_time).total_seconds()
@@ -565,10 +626,10 @@ class AERMODRunner:
         self.logger.debug(f"AERMOD completed with return code: {result.returncode}")
         self.logger.debug(f"Runtime: {runtime:.2f}s")
 
-        # Check for output files. AERMOD writes aermod.out, renamed above: an
-        # <name>.out left by an earlier run is not this run's, whether this
-        # one was cancelled or crashed before writing any.
-        has_output = '.out' in written and output_files['output'].exists()
+        # Check for output files. _stage removed any an earlier run left,
+        # so an <name>.out is this run's, whether it finished, was
+        # cancelled or crashed.
+        has_output = output_files['output'].exists()
 
         # AERMOD's verdict is in the .out file, not in its exit code,
         # which is 0 even after a fatal error (see the comment above
@@ -630,9 +691,21 @@ class AERMODRunner:
             cancelled=cancelled,
         )
 
-    def _timed_out(self, input_path: Path, start_time: datetime, timeout: float) -> AERMODRunResult:
+    def _timed_out(self, input_path: Path, work_dir: Path, start_time: datetime,
+                   timeout: float) -> AERMODRunResult:
+        """The result of a run killed at its timeout.
+
+        What AERMOD wrote is kept under the deck's name, as after any
+        other run: left as aermod.out, it would be taken for the next
+        run's output.
+        """
         end_time = datetime.now()
         runtime = (end_time - start_time).total_seconds()
+
+        input_name = input_path.stem
+        _rename_aermod_outputs(work_dir, input_name)
+        output_files = _output_files(work_dir, input_name)
+        has_output = output_files['output'].exists()
 
         self.logger.error(f"AERMOD execution timed out after {timeout}s")
 
@@ -640,7 +713,13 @@ class AERMODRunner:
             success=False,
             input_file=str(input_path),
             runtime_seconds=runtime,
-            error_message=f"Execution timed out after {timeout} seconds",
+            output_file=str(output_files['output']) if has_output else None,
+            error_file=str(output_files['error']) if output_files['error'].exists() else None,
+            summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
+            error_message=(
+                f"Execution timed out after {timeout} seconds; AERMOD was "
+                "stopped before it finished"
+            ),
             start_time=start_time,
             end_time=end_time
         )
@@ -672,23 +751,25 @@ class AERMODRunner:
                 first += f" (and {len(fatal) - 1} more fatal error(s))"
             parts.append(first)
 
-        parts.extend(self._error_context(result, output_files,
-                                         scan_output=not fatal and wrote_out))
+        # A negative return code is a POSIX signal: AERMOD was stopped
+        # from outside (SIGTERM, SIGKILL, ...) or crashed (SIGSEGV), and
+        # its .out, if it wrote one, simply ends where the run was cut
+        # off, so neither the .out scan nor the missing banner says
+        # anything more.
+        killed = result.returncode is not None and result.returncode < 0
+        if killed:
+            parts.append(_describe_signal(-result.returncode,
+                                          None if wrote_out else out.name))
 
-        if not fatal and finished_successfully is False and wrote_out:
+        parts.extend(self._error_context(
+            result, output_files, scan_output=not fatal and not killed and wrote_out,
+        ))
+
+        if not fatal and not killed and finished_successfully is False and wrote_out:
             parts.append(
                 "AERMOD did not report success: no '*** AERMOD Finishes "
                 f"Successfully ***' line in {out.name}"
             )
-
-        if result.returncode is not None and result.returncode < 0:
-            # Killed by a signal (a crash, or something outside pyaermod).
-            try:
-                name = f" ({signal.Signals(-result.returncode).name})"
-            except ValueError:
-                name = ""
-            before = "" if wrote_out else f" before writing {out.name}"
-            parts.insert(0, f"AERMOD was stopped by signal {-result.returncode}{name}{before}")
 
         if parts:
             return "; ".join(parts)
@@ -755,68 +836,106 @@ class AERMODRunner:
         """
         Run multiple AERMOD simulations in parallel
 
+        The results come back in the order of ``input_files``, whatever
+        order the runs finish in: ``results[i]`` belongs to
+        ``input_files[i]``, and its ``input_file`` is that deck's
+        absolute path.
+
+        The runs happen in worker processes. On macOS and Windows those
+        are started with ``spawn``, which imports the calling script
+        again in every worker, so a script must call ``run_batch`` from
+        under ``if __name__ == "__main__":``. Without the guard each
+        worker stops with Python's "An attempt has been made to start a
+        new process before the current process has finished its
+        bootstrapping phase" and every run comes back failed with "A
+        process in the process pool was terminated abruptly"::
+
+            if __name__ == "__main__":
+                results = runner.run_batch(decks, n_workers=4)
+
         Args:
             input_files: List of input file paths
             n_workers: Number of parallel workers
             timeout: Timeout per run (seconds)
-            stop_on_error: Whether to stop if any run fails
+            stop_on_error: Stop at the first failed run. Runs not yet
+                started are cancelled and runs already started finish.
+                The list still holds one result per deck: a cancelled
+                deck's result has ``success=False`` and the
+                ``error_message`` "Not run: the batch stopped after an
+                earlier run failed".
 
         Returns:
-            List of AERMODRunResult objects
+            List of AERMODRunResult objects, in the order of ``input_files``
         """
         self.logger.info(f"Starting batch run: {len(input_files)} files, {n_workers} workers")
 
-        results = []
-        failed_count = 0
+        # Results are filed by the index of their deck, so the list comes
+        # back in input order however the runs finish.
+        results_by_index: Dict[int, AERMODRunResult] = {}
+
+        def _collect(index: int, future) -> AERMODRunResult:
+            input_file = input_files[index]
+            try:
+                result = future.result()
+            except Exception as e:
+                self.logger.error(f"✗ {input_file}: Exception: {e}")
+                result = AERMODRunResult(
+                    success=False,
+                    input_file=str(Path(input_file).resolve()),
+                    error_message=str(e)
+                )
+            else:
+                if result.success:
+                    self.logger.info(f"✓ {Path(result.input_file).name} ({result.runtime_seconds:.1f}s)")
+                else:
+                    self.logger.error(f"✗ {Path(result.input_file).name}: {result.error_message}")
+            results_by_index[index] = result
+            return result
 
         exe_path = str(self.executable)
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             # Dispatch via a module-level function so workers don't
             # have to pickle `self` (which includes a Logger + Handler
             # that aren't fork-safe under spawn).
-            future_to_file = {
-                executor.submit(_batch_worker, exe_path, str(inp), timeout): inp
-                for inp in input_files
+            future_to_index = {
+                executor.submit(_batch_worker, exe_path, str(inp), timeout): i
+                for i, inp in enumerate(input_files)
             }
 
             # Process completed jobs
-            for future in as_completed(future_to_file):
-                input_file = future_to_file[future]
+            for future in as_completed(future_to_index):
+                result = _collect(future_to_index[future], future)
+                if not result.success and stop_on_error:
+                    self.logger.error("Stopping batch run due to error")
+                    # Cancel the runs not yet started; the ones already
+                    # running finish before the executor shuts down.
+                    for f in future_to_index:
+                        f.cancel()
+                    break
 
-                try:
-                    result = future.result()
-                    results.append(result)
+        # After a stop, file the runs that were running at the time and
+        # mark the cancelled ones, so every deck still has its result.
+        not_run = 0
+        for future, index in future_to_index.items():
+            if index in results_by_index:
+                continue
+            if future.cancelled():
+                not_run += 1
+                results_by_index[index] = AERMODRunResult(
+                    success=False,
+                    input_file=str(Path(input_files[index]).resolve()),
+                    error_message="Not run: the batch stopped after an earlier run failed",
+                )
+            else:
+                _collect(index, future)
 
-                    if result.success:
-                        self.logger.info(f"✓ {Path(result.input_file).name} ({result.runtime_seconds:.1f}s)")
-                    else:
-                        failed_count += 1
-                        self.logger.error(f"✗ {Path(result.input_file).name}: {result.error_message}")
-
-                        if stop_on_error:
-                            self.logger.error("Stopping batch run due to error")
-                            # Cancel pending futures
-                            for f in future_to_file:
-                                f.cancel()
-                            break
-
-                except Exception as e:
-                    failed_count += 1
-                    self.logger.error(f"✗ {input_file}: Exception: {e}")
-
-                    results.append(AERMODRunResult(
-                        success=False,
-                        input_file=str(input_file),
-                        error_message=str(e)
-                    ))
-
-                    if stop_on_error:
-                        break
-
-        success_count = len(results) - failed_count
+        results = [results_by_index[i] for i in sorted(results_by_index)]
+        success_count = sum(r.success for r in results)
+        failed_count = len(results) - success_count - not_run
         self.logger.info(
             f"Batch complete: {success_count}/{len(results)} succeeded, "
             f"{failed_count} failed"
+            + (f", {not_run} not run" if not_run else "")
         )
 
         return results
@@ -1072,7 +1191,9 @@ class AERMODRun:
         input_name = input_path.stem
         runner.logger.info(f"Starting AERMOD in the background: {input_name}")
 
-        lock_fh, aermod_inp = runner._stage(input_path, work_dir)
+        staged = runner._stage(input_path, work_dir)
+        if isinstance(staged, AERMODRunResult):
+            return staged
         stdout_path = work_dir / f"{input_name}.subproc.stdout"
         stderr_path = work_dir / f"{input_name}.subproc.stderr"
         start_time = datetime.now()
@@ -1096,7 +1217,7 @@ class AERMODRun:
                 timed_out = self._wait_for(proc)
                 reader.join()
             if timed_out:
-                return runner._timed_out(input_path, start_time, self.timeout)
+                return runner._timed_out(input_path, work_dir, start_time, self.timeout)
             completed = subprocess.CompletedProcess(
                 args=[str(runner.executable)], returncode=proc.returncode,
                 stdout=_read_capped(stdout_path, 1_000_000),
@@ -1114,7 +1235,7 @@ class AERMODRun:
             )
         finally:
             self._kill()                     # nothing may outlive the run
-            runner._unstage(lock_fh, aermod_inp)
+            runner._unstage(staged)
 
     def _never_started(self, input_path: Path, start_time: datetime) -> AERMODRunResult:
         self._runner.logger.info("AERMOD run cancelled before it started")
@@ -1263,6 +1384,67 @@ def _batch_worker(executable_path: str, input_file: str, timeout: int) -> "AERMO
     return runner.run(input_file, timeout=timeout)
 
 
+class _Staged(NamedTuple):
+    """A deck made ready to run by :meth:`AERMODRunner._stage`."""
+    lock_fh: Any
+    aermod_inp: Path
+    copy_marker: Path
+    in_place: bool
+
+
+def _output_files(work_dir: Path, input_name: str) -> Dict[str, Path]:
+    """The run's ``output``, ``error`` and ``summary`` files, named after the deck."""
+    return {key: work_dir / f"{input_name}{suffix}" for key, suffix in _OUTPUT_SUFFIXES.items()}
+
+
+def _rename_aermod_outputs(work_dir: Path, input_name: str) -> None:
+    """Rename AERMOD's ``aermod.out``/``.err``/``.sum`` after the deck, as ``<input_name>.*``."""
+    for suffix in _OUTPUT_SUFFIXES.values():
+        aermod_file = work_dir / f"aermod{suffix}"
+        target_file = work_dir / f"{input_name}{suffix}"
+        if aermod_file.exists() and aermod_file != target_file:
+            aermod_file.replace(target_file)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _is_runner_copy(aermod_inp: Path, marker: Path) -> bool:
+    """Whether a regular ``aermod.inp`` is a copy this runner left behind.
+
+    The copy fallback removes its copy after the run, but not when the
+    Python process is killed first. The copy is the runner's when its
+    SHA-256 is the one in ``marker``, written before the copy was made.
+    Matching bytes alone do not make it the runner's: a base deck kept as
+    ``aermod.inp`` beside a variant not yet edited has the variant's
+    bytes, and replacing it would delete it and its ``aermod.out``.
+    """
+    try:
+        return marker.read_text().strip() == _sha256(aermod_inp)
+    except OSError:
+        return False
+
+
+def _describe_signal(signum: int, unwritten: Optional[str] = None) -> str:
+    """Say which signal stopped AERMOD, such as ``SIGTERM (signal 15)``.
+
+    ``unwritten`` names the ``.out`` file when AERMOD was stopped before
+    it wrote one (a crash at setup, say), which is then what the message
+    says instead of pointing at an output that does not exist.
+    """
+    try:
+        name = f"{signal.Signals(signum).name} (signal {signum})"
+    except ValueError:
+        name = f"signal {signum}"
+    if unwritten is not None:
+        return f"AERMOD was stopped by {name} before it finished, and wrote no {unwritten}"
+    return (
+        f"AERMOD was stopped by {name} before it finished; "
+        "its output ends where the run was cut off"
+    )
+
+
 def _read_capped(path: Path, max_bytes: int = 1_000_000) -> str:
     """Read a text file, returning at most the last `max_bytes` bytes.
 
@@ -1312,6 +1494,102 @@ def _set_sweep_parameter(project, name: str, value, source_index: int = 0) -> No
     setattr(source_list[source_index], name, value)
 
 
+# A sweep value keeps its own text in the deck's file name when it is a
+# plain number, string or boolean whose text (with every character other
+# than letters, digits and ._+- turned into "_") is this long at most
+# and differs from every other value's; any other value is named by its
+# position and a hash.
+_SWEEP_LABEL_MAX = 48
+_SWEEP_UNSAFE = re.compile(r"[^A-Za-z0-9._+-]")
+
+
+def _sweep_labels(values: Sequence[Any]) -> List[str]:
+    """File-name labels for sweep values: readable when safe, unique always."""
+    plain: List[Optional[str]] = []
+    for value in values:
+        if isinstance(value, (bool, int, float, str)):
+            text = _SWEEP_UNSAFE.sub("_", str(value))
+            plain.append(text if 0 < len(text) <= _SWEEP_LABEL_MAX else None)
+        else:
+            plain.append(None)
+    counts: Dict[str, int] = {}
+    for candidate in plain:
+        if candidate is not None:
+            counts[candidate.lower()] = counts.get(candidate.lower(), 0) + 1
+    labels: List[str] = []
+    for i, (value, candidate) in enumerate(zip(values, plain)):
+        if candidate is not None and counts[candidate.lower()] == 1:
+            labels.append(candidate)
+            continue
+        try:
+            from .ensemble import canonical_json
+            text = canonical_json(value)
+        except (TypeError, ValueError):
+            text = repr(value)
+        labels.append(f"{i:03d}_{hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]}")
+    return labels
+
+
+def _values_equal(a: Any, b: Any) -> bool:
+    try:
+        return bool(a is b or a == b)
+    except Exception:  # e.g. NumPy arrays, whose == is element-wise
+        return False
+
+
+class _SweepItemsView(ItemsView):
+    def __iter__(self):
+        return iter(self._mapping._pairs)
+
+
+class _SweepValuesView(ValuesView):
+    def __iter__(self):
+        return (result for _, result in self._mapping._pairs)
+
+
+class SweepResults(Mapping):
+    """The results of :meth:`BatchRunner.parameter_sweep`, by sweep value.
+
+    A read-only mapping from each value of the sweep, in sweep order, to
+    its :class:`AERMODRunResult`. Values need not be hashable: looking
+    one up compares by ``==``, so ``results[psd]`` works for a
+    :class:`~pyaermod.sources.ParticleDepositionParams`. ``keys()``,
+    ``items()`` and ``values()`` are the usual mapping views, in sweep
+    order.
+
+    It is not a ``dict``: ``isinstance(results, dict)`` is False, it
+    cannot be changed, and ``json.dumps`` does not take it. When the
+    values are hashable, ``dict(results)`` gives the dict
+    ``parameter_sweep`` returned in pyaermod 2.2 and earlier.
+    """
+
+    def __init__(self, pairs: Sequence[Tuple[Any, AERMODRunResult]]):
+        self._pairs = list(pairs)
+
+    def __getitem__(self, key: Any) -> AERMODRunResult:
+        for value, result in self._pairs:
+            if _values_equal(value, key):
+                return result
+        raise KeyError(key)
+
+    def __iter__(self):
+        return (value for value, _ in self._pairs)
+
+    def __len__(self) -> int:
+        return len(self._pairs)
+
+    def items(self) -> ItemsView:
+        """``(value, result)`` pairs in sweep order."""
+        return _SweepItemsView(self)
+
+    def values(self) -> ValuesView:
+        """Results in sweep order."""
+        return _SweepValuesView(self)
+
+    def __repr__(self) -> str:
+        return f"SweepResults({self._pairs!r})"
+
+
 class BatchRunner:
     """
     Helper class for running parameter sweeps and scenario comparisons
@@ -1327,7 +1605,7 @@ class BatchRunner:
                        parameter_values: List,
                        output_dir: Union[str, Path],
                        n_workers: int = 4,
-                       source_index: int = 0) -> Dict:
+                       source_index: int = 0) -> SweepResults:
         """Run AERMOD over a sweep of one parameter on one source.
 
         For each value in ``parameter_values``:
@@ -1335,8 +1613,33 @@ class BatchRunner:
         1. Deep-copy ``base_project``
         2. Set ``parameter_name`` on the indicated source (or on the
            project if the name contains a dot, e.g. ``"control.title_one"``)
-        3. Write the modified project to ``output_dir/run_{name}_{value}.inp``
+        3. Write the modified project to ``output_dir/run_{name}_{label}.inp``
         4. Queue the file for batch execution
+
+        ``label`` is the value's own text when the value is a number,
+        string or boolean whose text is short, holds only letters,
+        digits and ``._+-`` once every other character (a space, a
+        ``/``) is turned into ``_``, and differs from every other
+        value's: ``run_emission_rate_0.5.inp``. Any other value, such as
+        a :class:`~pyaermod.sources.ParticleDepositionParams` for a
+        size-distribution sweep, is labelled by its position and the
+        first 12 hex digits of the SHA-256 of its canonical JSON
+        (:func:`pyaermod.ensemble.canonical_json`):
+        ``run_particle_deposition_001_3fa9c0d27e41.inp``.
+
+        Every output file the deck names (PLOTFILE, POSTFILE, ...) is
+        renamed to ``run_{name}_{label}_<file name>`` in ``output_dir``,
+        so the runs do not overwrite each other's results. Files AERMOD
+        names itself are not renamed, so the runs share them and the
+        last run's copy is kept: the file of a debug option or ERRORFIL
+        given without a name, DEPOS's ``GDEP.DAT``, ``PDEP.DAT`` and
+        ``DEPOS.DBG``, and PVMRM's ``RelDisp.dbg``.
+
+        All the decks share ``output_dir``, whose lock lets one AERMOD
+        run at a time there (see :meth:`AERMODRunner.run`), so the runs
+        do not overlap whatever ``n_workers`` is.
+        :func:`pyaermod.ensemble.run_design` gives each run its own
+        directory and does run them in parallel.
 
         Parameters
         ----------
@@ -1349,7 +1652,8 @@ class BatchRunner:
             Otherwise it's a field name on the source at ``source_index``
             (e.g. ``"emission_rate"``, ``"stack_height"``).
         parameter_values : list
-            Values to substitute in.
+            Values to substitute in. They need not be hashable, but no
+            two may be equal.
         output_dir : Path
             Directory for generated .inp files and AERMOD outputs.
         n_workers : int
@@ -1360,41 +1664,49 @@ class BatchRunner:
 
         Returns
         -------
-        dict
-            Mapping of parameter value -> AERMODRunResult.
+        SweepResults
+            Mapping of parameter value -> AERMODRunResult, in sweep order.
+
+        Raises
+        ------
+        ValueError
+            When two values are equal: they would make the same run.
+            Also when two of the deck's output files would get the same
+            name once their directories are dropped (compared ignoring
+            case), such as ``annual/result.plt`` and
+            ``hourly/result.plt``, or when a renamed file name is longer
+            than AERMOD's 200 characters
+            (:func:`pyaermod.ensemble.rewrite_output_names`).
         """
         import copy
+
+        from .ensemble import rewrite_output_names
+
+        values = list(parameter_values)
+        for i, a in enumerate(values):
+            for j in range(i):
+                if _values_equal(values[j], a):
+                    raise ValueError(
+                        f"parameter_sweep: values {j} ({values[j]!r}) and {i} "
+                        f"({a!r}) are equal, so they would be the same run"
+                    )
 
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
         input_files: List[Path] = []
-        param_map: Dict[str, Any] = {}
-
-        for value in parameter_values:
+        for value, label in zip(values, _sweep_labels(values)):
             project = copy.deepcopy(base_project)
             _set_sweep_parameter(project, parameter_name, value, source_index)
-
-            # Sanitize the value for filename safety
-            value_str = str(value).replace("/", "_").replace(" ", "_")
-            filename = output_path / f"run_{parameter_name}_{value_str}.inp"
+            stem = f"run_{parameter_name}_{label}"
+            rewrite_output_names(project, prefix=f"{stem}_")
+            filename = output_path / f"{stem}.inp"
             project.write(str(filename))
-
             input_files.append(filename)
-            param_map[str(filename)] = value
 
+        # run_batch returns results[i] for input_files[i].
         results = self.runner.run_batch(input_files, n_workers=n_workers)
-
-        # Map back to parameter values (runner.input_file is an absolute
-        # path, so resolve both sides consistently).
-        result_map: Dict[Any, AERMODRunResult] = {}
-        for result in results:
-            key = str(Path(result.input_file).resolve())
-            for fp, pv in param_map.items():
-                if str(Path(fp).resolve()) == key:
-                    result_map[pv] = result
-                    break
-        return result_map
+        return SweepResults(list(zip(values, results)))
 
 
 # ============================================================================

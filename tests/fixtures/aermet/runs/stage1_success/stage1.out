@@ -1,0 +1,207 @@
+ AERMET_SETUP
+ SUCCESSFUL
+
+ AERMET VERSION  26135
+
+ START PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:47 PM
+
+ RUNSTREAM CONTROL FILE: deck.inp
+
+
+ ****************************  INPUT SUMMARY **************************** 
+
+ PROCESSING STAGES 1
+
+
+
+ 1.  JOB FILE NAMES
+
+ MESSAGES   OPEN     stage1.msg
+ REPORT     OPEN     stage1.out
+ DEBUG      NO FILE
+
+
+
+ 2. UPPERAIR DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:         00014735        42.75       -73.80             5              83.80
+
+ DATA FILE:      OPEN      14735-88.UA
+ EXTRACT FILE:   OPEN      stage1_ua.ext
+ QAOUT FILE:     OPEN      stage1_ua.qa
+
+ UPPER AIR DATA ABOVE 5000 NOT EXTRACTED
+
+ UPPER AIR AUTOMATIC DATA CHECKS ARE: OFF
+
+
+
+ 3. SURFACE DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:            14735        42.75       -73.80             0              83.80
+
+ DATA FILE:      OPEN      S1473588.144
+ EXTRACT FILE:   OPEN      stage1.ext
+ QAOUT FILE:     OPEN      stage1.qa
+
+
+
+ 4. ONSITE DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 5. PROG DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 6. METPREP DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+ ****************************  QA SUMMARY **************************** 
+
+
+ UPPERAIR DATA
+
+
+ VARIABLE   MISSING VALUE   LOWER BOUND          UPPER BOUND
+ UATT       -9990.00        <= -35.00            >= 35.00            
+ UAWS        9990.00        <= 0.00              >= 50.00            
+ UALR       -9999.00        < -2.00              > 5.00              
+
+ LEVEL                VARIABLE       #          #        LOWER       UPPER        %
+                                    OBS      MISSING     BOUND       BOUND     ACCEPTED
+         SURFACE        UATT         20          0          0          0        100.00
+                        UAWS         20          0          0          0        100.00
+
+      0 -  500 M        UATT         65          0          0          0        100.00
+                        UAWS         65          0          0          0        100.00
+                        UALR         65          0          1          2         95.38
+
+    500 - 1000 M        UATT         46          0          0          0        100.00
+                        UAWS         46          3          0          0         93.48
+                        UALR         46          0          0          0        100.00
+
+   1000 - 1500 M        UATT         43          0          0          0        100.00
+                        UAWS         43          0          0          0        100.00
+                        UALR         43          0          1          0         97.67
+
+   1500 - 2000 M        UATT         49          0          0          0        100.00
+                        UAWS         49          0          0          0        100.00
+                        UALR         49          0          0          1         97.96
+
+   2000 - 2500 M        UATT         50          0          0          0        100.00
+                        UAWS         50          0          0          0        100.00
+                        UALR         50          0          0          0        100.00
+
+   2500 - 3000 M        UATT         31          0          0          0        100.00
+                        UAWS         31          0          0          0        100.00
+                        UALR         31          0          0          0        100.00
+
+   3000 - 3500 M        UATT         29          0          0          0        100.00
+                        UAWS         29          0          0          0        100.00
+                        UALR         29          0          0          0        100.00
+
+   3500 - 4000 M        UATT         20          0          0          0        100.00
+                        UAWS         20          0          0          0        100.00
+                        UALR         20          0          0          0        100.00
+
+        > 4000 M        UATT         76          0          0          0        100.00
+                        UAWS         76          0          0          0        100.00
+                        UALR         76          0          0          0        100.00
+
+ NON-QA SUMMARY CHECKS
+
+ CALM WIND CONDITIONS (WS=0, WD=0):        0
+ ZERO WIND SPEED; NON-ZERO WIND DIRECTION:        0
+ DEW POINT GREATER THAN DRY BULB TEMPERATURE:        0
+ NUMBER OF SOUNDINGS THAT DO NOT EXTEND TO 5000 M:        1
+
+ NUMBER OF DAYS WITH NO SOUNDINGS:    0
+
+ NUMBER OF DAYS WITH SOUNDINGS BUT NO AM SOUNDINGS:    0
+
+
+ SURFACE DATA
+
+ VARIABLE   MISSING VALUE   LOWER BOUND          UPPER BOUND
+ TMPD         999.00        <= -30.00            >= 40.00            
+ WDIR         999.00        < 0.00               > 360.00            
+ WSPD         999.00        < 0.00               > 50.00             
+
+ VARIABLE       #          #        LOWER       UPPER        %
+               OBS      MISSING     BOUND       BOUND     ACCEPTED
+ TMPD          240          0          0          0        100.00
+ WDIR          240          0          0          0        100.00
+ WSPD          240          0          0          0        100.00
+
+ WIND, TEMPERATURE, AND PRECIPITATION CHECKS
+ NUMBER OF HOURS:
+     20 CALM WINDS (WDIR = 0, WSPD = 0)
+      0 WDIR = 0, WSPD > 0
+      0 WDIR > 0, WSPD = 0
+      0 WINDS FLAGGED AS VARIABLE
+      0 TEMPERATURE < DEWPOINT
+      0 PRECIP WITHOUT WEATHER CODE
+      0 WEATHER CODE WITHOUT PRECIP
+
+
+ ****************************  MESSAGE SUMMARY **************************** 
+
+
+
+ ERROR MESSAGES        0 MESSAGES
+
+
+
+ WARNING MESSAGES        0 MESSAGES
+
+
+
+ INFORMATION MESSAGES       16 MESSAGES
+
+ I01:        1
+ I20:        2
+ I22:        1
+ I23:        1
+ I24:        1
+ I25:        1
+ I26:        1
+ I40:        2
+ I46:        1
+ I47:        1
+ I50:        1
+ I53:        1
+ I56:        1
+ I59:        1
+
+
+ QA MESSAGES       30 MESSAGES
+
+ Q19:        1
+ Q23:        3
+ Q24:        2
+ Q25:        3
+ Q28:        1
+ Q43:       20
+
+
+ AERMET FINISHED SUCCESSFULLY
+
+ END PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:48 PM

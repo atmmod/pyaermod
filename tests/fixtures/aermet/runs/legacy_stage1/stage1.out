@@ -1,0 +1,102 @@
+ AERMET_SETUP
+ UN-SUCCESSFUL
+
+ AERMET VERSION  26135
+
+ START PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:55 PM
+
+ RUNSTREAM CONTROL FILE: deck.inp
+
+
+ ****************************  INPUT SUMMARY **************************** 
+
+ PROCESSING STAGES 1
+
+
+
+ 1.  JOB FILE NAMES
+
+ MESSAGES   OPEN     2
+ REPORT     OPEN     stage1.out
+ DEBUG      NO FILE
+
+
+
+ 2. UPPERAIR DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:                          0.00         0.00           -99               0.00
+
+ DATA FILE:      OPEN      14735-88.UA
+ EXTRACT FILE:   OPEN      stage1_ua.ext
+ QAOUT FILE: NO FILENAME INPUT
+
+ UPPER AIR DATA ABOVE 5000 NOT EXTRACTED
+
+ UPPER AIR AUTOMATIC DATA CHECKS ARE: OFF
+
+
+
+ 3. SURFACE DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:            14735      -999.00      -999.00            -5               0.00
+
+ DATA FILE:      OPEN      S1473588.144
+ EXTRACT FILE:   OPEN      stage1.ext
+ QAOUT FILE: NO FILENAME INPUT
+
+
+
+ 4. ONSITE DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 5. PROG DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 6. METPREP DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+ ****************************  MESSAGE SUMMARY **************************** 
+
+
+
+ ERROR MESSAGES        6 MESSAGES
+
+ E01:        3
+ E05:        3
+
+
+ WARNING MESSAGES        1 MESSAGES
+
+ W04:        1
+
+
+ INFORMATION MESSAGES        0 MESSAGES
+
+
+
+ QA MESSAGES        0 MESSAGES
+
+
+
+ AERMET FINISHED UN-SUCCESSFULLY
+
+ END PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:55 PM

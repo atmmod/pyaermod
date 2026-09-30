@@ -650,7 +650,7 @@ class TestReceptorValidation:
             discrete_receptors=[DiscreteReceptor(x_coord=0, y_coord=0)],
         ))
         result = Validator.validate(project)
-        rec_errors = [e for e in result.errors if "receptor" in e.message.lower()]
+        rec_errors = [e for e in result.errors if e.pathway == "ReceptorPathway"]
         assert len(rec_errors) == 0
 
     def test_invalid_cartesian_grid(self):
@@ -932,16 +932,19 @@ class TestOpenPitSourceValidation:
         result = Validator.validate(self._project_with_openpit(pit_volume=0.0))
         assert any("pit_volume" in e.field for e in result.errors)
 
-    def test_release_height_exceeds_depth_warning(self):
-        # Volume=100000, x_dim=100, y_dim=100 → depth=10
-        # release_height=15 exceeds depth → should produce warning
+    def test_release_height_exceeds_depth_error(self):
+        # Volume=100000, x_dim=100, y_dim=100 → depth=10. A 15 m release
+        # height exceeds it, which AERMOD refuses at setup (soset.f OPARM
+        # 3591-3595, E322), so it is an error, not a warning.
         result = Validator.validate(self._project_with_openpit(
             release_height=15.0, pit_volume=100000.0,
             x_dimension=100.0, y_dimension=100.0,
         ))
-        warnings = [e for e in result.errors
-                    if "release_height" in e.field and e.severity == "warning"]
-        assert len(warnings) >= 1
+        errors = [e for e in result.errors
+                  if "release_height" in e.field and e.severity == "error"]
+        assert len(errors) == 1
+        assert "E322" in errors[0].message
+        assert not result.is_valid
 
     def test_extreme_aspect_ratio_warning(self):
         result = Validator.validate(self._project_with_openpit(
@@ -1183,7 +1186,9 @@ class TestDepositionValidation:
         errors = [e for e in result.errors if "same length" in e.message]
         assert len(errors) >= 1
 
-    def test_particle_too_many_categories(self):
+    def test_particle_categories_have_no_limit(self):
+        # AERMOD sizes its particle arrays to the deck (soset.f NPDMAX), so
+        # 21 categories are accepted; the old 20-category cap was invented.
         result = Validator.validate(self._project_with_deposition(
             particle_dep=ParticleDepositionParams(
                 diameters=list(range(1, 22)),
@@ -1191,8 +1196,7 @@ class TestDepositionValidation:
                 densities=[2.5]*21,
             ),
         ))
-        errors = [e for e in result.errors if "20" in e.message]
-        assert len(errors) >= 1
+        assert not [e for e in result.errors if "particle_deposition" in e.field]
 
     def test_particle_fractions_not_summing(self):
         result = Validator.validate(self._project_with_deposition(
@@ -1214,8 +1218,9 @@ class TestDepositionValidation:
                 densities=[2.5, 2.5],
             ),
         ))
-        errors = [e for e in result.errors if "diameters" in e.field and "must be > 0" in e.message]
-        assert len(errors) >= 1
+        # soset.f INPPDM refuses a diameter <= 0.001 microns (E335)
+        errors = [e for e in result.errors if "diameters" in e.field and "E335" in e.message]
+        assert len(errors) == 1 and errors[0].severity == "error"
 
     def test_invalid_output_type(self):
         project = _make_valid_project(

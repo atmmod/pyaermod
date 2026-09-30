@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`ControlPathway.debug_options` writes `CO DEBUGOPT`.** AERMOD's debug
+  output (the per-hour AREA.DBG of an open pit, PDEP.DAT and DEPOS.DBG of
+  a deposition run, MODEL, METEOR, PRIME, ...) could only be had by
+  patching the deck text. The field holds the fields of the line as
+  AERMOD reads them, options each optionally followed by a file name
+  (`["AREA", "DEPOS"]`, `["MODEL", "model.dbg"]`), and the writer puts
+  the line after MODELOPT, which coset.f DEBOPT checks DEPOS against
+  (E194 otherwise). `debug_files()` returns the file names, and
+  `read_aermod_input(..., sandbox=True)` now checks them like every other
+  path. The reader fills the field, pooling repeated DEBUGOPT cards as
+  v26135 does and keeping the case of the file names, so `DEBUGOPT` no
+  longer travels in `unparsed_lines`. One card takes at most 11 fields
+  (DEBOPT's E202), so a longer list is written on several DEBUGOPT
+  cards, split between options so each keeps its file name
+  (`debug_cards()`); v26135 pools them, while v24142 takes one card
+  only (E135), so there a list must fit in 11 fields. `pathways.DEBUG_OPTIONS`
+  lists the 23 option names of v26135. The demonstration study's one-day DEBUGOPT
+  AREA DEPOS deck is now written from the field, and on the v26135
+  binary its AREA.DBG, PDEP.DAT, DEPOS.DBG and plot file are identical
+  to those of the text-patched deck.
+- **`ControlPathway.dry_depletion` and `.wet_depletion` write the
+  MODELOPT depletion switches.** `True` writes DRYDPLT or WETDPLT, `False`
+  NODRYDPLT or NOWETDPLT, and `None` (the default) neither, which leaves
+  AERMOD's default of depletion on whenever the run has deposition
+  inputs. The reader fills both from MODELOPT; a token that contradicts
+  an earlier one (AERMOD's E149) stays in `extra_model_options`, so the
+  rewritten deck fails the same way.
+- **`ControlPathway.elevated_terrain`** says whether AERMOD runs the deck
+  with elevated terrain: ELEV, the FLAT ELEV pair, and FLAT under DFAULT
+  (which AERMOD overrides with W206) all are.
 - **`pyaermod.psd`: particle size distributions for Method 1
   deposition.** Size data usually arrive as cumulative mass at a few
   cut points (AP-42's particle size multipliers `k`) or as a lognormal
@@ -77,6 +107,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- **AERMET runstream options** the current AERMET reads:
+  `AERMETStage1.upper_air_format` (`FSL`, `IGRA`, `6201FB`, `6201VB`),
+  `upper_air_qa_file`, `upper_air_extract_file`, `message_file`,
+  `surface_time_adjustment` and `upper_air_time_adjustment`, `*_audit`
+  and `*_extra` keyword lists, and `onsite` (the new `OnsiteData`: READ
+  and FORMAT records, THRESHOLD, OSHEIGHTS, DELTA_TEMP, OBS/HOUR);
+  `AERMETStage3.site_char` records (`"f s albedo bowen z0"` or tuples)
+  with `frequency` and `sectors`, `aersurf_file`, the secondary-site
+  `secondary_*` fields, `asos_1min_file`, `methods`, `nws_height`,
+  `extra_lines`, the input names `upper_air_qaout`, `surface_qaout` and
+  `onsite_qaout`, and `with_inputs_from(stage1)`.
+  `UpperAirStation.elevation` and `time_zone`. `AERMETRunResult` carries
+  AERMET's parsed messages (`messages`, `errors`, a list of the new
+  `AERMETMessage`), the REPORT summary counts (`message_counts`,
+  `error_count`), `finished_successfully`, `report_file` and
+  `message_file`; `parse_aermet_messages()` and `read_aermet_messages()`
+  read a MESSAGES file. `OnsiteData`, `AERMETMessage`,
+  `parse_aermet_messages` and `read_aermet_messages` are exported from
+  `pyaermod` and `pyaermod.api`.
+- **`AreaSource.initial_sigma_z`**, AERMOD's Szinit for an AREA source
+  (m, default 0, AERMOD's own default). A nonzero value is written as the
+  sixth SRCPARAM value, after an Angle of 0 when the source is not turned,
+  because the fields are positional (`SRCPARAM id Aremis Relhgt Xinit
+  Yinit Angle Szinit`, soset.f APARM). It lets an AREA source carry an
+  initial vertical spread, as EPA's surfcoal roads do (3 m) or as an
+  area standing in for an open pit needs (d_eff/4.3, the spread the
+  OPENPIT algorithm itself starts from). The field comes last, so
+  positional construction of the older fields is unchanged. An AREA deck
+  with Szinit 23.26 m runs clean on v26135 and lowers the peak near the
+  area as it should (`tests/test_real_aermod_source_writers.py`).
+- **Hourly emission files (`SO HOUREMIS`) for AREA, AREACIRC, AREAPOLY,
+  OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources.** The new `pyaermod.hourly_emissions` module
+  writes the records in the layout of EPA's `pset2pa.emi`
+  (`SO HOUREMIS yy mm dd hh srcid qemis`; `write_hourly_emissions`,
+  `hourly_emission_record`), one per source per met hour, hour by hour in
+  the order the deck defines the sources, as aermod.f HRLOOP reads them
+  (E342 otherwise); a missing rate writes the seven-field record AERMOD
+  reads as zero emission (W344). `HourlyEmissionFile` is the
+  `HOUREMIS file srcid ...` card, held in the new
+  `SourcePathway.hourly_emissions` and written after every source card
+  (HREMIS flags only sources already defined); a read deck's own card is
+  still kept verbatim and written before it. The field is declared after
+  `include_all_group`, so positional construction of `SourcePathway` is
+  unchanged. `SourcePathway.add_hourly_emissions(path, hours, rates)`
+  writes a file and adds its card for the source types whose record
+  aermod.f HRQREAD reads with the rate alone, refusing POINT and BUOYLINE
+  sources (their records need more fields each hour), SWPOINT (HRQREAD
+  has no branch for it) and a source already on a card (E834). `ap42_wind_profile(sfc_file)` builds the hourly
+  factor of AP-42 13.2.4 Eq. 1 ("profile W" of the demonstration study):
+  `(clip(U, 0.6, 6.7)/2.2)**1.3` from the SFC reference wind, divided by
+  its mean over the hours AERMOD models, with 1 for the hours it skips as
+  missing: any hour metext.f CHKMSG flags (a missing wind speed or
+  direction, temperature, Monin-Obukhov length, mixing height, u* or w*),
+  not only a missing wind, and never a calm; `WindEmissionProfile` keeps
+  the hours, speeds, raw and normalized factors, and counts of missing,
+  calm and clipped hours for a run manifest. On the v26135 binary, a file
+  whose every rate equals the SRCPARAM rate reproduces the constant-rate
+  plot file exactly for OPENPIT, AREA, VOLUME, LINE, RLINE and RLINEXT
+  sources, which AERMOD's source table lists as HOURLY; the wind-profile
+  file runs clean and changes the result; and the profile's missing count
+  equals the "Missing Hours Identified" AERMOD reports for an SFC file
+  with a missing direction, temperature, mixing height and wind
+  (`tests/test_real_aermod_source_writers.py`). `HourlyEmissionFile`,
+  `WindEmissionProfile`, `ap42_wind_profile` and `write_hourly_emissions`
+  are exported from `pyaermod.api`.
+- **`output_types` for `read_postfile`, `PostfileParser` and
+  `UnformattedPostfileParser`.** A binary POSTFILE does not say which
+  output types its values are, so a file from a multi-type run needs the
+  run's MODELOPT line (`output_types="DFAULT CONC DEPOS FLAT"`) or the type
+  names (`["DEPOS", "WDEP"]`); order does not matter. Without it, a
+  receptor count (`num_receptors`, or the length of `receptor_coords`)
+  settles one type and four; two or three blocks of values per receptor
+  raise a `ValueError` asking for `output_types`, because three blocks
+  can be any of four sets of types. **A binary file with three blocks and
+  `num_receptors` used to be read as CONC DDEP WDEP without being asked,
+  which put DEPOS in `dry_depo` for three of those four sets; pass
+  `has_deposition=True` (or `output_types`) to read CONC DDEP WDEP.** A
+  `receptor_coords` list that does not match the record's receptor count
+  is an error, where rows beyond it used to get coordinates `(i, 0)`. `PostfileResult.output_types` and `PostfileHeader.output_types`
+  give the file's types, `PostfileResult.column_for("DDEP")` names the
+  column of one, and `pyaermod.postfile.OUTPUT_TYPES` lists them in
+  AERMOD's order. For a file without CONC, `max_concentration`,
+  `max_location` and `get_max_by_receptor()` use its first output type.
+- **The validator applies AERMOD v26135's remaining OPENPIT and Method 1
+  checks, with AERMOD's message codes in each finding.** For OPENPIT
+  `SRCPARAM` (`soset.f` OPARM): warnings for a zero emission rate, a
+  release height above 200 m, a length or width below 1e-5 m or above
+  2000 m, and a rotation angle beyond ±180° (W320), with W392 for an
+  aspect ratio above 10 and E209 for negative values. For `PARTDIAM`/
+  `MASSFRAX`/`PARTDENS`: an error for a mass fraction outside 0-1 (E332),
+  a warning for a density of 0.1 g/cm³ or less (W334), and E240 and E334
+  named on the existing count and density errors. Receptors that lie
+  strictly inside an open pit draw a warning with their count and first
+  coordinates: AERMOD skips them for that source and reports 0 there
+  (`calc1.f` PITCALC). It raises no message code for them; it only lists
+  them, marked OPENPIT, in the input summary's table of source-receptor
+  pairs for which calculations may not be performed (`inpsum.f` CHKREC).
+  Receptors on the edge are modelled. `regulatory_default=True` with
+  `terrain_type` FLAT or FLATSRCS draws a warning: pyaermod writes FLAT
+  with DFAULT, and AERMOD drops FLAT with W206 and runs in elevated
+  terrain. `ControlPathway`'s defaults are exactly that pair, so a
+  default project now carries this warning. So does a DFAULT deck read
+  back with `read_aermod_input` when its `MODELOPT` names no terrain
+  token: the reader maps that to FLAT, and pyaermod would write it back
+  as `FLAT DFAULT`, although AERMOD runs the original deck in elevated
+  terrain with no W206.
+  `tests/test_validator_openpit_method1.py` checks every rule against
+  real v26135 runs recorded in `tests/fixtures/validator_openpit/`.
 - `AERMODResults.summaries` (every summary table of the `.out` file, in
   order) and `AERMODResults.deposition` (deposition tables by output type
   and averaging period); `ConcentrationResult.output_type`, `.title` (the
@@ -219,6 +357,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyaermod.input_reader.runstream_fields(text)` splits a runstream line
   into fields as AERMOD does (blanks, and double quotes around a name
   with blanks).
+- `pyaermod.ensemble` (`docs/ensemble.md`): `run_design(rows,
+  build_fn, root, n_workers)` runs one AERMOD run per design row, each in
+  its own directory `root/runs/<run ID>`, `n_workers` at a time. It
+  rewrites every output file name in the deck to a bare name in that
+  directory (`rewrite_output_names`), including those in the lines
+  `input_reader` keeps verbatim (a PLOTFILE ranked below FIRST or with a
+  unit, a second POSTFILE, ERRORFIL) and the debug files of
+  `ControlPathway.debug_options` (CO DEBUGOPT), so two runs on two
+  workers write their own debug files. It links every file the
+  deck reads in beside the deck: the met files, `INITFILE`, the
+  `MULTYEAR` initial file, `OZONEFIL`, `NOX_FILE`, the `HOUREMIS` files
+  of `SourcePathway.hourly_emissions`, and, from the lines kept
+  verbatim, `HOUREMIS`, hourly `BACKGRND` and `INCLUDED` files. The run ID is the SHA-256 of
+  the canonical JSON (`canonical_json`) of the row's factors, the
+  binary's SHA-256, the SHA-256 of the met files and of the other input
+  files, and `SCHEMA_VERSION` (2), so an edited emission file makes a new
+  run. The manifest `root/manifest.json` (`EnsembleManifest`, a
+  `RunManifest` of `EnsembleManifestEntry`) is saved as each run
+  finishes. Each entry records:
+  - the factors;
+  - the deck's, the binary's, the met files' and the other input files'
+    SHA-256;
+  - AERMOD's version banner;
+  - pyaermod's git commit;
+  - the status, the warnings and the wall time.
+
+  Running the same design again skips the runs that finished for the
+  same deck and input files and makes the rest, so an interrupted design
+  resumes where it stopped. `collect_plotfiles(root)` reads the PLOTFILEs
+  of the successful runs of the latest `run_design` call on the root
+  (listed in `root/design.json`; `DesignResult.collect_plotfiles()` for
+  one result's runs) into one table, one row per receptor, keyed by run
+  ID, and writes it as CSV and NumPy `.npz`. No new dependency is added.
+  `DesignResult` reports `elapsed_seconds`, the runs' own `run_seconds`
+  and their ratio, `concurrency`. On 2026-09-30 a four-run design of
+  60-second runs took 240.9 s on one worker and 64.6 s on
+  four, a speed-up of 3.7. `tests/test_ensemble.py` replays real
+  v26135 runs recorded in `tests/fixtures/ensemble/`, and
+  `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
 - GUI: the Meteorology step says what the surface file holds, as the next
@@ -243,6 +420,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Run step."
 - GUI: `Session.last_completed_run` skips cancelled runs, so Results does
   not show one; New and Open during a run stop the run.
+- **`DepositionMethod` and the per-source `deposition_method` field are
+  documented as inert.** AERMOD has no `METHOD` keyword, so neither has
+  written anything since the writer stopped emitting the E105 card; both
+  stay so existing code and saved projects load, and the docstring points
+  to the fields that do what each member names (`GASDEPVD` / `GASDEPDF`
+  CO keywords, the new depletion fields, `method_2`).
+- **A uniform ELEV / HILL / FLAG row is written as `N*value`, exactly.**
+  On any Cartesian or polar grid, with or without the run's terrain
+  context, a row of one repeated value is now one `N*value` field
+  (STODBL reads it as N copies) instead of N `8.1f` fields, and the value
+  keeps every digit (`10.123456`, which `8.1f` wrote as `10.1`). The
+  deck text of such grids changes, so text-keyed fixtures of them will
+  too; rows of differing values keep the `8.1f` fields. The literal is
+  plain fixed-point (`0.00001`, never `1e-05`): STODBL reads an exponent
+  only after a decimal point, and `3*1e-05` was E208. The coordinate
+  lists (GRIDCART XPNTS / YPNTS, GRIDPOLR DIST / DDIR) keep their ten
+  significant digits but are no longer written in exponent form either
+  (`1e+10` was E208 there too); their text is otherwise unchanged.
 - GUI: in the source and receptor editors, Close now discards changes,
   and Add only adds the item on Save.
 - GUI: in the browser, Save on a project that has no file on disk opens
@@ -263,6 +458,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ...), which the Results step reads. The GUI's default deck changes
   accordingly; the `albany_success`, `albany_e480` and `missing_met`
   recordings were made again with the real binary.
+- **AERMET runs in two stages, and the pipeline returns two results.**
+  AERMET 11 and later merge the data inside METPREP, so
+  `run_aermet_pipeline(stage1, stage2, stage3)` ignores `stage2` (pass
+  `None`; anything else warns) and returns the Stage 1 and METPREP
+  results, with `stage` 1 and 3. `AERMETStage2` still constructs but is
+  deprecated, and its `to_aermet_input()` raises `NotImplementedError`.
+- **Breaking, for decks that AERMET rejected anyway:** a Stage 1 deck
+  with upper air now needs `UpperAirStation.elevation` (AERMET stops with
+  E05 without it) and a time zone (the surface station's is used when the
+  upper-air one is unset); SCRAM and GHCN surface data need
+  `surface_time_adjustment`, since no EPA deck shows which time basis
+  AERMET reads them in; an unknown data format or a station ID with a
+  blank raises `ValueError`. So does a Stage 1 SURFACE station ID that is
+  not a number, normally the station's WBAN (`13874`, not `KATL`): Stage 1
+  accepts `KATL`, but METPREP reads the ID back as an integer and stops
+  with "Bad integer for item 1 in list input" (AERMET 24142 and 26135).
+  A station ID longer than the 8 characters AERMET keeps also raises. The
+  tutorials and the student guide now use WBAN numbers. The integer `messages` level is ignored with a
+  `DeprecationWarning` (`message_file` names the MESSAGES file), and
+  `AERMETStage3.merge_file` is ignored (METPREP's DATA keyword is
+  obsolete). `AERMETStage3.num_sectors` other than 1 needs `site_char`
+  records and `sectors`; the monthly `albedo`, `bowen` and `roughness`
+  lists become one sector's FREQ_SECT ANNUAL or MONTHLY SITE_CHAR records.
+  A METPREP deck using SUBNWS with SURFACE data (every NWS-only deck, by
+  the default above) raises `ValueError` when neither `nws_height` nor
+  `station` gives the anemometer height, since AERMET stops with `E72
+  NWS_HGT KEYWORD MISSING`.
+  `AERMETRunner.run_stage` names the deck on AERMET's command line (a deck
+  outside `working_dir` is copied in under its own name) instead of
+  copying it to `aermet.inp`.
+- **A zero OPENPIT length or width is a warning, not an error.** AERMOD
+  raises it to 1e-5 m with W320 and runs the deck; the validator now
+  says so. A negative one is still an error (E209).
+- `runner_utils.RunManifest.save` now writes the file in one step (a
+  temporary file, then `os.replace`), so a process killed while saving
+  leaves the previous manifest whole. `RunManifest.load` builds entries
+  of the class attribute `entry_type`, so a subclass can store richer
+  entries, and it ignores keys the entry type does not have.
+- `BatchRunner.parameter_sweep` makes these changes:
+  - **Return value (breaking).** It returns a `SweepResults`, a
+    read-only mapping from each sweep value, in sweep order, to its
+    result, instead of a `dict`. Looking a value up compares by `==`, so
+    the values need not be hashable, and `keys()`, `items()` and
+    `values()` are mapping views in sweep order. What worked on the dict
+    and no longer does: `isinstance(results, dict)` is False,
+    `results[value] = ...` raises `TypeError`, and `json.dumps(results)`
+    raises `TypeError`. `dict(results)` gives the old dict back when the
+    values are hashable.
+  - **Deck names.** A value that is not a short plain number, string or
+    boolean now names its deck by its position and a hash, as in
+    `run_particle_deposition_001_3fa9c0d27e41.inp`. Two values whose
+    text would give the same name are named the same way. Plain values
+    keep names such as `run_emission_rate_0.5.inp`.
+  - **Output names.** Each output file a deck names is renamed
+    `<deck stem>_<file name>`, in the sweep's directory. Files AERMOD
+    names itself (a debug option or ERRORFIL given without a name,
+    DEPOS's `GDEP.DAT`, `PDEP.DAT` and `DEPOS.DBG`, PVMRM's
+    `RelDisp.dbg`) are still shared by the runs, and the last run's copy
+    is kept; `run_design` keeps them per run.
+  - **Equal values** are refused with `ValueError`.
+  - **Outputs that would become one file** are refused with
+    `ValueError` before any deck is written: two output files with the
+    same file name in different directories (`annual/result.plt` and
+    `hourly/result.plt`, compared ignoring case), which the sweep ran
+    before. So is a renamed file name longer than AERMOD's 200
+    characters (E291).
 
 ### Fixed
 - **GUI: the whole server froze while Results read a finished run.**
@@ -298,6 +559,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory, and then any other `.PLT` or `.PST` file the run wrote
   there; so an EPA-layout run has its map, its downloads and a design
   value from its 1-hour POSTFILE.
+- **Receptor elevations were not written under elevated terrain, so
+  AERMOD used zero with a warning.** `CartesianGrid.z_elev` and `.z_hill`
+  were never written: every grid of an ELEV run (or a FLAT run under
+  DFAULT, which AERMOD runs as ELEV) without AERMAP rows drew `RE W214
+  ELEV Input Inconsistent With Option: Defaults Used`, and a grid given
+  `grid_elevations` alone stopped with `E218 ... ZHILL`. A
+  `DiscreteReceptor` with a zero hill height was written as `x y zelev`,
+  which is `RE W228 Default(s) Used for Missing Parameters`. The RE
+  writer now gets the run's terrain and flagpole options from
+  `AERMODProject`: under elevated terrain a grid with neither ELEV nor
+  HILL rows gets rows of `z_elev` and `z_hill`, and every DISCCART line
+  carries `zelev zhill`. A grid given only one of the two row sets is
+  written as given, so AERMOD still stops with E218, as it does for an
+  EPA-style deck with ELEV rows and no HILL rows. On the v26135
+  binary the demonstration study's decks and a DFAULT grid-plus-discrete
+  deck set up with no W214 or W228, and the concentrations are unchanged
+  where the values were zero.
+- **Under FLAT with CO FLAGPOLE a discrete receptor's elevation was read
+  as its flagpole height.** reset.f DISCAR reads `x y zflag` in that
+  case, and the writer put `z_elev` in the third field: a receptor at
+  100 m elevation sat on a 100 m flagpole. The writer now puts `z_flag`
+  there, and the reader reads it back into `z_flag`. With FLAGPOLE, a
+  `z_flag` of 0 is written as the FLAGPOLE height, the one AERMOD gives a
+  receptor without its own; a Cartesian grid gets FLAG rows only from a
+  non-zero `z_flag`. With `elevated=None`, `ReceptorPathway`,
+  `CartesianGrid` and `DiscreteReceptor.to_aermod_input()` write the
+  same fields as before (a uniform row now as `N*value`, see Changed),
+  and FLAT runs without FLAGPOLE keep the old
+  DISCCART line so the elevation reads back.
+- **A bare `CO FLAGPOLE` was dropped by the reader.** AERMOD reads it as
+  flagpole receptors with a default height of 0 (coset.f FLAGDF, W205),
+  and EPA's surfcoal and four SNC decks use it. The reader stored `None`,
+  the rewritten deck had no FLAGPOLE, and the third DISCCART field (the
+  flagpole height) was then ignored with W229: on a one-day test deck
+  the concentration at a receptor on a 3.4 m flagpole moved from 0.84925
+  to 0.91634. The reader now stores `flag_pole_height=0.0`, and the
+  rewrite reproduces the original run.
+- **A MODELOPT with neither FLAT nor ELEV was read as FLAT.** coset.f
+  MODOPT starts from elevated terrain and leaves it only for a FLAT
+  token, so `MODELOPT CONC` runs with ELEV. The reader set
+  `TerrainType.FLAT`, and the rewritten deck added FLAT and lost every
+  receptor's elevation and hill height (W229): on a one-receptor test
+  deck (zelev 80 m, zhill 150 m) the concentration moved from 0.00564
+  to 0.03199. EPA's ten `bg_no2_*` test decks have no terrain token: on
+  v26135 the rewrite of `bg_no2_arm2_ppb` gave a highest 1-hr value of
+  272.06202 against the original's 205.74079. Such a deck now reads as
+  `TerrainType.ELEVATED`, and that rewrite gives 205.74079.
+- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
+  UI-free session, with one method per user operation (`new`,
+  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
+  `update_source`, `delete_source`, the same for receptors,
+  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
+  for observers.
+- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
+  the project file format as text.
 - **`examples/deposition_modeling.py` calculated no deposition.** Its
   decks set only `OutputPathway.output_type`, which selects nothing in
   AERMOD, so the particle deck was `MODELOPT CONC FLAT DFAULT`, a
@@ -330,6 +646,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on MODELOPT. Its met, `tests/fixtures/deposition_met/`, is four wet
   days (28.4 mm) of EPA's AERMET test case EX04 (Houston 1996) run with
   AERMET v26135; the vendored AERMET2 met has no precipitation, so wet
+  deposition was 0 everywhere. The example's POSTFILE section gives the
+  columns `read_postfile` returns for its decks' POSTFILEs, now that the
+  reader labels them by output type (see the `read_postfile` entry
+  below).
   deposition was 0 everywhere. The example's POSTFILE section says that
   `read_postfile` mislabels the columns of its own decks' POSTFILEs.
 - **The output parser dropped short-term values that AERMOD flags for
@@ -363,8 +683,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the real binary recorded in `tests/fixtures/output_parser/`.
 - `AERMODRunner` no longer reports a run with an earlier run's `.out`
   file (its verdict, messages and counts) when this run wrote none, for
-  instance because AERMOD crashed; a run killed by a signal says so
-  ("AERMOD was stopped by signal 11 (SIGSEGV) before writing run.out").
+  instance because AERMOD crashed; a run killed by a signal before it
+  wrote one says so ("AERMOD was stopped by SIGSEGV (signal 11) before it
+  finished, and wrote no run.out", in the form of #27's signal message).
+  `AERMODRunner.start()` runs in the background what `run()` does,
+  including #27's refusal of another deck named `aermod.inp`, its removal
+  of an earlier run's outputs and its timeout message.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
@@ -394,6 +718,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **The AERMET deck writers produced decks AERMET 24142 and 26135 reject,
+  and the AERMET runner reported those runs as successful.** For EPA's
+  EX01 case the old `AERMETStage1` deck stops with six errors (`E01
+  INVALID KEYWORD: ANEMHGT` and `ELEVATION`, two `E05 INVALID FORMAT FOR
+  STATION COORDINATE` for the signed decimal LOCATION, `E05 -5 GMT TO LST`
+  for the UTC offset, `E01 INVALID PATH QA`); `MESSAGES 2` opened a file
+  named `2`; `AERMETStage2` wrote a MERGE stage AERMET 11+ no longer has;
+  and `AERMETStage3` read no Stage 1 output and wrote `ALBEDO`, `BOWEN`
+  and `ROUGHNESS`, which are not AERMET keywords. `AERMETRunner` called a
+  run successful when AERMET exited 0 and printed no "FATAL", which AERMET
+  never prints, so every one of those runs came back `success=True`. The
+  writers now follow AERMET's Fortran: `LOCATION id 42.75N 73.8W adj elev`
+  with the GMT-to-LST adjustment derived from the data format; DATA,
+  EXTRACT, QAOUT and XDATES on each Stage 1 pathway; METPREP reading the
+  Stage 1 QAOUT files and writing FREQ_SECT, SECTOR and SITE_CHAR (or
+  AERSURF), METHOD and NWS_HGT. A METPREP deck with NWS surface data and
+  no on-site data gets `METHOD REFLEVEL SUBNWS` unless `methods` already
+  has a REFLEVEL record: AERMET 26135 stops with `E87 NWS DATA ONLY AND
+  SUBNWS ACTION NOT INVOKED` without it (24142 did not check). The runner passes the deck as AERMET's
+  argument and reports success only when AERMET prints `AERMET FINISHED
+  SUCCESSFULLY` and neither its MESSAGES file nor its REPORT summary lists
+  an error, reading AERMET's output with CRLF (Windows) or LF line endings
+  alike; `error_message` names the first error, such as `UPPERAIR E30
+  READ_FSL: SOUNDING IS NOT FSL FORMAT ...`. `run_aermet_pipeline`
+  inherits the rule. pyaermod's decks for EPA's AERMET test cases EX01,
+  EX04 (Houston) and Cordero reproduce EPA's 24142 `.SFC` and `.PFL` line
+  for line on AERMET 24142, and the output of EPA's own decks on AERMET
+  26135. `tests/test_aermet_status.py` pins the writers and the rule
+  against six runs of the real AERMET 26135 recorded in
+  `tests/fixtures/aermet/runs/`, among them a runstream AERMET cannot
+  open, where it prints no banner, lists no error and exits 0; and
+  `tests/test_real_aermet_binary.py` repeats them, and the EX04 and
+  Cordero comparisons, against the binary itself (the Real AERMET
+  workflow now runs it). `write_aermet_runfile` scripts pass the deck as
+  an argument (AERMET never read standard input) and fail unless AERMET
+  prints its success banner. The script runs AERMET in `output_path`,
+  where the data files the deck names by relative path are looked up;
+  it now writes both the deck and `output_path` (by default the directory
+  it was written from) as absolute paths, so it does the same from any
+  directory, but only on the machine and checkout that wrote it.
+- **`AERMODRunner.run_batch` returned its results in the order the runs
+  finished, not the order of the decks.** `zip(input_files, results)`
+  paired decks with other decks' results whenever a later deck finished
+  first; the 2026-09-29 demonstration pilot had to re-key its first batch
+  by hand. `results[i]` now belongs to `input_files[i]` however the runs
+  finish, and a run that raised in its worker carries its deck's
+  absolute path like every other result. With `stop_on_error=True` the
+  list also holds one result per deck: runs already under way when the
+  batch stops are waited for and filed in their place (they used to be
+  dropped, which shifted every later pair), and a deck never started
+  gets `success=False` with "Not run: the batch stopped after an earlier
+  run failed". The docstring and `docs/common-errors.md` now say that a
+  script calling `run_batch` or `BatchRunner.parameter_sweep` on macOS or
+  Windows must do so under `if __name__ == "__main__":`: those platforms
+  start workers with `spawn`, and without the guard every run came back
+  failed with "A process in the process pool was terminated abruptly".
+  `tests/test_runner_batch.py` makes four decks finish in reverse order
+  and checks the results come back in input order.
+- **`resume_batch` counted runs as done that were not, and a timed-out
+  run left the previous run's `.out` under the deck's name.**
+  `resume_batch` called a deck done when the last 50 lines of its `.out`
+  contained "FINISHES SUCCESSFULLY", which `*** SETUP Finishes
+  Successfully ***` also matches, and it never asked whether the `.out`
+  came from the current deck. On a timeout `AERMODRunner.run` skipped
+  renaming `aermod.out`, so the partial output of the re-run stayed as
+  `aermod.out` and the earlier, successful `<deck>.out` survived: the
+  2026-09-29 defect verification re-ran an edited deck, the re-run timed
+  out, and `resume_batch` still called it done. A run that wrote no
+  `.out` at all was judged by the one an earlier run had left. Now
+  `resume_batch` applies `AERMODRunner.run`'s own test (AERMOD's
+  `*** AERMOD Finishes Successfully ***` line and no fatal error in the
+  final message summary) and requires the `.out` to come from the deck
+  as it is now: AERMOD copies the runstream to the top of the `.out`,
+  and `resume_batch` compares that copy with the deck's text, so a deck
+  written again with the same content stays done and an edited one does
+  not, whatever the file times say. File times decide only what the copy
+  cannot show: a deck with `NO ECHO`, and the files named on `INCLUDED`
+  records, are stale when newer than the `.out`. `run` removes the deck's `.out`, `.err` and `.sum` and any
+  leftover `aermod.out`, `.err` and `.sum` before it starts AERMOD, and
+  keeps a timed-out run's partial output as `<deck>.out`, reported in
+  `output_file`. **A timed-out or crashed re-run no longer leaves the
+  earlier run's output in place.**
+- **`AERMODRunner.run` deleted a deck named `aermod.inp`, EPA's default
+  name.** It replaced `<working_dir>/aermod.inp` with a link to the deck,
+  which was that same file, so the deck was deleted, the link pointed to
+  itself, and the run failed with "AERMOD exited with code 0 but wrote no
+  aermod.out". A deck already named `aermod.inp` in the working directory
+  now runs in place and is left alone, as is a link named `aermod.inp`
+  that points to the deck (the runner used to replace such a link and
+  remove it after the run). **Running any other deck in a directory that
+  holds a deck named `aermod.inp` deleted that deck, and the run then
+  overwrote its `aermod.out`**; such a run now fails before it starts,
+  with "The working directory ... already holds another deck named
+  aermod.inp", and leaves both files alone. Give it its own
+  `working_dir`, or rename the base deck. Where links cannot be made
+  (Windows without the privilege), the copy the runner makes instead is
+  marked by a `.pyaermod-aermod-inp.sha256` file beside it, so that a
+  copy left behind when Python is killed mid-run is replaced by the next
+  run rather than taken for a deck. With a `working_dir` apart from
+  the deck, the link named only the deck's file, so it pointed to a file
+  that did not exist there; it now holds the deck's path relative to the
+  working directory.
+- **A killed AERMOD run was reported as "AERMOD did not report
+  success".** A run stopped by a signal (the pilot ended its slowest
+  run, an area source, with SIGTERM) now reads "AERMOD was stopped by
+  SIGTERM (signal 15) before it finished; its output ends where the run
+  was cut off", and a timeout reads "Execution timed out after N
+  seconds; AERMOD was stopped before it finished". The runner recordings
+  in `tests/fixtures/runner/` gain a run killed with SIGTERM part way
+  through, and the audit's E322 (OPENPIT release height above the pit's
+  effective depth) and E140 (SRCGROUP inside a source block) decks, both
+  of which AERMOD ends with exit code 0 and which the runner reports as
+  failures.
 - **GUI: Results now updates when a run finishes** (defect D2). The shell
   built every tab once per page load, so Results kept saying "No run yet"
   after a run. Results and the Run tab's status are now rebuilt from the
@@ -532,6 +969,266 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   byte) is refused rather than raised. The `CO EVENTFIL` file, which
   AERMOD writes and the reader stores as `ControlPathway.eventfil`, is
   now checked too.
+- **AERMAP rejected every deck `AERMAPProject.to_aermap_input` wrote.**
+  Run through EPA's AERMAP 24142 (the current release; AERMAP has no
+  26135), the deck for one receptor, a grid and a source stopped at
+  setup with 11 fatal errors: `TERRHGTS ELEVATED` (E203; AERMAP takes
+  `EXTRACT` or `PROVIDED`), a four-field `DOMAINXY` that put the datum
+  where the second corner goes (E200), no `ANCHORXY` and no `RUNORNOT`
+  (E130, both mandatory), a receptor ID in the x field of `DISCCART`
+  (E208), `GRIDCART` without its `STA`/`END` lines (E200), the `SO`
+  pathway after `RE` (E120), and `RECOUTPUT`, `SRCOUTPUT` and
+  `MSGOUTPUT`, which are not AERMAP keywords (E105; the files are
+  `OU RECEPTOR` and `OU SOURCLOC`, and the messages always go to
+  `<input stem>.out`). The writer now writes AERMAP's syntax, read from
+  `aermap.f`: pathways in the order CO, SO, RE, OU; a six-field
+  `ANCHORXY` (user x y, UTM x y, zone, datum code); `RUNORNOT RUN`; a
+  six-field `DOMAINXY` only when a domain is set; `DISCCART x y [zelev]`;
+  a `GRIDCART ... STA`/`XYINC`/`END` block; and `OU RECEPTOR` and
+  `SOURCLOC`. The deck it writes for that case runs clean (0 fatal
+  errors, 0 warnings) and gives back the analytic elevations of the
+  planar test DEM; `tests/fixtures/aermap_runner/` records both runs.
+  `TerrainProcessor.create_aermap_project_from_aermod` now calls
+  `AERMAPProject.from_aermod_project` instead of keeping its own copy.
+  **Changes to `AERMAPProject`:** `terrain_type` defaults to `"EXTRACT"`
+  (was `"FLAT"`, which AERMAP also rejects) and `"ELEVATED"` is read as
+  `"EXTRACT"`; under `"PROVIDED"` every receptor and source must carry
+  its elevation, and `SOURCLOC` is left out because AERMAP writes no
+  source elevations then. `datum` becomes AERMAP's code (`"NAD27"` 1,
+  `"WGS72"` 2, `"WGS84"` 3, `"NAD83"` 4, or an integer 0 to 7). New
+  fields `anchor_utm_x`/`anchor_utm_y` (the UTM point the anchor is tied
+  to; default the anchor itself, i.e. user coordinates are UTM),
+  `domain_x_min`/`domain_y_min`/`domain_x_max`/`domain_y_max` (the
+  `DOMAINXY` corners; see the next entries for what `from_aermod_project`
+  does with them) and `grid_y_spacing` (default `grid_spacing`), and a
+  `dem_format` argument to `from_aermod_project` (default `"DEM"` when
+  every file ends in `.dem`, else `"NED"`). `dem_format` must be `"NED"`
+  or `"DEM"`, the formats AERMAP reads. `receptor_id` and `message_file`
+  are kept but not written, since AERMAP has no receptor IDs and no
+  message-file keyword. `to_aermap_input` raises `ValueError` for decks
+  AERMAP would reject or misread: no anchor, no DEM file, no receptor
+  and no source, a partial or inverted domain, an unknown datum or
+  format, and a `PROVIDED` project with a missing elevation, a grid or
+  no discrete receptor. A path with a space is quoted, as AERMAP's
+  parser allows, and one over AERMAP's 200-character field raises.
+- **`TerrainProcessor.process` left sources and receptor grids without
+  elevations, and put line sources at the wrong point.**
+  `AERMAPProject.from_aermod_project` wrote only sources with an
+  `x_coord` or `x_start`, so AREAPOLY and BUOYLINE sources were left out
+  of the deck and kept `base_elevation` 0 with no error; it wrote every
+  source as a `POINT` at its first point, so an RLINE from node (18, 18)
+  to (24, 24) of the planar test DEM got 190 m where AERMAP gives 205 m;
+  and it wrote only the first Cartesian grid and no polar grid, so the
+  others came back with no elevations. It now writes every source as the
+  AERMAP type that places its elevation where AERMOD expects it (the
+  AERMOD type where AERMAP 24142 has it, `SWPOINT` as `POINT`, `RLINEXT`
+  as `RLINE`, an `AREAPOLY` at its first vertex, each BUOYLINE segment
+  under its own ID), with both ends of a LINE, RLINE or BUOYLINE and a
+  LINE's width, so AERMAP takes RLINE and BUOYLINE at the midpoint and
+  LINE at the south-west corner of its equivalent area, as `SOLOCA`
+  does; a source it cannot place raises `ValueError`. Every Cartesian
+  grid (`XYINC` or `XPNTS`/`YPNTS`) and polar grid (`GDIR` or `DDIR`;
+  one centred on a source is written with that source's coordinates)
+  is written under its own name, and `process` fills in each one's
+  `grid_elevations`/`grid_hills` or `elevations`/`hills` by name, each
+  BUOYLINE segment's `base_elevation`, and the group's from its first
+  segment. **API changes:** `AERMAPSource` gains `source_type` (default
+  `"POINT"`), `x_end`, `y_end` and `width`; `AERMAPProject` gains
+  `grids` (a list of `CartesianGrid`/`PolarGrid`), and
+  `from_aermod_project` puts the AERMOD grids there instead of in the
+  single-grid `grid_receptor` fields; `to_aermap_input` also raises for
+  an unknown source type, a line source without its end (or a LINE
+  without its width), a source ID over 12 or grid name over 8
+  characters, a repeated grid name, and a polar grid centred on a source
+  that is not a single-point source of the project.
+  `AERMAPOutputParser.parse_receptor_output` now reads every network in
+  the file (it used to merge the rows of every Cartesian grid into one
+  and skip polar grids) and adds the columns `network`, `row` and `col`;
+  `parse_source_output` now reads the elevation of a LINE, RLINE or
+  BUOYLINE row from its last field (it read the end point's x).
+  `tests/fixtures/aermap_runner/networks/` records AERMAP running the
+  writer's deck with every network kind and source type.
+- **A domain could silently cut distant hills out of the hill heights.**
+  `from_aermod_project` always wrote a `DOMAINXY` of the project's extent
+  plus `buffer` (1 km from `TerrainProcessor`, which offered no way to
+  change it), and AERMAP ignores terrain outside the domain. On a flat
+  100 m DEM with a 600 m node 1.8 km from the only receptor (a 28%
+  slope, well over the 10% rule in `sub_calchc.f`), the receptor's hill
+  height came out 100 m, where AERMAP searching the whole DEM gives
+  600 m, and nothing warned. No domain is now written by default, so
+  AERMAP searches the whole DEM, as it does on its own; `buffer`
+  (`from_aermod_project`, now default `None`) and the new
+  `domain_buffer` of `TerrainProcessor.process` and
+  `create_aermap_project_from_aermod` ask for one, which must take in
+  every such feature. The anchor is now the south-west corner of the
+  project's extent itself.
+- **No way to point AERMAP at the NADCON grid files.** A project whose
+  datum differs from its DEM's (the default `"NAD83"` with NAD27 USGS
+  `.dem` files) stopped with `OU E365 ... NAD Conversion Grid Files
+  (*.las; *.los) Not Found`, and the only ways out were to change the
+  datum. `AERMAPProject.nad_grids_dir`, and a `nad_grids_dir` argument
+  to `from_aermod_project`, `TerrainProcessor.process` and
+  `create_aermap_project_from_aermod`, write `CO NADGRIDS` with the
+  trailing separator AERMAP needs (it opens the directory and the file
+  name joined with nothing between them).
+- **`regenerate.sh` in `tests/fixtures/aermap_runner/` failed on a
+  relative path to `aermap`**, since it runs the binary from a scratch
+  directory; it now makes the path absolute first. The teaching guide
+  (`docs/teaching/refinery-assignments.md`) said to run
+  `aermap < aermap_houston.inp`, which AERMAP ignores (it reads the file
+  named on its command line, or `aermap.inp`); it now says
+  `aermap aermap_houston.inp`.
+- **AERMAP runs that failed were reported as successful.** AERMAP ends
+  with a bare `STOP`, so it exits with code 0 after fatal errors, and
+  `AERMAPRunner.run` counted exit code 0 as success. A domain that
+  reaches past the DEM (`OU E310 ... CHKEXT: Domain Coordinate is NOT
+  Inside a DEM File`) came back with `success=True` and empty receptor
+  and source files, and `TerrainProcessor.process` went on to read them;
+  the 11 setup errors of the old writer's deck did the same. `success`
+  now also requires the message file AERMAP writes beside the input
+  (`<input stem>.out`, which the runner now reports as `message_file`),
+  its `*** AERMAP Finishes Successfully ***` line and no fatal error in
+  its final message summary; a message file left by an earlier run is
+  removed first, so it cannot vouch for this one. `run_aermap` and
+  `TerrainProcessor.process`, which raises `RuntimeError` on a failed
+  run, inherit the rule. **Code that relied on the old rule will now
+  see those runs as failures, which they were.** A failed run's
+  `error_message` names AERMAP's first fatal error, such as
+  `OU E310 line 29 CHKEXT: Domain Coordinate is NOT Inside a DEM File.
+  Pt.= 1 (and 3 more fatal error(s))`, instead of a generic string, and
+  `AERMAPRunResult` gains `finished_successfully`, `fatal_count`,
+  `warning_count` (AERMAP's own totals) and `fatal_errors`.
+  `tests/test_aermap_runner_status.py` pins the rule against the runs
+  recorded in `tests/fixtures/aermap_runner/`, and
+  `tests/test_real_aermap.py` repeats it, and the writer's deck, against
+  the binary on the planar DEM, including `TerrainProcessor.process`
+  end to end and a `PROVIDED` run.
+- **A source's `source_groups` wrote `SRCGROUP` among the source cards,
+  which AERMOD rejects.** Every source writer put
+  `SRCGROUP grp srcid` right after its own cards, so the next source's
+  `LOCATION` and `SRCPARAM` came after a group card: two OPENPIT sources
+  in one group through `source_groups=["PITS"]` stopped v26135's setup
+  with `SO E140 ... Invalid Order of Keyword` (soset.f SOCARD admits no
+  source card once a group is defined). A source naming group `ALL`, as
+  `create_example_project()` and the examples do, wrote
+  `SRCGROUP ALL srcid`, which is `SO E203` (SOGRP reads only
+  BACKGROUND/NOBACKGROUND after ALL), so that deck failed setup even with
+  one source. `SourcePathway.to_aermod_input()` now gathers every
+  source's `source_groups` into the group block after all the sources:
+  a group that also has a `SourceGroupDefinition` gets the members the
+  definition does not already list on continuation cards written with
+  it (AERMOD files a continuation under the last group defined, so the
+  cards of one group stay together); other groups follow, ten IDs to a
+  card; `ALL` adds nothing, because every source is in it; a BUOYLINE
+  source contributes its segment IDs; and PSDCREDIT decks still write no
+  SRCGROUP (E105). Group names and member IDs are matched in upper
+  case, as AERMOD reads every card (aermod.f LWRUPR): `Pit` on one
+  source and `PIT` on another are one group, written as one block
+  (written apart with `ROAD` between them, AERMOD filed the second
+  card's source under ROAD, with no message). The field and its meaning
+  are unchanged, for all thirteen source classes, but a source's own
+  `to_aermod_input()` no longer contains any SRCGROUP line. The
+  two-OPENPIT deck, a one-source `ALL` deck and a mixed deck now run to
+  completion on the v26135 binary, and the mixed-case deck gives the
+  group table intended (`tests/test_real_aermod_source_writers.py` when
+  `aermod` is on PATH).
+- **`AreaSource` called Xinit and Yinit half-widths, and so did the
+  teaching material.** AERMOD places an AREA source by its southwest
+  corner and takes Xinit and Yinit as full side lengths, turning the
+  rectangle clockwise about that corner (soset.f APARM builds the
+  vertices that way). The field comments said "half-width", and the
+  student guide (its walkthrough and its glossary), the refinery
+  assignments' TANKS and LOADRK tables, the solutions to tutorials 4 and
+  8, `examples/area_sources.py` and three cells of notebook 03 told users
+  to enter half the real dimension, which gives a source a quarter of the
+  intended area; tutorial 8's solution also put the north-south side in
+  Xinit, and the notebook divided one emission by four times the area it
+  modelled. The comments, docstring and material now describe full side
+  lengths from the southwest corner, and the examples enter the
+  dimensions they meant (the refinery's tank farm is 200 m east-west by
+  150 m north-south, the 30,000 m2 its emission box already assumed). The written deck of
+  any given `AreaSource` is unchanged. (`geospatial.sources_to_geodataframe`
+  still draws an AREA as centred half-dimensions; that is left to a
+  separate fix.)
+- **`read_aermod_input` dropped an AREA source's Szinit and misread a
+  square.** The reader stopped at the fifth SRCPARAM value, so EPA's
+  surface coal mine roads (`... 73.2 3.0`) lost their Szinit of 3 m when
+  a deck was read and written back; it now reads the sixth value into
+  the new `initial_sigma_z`. A card with Xinit alone got a Yinit of
+  10 m, where AERMOD makes the area square (APARM: Yinit = Xinit); it
+  now does the same.
+- **`read_postfile` mislabelled the columns of a POSTFILE from a run with
+  more than one output type.** AERMOD writes one value per receptor for
+  each output type on MODELOPT, in the order CONC, DEPOS, DDEP, WDEP
+  (`POSTFL` in calc2.f, `PSTANN` and `PLOTFL` in output.f), and the text
+  header names them (`AVERAGE CONC`, `TOTAL DEPO`, `DRY DEPO`,
+  `WET DEPO`). The reader assumed any file with deposition was
+  CONC DDEP WDEP. A two-type text file (`CONC DDEP`, `DEPOS WDEP` ...)
+  was read as concentration only, with the second value taken as ZELEV
+  and every later field shifted; a four-type file put DEPOS in
+  `dry_depo` and DDEP in `wet_depo` and dropped WDEP. A PLOTFILE of highs
+  at discrete receptors, whose NET ID is blank, came back with an empty
+  `date` whatever its types; the date is now read, and padded to eight
+  digits, because PLOTFL writes it as `I8` and a year below 10 lost its
+  leading zero (`5010112` where the POSTFILE has `05010112`). A binary
+  file with two or four types raised
+  `Expected 3 values but record contains 6`. A text file written with
+  `OU NOHEADER` does not begin with `*`, so it was taken for a binary
+  file and read as an empty frame without an error; it is now recognised
+  by its content, its number of value columns and whether it is a
+  PLOTFILE of highs are read from its first row, and one with two or
+  three value columns needs `output_types`. The text reader now takes
+  the types from the column-label line (or the MODELING OPTIONS line, or
+  the caller), so every one of the 15 sets of types, in 1-hour and PERIOD
+  POSTFILEs and in PLOTFILEs, reads with one column per type:
+  `concentration`, `total_depo`, `dry_depo`, `wet_depo`. **A file with
+  DEPOS now has a `total_depo` column, and code that read `dry_depo` or
+  `wet_depo` from such a file gets the values AERMOD labelled so. A file
+  with several output types and no CONC (`DDEP WDEP`, `DEPOS DDEP WDEP`
+  ...) has no `concentration` column: use `result.column_for("DDEP")`,
+  or `result.column_for(result.output_types[0])` for its first type.**
+  `regulatory_parity.score_postfile_pair` compares the `concentration`
+  columns, so it now raises `KeyError` on such files where it used to
+  score the first type under that name; single-type files and files with
+  CONC score as before (keying it on the output type is part of WP-D16's
+  deposition parity). A file with one output type keeps its values in
+  `concentration`, and a CONC DDEP WDEP text file reads as before.
+  `tests/test_postfile_types.py` pins
+  this against real AERMOD v26135 runs of every set of types, recorded in
+  `tests/fixtures/postfile_types/`, and checks each binary file against
+  its text twin.
+- **An OPENPIT release height above the pit's effective depth was only a
+  warning.** AERMOD refuses such a deck at setup (`SO E322 ... Release
+  Height Exceeds Effective Depth for OPENPIT`, `soset.f` OPARM), so the
+  validator passed a deck that could not run and `project.write()` wrote
+  it. It is now an error, and `write()` refuses the deck. The depth is
+  computed as AERMOD does, with a dimension below 1e-5 m (zero included)
+  raised to 1e-5 m.
+- **The validator rejected more than 20 particle categories.** AERMOD
+  has no such limit: `soset.f` sizes its particle arrays to the deck, and
+  a 25-category OPENPIT deck runs to completion. The cap is gone.
+- **The mass-fraction warning fired at 1% instead of AERMOD's 2%.**
+  SRCQA warns (W330) only when the fractions sum below 0.98 or above
+  1.02; a sum of 0.985 no longer draws a warning.
+- **Particle diameters were checked only for being positive.** AERMOD
+  refuses a diameter of 0.001 µm or less, or above 1000 µm (E335); the
+  validator now does too. The particle checks test the values as the
+  deck carries them: the writer rounds `PARTDIAM` and `PARTDENS` to 4
+  significant figures and `MASSFRAX` to 6 decimals, so a 1000.4 µm
+  diameter, written as 1000, is accepted as AERMOD accepts it, and a
+  0.10004 g/cm³ density, written as 0.1, draws W334.
+- **`BatchRunner.parameter_sweep` crashed on a size-distribution
+  sweep, and its runs overwrote each other's results.** Over
+  `particle_deposition` values it ran every deck, then stopped with
+  `TypeError: unhashable type: 'ParticleDepositionParams'` while keying
+  the results by value. It named each deck after the value's `str()`,
+  which gave 124-character names full of brackets and commas. And every
+  deck named the same PLOTFILE in the same directory, so only the last
+  run's `pit.plt` was left: the 2026-09-29 audit's two-distribution
+  sweep ended with one PLOTFILE for two runs. The fix is described under
+  Changed. The sweep's decks still share one directory, whose lock lets
+  one AERMOD run there at a time; `pyaermod.ensemble.run_design` runs
+  them in parallel.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
@@ -539,7 +1236,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
   `mark_clean()` are replaced by the operations that change or save the
   project. `pyaermod.gui_v2.state._empty_project()` is still importable.
-
 ## [2.2.0] - YYYY-MM-DD
 
 <!-- YYYY-MM-DD is a placeholder: RELEASING.md sets it to the day the GitHub release is published. -->

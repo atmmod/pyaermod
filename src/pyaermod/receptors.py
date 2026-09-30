@@ -12,14 +12,32 @@ or :mod:`pyaermod.api`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import List, Optional
 
 from ._fields import described
 
 
+def _fixed(number: str) -> str:
+    """``number`` written out without an exponent or trailing zeros.
+
+    setup.f STODBL takes an exponent only after a decimal point and only
+    up to 30 in magnitude, so ``1e-05`` is E208; ``0.00001`` is read.
+    """
+    text = format(Decimal(number), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
 def _num(value: float) -> str:
-    """Shortest rendering that reads back to the same value."""
-    return f"{value:.10g}"
+    """Ten significant digits, never in exponent form (see :func:`_fixed`)."""
+    return _fixed(f"{value:.10g}")
+
+
+def _exact(value: float) -> str:
+    """The shortest text that reads back to the same float, no exponent."""
+    return _fixed(repr(float(value)))
 
 
 def _row_lines(keyword: str, grid_name: str, sub: str,
@@ -28,10 +46,16 @@ def _row_lines(keyword: str, grid_name: str, sub: str,
 
     reset.f (TERHGT / HILHGT / FLGHGT) tags every value with the row in
     the field after the sub-keyword and accumulates over records, so a
-    row may span lines.
+    row may span lines. A row of one repeated value is written as
+    ``N*value`` on one line, which STODBL reads as N copies, with the
+    value exact (:func:`_exact`): a grid of one elevation then takes a
+    line per row. Other rows keep the one-decimal ``8.1f`` fields.
     """
     out: List[str] = []
     for row_idx, row in enumerate(rows, start=1):
+        if len(row) > 1 and all(v == row[0] for v in row):
+            out.append(f"   {keyword}  {grid_name:<8} {sub}  {row_idx:5d}  {len(row)}*{_exact(row[0])}")
+            continue
         for start in range(0, len(row), 6):
             vals = " ".join(f"{v:8.1f}" for v in row[start:start + 6])
             out.append(f"   {keyword}  {grid_name:<8} {sub}  {row_idx:5d}  {vals}")
@@ -67,7 +91,15 @@ class CartesianGrid:
     y_num: int = field(default=10, metadata=described("", "Number of rows"))
     y_delta: float = field(default=100.0, metadata=described("m", "Spacing between rows"))
 
-    # Elevation (optional)
+    # One terrain elevation, hill height and flagpole height for every
+    # receptor of the grid. Under elevated terrain a grid with neither
+    # grid_elevations nor grid_hills gets GRIDCART ELEV and HILL rows
+    # filled with z_elev and z_hill (reset.f RECART otherwise warns W214
+    # and uses zero); with only one of the two row sets it is written
+    # as given and AERMOD stops with E218. With CO FLAGPOLE a non-zero z_flag fills FLAG rows for a
+    # grid without grid_flags; 0 leaves them out, and AERMOD gives every
+    # receptor the FLAGPOLE height (W216), as for a DiscreteReceptor.
+    # See to_aermod_input.
     z_elev: float = field(default=0.0, metadata=described("m", "Terrain elevation of every receptor"))
     z_hill: float = field(default=0.0, metadata=described("m", "Hill height scale of every receptor"))
     z_flag: float = field(default=0.0, metadata=described("m", "Flagpole height of every receptor"))
@@ -119,13 +151,35 @@ class CartesianGrid:
             y_delta=spacing
         )
 
-    def to_aermod_input(self) -> str:
+    def _filled(self, value: float) -> List[List[float]]:
+        """One row per y coordinate, one ``value`` per x coordinate."""
+        n_x = len(self.x_values())
+        return [[value] * n_x for _ in self.y_values()]
+
+    def to_aermod_input(self, elevated: Optional[bool] = None,
+                        flagpole: Optional[float] = None) -> str:
         """Generate AERMOD RE pathway text.
 
         AERMOD requires GRIDCART blocks wrapped in STA/END:
             GRIDCART  name  STA
                             XYINC  ...
             GRIDCART  name  END
+
+        ``elevated`` is whether the run uses elevated terrain
+        (:attr:`ControlPathway.elevated_terrain`) and ``flagpole`` the
+        run's ``CO FLAGPOLE`` height (:attr:`ControlPathway.flag_pole_height`).
+        Under elevated terrain a grid with neither ``grid_elevations``
+        nor ``grid_hills`` gets ELEV and HILL rows of ``z_elev`` and
+        ``z_hill``, because reset.f RECART needs both (W214 and zero
+        heights when both are missing). A grid with only one of the two
+        is written as given, and AERMOD stops with E218, as it does for
+        a deck with ELEV rows and no HILL rows. With a flagpole height, a grid without
+        ``grid_flags`` gets FLAG rows of a non-zero ``z_flag``; with
+        ``z_flag`` 0 they are left out and AERMOD uses the FLAGPOLE
+        height for every receptor (W216, the same heights), which keeps
+        EPA's own FLAGPOLE decks reading back unchanged. Without that
+        context (``None``, the default) only the rows given are written,
+        as earlier releases did.
         """
         lines = [f"   GRIDCART  {self.grid_name:<8} STA"]
         if self.x_points is not None or self.y_points is not None:
@@ -140,13 +194,20 @@ class CartesianGrid:
                 f"{self.y_init:10.2f} {self.y_num:5d} {self.y_delta:8.2f}"
             )
         # Per-receptor elevations / hill heights (from AERMAP) and
-        # flagpole heights, one row (y index) per line group.
-        if self.grid_elevations is not None:
-            lines += _row_lines("GRIDCART", self.grid_name, "ELEV", self.grid_elevations)
-        if self.grid_hills is not None:
-            lines += _row_lines("GRIDCART", self.grid_name, "HILL", self.grid_hills)
-        if self.grid_flags is not None:
-            lines += _row_lines("GRIDCART", self.grid_name, "FLAG", self.grid_flags)
+        # flagpole heights, one row (y index) per line group; the
+        # grid-wide values fill the rows AERMOD needs and was not given.
+        elevations, hills, flags = self.grid_elevations, self.grid_hills, self.grid_flags
+        if elevated and elevations is None and hills is None:
+            # Only when both sets are missing: with one given (say from
+            # AERMAP) the other is not made up from z_elev / z_hill, and
+            # AERMOD stops with E218 as it does on the original deck.
+            elevations = self._filled(self.z_elev)
+            hills = self._filled(self.z_hill)
+        if flagpole is not None and flags is None and self.z_flag != 0.0:
+            flags = self._filled(self.z_flag)
+        for sub, rows in (("ELEV", elevations), ("HILL", hills), ("FLAG", flags)):
+            if rows is not None:
+                lines += _row_lines("GRIDCART", self.grid_name, sub, rows)
         lines.append(f"   GRIDCART  {self.grid_name:<8} END")
         return "\n".join(lines)
 
@@ -250,7 +311,11 @@ class PolarGrid:
 
 @dataclass
 class DiscreteReceptor:
-    """Individual receptor at specific location"""
+    """Individual receptor at specific location.
+
+    ``z_flag`` is the receptor's flagpole height; 0 means the run's
+    ``CO FLAGPOLE`` default when there is one.
+    """
     x_coord: float = field(metadata=described("m", "East (x) coordinate"))
     y_coord: float = field(metadata=described("m", "North (y) coordinate"))
     z_elev: float = field(default=0.0, metadata=described("m", "Terrain elevation"))
@@ -258,15 +323,40 @@ class DiscreteReceptor:
     z_flag: float = field(default=0.0, metadata=described("m", "Flagpole height"))
     label: str = field(default="", metadata=described(None, "A name for your own use; AERMOD never sees it"))  # Optional user-friendly name (not sent to AERMOD)
 
-    def to_aermod_input(self) -> str:
-        """Generate AERMOD DISCCART line"""
-        line = (
-            f"   DISCCART  {self.x_coord:12.4f} {self.y_coord:12.4f} "
-            f"{self.z_elev:8.2f}"
-        )
-        # Only include z_hill and z_flag for ELEVATED terrain (non-zero values)
-        if self.z_hill != 0.0 or self.z_flag != 0.0:
-            line += f" {self.z_hill:8.2f} {self.z_flag:8.2f}"
+    def to_aermod_input(self, elevated: Optional[bool] = None,
+                        flagpole: Optional[float] = None) -> str:
+        """Generate AERMOD DISCCART line.
+
+        reset.f DISCAR reads the fields after x and y by the run's
+        options: ``zelev zhill [zflag]`` under elevated terrain and
+        ``[zflag]`` under FLAT, the flagpole field only with CO FLAGPOLE.
+        ``elevated`` (:attr:`ControlPathway.elevated_terrain`) and
+        ``flagpole`` (:attr:`ControlPathway.flag_pole_height`) give that
+        context. Under elevated terrain the line always carries
+        ``zelev zhill``, a zero hill height included (a missing one is
+        W228, and AERMOD then takes 0). With FLAGPOLE the flagpole field
+        follows (after ``zelev zhill``, or straight after x and y under
+        FLAT, where the elevation used to go and AERMOD read it as the
+        flagpole height), and a zero ``z_flag`` is written as the
+        FLAGPOLE height, the one AERMOD gives a receptor that has none.
+
+        Under FLAT without FLAGPOLE, and with ``elevated=None`` (no
+        context), the line is what earlier releases wrote: ``x y zelev``,
+        plus ``zhill zflag`` when either is non-zero. AERMOD ignores the
+        extra fields under FLAT (W229), but the elevation is kept in the
+        deck so it reads back into ``z_elev``.
+        """
+        line = f"   DISCCART  {self.x_coord:12.4f} {self.y_coord:12.4f}"
+        if elevated is None or (not elevated and flagpole is None):
+            line += f" {self.z_elev:8.2f}"
+            if self.z_hill != 0.0 or self.z_flag != 0.0:
+                line += f" {self.z_hill:8.2f} {self.z_flag:8.2f}"
+            return line
+        if elevated:
+            line += f" {self.z_elev:8.2f} {self.z_hill:8.2f}"
+        if flagpole is not None:
+            z_flag = self.z_flag if self.z_flag != 0.0 else flagpole
+            line += f" {z_flag:8.2f}"
         return line
 
 
@@ -290,8 +380,17 @@ class ReceptorPathway:
         """Add discrete receptor"""
         self.discrete_receptors.append(receptor)
 
-    def to_aermod_input(self) -> str:
-        """Generate AERMOD RE pathway text"""
+    def to_aermod_input(self, elevated: Optional[bool] = None,
+                        flagpole: Optional[float] = None) -> str:
+        """Generate AERMOD RE pathway text.
+
+        ``elevated`` and ``flagpole`` are the run's terrain and flagpole
+        options (:attr:`ControlPathway.elevated_terrain`,
+        :attr:`ControlPathway.flag_pole_height`), which decide the
+        elevation fields AERMOD reads; :meth:`AERMODProject.to_aermod_input`
+        passes them. Without them the Cartesian grids and discrete
+        receptors are written as earlier releases wrote them.
+        """
         lines = ["RE STARTING"]
 
         # Elevation units (if not default)
@@ -300,7 +399,7 @@ class ReceptorPathway:
 
         # Cartesian grids
         for grid in self.cartesian_grids:
-            lines.append(grid.to_aermod_input())
+            lines.append(grid.to_aermod_input(elevated=elevated, flagpole=flagpole))
 
         # Polar grids
         for grid in self.polar_grids:
@@ -308,7 +407,7 @@ class ReceptorPathway:
 
         # Discrete receptors
         for receptor in self.discrete_receptors:
-            lines.append(receptor.to_aermod_input())
+            lines.append(receptor.to_aermod_input(elevated=elevated, flagpole=flagpole))
 
         lines.append("RE FINISHED")
         return "\n".join(lines)

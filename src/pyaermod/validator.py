@@ -8,6 +8,7 @@ AERMOD rejects at runtime.
 """
 
 import itertools
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -120,6 +121,7 @@ class Validator:
             # An EVENT deck has no RE pathway; its receptors are the
             # EVENTLOC cards.
             cls._validate_receptors(project.receptors, result)
+            cls._validate_openpit_receptors(project.sources, project.receptors, result)
         cls._validate_meteorology(project.meteorology, result, check_files,
                                   project.control)
         cls._validate_output(project.output, result, project.control, project.sources)
@@ -154,6 +156,7 @@ class Validator:
                 pathway, "title_one", "must not be empty"
             ))
 
+        cls._validate_dfault_terrain(control, result)
         cls._validate_restart_options(control, result)
         cls._validate_gas_deposition_defaults(control, result)
         cls._validate_downwash_and_arm2_options(control, result)
@@ -240,6 +243,32 @@ class Validator:
                 pathway, "urban_population",
                 "must be set when urban_option or urban_roughness is: URBANOPT "
                 "starts with the urban population"
+            ))
+
+    @classmethod
+    def _validate_dfault_terrain(cls, control, result: ValidationResult):
+        """DFAULT with FLAT (coset.f MODOPT, v26135 lines 1622-1683).
+
+        DFAULT forces ELEV and clears FLAT and FLATSRCS before the other
+        options are read, then warns W206 for a FLAT token and runs the
+        deck in elevated terrain. ``terrain_type`` FLAT and FLATSRCS both
+        write FLAT, so the run pyaermod asked for is not the one AERMOD
+        makes: receptor and source elevations are used.
+        """
+        if not getattr(control, "regulatory_default", False):
+            return
+        terrain = str(getattr(control.terrain_type, "value", control.terrain_type)).upper()
+        extra = {str(o).upper() for o in getattr(control, "extra_model_options", []) or []}
+        if terrain in ("FLAT", "FLATSRCS") or "FLAT" in extra:
+            result.errors.append(ValidationError(
+                "ControlPathway", "terrain_type",
+                f"terrain_type={terrain} with regulatory_default=True: pyaermod "
+                "writes FLAT with DFAULT on MODELOPT, and AERMOD drops FLAT under "
+                "DFAULT (AERMOD W206) and runs in elevated terrain, using the "
+                "receptor and source elevations; set regulatory_default=False "
+                "for a flat-terrain run, or terrain_type=ELEVATED to say what "
+                "AERMOD will do",
+                severity="warning",
             ))
 
     # ------------------------------------------------------------------
@@ -512,39 +541,78 @@ class Validator:
             cls._validate_gas_deposition(name, gas_dep, control, result)
 
         if particle_dep:
-            if len(particle_dep.diameters) != len(particle_dep.mass_fractions):
-                result.errors.append(ValidationError(
-                    name, "particle_deposition",
-                    "diameters and mass_fractions must have same length"
-                ))
-            if len(particle_dep.diameters) != len(particle_dep.densities):
-                result.errors.append(ValidationError(
-                    name, "particle_deposition",
-                    "diameters and densities must have same length"
-                ))
-            if len(particle_dep.diameters) > 20:
-                result.errors.append(ValidationError(
-                    name, "particle_deposition.diameters",
-                    "max 20 size categories"
-                ))
-            if particle_dep.mass_fractions:
-                frac_sum = sum(particle_dep.mass_fractions)
-                if abs(frac_sum - 1.0) > 0.01:
-                    result.errors.append(ValidationError(
-                        name, "particle_deposition.mass_fractions",
-                        f"must sum to 1.0, got {frac_sum:.4f}",
-                        severity="warning",
-                    ))
-            if any(d <= 0 for d in particle_dep.diameters):
-                result.errors.append(ValidationError(
-                    name, "particle_deposition.diameters",
-                    "all diameters must be > 0"
-                ))
-            if any(r <= 0 for r in particle_dep.densities):
-                result.errors.append(ValidationError(
-                    name, "particle_deposition.densities",
-                    "all densities must be > 0"
-                ))
+            cls._validate_particle_deposition(name, particle_dep, result)
+
+    @classmethod
+    def _validate_particle_deposition(cls, name, particle_dep, result: ValidationResult):
+        """PARTDIAM / MASSFRAX / PARTDENS (Method 1) as AERMOD v26135 checks
+        them.
+
+        The number of categories has no fixed limit: soset.f allocates the
+        arrays to the deck's own count (NPDMAX), and a 25-category OPENPIT
+        deck runs to completion. soset.f INPPDM refuses a diameter <= 0.001
+        or > 1000 microns (E335, lines 4920-4922), INPPHI a mass fraction
+        outside 0-1 (E332, lines 5048-5050), and INPPDN a density <= 0
+        (E334) while warning at <= 0.1 g/cm^3 (W334, lines 5168-5173).
+        SRCQA requires the three counts to agree (E240, lines 1216-1219)
+        and warns when the fractions sum outside 0.98-1.02 (W330, lines
+        1221-1231).
+
+        The ranges are checked on the values as the deck will carry them,
+        because those are what AERMOD reads: the writer rounds PARTDIAM and
+        PARTDENS to 4 significant figures and MASSFRAX to 6 decimals, so a
+        1000.4 um diameter is written, and accepted, as 1000.
+        """
+        diameters, fractions, densities = cls._particle_values_as_written(particle_dep)
+
+        def add(field_name, message, severity="error"):
+            result.errors.append(ValidationError(name, field_name, message, severity=severity))
+
+        if len(diameters) != len(fractions):
+            add("particle_deposition",
+                "diameters and mass_fractions must have same length (AERMOD E240)")
+        if len(diameters) != len(densities):
+            add("particle_deposition",
+                "diameters and densities must have same length (AERMOD E240)")
+
+        bad = [d for d in diameters if d <= 0.001 or d > 1000.0]
+        if bad:
+            add("particle_deposition.diameters",
+                f"diameters must each be > 0.001 and <= 1000 microns, got {bad} (AERMOD E335)")
+
+        bad = [f for f in fractions if f < 0.0 or f > 1.0]
+        if bad:
+            add("particle_deposition.mass_fractions",
+                f"mass fractions must each be 0-1, got {bad} (AERMOD E332)")
+        if fractions:
+            total = 0.0
+            for f in fractions:  # summed in order, as SRCQA does
+                total += f
+            if total < 0.98 or total > 1.02:
+                add("particle_deposition.mass_fractions",
+                    f"sum to {total:.4f}, outside 1.0 +/- 2% (AERMOD W330)", "warning")
+
+        bad = [r for r in densities if r <= 0.0]
+        if bad:
+            add("particle_deposition.densities",
+                f"densities must each be > 0 g/cm^3, got {bad} (AERMOD E334)")
+        low = [r for r in densities if 0.0 < r <= 0.1]
+        if low:
+            add("particle_deposition.densities",
+                f"densities {low} are <= 0.1 g/cm^3, which AERMOD flags as possibly "
+                "out of range (AERMOD W334)", "warning")
+
+    @staticmethod
+    def _particle_values_as_written(particle_dep):
+        """PARTDIAM, MASSFRAX and PARTDENS read back from the lines the
+        writer produces for them, so the checks see AERMOD's numbers."""
+        from pyaermod.sources import _deposition_to_aermod_lines
+
+        written = {}
+        for line in _deposition_to_aermod_lines("SRC", None, particle_dep):
+            keyword, _, *values = line.split()
+            written[keyword] = [float(v) for v in values]
+        return written["PARTDIAM"], written["MASSFRAX"], written["PARTDENS"]
 
     #: Pollutants for which soset.f GASDEP substitutes a built-in value
     #: when a GASDEPOS field is 0 (warning W473); any other zero is E380.
@@ -935,58 +1003,182 @@ class Validator:
                     "start and end points are identical (zero-length line)"
                 ))
 
+    #: soset.f OPARM substitutes this for an XINIT or YINIT below it (W320)
+    #: "to avoid zero-divide and underflow", then uses it in the depth and
+    #: aspect-ratio checks.
+    OPENPIT_MIN_DIMENSION = 1.0e-5
+
+    @classmethod
+    def _openpit_dimensions(cls, src):
+        """XINIT and YINIT as OPARM leaves them: a value below 1e-5 m is
+        raised to 1e-5 m (soset.f 3549-3553, 3562-3566); a negative one
+        is E209 and left alone."""
+        return tuple(
+            cls.OPENPIT_MIN_DIMENSION if 0.0 <= d < cls.OPENPIT_MIN_DIMENSION else d
+            for d in (src.x_dimension, src.y_dimension)
+        )
+
     @classmethod
     def _validate_openpit_source(cls, src, result: ValidationResult):
+        """SRCPARAM as soset.f OPARM checks it (v26135, lines 3530-3595).
+
+        ``Qemis Hs Xinit Yinit Volume [Angle]``: W320 for a zero emission
+        rate, Hs > 200 m, Xinit/Yinit below 1e-5 m or above 2000 m, and
+        |Angle| > 180; E209 for a negative Hs, Xinit, Yinit or a volume
+        <= 0; W392 for an aspect ratio above 10; E322 when Hs exceeds the
+        effective depth Volume / (Xinit * Yinit).
+        """
         name = f"OpenPitSource({src.source_id})"
 
+        def add(field_name, message, severity="error"):
+            result.errors.append(ValidationError(name, field_name, message, severity=severity))
+
         if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
+            add("emission_rate", f"must be >= 0, got {src.emission_rate}")
+        elif src.emission_rate == 0:
+            add("emission_rate", "is 0 (AERMOD W320)", "warning")
 
         if src.release_height < 0:
-            result.errors.append(ValidationError(
-                name, "release_height",
-                f"must be >= 0, got {src.release_height}"
-            ))
+            add("release_height", f"must be >= 0, got {src.release_height} (AERMOD E209)")
+        elif src.release_height > 200.0:
+            add("release_height",
+                f"{src.release_height} m is above 200 m (AERMOD W320)", "warning")
 
-        if src.x_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "x_dimension",
-                f"must be > 0, got {src.x_dimension}"
-            ))
+        for field_name, value in (("x_dimension", src.x_dimension),
+                                  ("y_dimension", src.y_dimension)):
+            if value < 0:
+                add(field_name, f"must be >= 0, got {value} (AERMOD E209)")
+            elif value < cls.OPENPIT_MIN_DIMENSION:
+                add(field_name,
+                    f"{value} m is below 1e-5 m, so AERMOD uses 1e-5 m "
+                    "instead (AERMOD W320)", "warning")
+            elif value > 2000.0:
+                add(field_name, f"{value} m is above 2000 m (AERMOD W320)", "warning")
 
-        if src.y_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "y_dimension",
-                f"must be > 0, got {src.y_dimension}"
-            ))
+        if abs(src.angle) > 180.0:
+            add("angle", f"|{src.angle}| is above 180 degrees (AERMOD W320)", "warning")
 
         if src.pit_volume <= 0:
-            result.errors.append(ValidationError(
-                name, "pit_volume",
-                f"must be > 0, got {src.pit_volume}"
-            ))
+            add("pit_volume", f"must be > 0, got {src.pit_volume} (AERMOD E209)")
 
-        # Warning: release height exceeds effective pit depth
-        if src.x_dimension > 0 and src.y_dimension > 0 and src.pit_volume > 0:
-            eff_depth = src.effective_depth
+        if src.x_dimension < 0 or src.y_dimension < 0:
+            return
+        x_dim, y_dim = cls._openpit_dimensions(src)
+        ratio = max(x_dim / y_dim, y_dim / x_dim)
+        if ratio > 10:
+            add("x_dimension/y_dimension",
+                f"aspect ratio > 10 ({ratio:.1f}) (AERMOD W392)", "warning")
+
+        if src.pit_volume > 0:
+            eff_depth = src.pit_volume / (x_dim * y_dim)
             if src.release_height > eff_depth:
-                result.errors.append(ValidationError(
-                    name, "release_height",
-                    f"exceeds effective pit depth ({eff_depth:.2f}m), got {src.release_height}",
-                    severity="warning"
-                ))
+                add("release_height",
+                    f"{src.release_height} m exceeds the effective pit depth "
+                    f"volume / (x_dimension * y_dimension) = {eff_depth:.2f} m, "
+                    "which AERMOD refuses (AERMOD E322)")
 
-        # Warning: aspect ratio > 10
-        if src.x_dimension > 0 and src.y_dimension > 0:
-            ratio = max(src.x_dimension / src.y_dimension, src.y_dimension / src.x_dimension)
-            if ratio > 10:
+    @classmethod
+    def _openpit_vertices(cls, src):
+        """The pit's corners as soset.f OPARM places them (lines 3604-3623):
+        from the SW corner along the rotated Y side, then the X side."""
+        x_dim, y_dim = cls._openpit_dimensions(src)
+        rad = math.radians(src.angle)
+        sin_a, cos_a = math.sin(rad), math.cos(rad)
+        x1, y1 = src.x_coord, src.y_coord
+        x2, y2 = x1 + y_dim * sin_a, y1 + y_dim * cos_a
+        x3, y3 = x2 + x_dim * cos_a, y2 - x_dim * sin_a
+        x4, y4 = x3 - y_dim * sin_a, y3 - y_dim * cos_a
+        return [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
+
+    @staticmethod
+    def _strictly_inside(px, py, vertices) -> bool:
+        """True when (px, py) is inside the convex polygon and not on its
+        boundary, as PNPOLY's INOUT > 0 (aermod.f 3898)."""
+        sign = 0
+        n = len(vertices)
+        for i in range(n):
+            xi, yi = vertices[i]
+            xj, yj = vertices[(i + 1) % n]
+            cross = (xj - xi) * (py - yi) - (yj - yi) * (px - xi)
+            if cross == 0:
+                return False
+            s = 1 if cross > 0 else -1
+            if sign == 0:
+                sign = s
+            elif s != sign:
+                return False
+        return True
+
+    @classmethod
+    def _receptors_in_box(cls, receptors, sources, box):
+        """Yield every receptor (x, y) that falls in the (xmin, ymin, xmax,
+        ymax) box. Cartesian grid axes are filtered before they are
+        crossed, so a large grid far from the pit costs one pass per axis."""
+        from .validator_advanced import _cart_values, _polar_directions, _polar_distances
+
+        xmin, ymin, xmax, ymax = box
+        for grid in receptors.cartesian_grids:
+            xs = [x for x in _cart_values(grid, "x") if xmin <= x <= xmax]
+            if not xs:
+                continue
+            ys = [y for y in _cart_values(grid, "y") if ymin <= y <= ymax]
+            for x in xs:
+                for y in ys:
+                    yield x, y
+        by_id = {s.source_id: s for s in sources.sources}
+        for grid in receptors.polar_grids:
+            x0, y0 = grid.x_origin, grid.y_origin
+            origin_id = getattr(grid, "origin_source_id", None)
+            if origin_id:
+                # GRIDPOLR ORIG srcid centres the grid on the source's
+                # LOCATION, for OPENPIT its SW corner (reset.f 1147-1148).
+                if origin_id not in by_id:
+                    continue
+                x0, y0 = by_id[origin_id].x_coord, by_id[origin_id].y_coord
+            distances = _polar_distances(grid)
+            for direction in _polar_directions(grid):
+                rad = math.radians(direction)  # reset.f 1485-1486
+                for dist in distances:
+                    x, y = x0 + dist * math.sin(rad), y0 + dist * math.cos(rad)
+                    if xmin <= x <= xmax and ymin <= y <= ymax:
+                        yield x, y
+        for rec in receptors.discrete_receptors:
+            if xmin <= rec.x_coord <= xmax and ymin <= rec.y_coord <= ymax:
+                yield rec.x_coord, rec.y_coord
+
+    @classmethod
+    def _validate_openpit_receptors(cls, sources, receptors, result: ValidationResult):
+        """Warn about receptors inside an open pit.
+
+        calc1.f PITCALC (v26135, lines 4859-4892) tests every receptor
+        with PNPOLY against the pit's corners and skips one that lies
+        strictly inside, leaving 0 for that source there. AERMOD raises no
+        message code for it; inpsum.f CHKREC (lines 3994-4007) only lists
+        the receptor, marked OPENPIT, in the input summary's "calculations
+        may not be performed" table. A receptor on the pit's edge is
+        modelled.
+        """
+        from pyaermod.input_generator import OpenPitSource
+
+        for src in sources.sources:
+            if not isinstance(src, OpenPitSource):
+                continue
+            if src.x_dimension < 0 or src.y_dimension < 0:
+                continue
+            vertices = cls._openpit_vertices(src)
+            box = (min(v[0] for v in vertices), min(v[1] for v in vertices),
+                   max(v[0] for v in vertices), max(v[1] for v in vertices))
+            inside = [p for p in cls._receptors_in_box(receptors, sources, box)
+                      if cls._strictly_inside(p[0], p[1], vertices)]
+            if inside:
+                shown = ", ".join(f"({x:.1f}, {y:.1f})" for x, y in inside[:3])
+                more = f" and {len(inside) - 3} more" if len(inside) > 3 else ""
                 result.errors.append(ValidationError(
-                    name, "x_dimension/y_dimension",
-                    f"aspect ratio > 10 ({ratio:.1f})",
-                    severity="warning"
+                    f"OpenPitSource({src.source_id})", "receptors",
+                    f"{len(inside)} receptor(s) lie inside the pit: {shown}{more}; "
+                    "AERMOD skips them for this source and reports 0 there "
+                    "(calc1.f PITCALC)",
+                    severity="warning",
                 ))
 
     # ------------------------------------------------------------------

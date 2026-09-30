@@ -188,14 +188,13 @@ class TestSandboxCoversLinesKeptAsWritten:
 
     @pytest.mark.parametrize("pathway, line, path", [
         ("CO", "   ERRORFIL  /tmp/elsewhere/errors.out", "/tmp/elsewhere/errors.out"),
-        ("CO", "   DEBUGOPT  MODEL  ../debug.out", "../debug.out"),
         ("SO", "   INCLUDED  ../../sources.dat", "../../sources.dat"),
         ("SO", "   HOUREMIS  /data/hourly.emi  S1", "/data/hourly.emi"),
         ("SO", "   BACKGRND  HOURLY  ../bg.dat", "../bg.dat"),
         ("RE", "   INCLUDED  /etc/receptors.dat", "/etc/receptors.dat"),
         ("OU", "   POSTFILE  1  ALL  PLOT  in.pst\n   POSTFILE  3  ALL  PLOT  ../out.pst",
          "../out.pst"),
-    ], ids=["errorfil", "debugopt", "so-included", "houremis", "backgrnd-hourly",
+    ], ids=["errorfil", "so-included", "houremis", "backgrnd-hourly",
             "re-included", "second-postfile"])
     def test_an_escaping_file_on_a_kept_line_is_refused(self, tmp_path, pathway, line, path):
         inp = _with_lines(tmp_path, **{pathway: line})
@@ -207,6 +206,18 @@ class TestSandboxCoversLinesKeptAsWritten:
         assert violation.path == path
         kept = next(u for u in project.unparsed_lines if path in u.raw)
         assert violation.field == f"{kept.pathway} {kept.keyword} at line {kept.lineno}"
+
+    def test_an_escaping_debugopt_file_is_refused_once(self, tmp_path):
+        """DEBUGOPT is read into ``control.debug_options`` (#29), no longer
+        kept verbatim, and its file name is refused as that field alone."""
+        inp = _with_lines(tmp_path, CO="   DEBUGOPT  MODEL  ../debug.out")
+        project = read_aermod_input(inp)
+        assert project.control.debug_files() == ["../debug.out"]
+        assert not any("DEBUGOPT" in u.raw for u in project.unparsed_lines)
+        with pytest.raises(PathTraversalError) as caught:
+            read_aermod_input(inp, sandbox=True)
+        (violation,) = caught.value.violations
+        assert (violation.field, violation.path) == ("control.debug_options", "../debug.out")
 
     def test_a_quoted_name_with_blanks_is_read_as_one_field(self, tmp_path):
         inp = _with_lines(tmp_path, CO='   ERRORFIL  "sub dir/../../errors.out"')
@@ -225,7 +236,8 @@ class TestSandboxCoversLinesKeptAsWritten:
             ME="   SITEDATA  99999  1988  HUDSON",
         )
         project = read_aermod_input(inp, sandbox=True)
-        assert len(project.unparsed_lines) == 5
+        assert len(project.unparsed_lines) == 4          # DEBUGOPT is read (#29)
+        assert project.control.debug_files() == ["sub/debug.out"]
 
     def test_the_recorded_aertest_deck_is_accepted(self, tmp_path):
         """Numbers, IDs and option words on kept lines are not paths out."""

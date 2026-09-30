@@ -401,36 +401,42 @@ def example_4_postfile_with_deposition():
   Hourly deposition values are often far below the 0.00001 that the default
   fixed-point format can show, so FILEFORM EXP is worth setting.
 
-  To parse the POSTFILE of a CONC DDEP WDEP run:
+  To parse a POSTFILE:
 
     from pyaermod.postfile import read_postfile
 
-    # Auto-detect text vs binary format (a binary file also needs
-    # has_deposition=True and, for coordinates, receptor_coords)
-    result = read_postfile("postfile.txt")
-
+    result = read_postfile("postfile.txt")   # text or binary, auto-detected
+    print(result.output_types)               # e.g. ('CONC', 'DDEP')
     df = result.data
-    print(df.columns)
-    # ['x', 'y', 'concentration', 'dry_depo', 'wet_depo',
-    #  'zelev', 'zhill', 'zflag', 'ave', 'grp', 'date']
 
-    # Total deposition (g/m2 in each hour)
-    df['total_depo'] = df['dry_depo'] + df['wet_depo']
+  A text POSTFILE names its value columns in its header, and the reader
+  takes them from there, one column per output type: CONC is
+  'concentration', DEPOS 'total_depo', DDEP 'dry_depo' and WDEP
+  'wet_depo'. So the POSTFILE of Example 1 or 3 (CONC DDEP) has columns
 
-    # Receptor with the most deposition in a single hour
-    peak = df.loc[df['total_depo'].idxmax()]
+    ['x', 'y', 'concentration', 'dry_depo', 'zelev', 'zhill', 'zflag', 'ave', 'grp', 'date']
+
+  and that of Example 2 (CONC DEPOS DDEP WDEP) has
+
+    ['x', 'y', 'concentration', 'total_depo', 'dry_depo', 'wet_depo', 'zelev', 'zhill', 'zflag', 'ave', 'grp', 'date']
+
+  result.column_for("DDEP") names the column of one output type. A
+  binary (UNFORM) POSTFILE records neither its output types nor its
+  receptors, so give both:
+
+    result = read_postfile("postfile.bin",
+                           output_types="CONC DEPOS DDEP WDEP",
+                           receptor_coords=[(x1, y1), (x2, y2), ...])
+
+  Receptor with the most deposition in a single hour:
+
+    # AERMOD writes total deposition (g/m2 in each hour) when MODELOPT
+    # has DEPOS; otherwise add the dry and wet parts
+    if "total_depo" not in df:
+        df["total_depo"] = df.get("dry_depo", 0.0) + df.get("wet_depo", 0.0)
+
+    peak = df.loc[df["total_depo"].idxmax()]
     print(f"Max deposition at ({peak['x']}, {peak['y']}) on {peak['date']}")
-
-  The reader labels the value columns concentration, dry_depo and
-  wet_depo whatever MODELOPT says, so this recipe fits only a CONC DDEP
-  WDEP run, and none of Examples 1-3 is one. On their POSTFILEs it
-  mislabels columns without any error: for CONC DDEP (Examples 1 and 3)
-  dry deposition lands in 'zelev'; for CONC DEPOS DDEP WDEP (Example 2)
-  'dry_depo' holds total deposition, 'wet_depo' dry deposition and
-  'zelev' wet deposition. Either way the later columns shift as well, so
-  'grp' reads '1-HR' and 'date' reads 'ALL'. Until the reader takes its
-  columns from the file, check them against the POSTFILE's own header
-  line, which names every column in order.
 """)
 
     print("  See notebook 06_Postfile_Analysis.ipynb for interactive examples.")

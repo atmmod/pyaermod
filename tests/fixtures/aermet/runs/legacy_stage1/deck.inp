@@ -1,0 +1,23 @@
+** AERMET Stage 1 Input
+** Job: STAGE1
+**
+JOB
+   REPORT     stage1.out
+   MESSAGES   2
+
+UPPERAIR
+   DATA       14735-88.UA FSL
+   EXTRACT    stage1_ua.ext
+   XDATES     1988/3/1 TO 1988/3/10
+
+SURFACE
+   DATA       S1473588.144 CD144
+   EXTRACT    stage1.ext
+   XDATES     1988/3/1 TO 1988/3/10
+   ANEMHGT    6.1
+   LOCATION   14735 42.7500 -73.8000 -5
+   ELEVATION  83.8
+
+QA
+   EXTRACT    stage1.qa
+   XDATES     1988/3/1 TO 1988/3/10

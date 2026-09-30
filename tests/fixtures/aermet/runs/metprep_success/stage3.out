@@ -1,0 +1,185 @@
+ AERMET_SETUP
+ SUCCESSFUL
+
+ AERMET VERSION  26135
+
+ START PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:50 PM
+
+ RUNSTREAM CONTROL FILE: deck.inp
+
+
+ ****************************  INPUT SUMMARY **************************** 
+
+ PROCESSING STAGES 2
+
+
+
+ 1.  JOB FILE NAMES
+
+ MESSAGES   OPEN     stage3.msg
+ REPORT     OPEN     stage3.out
+ DEBUG      NO FILE
+
+
+
+ 2. UPPERAIR DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:         00014735        42.75       -73.80             5              83.80
+
+ DATA FILE: NO FILENAME INPUT
+ EXTRACT FILE: NO FILENAME INPUT
+ QAOUT FILE:     OPEN      stage1_ua.qa
+
+ UPPER AIR DATA ABOVE 5000 NOT EXTRACTED
+
+ UPPER AIR AUTOMATIC DATA CHECKS ARE: OFF
+
+
+
+ 3. SURFACE DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/04/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:            14735        42.75       -73.80             0              83.80
+
+
+ ASOS COMMISSION DATE: 19950801
+ DATA FILE: NO FILENAME INPUT
+ ASOS1MIN FILE: NO FILENAME INPUT
+ EXTRACT FILE: NO FILENAME INPUT
+ QAOUT FILE:     OPEN      stage1.qa
+
+
+
+ 4. ONSITE DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 5. PROG DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 6. METPREP DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/04/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT
+                   --------     --------    ---------     ---------------
+ LOCATION:            14735        42.75       -73.80             5
+
+ OUTPUT FILE:    OPEN      EX01_MP.SFC
+ PROFILE FILE:   OPEN      EX01_MP.PFL
+
+ METPREP PROCESSING OPTIONS
+ PROCESS                     OPTION  DESCRIPTION
+
+ WIND DIRECTION              RANDOM  WIND DIRECTIONS ARE RAMDOMNIZED
+ REFLEVEL                    SUBNWS  NWS WINDS AND TEMPS SUBSTITUED FOR MISSING ONSITE DATA
+ CLOUD COVER                 SUB_CC  CLOUD COVER SUBSTITUTED
+ TEMPERATURE                 SUB_TT  TEMPERATURE SUBSTITUTED
+ UPPER AIR SUBSTITUTION WILL NOT BE SUBSTITUTED
+
+
+ ****************************  SFC CHARACTERISTICS SUMMARY **************************** 
+
+
+ PRIMARY SITE CHARACTERISTICS
+
+YEAR: 1988 FREQUENCY ANNUAL
+           NUMBER OF SECTORS:   1
+
+ YEAR                BEGIN SECTOR    END SECTOR     ALBEDO      BOWEN RATIO    ROUGHNESS LENGTH (M)
+ 1988                  0.            360.           0.15         2.00          0.1200
+
+
+ ****************************  OBSERVATIONS PER DAY SUMMARY **************************** 
+
+
+ STARTING: 01-MAR-1988
+ ENDING: 04-MAR-1988
+
+                   ***** TOTAL OBSERVATION COUNTS *****
+
+ NWS UPPER AIR  OBS      8
+ NWS SURFACE    OBS     96
+ ONSITE/PROG    OBS      0
+ 1-MIN ASOS HR  OBS      0
+
+                   ***** DAILY OUTPUT STATISTICS *****
+
+        1988 MO/DY:   03/01   03/02   03/03   03/04
+  NWS UPPER AIR  OBS    2       2       2       2
+  NWS SURFACE    OBS   24      24      24      24
+  ONSITE/PROG    OBS    0       0       0       0
+  1-MIN ASOS HR  OBS    0       0       0       0
+
+
+ ****************************  PBL PROCESSING SUMMARY **************************** 
+
+ NUMBER OF DAYS WITH NO CONVECTIVE CONDITIONS:      0
+
+ NUMBER OF TOTAL CALMS:      8
+ NUMBER OF VARIABLE WINDS:      0
+
+
+
+ NUMBER OF SUBSTITUTIONS (INTERPOLATION) FOR MISSING CLOUD COVER:      0
+
+ NUMBER OF SUBSTITUTIONS (INTERPOLATION) FOR MISSING TEMPERATURE:      0
+
+ NUMBER OF BAD SURFACE RECORDS IN SURFACE FILE:        0
+
+ NUMBER OF BAD PROFILE RECORDS IN SURFACE FILE:        0
+
+
+ ****************************  MESSAGE SUMMARY **************************** 
+
+
+
+ ERROR MESSAGES        0 MESSAGES
+
+
+
+ WARNING MESSAGES        9 MESSAGES
+
+ W45:        4
+ W70:        1
+ W76:        4
+
+
+ INFORMATION MESSAGES       25 MESSAGES
+
+ I01:        1
+ I20:        2
+ I23:        1
+ I24:        1
+ I25:        1
+ I26:        1
+ I40:        2
+ I46:        1
+ I47:        1
+ I70:        1
+ I72:        8
+ I77:        4
+ I84:        1
+
+
+ QA MESSAGES        0 MESSAGES
+
+
+
+ AERMET FINISHED SUCCESSFULLY
+
+ END PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:50 PM
