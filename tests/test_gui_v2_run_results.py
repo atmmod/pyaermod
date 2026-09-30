@@ -8,7 +8,10 @@ of the GUI would leave it, and the view is built from it.
 from __future__ import annotations
 
 import gc
+import gzip
+import os
 import shutil
+import threading
 import weakref
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,6 +24,8 @@ from pyaermod.gui_v2.session import Change, RunRecord, Session, SessionEvent
 from pyaermod.runner import AERMODRunResult, parse_aermod_messages
 
 RUNS = Path(__file__).parent / "fixtures" / "output_parser"
+AERTEST = Path(__file__).parent / "fixtures" / "gui" / "aermod_recordings" / "aertest"
+EPA = Path(__file__).parent / "fixtures" / "epa_official"
 
 
 def _record(case: str, tmp_path: Path, number: int = 1,
@@ -189,6 +194,107 @@ def test_a_view_goes_with_its_run(tmp_path):
     assert key not in rr._VIEWS
     # The view is still usable on its own.
     assert view.headline == "Run 1 succeeded" and view.started_at is not None
+
+
+def test_a_view_is_read_in_a_thread_of_its_own(tmp_path, monkeypatch):
+    """prepare() returns at once; the view is built once, in another thread."""
+    release, threads, real = threading.Event(), [], rr.build_view
+
+    def slow(record):
+        threads.append(threading.current_thread())
+        assert release.wait(timeout=20)
+        return real(record)
+
+    monkeypatch.setattr(rr, "build_view", slow)
+    record = _record("calm_missing", tmp_path)
+    future = rr.prepare(record)
+    assert rr.prepare(record) is future          # one build, however many ask
+    assert rr.cached_view(record) is None and not future.done()
+    release.set()
+    view = future.result(timeout=20)
+    assert threads == [threads[0]] and threads[0] is not threading.current_thread()
+    assert rr.cached_view(record) is view and rr.view_of(record) is view
+    assert rr.prepare(record).result() is view
+
+
+def test_watch_starts_the_view_without_waiting_for_it(tmp_path, monkeypatch):
+    """The RUN_FINISHED observer returns before the run's files are read."""
+    release, real = threading.Event(), rr.build_view
+    monkeypatch.setattr(rr, "build_view",
+                        lambda record: (release.wait(timeout=20), real(record))[1])
+    session = Session()
+    unsubscribe = rr.watch(session)
+    record = _record("calm_missing", tmp_path)
+    session.runs.append(record)
+    session._emit(Change(SessionEvent.RUN_FINISHED, run=record))
+    assert rr.cached_view(record) is None        # still being read
+    release.set()
+    assert rr.view_of(record).headline == "Run 1 succeeded"
+    unsubscribe()
+
+
+def _epa_layout_run(tmp_path: Path) -> RunRecord:
+    """AERTEST as a run of EPA's own deck leaves it: working directory
+    ``inputs/``, outputs in ``../Outputs``, ``../plotfiles`` and
+    ``../postfiles`` (the recording's files, written by the real binary)."""
+    root = tmp_path / "aermod_test_cases"
+    for folder in ("inputs", "Outputs", "plotfiles", "postfiles"):
+        (root / folder).mkdir(parents=True)
+    wd = root / "inputs"
+    started = datetime.now() - timedelta(seconds=1)
+    deck = wd / "pyaermod_gui.inp"
+    shutil.copy(EPA / "aertest.inp", deck)          # names ../plotfiles/AERTEST_01H.PLT
+    out = wd / "pyaermod_gui.out"
+    shutil.copy(AERTEST / "outputs" / "aermod.out", out)
+    shutil.copy(AERTEST / "outputs" / "AERTEST.SUM", root / "Outputs")
+    shutil.copy(AERTEST / "outputs" / "AERTEST_01H.PLT", root / "plotfiles")
+    with gzip.open(AERTEST / "outputs" / "AERTEST_01H.PST.gz") as src:
+        (root / "postfiles" / "AERTEST_01H.PST").write_bytes(src.read())
+    result = AERMODRunResult(success=True, input_file=str(deck), return_code=0,
+                             output_file=str(out), messages=parse_aermod_messages(out),
+                             finished_successfully=True)
+    return RunRecord(number=1, work_dir=wd, deck_path=deck, started_at=started,
+                     finished_at=datetime.now(), result=result)
+
+
+def test_the_plot_files_and_postfiles_are_the_ones_the_deck_names(tmp_path):
+    """An imported deck's PLOTFILE ../plotfiles/X.PLT is found where AERMOD wrote it."""
+    record = _epa_layout_run(tmp_path)
+    root = record.work_dir.parent
+    # A plot file of an earlier run in the working directory is not this run's.
+    old = record.work_dir / "EARLIER.PLT"
+    shutil.copy(root / "plotfiles" / "AERTEST_01H.PLT", old)
+    long_ago = record.started_at.timestamp() - 3600
+    os.utime(old, (long_ago, long_ago))
+    view = rr.build_view(record)
+    assert [(p.file.name, p.file.path.parent.name, p.period) for p in view.plots] == [
+        ("AERTEST_01H.PLT", "plotfiles", "1HR")]
+    assert [(f.name, f.path.parent.name) for f in view.postfiles] == [
+        ("AERTEST_01H.PST", "postfiles")]
+    [check] = view.naaqs
+    assert check.basis == "design value"
+    assert check.how.startswith("design value computed by pyaermod from AERTEST_01H.PST")
+    assert check.value == pytest.approx(753.65603, abs=5e-6)
+
+
+def test_a_postfile_too_large_to_read_is_named_in_the_screening_row(tmp_path, monkeypatch):
+    # AERTEST_01H.PST is 1.4 MB.
+    monkeypatch.setattr(rr, "POSTFILE_DESIGN_VALUE_MAX_BYTES", 1024 * 1024)
+    view = rr.build_view(_epa_layout_run(tmp_path))
+    [check] = view.naaqs
+    assert check.basis == "screening"
+    assert check.how == ("the highest 1-HR value in AERMOD's summary table (AERTEST_01H.PST "
+                         "not read for a design value: larger than 1 MB)")
+    # Still offered for download.
+    assert [f.name for f in view.postfiles] == ["AERTEST_01H.PST"]
+
+
+def test_deck_lines_follow_the_pathway():
+    deck = ("CO STARTING\n** a comment\n   ERRORFIL  ../Outputs/E.OUT\n"
+            "OU STARTING\n   PLOTFILE  1  ALL  FIRST  \"my plots/a.plt\"\nOU FINISHED\n")
+    assert list(rr.deck_lines(deck)) == [
+        ("CO STARTING", []), ("CO ERRORFIL", ["../Outputs/E.OUT"]), ("OU STARTING", []),
+        ("OU PLOTFILE", ["1", "ALL", "FIRST", "my plots/a.plt"]), ("OU FINISHED", [])]
 
 
 def test_a_run_that_could_not_start_is_listed(tmp_path):

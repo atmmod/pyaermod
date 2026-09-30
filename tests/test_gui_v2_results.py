@@ -10,8 +10,11 @@ summary tables (``tests/e2e/reference.py``).
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import io
 import re
+import threading
 import zipfile
 
 import pytest
@@ -311,6 +314,49 @@ class TestRunHistory:
         await gui.open()
         await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
         await gui.user.should_see(kind=ui.button, content="Go to Review & Run")
+
+
+class TestReadingTheResults:
+    """A finished run's files are read off the event loop (the loop serves every tab)."""
+
+    @pytest.mark.asyncio
+    async def test_the_run_ends_on_every_step_while_its_results_are_read(
+            self, gui, recorded_aermod, tmp_path, monkeypatch):
+        from pyaermod.gui_v2 import run_results as rr
+
+        # A large run's files take minutes to read. Here reading waits for
+        # the test: had it happened on the event loop, the page could not
+        # show the run's end until the wait gave up.
+        release, read = threading.Event(), threading.Event()
+        real, on_the_loop = rr.build_view, []
+
+        def slow(record):
+            # A worker thread has no event loop.
+            with contextlib.suppress(RuntimeError):
+                on_the_loop.append(asyncio.get_running_loop())
+            assert release.wait(timeout=30), "the test never let the view be built"
+            view = real(record)
+            read.set()
+            return view
+
+        monkeypatch.setattr(rr, "build_view", slow)
+        recorded_aermod("albany_success")
+        await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in")
+        assert on_the_loop == [], "the run's files were read on the event loop"
+        # The run is over on Review & Run: no Cancel, Run AERMOD usable again.
+        # The dialogs' Cancel buttons are not the run's.
+        assert not [b for b in gui.user.find(kind=ui.button, content="Cancel").elements
+                    if b.props.get("color") == "negative"]
+        assert _one(gui, kind=ui.button, content="Run AERMOD").enabled
+        gui.user.find(kind=ui.tab, content="Results").click()
+        await gui.user.should_see("Reading the results of run 1 ...")
+        await gui.user.should_not_see("No run yet")
+        assert not read.is_set()
+        release.set()
+        await gui.user.should_see("Run 1 succeeded", retries=100)
+        await gui.user.should_not_see("Reading the results of run 1 ...")
+        assert _maxima(gui)["1-HR"]["value"] == "76.07952"
 
 
 class TestReload:

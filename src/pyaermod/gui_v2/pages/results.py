@@ -18,10 +18,12 @@ For a successful run it shows, from AERMOD's own summary tables:
 - every rank of every summary table;
 - downloads of the deck, the ``.out`` file, the plot files and a KMZ.
 
-What is shown comes from :func:`pyaermod.gui_v2.run_results.view_of`,
-which reads a run's files once, when the run finishes. The section is
-rebuilt when a run starts or finishes, and on every page build (a reload
-shows the last run again). New and Open clear the run history.
+What is shown comes from :func:`pyaermod.gui_v2.run_results.prepare`,
+which reads a run's files once, in a thread of its own, when the run
+finishes. Until the files are read the step says "Reading the results of
+run N ..." and every tab stays usable; the section is rebuilt when the
+view is ready, when a run starts or finishes, and on every page build (a
+reload shows the last run again). New and Open clear the run history.
 
 ``goto(step)`` sends the user to another step (``"run"``, ``"output"``);
 the shell wires it to its navigation.
@@ -29,6 +31,7 @@ the shell wires it to its navigation.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import tempfile
 import threading
@@ -43,17 +46,21 @@ from ..run_results import (
     RunFile,
     RunView,
     StaleFileError,
+    cached_view,
     completed_runs,
     overwritten_by,
     period_label,
+    prepare,
     table_qualifier,
-    view_of,
     watch,
 )
 from ..session import Session, SessionEvent
 
 #: Shown when the session has no run AERMOD completed.
 NO_RUN = "No run yet. Run AERMOD from the Review & Run step."
+
+#: Shown while a finished run's files are being read.
+READING = "Reading the results of run {number} ..."
 
 _UNITS = {"ug/m^3": "µg/m³", "g/m^2": "g/m²", "g/m^2/yr": "g/m²/yr"}
 
@@ -77,6 +84,29 @@ def render(session: Session, *, dialogs: Any = None,
     picked: Dict[str, Optional[int]] = {"number": None, "runs": None}
     # The plot shown on the map, per run.
     map_choice: Dict[int, int] = {}
+    # The runs whose view this page is waiting for.
+    awaited: set = set()
+    client = ui.context.client
+
+    def _await_view(record: Any) -> None:
+        """Rebuild the section once ``record``'s view has been read."""
+        if record.number in awaited:
+            return
+        awaited.add(record.number)
+
+        async def wait() -> None:
+            try:
+                await asyncio.wrap_future(prepare(record))
+            except Exception:           # build_view logged it; the section says so
+                pass
+            finally:
+                awaited.discard(record.number)
+            if not _gone(client):
+                _body.refresh()
+
+        from nicegui import background_tasks
+
+        background_tasks.create(wait(), name=f"read the results of run {record.number}")
 
     @live(session, SessionEvent.RUN_STARTED, SessionEvent.RUN_FINISHED)
     def _body() -> None:
@@ -100,19 +130,36 @@ def render(session: Session, *, dialogs: Any = None,
                 _body.refresh()
 
             ui.select(
-                {r.number: _history_label(r, view_of(r)) for r in runs},
+                {r.number: _history_label(r, cached_view(r)) for r in runs},
                 value=record.number, label="Run shown", on_change=_pick,
             ).classes("w-full").style("max-width: 24rem")
 
-        view = view_of(record)
+        # Read in a thread (run_results.prepare): the loop that serves
+        # every tab must not wait for a large run's files.
+        view = cached_view(record)
+        if view is None:
+            ui.label(READING.format(number=record.number)).props(
+                'role=status aria-live=polite').classes("text-body1 q-mt-sm")
+            ui.spinner(size="lg").props('aria-hidden="true"')
+            _await_view(record)
+            return
         later = overwritten_by(session, record)
         _render_view(ui, view, later_run=later.number if later else None,
                      map_choice=map_choice, goto=goto)
 
 
-def _history_label(record: Any, view: RunView) -> str:
+def _gone(client: Any) -> bool:
+    """Whether the page's client has been deleted (the tab closed)."""
+    flag = getattr(client, "is_deleted", None)
+    if flag is None:
+        flag = getattr(client, "_deleted", False)
+    return bool(flag)
+
+
+def _history_label(record: Any, view: Optional[RunView]) -> str:
     finished = record.finished_at or record.started_at
-    return f"Run {record.number}, finished {finished:%H:%M:%S}: {view.status}"
+    status = view.status if view is not None else "succeeded" if record.success else "failed"
+    return f"Run {record.number}, finished {finished:%H:%M:%S}: {status}"
 
 
 # ----------------------------------------------------------------------

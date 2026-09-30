@@ -11,12 +11,23 @@ and the files a user can download. Nothing here parses AERMOD's output
 itself; every number comes from the library's readers.
 
 A view is built once per run, when the run finishes (:func:`watch`
-subscribes to ``RUN_FINISHED``), and kept for as long as the run record
-lives: the view holds no reference to the record, so a record the session
-lets go of (New, Open) takes its view with it. So an earlier run can still be shown after a later run in the same
-working directory has overwritten its files; the files themselves are
-checked against the checksum taken at that moment before they are offered
-for download (:meth:`RunFile.read`).
+subscribes to ``RUN_FINISHED`` and starts :func:`prepare`), in a thread
+of its own: reading a large run's ``.out`` file, plot files and POSTFILE
+takes seconds to minutes, and the GUI's event loop must go on serving
+every tab meanwhile. :func:`cached_view` says whether it is ready yet;
+:func:`view_of` waits for it. A view is kept for as long as the run
+record lives: the view holds no reference to the record, so a record the
+session lets go of (New, Open) takes its view with it. So an earlier run
+can still be shown after a later run in the same working directory has
+overwritten its files; the files themselves are checked against the
+checksum taken at that moment before they are offered for download
+(:meth:`RunFile.read`).
+
+The plot files and POSTFILEs of a run are the ones its deck names
+(``OU PLOTFILE`` and ``OU POSTFILE``, resolved against the working
+directory, so an imported deck's ``../plotfiles/X.PLT`` is found), plus
+any other ``.PLT`` or ``.PST`` file the run wrote into its working
+directory; either way only a file written since the run started counts.
 
 A failed run's view carries no results: AERMOD stopped before its tables
 were complete, and the Results step must not present them as valid.
@@ -31,10 +42,11 @@ import math
 import threading
 import warnings
 import weakref
+from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from .session import Change, RunRecord, Session, SessionEvent
 
@@ -57,6 +69,15 @@ _PERIOD_ORDER = ("1HR", "2HR", "3HR", "4HR", "6HR", "8HR", "12HR", "24HR",
 
 #: Mtime slack when deciding whether a file was written by this run (s).
 _MTIME_SLACK_S = 2.0
+
+#: The largest POSTFILE a design value is computed from (bytes). Reading
+#: one takes about 9 s per 100 MB, and a POSTFILE holds every hour at
+#: every receptor: a year at 1,000 receptors is about 800 MB. A larger
+#: one is still offered for download; the NAAQS row says why it was not read.
+POSTFILE_DESIGN_VALUE_MAX_BYTES = 100 * 1024 * 1024
+
+#: The runstream pathways, as a deck's first field names them.
+_PATHWAYS = frozenset({"CO", "SO", "RE", "ME", "EV", "OU"})
 
 
 class StaleFileError(RuntimeError):
@@ -126,11 +147,16 @@ class RunFile:
 
     @classmethod
     def of(cls, label: str, path: Path, run_number: int) -> Optional[RunFile]:
+        # In pieces: a POSTFILE can be larger than the memory it would fill.
+        digest, size = hashlib.sha256(), 0
         try:
-            data = path.read_bytes()
+            with path.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    digest.update(chunk)
+                    size += len(chunk)
         except OSError:
             return None
-        return cls(label, path, len(data), hashlib.sha256(data).hexdigest(), run_number)
+        return cls(label, path, size, digest.hexdigest(), run_number)
 
     @property
     def name(self) -> str:
@@ -229,22 +255,75 @@ def _plot_field(path: Path, run_number: int) -> Optional[PlotField]:
     )
 
 
-def _written_by(record: RunRecord, pattern_suffixes: Sequence[str]) -> List[Path]:
-    """Files in the run's directory with these suffixes that the run wrote."""
+def deck_lines(text: str) -> Iterator[Tuple[str, List[str]]]:
+    """Every runstream line of a deck as ``("OU PLOTFILE", [fields after it])``.
+
+    The pathway is the line's own or, for a line that names none, the
+    last one named; fields are split as AERMOD splits them
+    (:func:`~pyaermod.input_reader.runstream_fields`). Comment lines
+    (``**``) and blank lines are skipped.
+    """
+    from ..input_reader import runstream_fields
+
+    pathway = ""
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("**"):
+            continue
+        fields = runstream_fields(stripped)
+        if fields and fields[0].upper() in _PATHWAYS:
+            pathway, fields = fields[0].upper(), fields[1:]
+        if fields:
+            yield f"{pathway} {fields[0].upper()}", fields[1:]
+
+
+def _written_since(path: Path, since: float) -> bool:
+    try:
+        return path.is_file() and path.stat().st_mtime >= since
+    except OSError:
+        return False
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return a == b
+
+
+def _written_by(record: RunRecord, keyword: str, suffixes: Sequence[str]) -> List[Path]:
+    """The files of one kind the run wrote.
+
+    First those the run's deck names on its ``keyword`` lines
+    (``"OU PLOTFILE"``), each field resolved against the working
+    directory as AERMOD resolves it; then any other file with one of
+    ``suffixes`` in the working directory. Only files written since the
+    run started count.
+    """
     since = record.started_at.timestamp() - _MTIME_SLACK_S
-    found = []
+    found: List[Path] = []
+    try:
+        deck = record.deck_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        deck = ""
+    for kw, fields in deck_lines(deck):
+        if kw != keyword:
+            continue
+        for value in fields:
+            name = Path(value)
+            if name.name in ("", ".", ".."):
+                continue
+            path = name if name.is_absolute() else record.work_dir / name
+            if _written_since(path, since) and not any(_same_file(path, f) for f in found):
+                found.append(path)
     try:
         entries = sorted(record.work_dir.iterdir())
     except OSError:
-        return []
+        entries = []
     for path in entries:
-        if path.suffix.upper() not in pattern_suffixes or not path.is_file():
-            continue
-        try:
-            if path.stat().st_mtime >= since:
-                found.append(path)
-        except OSError:
-            continue
+        if (path.suffix.upper() in suffixes and _written_since(path, since)
+                and not any(_same_file(path, f) for f in found)):
+            found.append(path)
     return found
 
 
@@ -311,6 +390,8 @@ def _postfile_design_value(postfiles: Sequence[Path], pollutant: str, period: st
     from ..postfile import read_postfile
 
     for path in postfiles:
+        if _too_large(path):
+            continue
         try:
             post = read_postfile(path)
         except Exception as exc:          # not a POSTFILE we can read
@@ -336,6 +417,14 @@ def _postfile_design_value(postfiles: Sequence[Path], pollutant: str, period: st
     return None
 
 
+def _too_large(path: Path) -> bool:
+    """Whether ``path`` is larger than a design value is computed from."""
+    try:
+        return path.stat().st_size > POSTFILE_DESIGN_VALUE_MAX_BYTES
+    except OSError:
+        return False
+
+
 def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List[NaaqsCheck]:
     """Compare a successful run's concentrations with the NAAQS for its pollutant.
 
@@ -345,7 +434,9 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
     :func:`pyaermod.design_values.naaqs_compliance_report` from a POSTFILE
     of the standard's averaging period; or, as a screen, the highest value
     of that period, which no design value (a lower-ranked or averaged
-    value) can exceed. A period whose only table is one of AERMOD's
+    value) can exceed. A POSTFILE larger than
+    :data:`POSTFILE_DESIGN_VALUE_MAX_BYTES` is not read, and the
+    screening row says so. A period whose only table is one of AERMOD's
     design-value tables at another rank (RECTABLE asking for the
     8th-highest alone, say) is not compared: that value is not the highest
     and can be below the design value. Empty when the pollutant has no
@@ -425,8 +516,13 @@ def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
         return (None, None, "not compared",
                 f"the run has only AERMOD's {period_label(period)} table of the "
                 f"{qualifier}, which can be below the design value{want}")
-    return (float(top.max_value), tuple(top.max_location), "screening",
-            f"the highest {period_label(period)} value in AERMOD's summary table")
+    how = f"the highest {period_label(period)} value in AERMOD's summary table"
+    skipped = [p.name for p in postfiles if _too_large(p)]
+    if skipped and standard.percentile is not None and pollutant in ("SO2", "NO2", "PM2.5"):
+        limit = POSTFILE_DESIGN_VALUE_MAX_BYTES // (1024 * 1024)
+        how += (f" ({', '.join(skipped)} not read for a design value: larger than "
+                f"{limit} MB)")
+    return (float(top.max_value), tuple(top.max_location), "screening", how)
 
 
 def _ordinal(n: int) -> str:
@@ -537,13 +633,13 @@ def build_view(record: RunRecord) -> RunView:
         notes.append(f"Could not parse {Path(result.output_file or '').name}: {exc}")
 
     plots = []
-    for path in _written_by(record, (".PLT",)):
+    for path in _written_by(record, "OU PLOTFILE", (".PLT",)):
         plot = _plot_field(path, number)
         if plot is not None:
             plots.append(plot)
     plots.sort(key=lambda p: (period_sort_key(p.period), p.group, p.file.name))
 
-    postfiles = _written_by(record, (".PST",))
+    postfiles = _written_by(record, "OU POSTFILE", (".PST",))
     posts = tuple(f for f in (RunFile.of(f"POSTFILE {p.name}", p, number) for p in postfiles)
                   if f is not None)
     checks: Tuple[NaaqsCheck, ...] = ()
@@ -560,24 +656,72 @@ def build_view(record: RunRecord) -> RunView:
 
 
 _LOCK = threading.Lock()
-# id(record) -> (weak reference to the record, its view)
-_VIEWS: Dict[int, Tuple[Any, RunView]] = {}
+# id(record) -> (weak reference to the record, the future of its view)
+_VIEWS: Dict[int, Tuple[Any, Future]] = {}
+
+
+def _future_of(record: RunRecord) -> Tuple[Future, bool]:
+    """The future of ``record``'s view, and whether the caller must build it."""
+    key = id(record)
+    with _LOCK:
+        entry = _VIEWS.get(key)
+        if entry is not None and entry[0]() is record:
+            return entry[1], False
+        future: Future = Future()
+        _VIEWS[key] = (weakref.ref(record, functools.partial(_forget, key)), future)
+        return future, True
+
+
+def _build_into(record: RunRecord, future: Future) -> None:
+    try:
+        future.set_result(build_view(record))
+    except BaseException as exc:
+        # Not kept: the next call builds the view again.
+        with _LOCK:
+            entry = _VIEWS.get(id(record))
+            if entry is not None and entry[1] is future:
+                del _VIEWS[id(record)]
+        future.set_exception(exc)
+        if not isinstance(exc, Exception):
+            raise
+
+
+def prepare(record: RunRecord) -> Future:
+    """Start building ``record``'s view in a thread of its own; return its future.
+
+    Returns at once. The view is built once, however many callers ask
+    (the future is shared); a view already built is returned done.
+    """
+    future, mine = _future_of(record)
+    if mine:
+        threading.Thread(target=_build_into, args=(record, future), daemon=True,
+                         name=f"pyaermod-view-run-{record.number}").start()
+    return future
+
+
+def cached_view(record: RunRecord) -> Optional[RunView]:
+    """``record``'s view if it has been built; None while it is being built."""
+    with _LOCK:
+        entry = _VIEWS.get(id(record))
+        if entry is None or entry[0]() is not record:
+            return None
+        future = entry[1]
+    if future.done() and future.exception() is None:
+        return future.result()
+    return None
 
 
 def view_of(record: RunRecord) -> RunView:
-    """The view of ``record``, built when first asked for and then kept."""
-    with _LOCK:
-        entry = _VIEWS.get(id(record))
-        if entry is not None and entry[0]() is record:
-            return entry[1]
-    view = build_view(record)
-    with _LOCK:
-        entry = _VIEWS.get(id(record))
-        if entry is not None and entry[0]() is record:
-            return entry[1]
-        key = id(record)
-        _VIEWS[key] = (weakref.ref(record, functools.partial(_forget, key)), view)
-    return view
+    """The view of ``record``, built when first asked for and then kept.
+
+    Blocks until it is built, here or by :func:`prepare`'s thread: the
+    GUI's event loop never calls it, it uses :func:`cached_view` and
+    awaits :func:`prepare`.
+    """
+    future, mine = _future_of(record)
+    if mine:
+        _build_into(record, future)
+    return future.result()
 
 
 def _forget(key: int, _ref: Any) -> None:
@@ -591,12 +735,15 @@ def watch(session: Session) -> Callable[[], None]:
     """Build each run's view as soon as it finishes; return the unsubscribe.
 
     Then a later run in the same working directory cannot overwrite what
-    an earlier run's view shows. Every page showing results subscribes
-    (views are built once however many do) and unsubscribes when it goes.
+    an earlier run's view shows. The view is built in a thread
+    (:func:`prepare`), so the observer returns at once and the run's end
+    reaches every page without waiting for its files to be read. Every
+    page showing results subscribes (views are built once however many
+    do) and unsubscribes when it goes.
     """
     def on_finished(change: Change) -> None:
         if change.run is not None:
-            view_of(change.run)
+            prepare(change.run)
 
     return session.subscribe(SessionEvent.RUN_FINISHED, on_finished)
 
@@ -625,17 +772,21 @@ def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:
 __all__ = [
     "FLAG_MEANINGS",
     "OUTPUT_TYPES",
+    "POSTFILE_DESIGN_VALUE_MAX_BYTES",
     "NaaqsCheck",
     "PlotField",
     "RunFile",
     "RunView",
     "StaleFileError",
     "build_view",
+    "cached_view",
     "completed_runs",
+    "deck_lines",
     "naaqs_checks",
     "overwritten_by",
     "period_label",
     "period_sort_key",
+    "prepare",
     "table_qualifier",
     "view_of",
     "watch",
