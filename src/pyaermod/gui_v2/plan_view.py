@@ -162,8 +162,11 @@ def plan_view_svg(project: Any) -> str:
         f'preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;max-height:70vh;'
         f'font-family:sans-serif;font-size:12px">',
         f"<title>{escape(PLAN_VIEW_NAME)}</title>",
-        # On a phone the plot is drawn at about half size; keep its text legible.
-        "<style>@media (max-width: 700px) { text { font-size: 22px; } }</style>",
+        # On a phone the plot is drawn at about half size: keep its text
+        # legible, and drop the summary line, for which there is then no room
+        # (it is still the <desc>, and every network's count is in its <title>).
+        "<style>@media (max-width: 700px) { text { font-size: 22px; } .summary { display: none; } }"
+        "</style>",
         f"<desc>{escape(summary)}</desc>",
     ]
     out.extend(_axes(frame))
@@ -244,10 +247,11 @@ def _legend(frame: _Frame, summary: str, anything: bool) -> Iterable[str]:
         return
     yield (f'<circle cx="{_fmt(left + 6)}" cy="14" r="5" fill="{SOURCE_COLOUR}"/>'
            f'<text x="{_fmt(left + 16)}" y="18" fill="{AXIS_COLOUR}">Sources</text>')
-    yield (f'<circle cx="{_fmt(left + 86)}" cy="14" r="3" fill="{RECEPTOR_COLOUR}"/>'
-           f'<text x="{_fmt(left + 94)}" y="18" fill="{AXIS_COLOUR}">Receptors</text>')
-    yield (f'<text x="{_fmt(_WIDTH - _MARGIN_RIGHT)}" y="18" fill="{AXIS_COLOUR}" '
-           f'text-anchor="end">{escape(summary)}</text>')
+    # Spaced for the larger text a narrow window gets (see plan_view_svg).
+    yield (f'<circle cx="{_fmt(left + 136)}" cy="14" r="3" fill="{RECEPTOR_COLOUR}"/>'
+           f'<text x="{_fmt(left + 146)}" y="18" fill="{AXIS_COLOUR}">Receptors</text>')
+    yield (f'<text class="summary" x="{_fmt(_WIDTH - _MARGIN_RIGHT)}" y="18" '
+           f'fill="{AXIS_COLOUR}" text-anchor="end">{escape(summary)}</text>')
 
 
 __all__ = ["MAX_POINTS", "PLAN_VIEW_NAME", "nice_step", "plan_view_svg"]

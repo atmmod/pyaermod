@@ -215,7 +215,7 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
         actions = FileActions(session, dialogs=dialogs)
 
     with step_page("Project", "Name the run, choose the pollutant and how AERMOD models it. "
-                   "The steps on the left can be done in any order."):
+                   "The steps can be done in any order."):
         with section("Project file"), ui.row().classes("items-center gap-2 flex-wrap"):
             ui.button("New", icon="note_add", on_click=actions.new).props("outline").mark(
                 "project-new")

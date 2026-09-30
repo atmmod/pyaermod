@@ -248,8 +248,10 @@ def build_app() -> None:
         _keep_validated(session, client)
 
         # No input may be wider than the window: a page from another work
-        # package that fixes a width (w-96) still fits a phone.
-        ui.add_css(".q-tab-panel .q-field { max-width: 100%; }")
+        # package that fixes a width (w-96) still fits a phone, also inside
+        # a q-gutter row, whose negative margin makes 100% too wide (3rem is
+        # the step's own padding and the gutter).
+        ui.add_css(".q-tab-panel .q-field { max-width: min(100%, calc(100vw - 3rem)); }")
 
         # Every dialog a page creates lives here, outside any live section,
         # so no rebuild can delete an open dialog.

@@ -124,15 +124,26 @@ class App:
     def open_step(self, name: str) -> Locator:
         """Show a step and return its panel."""
         tab = self.step_tab(name)
-        if tab.get_attribute("aria-selected") != "true":
-            if not tab.is_visible():
-                # A narrow window folds the step list into a drawer.
-                self.header.get_by_role("button", name="Steps").click()
+        panel = self.page.get_by_role("tabpanel", name=name, exact=True)
+        # A narrow window folds the step list into a drawer behind the
+        # header's "Steps" button; the closed drawer is not in the
+        # accessibility tree, so its tabs cannot be found until it opens.
+        if not panel.is_visible():
+            menu = self.header.get_by_role("button", name="Steps")
+            folded = menu.is_visible()
+            if folded and not tab.is_visible():
+                menu.click()
+                expect(tab).to_be_visible()
             tab.click()
-            expect(tab).to_have_attribute("aria-selected", "true")
-            # During the switch the old and new panels are both present.
-            expect(self._panels()).to_have_count(1)
-        return self.page.get_by_role("tabpanel", name=name, exact=True)
+            if folded:
+                # Choosing a step closes the drawer; wait until it is out of the way.
+                expect(tab).to_be_hidden()
+            else:
+                expect(tab).to_have_attribute("aria-selected", "true")
+        # During the switch the old and new panels are both present.
+        expect(self._panels()).to_have_count(1)
+        expect(panel).to_be_visible()
+        return panel
 
     def _panels(self) -> Locator:
         # The step panels sit inside the tab-panels container, itself a
