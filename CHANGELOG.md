@@ -76,7 +76,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     both, the concentration tables are the ones in `concentrations`;
   - a summary table that continues on later pages (more source groups
     than fit a page) is read to its end; ALLSRCS's PERIOD maximum is
-    88881.24949 (group RLINEB2), not the 11819.89828 of the first page.
+    88881.24949 (group RLINEB2), not the 11819.89828 of the first page;
+  - a period's entry in `concentrations` (and `deposition`) is its table
+    of highest values when the file has one; one of AERMOD's
+    design-value tables (an Nth-highest value, or a multi-year average of
+    ranked values) fills it only when it is the period's only table, and
+    its `title` says so.
   `tests/test_output_parser_real_runs.py` pins each case against runs of
   the real binary recorded in `tests/fixtures/output_parser/`.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD

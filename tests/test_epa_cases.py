@@ -237,6 +237,23 @@ class TestAllsrcsOutputParsing:
         assert result.max_row["group"] == "RLINEB2"
 
 
+@requires_epa
+class TestDesignValueOnlyTable:
+    """testpm25: RECTABLE ALLAVE eighth, so the 24-HR summary is only the
+    8TH-HIGHEST table averaged over 5 years; there is no HIGHEST 24-HR table."""
+
+    def test_the_24hr_entry_is_that_table_and_says_so(self):
+        from pyaermod.gui_v2.run_results import table_qualifier
+
+        results = AERMODOutputParser(OUTPUTS_DIR / "testpm25.out").parse()
+        day = results.concentrations["24HR"]
+        assert day.title == ("THE SUMMARY OF MAXIMUM 8TH-HIGHEST 24-HR RESULTS "
+                             "AVERAGED OVER 5 YEARS")
+        assert day.max_value == pytest.approx(20.24079, abs=1e-5)
+        assert table_qualifier(day.title) == "8th-highest, averaged over 5 years"
+        assert table_qualifier(results.concentrations["ANNUAL"].title) == ""
+
+
 # ============================================================================
 # 3. Postfile Parser Tests — AERTEST_01H.PST
 # ============================================================================
