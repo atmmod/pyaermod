@@ -14,6 +14,7 @@ import re
 import shutil
 import signal
 import subprocess
+from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1045,6 +1046,86 @@ def _set_sweep_parameter(project, name: str, value, source_index: int = 0) -> No
     setattr(source_list[source_index], name, value)
 
 
+# A sweep value keeps its own text in the deck's file name when it is a
+# plain number, string or boolean whose text (with every character other
+# than letters, digits and ._+- turned into "_") is this long at most
+# and differs from every other value's; any other value is named by its
+# position and a hash.
+_SWEEP_LABEL_MAX = 48
+_SWEEP_UNSAFE = re.compile(r"[^A-Za-z0-9._+-]")
+
+
+def _sweep_labels(values: Sequence[Any]) -> List[str]:
+    """File-name labels for sweep values: readable when safe, unique always."""
+    plain: List[Optional[str]] = []
+    for value in values:
+        if isinstance(value, (bool, int, float, str)):
+            text = _SWEEP_UNSAFE.sub("_", str(value))
+            plain.append(text if 0 < len(text) <= _SWEEP_LABEL_MAX else None)
+        else:
+            plain.append(None)
+    counts: Dict[str, int] = {}
+    for candidate in plain:
+        if candidate is not None:
+            counts[candidate.lower()] = counts.get(candidate.lower(), 0) + 1
+    labels: List[str] = []
+    for i, (value, candidate) in enumerate(zip(values, plain)):
+        if candidate is not None and counts[candidate.lower()] == 1:
+            labels.append(candidate)
+            continue
+        try:
+            from .ensemble import canonical_json
+            text = canonical_json(value)
+        except (TypeError, ValueError):
+            text = repr(value)
+        labels.append(f"{i:03d}_{hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]}")
+    return labels
+
+
+def _values_equal(a: Any, b: Any) -> bool:
+    try:
+        return bool(a is b or a == b)
+    except Exception:  # e.g. NumPy arrays, whose == is element-wise
+        return False
+
+
+class SweepResults(Mapping):
+    """The results of :meth:`BatchRunner.parameter_sweep`, by sweep value.
+
+    A read-only mapping from each value of the sweep, in sweep order, to
+    its :class:`AERMODRunResult`. Values need not be hashable: looking
+    one up compares by ``==``, so ``results[psd]`` works for a
+    :class:`~pyaermod.sources.ParticleDepositionParams`. ``items()`` and
+    ``values()`` come in sweep order.
+    """
+
+    def __init__(self, pairs: Sequence[Tuple[Any, AERMODRunResult]]):
+        self._pairs = list(pairs)
+
+    def __getitem__(self, key: Any) -> AERMODRunResult:
+        for value, result in self._pairs:
+            if _values_equal(value, key):
+                return result
+        raise KeyError(key)
+
+    def __iter__(self):
+        return (value for value, _ in self._pairs)
+
+    def __len__(self) -> int:
+        return len(self._pairs)
+
+    def items(self):
+        """``(value, result)`` pairs in sweep order."""
+        return list(self._pairs)
+
+    def values(self):
+        """Results in sweep order."""
+        return [result for _, result in self._pairs]
+
+    def __repr__(self) -> str:
+        return f"SweepResults({self._pairs!r})"
+
+
 class BatchRunner:
     """
     Helper class for running parameter sweeps and scenario comparisons
@@ -1060,7 +1141,7 @@ class BatchRunner:
                        parameter_values: List,
                        output_dir: Union[str, Path],
                        n_workers: int = 4,
-                       source_index: int = 0) -> Dict:
+                       source_index: int = 0) -> SweepResults:
         """Run AERMOD over a sweep of one parameter on one source.
 
         For each value in ``parameter_values``:
@@ -1068,8 +1149,29 @@ class BatchRunner:
         1. Deep-copy ``base_project``
         2. Set ``parameter_name`` on the indicated source (or on the
            project if the name contains a dot, e.g. ``"control.title_one"``)
-        3. Write the modified project to ``output_dir/run_{name}_{value}.inp``
+        3. Write the modified project to ``output_dir/run_{name}_{label}.inp``
         4. Queue the file for batch execution
+
+        ``label`` is the value's own text when the value is a number,
+        string or boolean whose text is short, holds only letters,
+        digits and ``._+-`` once every other character (a space, a
+        ``/``) is turned into ``_``, and differs from every other
+        value's: ``run_emission_rate_0.5.inp``. Any other value, such as
+        a :class:`~pyaermod.sources.ParticleDepositionParams` for a
+        size-distribution sweep, is labelled by its position and the
+        first 12 hex digits of the SHA-256 of its canonical JSON
+        (:func:`pyaermod.ensemble.canonical_json`):
+        ``run_particle_deposition_001_3fa9c0d27e41.inp``.
+
+        Every output file the deck names (PLOTFILE, POSTFILE, ...) is
+        renamed to ``run_{name}_{label}_<file name>`` in ``output_dir``,
+        so the runs do not overwrite each other's results.
+
+        All the decks share ``output_dir``, whose lock lets one AERMOD
+        run at a time there (see :meth:`AERMODRunner.run`), so the runs
+        do not overlap whatever ``n_workers`` is.
+        :func:`pyaermod.ensemble.run_design` gives each run its own
+        directory and does run them in parallel.
 
         Parameters
         ----------
@@ -1082,7 +1184,8 @@ class BatchRunner:
             Otherwise it's a field name on the source at ``source_index``
             (e.g. ``"emission_rate"``, ``"stack_height"``).
         parameter_values : list
-            Values to substitute in.
+            Values to substitute in. They need not be hashable, but no
+            two may be equal.
         output_dir : Path
             Directory for generated .inp files and AERMOD outputs.
         n_workers : int
@@ -1093,41 +1196,43 @@ class BatchRunner:
 
         Returns
         -------
-        dict
-            Mapping of parameter value -> AERMODRunResult.
+        SweepResults
+            Mapping of parameter value -> AERMODRunResult, in sweep order.
+
+        Raises
+        ------
+        ValueError
+            When two values are equal: they would make the same run.
         """
         import copy
+
+        from .ensemble import rewrite_output_names
+
+        values = list(parameter_values)
+        for i, a in enumerate(values):
+            for j in range(i):
+                if _values_equal(values[j], a):
+                    raise ValueError(
+                        f"parameter_sweep: values {j} ({values[j]!r}) and {i} "
+                        f"({a!r}) are equal, so they would be the same run"
+                    )
 
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
         input_files: List[Path] = []
-        param_map: Dict[str, Any] = {}
-
-        for value in parameter_values:
+        for value, label in zip(values, _sweep_labels(values)):
             project = copy.deepcopy(base_project)
             _set_sweep_parameter(project, parameter_name, value, source_index)
-
-            # Sanitize the value for filename safety
-            value_str = str(value).replace("/", "_").replace(" ", "_")
-            filename = output_path / f"run_{parameter_name}_{value_str}.inp"
+            stem = f"run_{parameter_name}_{label}"
+            rewrite_output_names(project, prefix=f"{stem}_")
+            filename = output_path / f"{stem}.inp"
             project.write(str(filename))
-
             input_files.append(filename)
-            param_map[str(filename)] = value
 
+        # run_batch returns results[i] for input_files[i].
         results = self.runner.run_batch(input_files, n_workers=n_workers)
-
-        # Map back to parameter values (runner.input_file is an absolute
-        # path, so resolve both sides consistently).
-        result_map: Dict[Any, AERMODRunResult] = {}
-        for result in results:
-            key = str(Path(result.input_file).resolve())
-            for fp, pv in param_map.items():
-                if str(Path(fp).resolve()) == key:
-                    result_map[pv] = result
-                    break
-        return result_map
+        return SweepResults(list(zip(values, results)))
 
 
 # ============================================================================

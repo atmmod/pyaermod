@@ -227,3 +227,21 @@ M2 Pro, with a gfortran 15.2 `-O2 -fbounds-check` build of AERMOD v26135:
   runs finished. The manifest then showed two `success` and two
   `pending`. Run again on four workers, it made only the two pending
   runs.
+
+## `BatchRunner.parameter_sweep`
+
+For a sweep of one field, `BatchRunner.parameter_sweep` is still
+available. It writes every deck into one directory, so its runs do not
+overlap (see above). Use `run_design` for parallel runs.
+
+- **Results.** It returns a `SweepResults`: a read-only mapping from each
+  value, in sweep order, to its `AERMODRunResult`. Values need not be
+  hashable, and a lookup compares with `==`, so a sweep over
+  `ParticleDepositionParams` works and `results[psd]` finds its run.
+- **Deck names.** A deck keeps the value's text in its name
+  (`run_emission_rate_0.5.inp`) when the value is a short plain number,
+  string or boolean. Any other value is named by its position and a hash,
+  such as `run_particle_deposition_001_3fa9c0d27e41.inp`.
+- **Output names.** Each deck's output files are prefixed with the
+  deck's stem, so the runs do not overwrite each other's PLOTFILEs.
+- **Equal values** are refused, because they would be the same run.

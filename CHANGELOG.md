@@ -316,6 +316,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leaves the previous manifest whole. `RunManifest.load` builds entries
   of the class attribute `entry_type`, so a subclass can store richer
   entries, and it ignores keys the entry type does not have.
+- `BatchRunner.parameter_sweep` makes these changes:
+  - **Return value.** It returns a `SweepResults`, a read-only mapping
+    from each sweep value, in sweep order, to its result. Looking a
+    value up compares by `==`, so the values need not be hashable.
+  - **Deck names.** A value that is not a short plain number, string or
+    boolean now names its deck by its position and a hash, as in
+    `run_particle_deposition_001_3fa9c0d27e41.inp`. Two values whose
+    text would give the same name are named the same way. Plain values
+    keep names such as `run_emission_rate_0.5.inp`.
+  - **Output names.** Each deck's output files are renamed
+    `<deck stem>_<file name>`, in the sweep's directory.
+  - **Equal values** are refused with `ValueError`.
 
 ### Fixed
 - **Receptor elevations were not written under elevated terrain, so
@@ -939,6 +951,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   significant figures and `MASSFRAX` to 6 decimals, so a 1000.4 µm
   diameter, written as 1000, is accepted as AERMOD accepts it, and a
   0.10004 g/cm³ density, written as 0.1, draws W334.
+- **`BatchRunner.parameter_sweep` crashed on a size-distribution
+  sweep, and its runs overwrote each other's results.** Over
+  `particle_deposition` values it ran every deck, then stopped with
+  `TypeError: unhashable type: 'ParticleDepositionParams'` while keying
+  the results by value. It named each deck after the value's `str()`,
+  which gave 124-character names full of brackets and commas. And every
+  deck named the same PLOTFILE in the same directory, so only the last
+  run's `pit.plt` was left: the 2026-09-29 audit's two-distribution
+  sweep ended with one PLOTFILE for two runs. The fix is described under
+  Changed. The sweep's decks still share one directory, whose lock lets
+  one AERMOD run there at a time; `pyaermod.ensemble.run_design` runs
+  them in parallel.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by

@@ -270,6 +270,7 @@ from .runner import (
     AERMODRunner,
     AERMODRunResult,
     BatchRunner,
+    SweepResults,
     parse_aermod_messages,
     run_aermod,
 )
@@ -375,7 +376,7 @@ __all__ = [
     "ProgressReporter", "NoOpProgress", "LoggingProgress", "TqdmProgress",
     "ERRMSGInfo", "RunManifestEntry",
     "extract_errmsg", "tail_output", "summarize_failure",
-    "resume_batch", "RunManifest", "generate_slurm_script",
+    "resume_batch", "RunManifest", "generate_slurm_script", "SweepResults",
     "run_design", "collect_plotfiles", "run_id", "canonical_json",
     "rewrite_output_names", "DesignResult", "DesignRun",
     "EnsembleManifest", "EnsembleManifestEntry",

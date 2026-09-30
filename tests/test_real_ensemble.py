@@ -1,4 +1,4 @@
-"""pyaermod.ensemble against a real AERMOD.
+"""pyaermod.ensemble and BatchRunner.parameter_sweep against a real AERMOD.
 
 Skips unless ``aermod`` is on PATH. Runs the four-run design of
 ``tests/fixtures/ensemble/design.py`` on four workers and checks that
@@ -6,7 +6,9 @@ every run kept its own PLOTFILEs and that a second call makes no run.
 With AERMOD v26135, the release the recordings in
 ``tests/fixtures/ensemble/`` were made with, it also checks that the
 PLOTFILE values match them to AERMOD's print precision (the replaying
-tests in ``tests/test_ensemble.py`` rely on those).
+tests in ``tests/test_ensemble.py`` rely on those). A sweep over two
+particle size distributions (the 2026-09-29 audit's crash) must return
+one result per distribution.
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ import pytest
 
 from pyaermod.aermod_outputs import read_plotfile
 from pyaermod.ensemble import collect_plotfiles, run_design
+from pyaermod.input_generator import ParticleDepositionParams
+from pyaermod.runner import AERMODRunner, BatchRunner
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ensemble"
 _spec = importlib.util.spec_from_file_location("ensemble_design", FIXTURES / "design.py")
@@ -66,3 +70,30 @@ def test_four_run_design_on_four_workers(tmp_path):
 
     table = collect_plotfiles(root)
     assert len(table) == 4 * 2 * 72
+
+
+def test_size_distribution_sweep(tmp_path):
+    project = design.build(design.ROWS[0])
+    psds = [ParticleDepositionParams([2.5, 10.0], [0.5, 0.5], [2.6, 2.6]),
+            ParticleDepositionParams([5.0, 20.0], [0.3, 0.7], [2.6, 2.6])]
+    # The sweep's decks sit in one directory and name the met files from it
+    for name in ("AERMET2.SFC", "AERMET2.PFL"):
+        shutil.copy(design.MET / name, tmp_path / name)
+    project.meteorology.surface_file = "AERMET2.SFC"
+    project.meteorology.profile_file = "AERMET2.PFL"
+    runner = AERMODRunner(log_level="WARNING")
+    results = BatchRunner(runner).parameter_sweep(
+        project, "particle_deposition", psds, tmp_path, n_workers=2)
+    assert len(results) == 2
+    plots = []
+    for psd in psds:
+        result = results[psd]
+        assert result.success, result.error_message
+        stem = Path(result.input_file).stem
+        plots.append((tmp_path / f"{stem}_pit.plt").read_text())
+    assert _data_rows_differ(plots)
+
+
+def _data_rows_differ(texts: list) -> bool:
+    rows = [[ln for ln in t.splitlines() if not ln.startswith("*")] for t in texts]
+    return all(rows) and rows[0] != rows[1]
