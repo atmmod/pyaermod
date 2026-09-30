@@ -1796,7 +1796,9 @@ class TestEndToEnd:
         # A deck the recording does not match makes the fake exit 2: it
         # would show here as a failure.
         await _run_ends(gui, "Succeeded in")
-        await gui.user.should_see("Output file: pyaermod_gui.out")
+        # Results reads the run's files in a thread and is rebuilt a moment
+        # after the run's status (as test_gui_v2_results' _run_in waits).
+        await gui.user.should_see("Output file: pyaermod_gui.out", retries=100)
         await gui.user.should_see("Maximum for each averaging period")
         tables = gui.user.find(kind=ui.table).elements
         maxima = next(t for t in tables if any(c["label"] == "Max" for c in t.columns))
@@ -2199,4 +2201,5 @@ class TestReviewAndRun:
         await gui.user.should_see("AERMOD reported 0 fatal errors, 5 warnings and 0 "
                                   "informational messages.")
         await gui.user.should_see("AERMOD finished")
-        await gui.user.should_see("Output file: pyaermod_gui.out")    # Results followed
+        await gui.user.should_see("Output file: pyaermod_gui.out",    # Results followed
+                                  retries=100)
