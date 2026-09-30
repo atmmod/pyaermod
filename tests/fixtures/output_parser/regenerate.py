@@ -25,7 +25,8 @@ days do not have:
     day of 1988 (:func:`full_year_met`). They are not real weather, only a
     complete year AERMOD accepts, so the deck can ask for ANNUAL averages
     and the 1-hour SO2 design value. At 1.5 MB each they are not kept;
-    this script writes them into the scratch directory.
+    this script writes them into the scratch directory. ``so2_8th_only``
+    runs over the same year.
 """
 
 from __future__ import annotations
@@ -48,7 +49,11 @@ CASES = {
     "full_year": (),
     "conc_ddep": ALBANY,
     "ddep_only": ALBANY,
+    "so2_8th_only": (),
 }
+
+#: cases run over the repeated year of met data (:func:`full_year_met`).
+FULL_YEAR = ("full_year", "so2_8th_only")
 
 # Surface-file columns (0-based) of the reference wind speed and direction.
 _WS, _WD = 15, 16
@@ -128,7 +133,7 @@ def main(argv: list) -> int:
             for name in met:
                 source = HERE / case / name
                 shutil.copy(source if source.exists() else EPA / name, work)
-            if case == "full_year":
+            if case in FULL_YEAR:
                 full_year_met(work)
             proc = subprocess.run([exe], cwd=work, capture_output=True, check=False)
             shutil.copy(work / "aermod.out", HERE / case)

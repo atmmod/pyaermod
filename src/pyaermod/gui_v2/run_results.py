@@ -345,8 +345,11 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
     :func:`pyaermod.design_values.naaqs_compliance_report` from a POSTFILE
     of the standard's averaging period; or, as a screen, the highest value
     of that period, which no design value (a lower-ranked or averaged
-    value) can exceed. Empty when the pollutant has no NAAQS or the
-    concentrations are not in µg/m³.
+    value) can exceed. A period whose only table is one of AERMOD's
+    design-value tables at another rank (RECTABLE asking for the
+    8th-highest alone, say) is not compared: that value is not the highest
+    and can be below the design value. Empty when the pollutant has no
+    NAAQS or the concentrations are not in µg/m³.
     """
     from ..naaqs import NAAQS_TABLE
 
@@ -376,6 +379,10 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
                                      where, "Not compared"))
             continue
         value, location, basis, how = found
+        if basis == "not compared":
+            checks.append(NaaqsCheck(standard, period, level, None, None, basis, how,
+                                     "Not compared"))
+            continue
         if basis == "design value":
             verdict = "Above the NAAQS" if value > level else "Below the NAAQS"
         elif value <= level:
@@ -407,8 +414,26 @@ def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
         return (float(top.max_value), tuple(top.max_location), "design value",
                 f"AERMOD's table \"{top.title}\""
                 + (f" ({years} year{'s' if years != 1 else ''} of met data)" if years else ""))
+    qualifier = table_qualifier(top.title)
+    if qualifier:
+        # Only a design-value table (say the 8th-highest) holds this
+        # period: it is not the highest value, and it can be below the
+        # design value, so it is no screen.
+        want = ""
+        if standard.percentile is not None:
+            want = f"; the design value is the {_ordinal(standard.design_rank())}-highest"
+        return (None, None, "not compared",
+                f"the run has only AERMOD's {period_label(period)} table of the "
+                f"{qualifier}, which can be below the design value{want}")
     return (float(top.max_value), tuple(top.max_location), "screening",
             f"the highest {period_label(period)} value in AERMOD's summary table")
+
+
+def _ordinal(n: int) -> str:
+    """``4`` -> ``"4th"``, ``1`` -> ``"1st"``, ``12`` -> ``"12th"``."""
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
 
 
 # ----------------------------------------------------------------------

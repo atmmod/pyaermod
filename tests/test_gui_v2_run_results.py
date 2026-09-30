@@ -120,6 +120,20 @@ def test_aermods_own_design_value_is_compared_with_the_naaqs(tmp_path):
     assert check.level_text == "196.4 µg/m³ (75 ppb)"
 
 
+def test_a_design_value_table_at_another_rank_is_not_a_screen(tmp_path):
+    """SO2 with RECTABLE 1 8TH: the only 1-hour table is the 8th-highest daily
+    maximum, which can be below the 4th-highest design value."""
+    view = rr.build_view(_record("so2_8th_only", tmp_path))
+    [check] = view.naaqs
+    assert check.label == "SO2 1-hour (99th percentile of daily max)"
+    assert check.basis == "not compared"
+    assert check.value is None
+    assert check.verdict == "Not compared"
+    assert check.how == ("the run has only AERMOD's 1-HR table of the 8th-highest daily "
+                         "maximum, averaged over 1 year, which can be below the design "
+                         "value; the design value is the 4th-highest")
+
+
 def test_a_file_changed_after_the_run_is_not_offered(tmp_path):
     record = _record("calm_missing", tmp_path)
     view = rr.build_view(record)
