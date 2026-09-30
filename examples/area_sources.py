@@ -41,12 +41,12 @@ def example_1_rectangular_area():
     sources = SourcePathway()
     sources.add_source(AreaSource(
         source_id="PILE1",
-        x_coord=0.0,
+        x_coord=0.0,  # southwest corner, which the angle turns about
         y_coord=0.0,
         base_elevation=10.0,
         release_height=2.0,  # 2m above ground
-        initial_lateral_dimension=25.0,  # 50m wide (half-width)
-        initial_vertical_dimension=50.0,  # 100m long (half-width)
+        initial_lateral_dimension=50.0,  # Xinit: 50 m side in x
+        initial_vertical_dimension=100.0,  # Yinit: 100 m side in y
         emission_rate=0.00005,  # g/s/m^2 (very low for fugitive dust)
         angle=45.0,  # Rotated 45 degrees
         source_groups=["ALL", "FUGITIVE"]

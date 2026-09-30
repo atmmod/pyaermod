@@ -1,0 +1,46 @@
+ START PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:47 PM
+ Stage 1: Extracting upper air data for month/day/year 03/01/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/02/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/03/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/04/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/05/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/06/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/07/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/08/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/09/1988 LST
+ Stage 1: Extracting upper air data for month/day/year 03/10/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/01/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/02/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/03/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/04/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/05/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/06/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/07/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/08/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/09/1988 LST
+ Stage 1: QA'ing upper air data for month/day/year 03/10/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/01/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/02/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/03/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/04/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/05/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/06/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/07/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/08/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/09/1988 LST
+ Stage 1: Extracting surface data for month/day/year 03/10/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/01/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/02/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/03/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/04/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/05/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/06/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/07/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/08/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/09/1988 LST
+ Stage 1: QA'ing surface data for month/day/year 03/10/1988 LST
+
+
+ AERMET FINISHED SUCCESSFULLY
+
+ END PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:48 PM

@@ -47,7 +47,6 @@ from pyaermod.input_generator import (
 from pyaermod.aermet import (
     AERMETStation,
     AERMETStage1,
-    AERMETStage2,
     AERMETStage3,
     UpperAirStation,
 )
@@ -255,7 +254,7 @@ def test_tutorial4():
     ))
     sources.add_source(AreaSource(
         source_id="PILE1", x_coord=500000.0, y_coord=3870000.0,
-        release_height=2.0, initial_lateral_dimension=25.0,
+        release_height=2.0, initial_lateral_dimension=100.0,
         initial_vertical_dimension=50.0, angle=0.0, emission_rate=0.0001,
     ))
     sources.add_source(AreaCircSource(
@@ -308,13 +307,13 @@ def test_tutorial5():
     print("\n═══ Tutorial 5: AERMET Atlanta ═══")
 
     station = AERMETStation(
-        station_id="KATL", station_name="Atlanta Hartsfield",
+        station_id="13874", station_name="Atlanta Hartsfield",  # WBAN of KATL
         latitude=33.63, longitude=-84.44, time_zone=-5,
         elevation=315.0, anemometer_height=10.0,
     )
     upper_air = UpperAirStation(
         station_id="72215", station_name="Peachtree City",
-        latitude=33.36, longitude=-84.57,
+        latitude=33.36, longitude=-84.57, elevation=245.0,
     )
 
     stage1 = AERMETStage1(
@@ -324,37 +323,33 @@ def test_tutorial5():
         start_date="2020/01/01", end_date="2020/12/31",
     )
     s1 = stage1.to_aermet_input()
-    check("KATL" in s1, "KATL station ID")
+    check("LOCATION   13874 " in s1, "WBAN 13874 surface station ID")
     check("72215" in s1, "72215 upper air ID")
     check("ISHD" in s1, "ISHD format")
     check("2020/01/01" in s1, "Start date")
-
-    stage2 = AERMETStage2(
-        surface_extract="stage1.ext", upper_air_extract="stage1_ua.ext",
-        start_date="2020/01/01", end_date="2020/12/31", merge_file="stage2.mrg",
-    )
-    s2 = stage2.to_aermet_input()
-    check("stage1.ext" in s2, "Surface extract file")
-    check("stage2.mrg" in s2, "Merge output file")
 
     suburban_albedo = [0.35, 0.35, 0.25, 0.18, 0.15, 0.15, 0.15, 0.15, 0.18, 0.25, 0.35, 0.35]
     suburban_bowen = [1.5, 1.5, 1.0, 0.8, 0.6, 0.5, 0.5, 0.5, 0.6, 0.8, 1.0, 1.5]
     suburban_roughness = [0.30, 0.30, 0.30, 0.30, 0.50, 0.50, 0.50, 0.50, 0.50, 0.30, 0.30, 0.30]
 
+    # AERMET 11+ has no merge stage: METPREP reads Stage 1's QAOUT files.
     stage3 = AERMETStage3(
-        merge_file="stage2.mrg", station=station,
+        station=station,
         albedo=suburban_albedo, bowen=suburban_bowen, roughness=suburban_roughness,
+        methods=[("REFLEVEL", "SUBNWS")],
         start_date="2020/01/01", end_date="2020/12/31",
         surface_file="aermod.sfc", profile_file="aermod.pfl",
-    )
+    ).with_inputs_from(stage1)
     s3 = stage3.to_aermet_input()
+    check("QAOUT      stage1.qa" in s3, "Stage 1 QAOUT input")
+    check("METHOD     REFLEVEL SUBNWS" in s3, "SUBNWS for NWS-only data (AERMET 26135 E87)")
+    check("NWS_HGT    WIND 10" in s3, "NWS anemometer height")
     check("aermod.sfc" in s3, "SFC output file")
     check("aermod.pfl" in s3, "PFL output file")
-    check("ALBEDO" in s3, "ALBEDO keyword")
-    check("BOWEN" in s3, "BOWEN keyword")
-    check("ROUGHNESS" in s3, "ROUGHNESS keyword")
+    check("FREQ_SECT  MONTHLY 1" in s3, "Monthly surface characteristics")
+    check("SITE_CHAR  1 1 0.35 1.5 0.3" in s3, "January SITE_CHAR")
 
-    print(f"  ✓ Tutorial 5: 3 AERMET stages, suburban defaults")
+    print(f"  ✓ Tutorial 5: Stage 1 + METPREP, suburban defaults")
 
 
 # ============================================================================
@@ -365,13 +360,13 @@ def test_tutorial6():
     print("\n═══ Tutorial 6: AERMET Houston ═══")
 
     station = AERMETStation(
-        station_id="KHOU", station_name="Houston Hobby",
+        station_id="12918", station_name="Houston Hobby",  # WBAN of KHOU
         latitude=29.6454, longitude=-95.2789, time_zone=-6,
         elevation=14.0, anemometer_height=10.0,
     )
     upper_air = UpperAirStation(
         station_id="72240", station_name="Lake Charles",
-        latitude=30.12, longitude=-93.22,
+        latitude=30.12, longitude=-93.22, elevation=4.6,
     )
 
     stage1 = AERMETStage1(
@@ -381,7 +376,7 @@ def test_tutorial6():
         start_date="2019/01/01", end_date="2023/12/31",
     )
     s1 = stage1.to_aermet_input()
-    check("KHOU" in s1, "KHOU station ID")
+    check("LOCATION   12918 " in s1, "WBAN 12918 surface station ID")
     check("72240" in s1, "72240 upper air ID")
 
     houston_albedo = [0.18, 0.18, 0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.15, 0.16, 0.17, 0.18]
@@ -389,15 +384,17 @@ def test_tutorial6():
     houston_roughness = [0.40, 0.40, 0.50, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.50, 0.45, 0.40]
 
     stage3 = AERMETStage3(
-        merge_file="stage2.mrg", station=station,
+        station=station,
         albedo=houston_albedo, bowen=houston_bowen, roughness=houston_roughness,
+        methods=[("REFLEVEL", "SUBNWS")],
         start_date="2019/01/01", end_date="2023/12/31",
         surface_file="houston.sfc", profile_file="houston.pfl",
     )
     s3 = stage3.to_aermet_input()
     check("houston.sfc" in s3, "Houston SFC output")
+    check("METHOD     REFLEVEL SUBNWS" in s3, "SUBNWS for NWS-only data (AERMET 26135 E87)")
     check("0.18" in s3, "Houston winter albedo (0.18)")
-    check("0.60" in s3, "Houston summer roughness (0.60)")
+    check("SITE_CHAR  6 1 0.14 0.3 0.6" in s3, "Houston June SITE_CHAR")
 
     # Verify Houston vs Atlanta differences
     check(houston_albedo[0] < 0.35, "Houston albedo < Atlanta suburban (winter)")

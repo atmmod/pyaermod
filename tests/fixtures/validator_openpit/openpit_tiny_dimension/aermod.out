@@ -1,0 +1,83 @@
+CO STARTING
+   TITLEONE  openpit_tiny_dimension
+   MODELOPT  CONC DDEP
+   AVERTIME  1 PERIOD
+   POLLUTID  PM10
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  PSM  OPENPIT  0.0 0.0 0.0
+   SRCPARAM  PSM  1.0E-5  1.5  5.0E-6 100.0 1.0E-3
+   PARTDIAM  PSM  1  2.5  5  10  20
+   MASSFRAX  PSM  0.2  0.2  0.2  0.2  0.2
+   PARTDENS  PSM  2.65  2.65  2.65  2.65  2.65
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  1000.0  1000.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            1 Fatal Error Message(s)
+ A Total of            4 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E322      11        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PSM
+  
+    ********   WARNING MESSAGES   ******** 
+ SO W320      11        OPARM: Input Parameter May Be Out-of-Range for Parameter         XINIT
+ SO W392      11        OPARM: Aspect ratio (L/W) of OPENPIT is greater than 10            PSM
+ RE W228      19       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      28       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMOD - VERSION 26135  ***   ***  openpit_tiny_dimension                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:39
+                                                                                                                       PAGE   1
+ *** MODELOPTs:  
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            1 Fatal Error Message(s)
+ A Total of            4 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E322      11        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PSM
+  
+    ********   WARNING MESSAGES   ******** 
+ SO W320      11        OPARM: Input Parameter May Be Out-of-Range for Parameter         XINIT
+ SO W392      11        OPARM: Aspect ratio (L/W) of OPENPIT is greater than 10            PSM
+ RE W228      19       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      28       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ***************************************
+    *** AERMOD Finishes UN-successfully ***
+    ***************************************
+

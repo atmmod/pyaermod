@@ -28,6 +28,7 @@ PUBLIC_NAMES = [
     "AERMODVisualizer", "quick_plot",
     # met
     "AERMETStage1", "AERMETStage2", "AERMETStage3",
+    "OnsiteData", "AERMETMessage", "parse_aermet_messages", "read_aermet_messages",
     "ISDFetcher", "IGRAFetcher", "MMIFConfig",
     "run_all_qaqc", "QAQCReport",
     # terrain

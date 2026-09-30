@@ -48,6 +48,7 @@ from .aermet import (
     AERMETStage2,
     AERMETStage3,
     AERMETStation,
+    OnsiteData,
     ProfileFileHeader,
     SurfaceFileHeader,
     UpperAirStation,
@@ -56,8 +57,11 @@ from .aermet import (
     write_aermet_runfile,
 )
 from .aermet_runner import (
+    AERMETMessage,
     AERMETRunner,
     AERMETRunResult,
+    parse_aermet_messages,
+    read_aermet_messages,
     run_aermet_pipeline,
 )
 from .aermod_outputs import (
@@ -116,6 +120,7 @@ from .design_values import (
     read_mxdybyyr,
     so2_1hr_design_value,
 )
+from .hourly_emissions import WindEmissionProfile, ap42_wind_profile, write_hourly_emissions
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -139,6 +144,7 @@ from .input_generator import (
     EventPeriod,
     GasDepositionDefaults,
     GasDepositionParams,
+    HourlyEmissionFile,
     InitFile,
     LineSource,
     MaxDailyContribution,
@@ -349,6 +355,7 @@ __all__ = [
     "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea", "UnparsedLine",
     "EmissionUnits", "SolidBarrier", "SolidBarrierSegment", "VegetativeBarrier",
     "ScimOptions", "RankFile", "SeasonHourFile", "EvalFile", "ToxxFile",
+    "HourlyEmissionFile", "WindEmissionProfile", "ap42_wind_profile", "write_hourly_emissions",
     # validation
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution
@@ -373,6 +380,7 @@ __all__ = [
     "AERMETStage3", "SurfaceFileHeader", "ProfileFileHeader",
     "write_aermet_runfile", "read_surface_file", "read_profile_file",
     "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
+    "OnsiteData", "AERMETMessage", "parse_aermet_messages", "read_aermet_messages",
     "AERSURFACEConfig", "AERSURFACERunner", "AERSURFACERunResult",
     "AERSCREENConfig", "AERSCREENSourceType", "AERSCREENRunner",
     "AERSCREENRunResult", "AERSCREENSummary", "AERSCREENImpact",

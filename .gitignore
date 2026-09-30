@@ -53,6 +53,10 @@ coverage.xml
 # Recordings of a real AERMOD run that the GUI journeys replay
 # (scripts/record_aermod_fixtures.py); every file is part of the fixture.
 !tests/fixtures/gui/aermod_recordings/**
+# AERMOD runs for every set of output types (regenerate.sh there)
+!tests/fixtures/postfile_types/**
+# Real AERMOD runs the output parser's tests read
+!tests/fixtures/output_parser/**
 
 # Screenshots the GUI journeys save at every step (tests/e2e)
 test-artifacts/
@@ -62,6 +66,11 @@ aermod/
 aermap/
 aermet/
 aermod_results/
+# ...but not the recorded AERMET runs the runner tests replay
+# (tests/fixtures/aermet/regenerate.sh); every file there is fixture.
+!tests/fixtures/aermet/
+!tests/fixtures/aermet/**
+tests/fixtures/aermet/**/__pycache__/
 
 # Compiled binaries (build with scripts/build_aermod.sh)
 bin/

@@ -229,8 +229,8 @@ def multi_source_project():
         y_coord=400.0,
         base_elevation=0.0,
         release_height=5.0,
-        initial_vertical_dimension=100.0,  # x half-width
-        initial_lateral_dimension=100.0,   # y half-width
+        initial_vertical_dimension=100.0,  # Yinit: y side length
+        initial_lateral_dimension=100.0,   # Xinit: x side length
         emission_rate=2.0,
         angle=0.0,
     )
@@ -384,7 +384,7 @@ class TestAERMETInputGeneration:
     def test_stage1_generates_complete_input(self, temp_workspace):
         """Test Stage 1 input generation with all components"""
         station = AERMETStation(
-            station_id="KORD",
+            station_id="94846",
             station_name="Chicago O'Hare",
             latitude=41.98,
             longitude=-87.90,
@@ -398,6 +398,7 @@ class TestAERMETInputGeneration:
             station_name="Dodge City",
             latitude=37.77,
             longitude=-99.97,
+            elevation=790.0,
         )
 
         stage1 = AERMETStage1(
@@ -414,34 +415,23 @@ class TestAERMETInputGeneration:
         output_file = temp_workspace / "stage1.inp"
         output_file.write_text(output)
 
-        # Verify all sections present
-        assert "SURFACE" in output
-        assert "UPPERAIR" in output
-        assert "QA" in output
+        lines = [line.strip() for line in output.splitlines()]
+        assert "SURFACE" in lines
+        assert "UPPERAIR" in lines
+        assert "QA" not in lines  # no such pathway in AERMET 11+
         assert "DATA       kord_2020.ish ISHD" in output
         assert "DATA       ua_2020.fsl FSL" in output
-        assert "LOCATION   KORD 41.9800 -87.9000 -6" in output
-        assert "ELEVATION  200.0" in output
+        assert "QAOUT      stage1.qa" in output
+        assert "QAOUT      stage1_ua.qa" in output
+        assert "LOCATION   94846 41.98N 87.9W 6 200" in output
+        assert "LOCATION   72451 37.77N 99.97W 6 790" in output
 
-    def test_stage2_generates_merge_input(self, temp_workspace):
-        """Test Stage 2 merge input generation"""
-        stage2 = AERMETStage2(
-            job_id="TEST_S2",
-            surface_extract="stage1_sfc.ext",
-            upper_air_extract="stage1_ua.ext",
-            start_date="2020/01/01",
-            end_date="2020/12/31",
-            merge_file="merged.mrg",
-        )
-
-        output = stage2.to_aermet_input()
-        output_file = temp_workspace / "stage2.inp"
-        output_file.write_text(output)
-
-        assert "MERGE" in output
-        assert "OUTPUT     merged.mrg" in output
-        assert "INPUT      stage1_sfc.ext" in output
-        assert "INPUT      stage1_ua.ext" in output
+    def test_stage2_is_deprecated(self):
+        """AERMET 11+ has no merge stage; AERMETStage2 only keeps old code importing."""
+        with pytest.warns(DeprecationWarning):
+            stage2 = AERMETStage2(merge_file="merged.mrg")
+        with pytest.raises(NotImplementedError):
+            stage2.to_aermet_input()
 
     def test_stage3_generates_metprep_input(self, temp_workspace):
         """Test Stage 3 METPREP input generation"""
@@ -461,7 +451,6 @@ class TestAERMETInputGeneration:
         stage3 = AERMETStage3(
             job_id="TEST_S3",
             station=station,
-            merge_file="merged.mrg",
             surface_file="test.sfc",
             profile_file="test.pfl",
             start_date="2020/01/01",
@@ -476,12 +465,13 @@ class TestAERMETInputGeneration:
         output_file.write_text(output)
 
         assert "METPREP" in output
-        assert "LOCATION   TEST 40.0000 -105.0000 -7" in output
+        assert "LOCATION   TEST 40N 105W 7" in output
+        assert "NWS_HGT    WIND 10" in output
         assert "OUTPUT     test.sfc" in output
         assert "PROFILE    test.pfl" in output
-        assert "ALBEDO" in output
-        assert "BOWEN" in output
-        assert "ROUGHNESS" in output
+        assert "FREQ_SECT  MONTHLY 1" in output
+        assert "SITE_CHAR  1 1 0.5 1.5 0.5" in output
+        assert "SITE_CHAR  12 1 0.5 1.5 0.5" in output
 
     def test_aermet_edge_cases_handled(self, temp_workspace):
         """Test AERMET edge cases that were previously buggy"""
@@ -498,11 +488,11 @@ class TestAERMETInputGeneration:
         output = stage3.to_aermet_input()
 
         # Should include time_zone=0
-        assert "51.5000 0.0000 0" in output
+        assert "LOCATION   TEST 51.5N 0E 0" in output
 
         # Test elevation=0.0 (sea level)
         station_sealevel = AERMETStation(
-            station_id="TEST",
+            station_id="99999",
             station_name="Sea Level",
             latitude=0.0,
             longitude=0.0,
@@ -516,8 +506,8 @@ class TestAERMETInputGeneration:
         )
         output = stage1.to_aermet_input()
 
-        # Should include elevation=0.0
-        assert "ELEVATION  0.0" in output
+        # Should include elevation=0.0, as LOCATION's fifth field
+        assert "LOCATION   99999 0N 0E 0 0" in output
 
 
 # ============================================================================
@@ -559,7 +549,7 @@ class TestAERMETExecution:
     def test_aermet_stage1_can_be_generated(self, temp_workspace):
         """Test that Stage 1 input can be generated (execution requires data)"""
         station = AERMETStation(
-            station_id="TEST",
+            station_id="99999",
             station_name="Test",
             latitude=40.0,
             longitude=-100.0,

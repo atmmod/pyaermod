@@ -1,9 +1,11 @@
 name: Real AERMET smoke
 
 # Exercises pyaermod against a real AERMET binary. Downloads the EPA
-# AERMET v24142 Fortran source, compiles with gfortran, and runs
-# tests/test_real_aermet.py. Parallel to real_aermod.yml /
-# real_aermap.yml.
+# AERMET Fortran source, compiles with gfortran, and runs
+# tests/test_real_aermet.py and tests/test_real_aermet_binary.py. The
+# latter needs only the committed fixtures in tests/fixtures/aermet/ for
+# everything but its Cordero and EX04 checks, which skip here without
+# EPA's test cases. Parallel to real_aermod.yml / real_aermap.yml.
 
 on:
   schedule:
@@ -21,6 +23,8 @@ on:
       - "src/pyaermod/met_ingest.py"
       - "src/pyaermod/met_qaqc.py"
       - "tests/test_real_aermet.py"
+      - "tests/test_real_aermet_binary.py"
+      - "tests/fixtures/aermet/**"
       - ".github/workflows/real_aermet.yml"
 
 env:
@@ -94,5 +98,5 @@ jobs:
           sudo cp aermet /usr/local/bin/aermet
           aermet --help || true
 
-      - name: Run real-AERMET smoke test
-        run: pytest tests/test_real_aermet.py -v
+      - name: Run real-AERMET tests
+        run: pytest tests/test_real_aermet.py tests/test_real_aermet_binary.py -v -rs

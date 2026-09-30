@@ -13,10 +13,12 @@ Build, read, write, and validate AERMOD input files.
 |---|---|
 | [input_generator](input_generator.md) | Thin facade + `AERMODProject` — `project.write()`, `project.to_aermod_input()` |
 | [sources](sources.md) | All 12 source dataclasses, deposition params, `SourcePathway`, background concentrations |
+| [hourly_emissions](hourly_emissions.md) | HOUREMIS files of rate-only records (AREA types, OPENPIT, VOLUME, LINE types); the AP-42 batch-drop wind profile from an SFC file |
 | [receptors](receptors.md) | `CartesianGrid`, `PolarGrid`, `DiscreteReceptor`, `ReceptorPathway` |
 | [pathways](pathways.md) | Enums + `ControlPathway`, `MeteorologyPathway`, `OutputPathway`, `EventPathway` |
 | [input_reader](input_reader.md) | **Bidirectional** — parse existing `.inp` files back into `AERMODProject` |
 | [unparsed](unparsed.md) | `UnparsedLine` — deck lines the reader keeps verbatim and the writer puts back |
+| [psd](psd.md) | Particle size distributions for Method 1 deposition: bins from cut points or a lognormal, representative diameters, aerodynamic-to-Stokes conversion, `ParticleDepositionParams` |
 
 ## Validation
 
@@ -53,7 +55,7 @@ Build, read, write, and validate AERMOD input files.
 
 | Module | Description |
 |---|---|
-| [aermet](aermet.md) | Stage 1 / 2 / 3 input-deck generation; `.SFC` and `.PFL` parsers |
+| [aermet](aermet.md) | Stage 1 and METPREP runstream generation (`AERMETStage2` deprecated); `.SFC` and `.PFL` parsers |
 | [aermet_runner](aermet_runner.md) | `AERMETRunner.run_stage()`, `run_aermet_pipeline()` |
 | [met_ingest](met_ingest.md) | ASOS 1-minute, NOAA ISD, IGRA upper-air, MMIF data ingest |
 | [met_qaqc](met_qaqc.md) | Missing-data, extremes, stability-consistency checks |

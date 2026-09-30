@@ -100,6 +100,20 @@ TERRAIN_MODELOPT_TOKENS = {
     "FLATSRCS": ("FLAT", "ELEV"),
 }
 
+#: The option names CO DEBUGOPT recognises (coset.f DEBOPT,
+#: DEBUGOPT_ARRAY, v26135). Any other field on the line is the file
+#: name of the option before it. LINE is accepted as a spelling of AREA.
+DEBUG_OPTIONS = (
+    "MODEL", "METEOR", "AREA", "LINE", "RLINE", "PRIME", "PVMRM", "OLM",
+    "ARM2", "GRSM", "DEPOS", "AWMADW", "TTRM", "TTRM2", "PLATFORM",
+    "URBANDB", "BLPDBUG", "SWPOINT", "AIRCRAFT", "HBPDBG", "SBARRIER",
+    "BAREDGE", "VBARRIER",
+)
+
+#: The most fields one DEBUGOPT card takes (coset.f DEBOPT: IFC > 13,
+#: counting the pathway and keyword, is E202).
+DEBUGOPT_MAX_FIELDS = 11
+
 #: NO2 methods that take the NO2STACK in-stack ratio; with any other
 #: (ARM2, or none) the keyword is E600 in coset.f.
 NO2STACK_METHODS = ("OLM", "PVMRM", "GRSM", "TTRM", "TTRM2")
@@ -538,11 +552,42 @@ class ControlPathway:
     # (soset.f, E105); see SourcePathway.psd_groups.
     psd_credit: bool = False
 
+    # Dry and wet depletion (MODELOPT DRYDPLT / NODRYDPLT, WETDPLT /
+    # NOWETDPLT; coset.f MODOPT). None writes neither token and leaves
+    # AERMOD's default, which is depletion on for both whenever the run
+    # has deposition inputs (soset.f 795-811); True writes DRYDPLT or
+    # WETDPLT, False writes NODRYDPLT or NOWETDPLT. AERMOD accepts all
+    # four under DFAULT. Particle inputs switch wet deposition on, so
+    # NOWETDPLT removes wet depletion without removing wet deposition
+    # and the plume no longer conserves mass; NODRYDPLT does the same
+    # for dry deposition.
+    dry_depletion: Optional[bool] = None
+    wet_depletion: Optional[bool] = None
+
     # MODELOPT options pyaermod has no field for (SCREEN, FASTALL,
     # NOCHKD, ...). The reader fills this with the tokens it did not
     # recognise so a deck keeps its options when rewritten; the writer
     # appends them to MODELOPT as given.
     extra_model_options: List[str] = field(default_factory=list)
+
+    # CO DEBUGOPT (coset.f DEBOPT): the fields after the keyword, as
+    # AERMOD reads them -- debug options (MODEL, METEOR, AREA, PRIME,
+    # DEPOS, ...), each optionally followed by its file name, e.g.
+    # ["AREA", "DEPOS"] or ["MODEL", "model.dbg", "AREA"]. DEPOS takes
+    # no file name: AERMOD writes GDEP.DAT / PDEP.DAT, and sends the
+    # MODEL debug output to DEPOS.DBG instead of its own file unless
+    # MODEL is the field right after DEPOS (coset.f DEBOPT, checked on
+    # v26135). File names keep their case. AERMOD rejects an
+    # option whose model feature is missing (E194: DEPOS without
+    # DEPOS/DDEP/WDEP, AREA without an AREA, LINE or OPENPIT source),
+    # and it checks DEPOS against MODELOPT, so the writer puts the line
+    # after MODELOPT. At most 11 fields fit on one card (DEBOPT E202);
+    # v26135 pools repeated DEBUGOPT cards in order (coset.f D144), so
+    # the writer puts a longer list on several cards, split between
+    # options. v24142 takes one card only (E135), so there a list
+    # cannot exceed 11 fields. The recognised option names are
+    # DEBUG_OPTIONS; see debug_files() and debug_cards().
+    debug_options: List[str] = field(default_factory=list)
 
     # ARMRATIO min max (coset.f ARM2_Ratios): the ARM2 ratio bounds; needs
     # ARM2 (E145), 0 < min <= max <= 1 (E380) and 0.5-0.9 under DFAULT.
@@ -589,25 +634,49 @@ class ControlPathway:
     init_file: Optional[InitFile] = None
     multiyear: Optional[MultiYear] = None
 
-    def to_aermod_input(self, event_processing: bool = False) -> str:
-        """Generate AERMOD CO pathway text.
+    def debug_files(self) -> List[str]:
+        """The file names on the DEBUGOPT line (fields that are not options)."""
+        return [tok for tok in self.debug_options if tok.upper() not in DEBUG_OPTIONS]
 
-        ``event_processing`` writes the CO pathway of an EVENT deck:
-        coset.f dispatches EVENTFIL, SAVEFILE, INITFILE and MULTYEAR
-        only when the run is not an EVENT run (``.NOT.EVONLY``), so they
-        are left off, as AERMOD leaves them off the event deck it writes.
+    def debug_cards(self) -> List[List[str]]:
+        """``debug_options`` as the DEBUGOPT cards the writer puts out.
+
+        coset.f DEBOPT rejects a card of more than 11 fields (E202) and,
+        since v26135 (D144), pools every DEBUGOPT card in order before
+        reading the options, so a longer list goes on several cards.
+        A card break falls only before an option name, keeping each
+        option with its file name. A list of 11 fields or fewer stays on
+        one card, which v24142 (no repeated DEBUGOPT, E135) also reads.
         """
-        lines = ["CO STARTING"]
+        groups: List[List[str]] = []
+        for tok in self.debug_options:
+            if not groups or tok.upper() in DEBUG_OPTIONS:
+                groups.append([tok])
+            else:
+                groups[-1].append(tok)
+        cards: List[List[str]] = []
+        for group in groups:
+            if cards and len(cards[-1]) + len(group) <= DEBUGOPT_MAX_FIELDS:
+                cards[-1].extend(group)
+            else:
+                cards.append(list(group))
+        return cards
 
-        # Titles — normalize whitespace so the emitted line reads back to
-        # itself (AERMOD does not quote titles; see _normalize_title).
-        title_one = _normalize_title(self.title_one)
-        lines.append(f"   TITLEONE  {title_one}".rstrip())
-        title_two = _normalize_title(self.title_two)
-        if title_two:
-            lines.append(f"   TITLETWO  {title_two}")
+    @property
+    def elevated_terrain(self) -> bool:
+        """Whether AERMOD runs this deck with elevated terrain.
 
-        # Model options
+        coset.f MODOPT starts from ELEV and switches to FLAT only for a
+        FLAT token without DFAULT (DFAULT overrides FLAT with W206; FLAT
+        with ELEV is FLATSRCS, still ELEV for receptors). Under ELEV
+        every receptor needs an elevation and a hill height, which is
+        what :meth:`ReceptorPathway.to_aermod_input` writes when told.
+        """
+        opts = {opt.upper() for opt in self._model_options()}
+        return bool({"DFAULT", "DEFAULT", "ELEV"} & opts) or "FLAT" not in opts
+
+    def _model_options(self) -> List[str]:
+        """The MODELOPT tokens, in the order the writer emits them."""
         model_opts = []
         if self.calculate_concentration:
             model_opts.append("CONC")
@@ -639,12 +708,37 @@ class ControlPathway:
         if self.chemistry is not None:
             model_opts.append(self.chemistry.method.value)
 
+        # Depletion switches (None leaves AERMOD's default)
+        if self.dry_depletion is not None:
+            model_opts.append("DRYDPLT" if self.dry_depletion else "NODRYDPLT")
+        if self.wet_depletion is not None:
+            model_opts.append("WETDPLT" if self.wet_depletion else "NOWETDPLT")
+
         # Options read from a deck that have no field of their own.
         for opt in self.extra_model_options:
             if opt.upper() not in model_opts:
                 model_opts.append(opt.upper())
+        return model_opts
 
-        lines.append(f"   MODELOPT  {' '.join(model_opts)}")
+    def to_aermod_input(self, event_processing: bool = False) -> str:
+        """Generate AERMOD CO pathway text.
+
+        ``event_processing`` writes the CO pathway of an EVENT deck:
+        coset.f dispatches EVENTFIL, SAVEFILE, INITFILE and MULTYEAR
+        only when the run is not an EVENT run (``.NOT.EVONLY``), so they
+        are left off, as AERMOD leaves them off the event deck it writes.
+        """
+        lines = ["CO STARTING"]
+
+        # Titles — normalize whitespace so the emitted line reads back to
+        # itself (AERMOD does not quote titles; see _normalize_title).
+        title_one = _normalize_title(self.title_one)
+        lines.append(f"   TITLEONE  {title_one}".rstrip())
+        title_two = _normalize_title(self.title_two)
+        if title_two:
+            lines.append(f"   TITLETWO  {title_two}")
+
+        lines.append(f"   MODELOPT  {' '.join(self._model_options())}")
 
         # ARCFTOPT must follow MODELOPT (coset.f, E140)
         if self.aircraft_option:
@@ -781,6 +875,11 @@ class ControlPathway:
             if self.eventfil_option:
                 line += f"  {self.eventfil_option}"
             lines.append(line)
+
+        # Debug output. After MODELOPT, which DEBOPT checks DEPOS against
+        # (E194 otherwise); AERMOD reads the fields as written.
+        for card in self.debug_cards():
+            lines.append("   DEBUGOPT  " + "  ".join(card))
 
         # Run command
         lines.append(f"   RUNORNOT  {'RUN' if self.run_model else 'NOT'}")

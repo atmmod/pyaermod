@@ -1,0 +1,342 @@
+CO STARTING
+   TITLEONE  dfault_flatsrcs
+   MODELOPT  CONC FLAT ELEV DFAULT
+   AVERTIME  1 PERIOD
+   POLLUTID  OTHER
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  S1  VOLUME  0.0 0.0 0.0
+   SRCPARAM  S1  1.0  10.0  5.0  5.0
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  1000.0  1000.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            3 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ RE W228      16       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      25       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Uses Regulatory DEFAULT Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * NO GAS DEPOSITION Data Provided.
+      * NO PARTICLE DEPOSITION Data Provided.
+      * Model Uses NO DRY DEPLETION. DDPLETE  =  F
+      * Model Uses NO WET DEPLETION. WETDPLT  =  F
+      * Stack-tip Downwash.
+      * Model Accounts for ELEVated Terrain Effects.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: OTHER   
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+     and Calculates PERIOD Averages
+  
+ **This Run Includes:      1 Source(s);       1 Source Group(s); and       1 Receptor(s)
+
+                with:      0 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      1 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      0 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of PERIOD Averages by Receptor
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =     0.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+                  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+  
+ **Approximate Storage Requirements of Model =      3.5 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                                  *** VOLUME SOURCE DATA ***
+
+               NUMBER EMISSION RATE                    BASE    RELEASE    INIT.    INIT.   URBAN  EMISSION RATE   AIRCRAFT
+   SOURCE       PART.  (GRAMS/SEC)     X        Y      ELEV.   HEIGHT      SY       SZ     SOURCE  SCALAR VARY
+     ID         CATS.               (METERS) (METERS) (METERS) (METERS) (METERS) (METERS)              BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ S1               0   0.10000E+01       0.0       0.0     0.0    10.00     5.00     5.00     NO                     NO 
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        S1          ,
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                             *** DISCRETE CARTESIAN RECEPTORS ***
+                                           (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                           (METERS)
+
+     (   1000.0,    1000.0,       0.0,       0.0,       0.0);                                                                       
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   AERMET2.SFC                                                                        Met Version:  26135
+   Profile file:   AERMET2.PFL                                                                     
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    14735                  Upper air station no.:    14735
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1988                                     Year:   1988
+
+ First 24 hours of scalar data
+ YR MO DY JDY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN    Z0  BOWEN ALBEDO  REF WS   WD     HT  REF TA     HT
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ ** 03 01  61 01   -2.7  0.062 -9.000 -9.000 -999.   37.      7.9  0.75   1.50   1.00    0.80  318.   10.0  273.8   10.0
+ 88 03 01  61 02   -3.5  0.069 -9.000 -9.000 -999.   44.      8.5  0.75   1.50   1.00    0.90  273.   10.0  273.5   10.0
+ 88 03 01  61 03   -1.6  0.046 -9.000 -9.000 -999.   24.      5.7  0.75   1.50   1.00    0.60  276.   10.0  272.4   10.0
+ 88 03 01  61 04   -1.0  0.034 -9.000 -9.000 -999.   15.      3.6  0.30   0.80   1.00    0.60  200.   10.0  271.5   10.0
+ 88 03 01  61 05   -6.3  0.093 -9.000 -9.000 -999.   68.     11.3  0.75   1.50   1.00    1.20  289.   10.0  271.8   10.0
+ 88 03 01  61 06   -2.8  0.062 -9.000 -9.000 -999.   37.      7.5  0.75   1.50   1.00    0.80  254.   10.0  271.0   10.0
+ 88 03 01  61 07   -3.6  0.069 -9.000 -9.000 -999.   44.      8.5  0.75   1.50   1.00    0.90  264.   10.0  270.9   10.0
+ 88 03 01  61 08   -5.4  0.148 -9.000 -9.000 -999.  137.     54.2  0.75   1.50   0.67    1.30  315.   10.0  271.8   10.0
+ 88 03 01  61 09   25.1  0.321  0.558  0.007  248.  437.   -118.3  0.75   1.50   0.56    1.90  310.   10.0  272.3   10.0
+ 88 03 01  61 10   60.6  0.396  0.949  0.008  506.  599.    -92.0  0.75   1.50   0.52    2.30  315.   10.0  273.0   10.0
+ 88 03 01  61 11   88.3  1.474  1.182  0.005  671. 4000.  -3249.5  0.75   1.50   0.51    7.70  297.    6.1  268.8    2.0
+ 88 03 01  61 12   97.8  0.438  1.247  0.005  711. 2198.    -76.9  0.75   1.50   0.51    2.50  309.   10.0  274.7   10.0
+ 88 03 01  61 13   99.6  0.535  1.277  0.005  749. 1158.   -137.9  0.75   1.50   0.51    3.20  316.   10.0  274.9   10.0
+ 88 03 01  61 14   88.9  0.533  1.248  0.006  781.  941.   -151.8  0.75   1.50   0.51    3.20  290.   10.0  275.3   10.0
+ 88 03 01  61 15   65.9  0.483  1.147  0.007  818.  808.   -152.3  0.75   1.50   0.52    2.90  300.   10.0  275.5   10.0
+ 88 03 01  61 16   31.5  0.453  0.905  0.007  841.  733.   -263.9  0.75   1.50   0.55    2.80  315.   10.0  275.0   10.0
+ 88 03 01  61 17  -15.1  0.430 -9.000 -9.000 -999.  678.    469.5  0.75   1.50   0.62    2.90  308.   10.0  274.3   10.0
+ 88 03 01  61 18  -15.6  0.147 -9.000 -9.000 -999.  249.     18.1  0.75   1.50   0.86    1.90  311.   10.0  273.3   10.0
+ 88 03 01  61 19  -11.2  0.124 -9.000 -9.000 -999.  108.     15.1  0.75   1.50   1.00    1.60  313.   10.0  272.2   10.0
+ 88 03 01  61 20   -7.4  0.100 -9.000 -9.000 -999.   76.     12.2  0.75   1.50   1.00    1.30  326.   10.0  271.3   10.0
+ 88 03 01  61 21  -17.5  0.154 -9.000 -9.000 -999.  146.     18.8  0.75   1.50   1.00    2.00  327.   10.0  270.5   10.0
+ 88 03 01  61 22  -15.8  0.147 -9.000 -9.000 -999.  135.     17.8  0.75   1.50   1.00    1.90  320.   10.0  269.8   10.0
+ 88 03 01  61 23   -2.8  0.062 -9.000 -9.000 -999.   40.      7.5  0.75   1.50   1.00    0.80  284.   10.0  268.7   10.0
+ 88 03 01  61 24  -11.2  0.124 -9.000 -9.000 -999.  104.     15.0  0.75   1.50   1.00    1.60  298.   10.0  268.3   10.0
+
+
+ First hour of profile data
+ YR MO DY HR HEIGHT F  WDIR    WSPD AMB_TMP sigmaA  sigmaW  sigmaV
+ ** 03 01 01   10.0 0  318.    0.80   273.8   48.7    0.11    0.48
+ ** 03 01 01   50.0 0  323.    2.00   275.0   14.7  -99.00    0.50
+ ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
+
+ F indicates top of profile (=1) or below (=0)
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                              *** THE PERIOD (    96 HRS) AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     S1          , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+       X-COORD (M)   Y-COORD (M)        CONC                       X-COORD (M)   Y-COORD (M)        CONC
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+           1000.00       1000.00        4.02386                                                                                     
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                              *** THE   1ST HIGHEST  1-HR AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     S1          , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+      X-COORD (M)  Y-COORD (M)        CONC     (YYMMDDHH)              X-COORD (M)  Y-COORD (M)        CONC     (YYMMDDHH)
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+          1000.00      1000.00       16.78441  (88030222)                                                                           
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                        *** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***
+
+
+                                    ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS       4.02386 AT (    1000.00,     1000.00,     0.00,     0.00,    0.00)  DC          
+          2ND HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          3RD HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          4TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          5TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          6TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          7TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          8TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          9TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+         10TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                          AVERAGE CONC     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS      16.78441  ON 88030222: AT (    1000.00,     1000.00,     0.00,     0.00,    0.00)  DC          
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  dfault_flatsrcs                                                     ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:29
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            3 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of           96 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
+ RE W228      16       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      25       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+

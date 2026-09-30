@@ -38,6 +38,7 @@ from pyaermod.input_generator import (
     RLineExtSource,
     RLineSource,
     SidewashPointSource,
+    SourceGroupDefinition,
     SourcePathway,
     TerrainType,
     VolumeSource,
@@ -153,31 +154,70 @@ ALL_SOURCE_TYPES = [
 # ============================================================================
 
 
+# The SO keywords after which a SRCGROUP card is fatal (soset.f SOCARD,
+# E140): once a group is defined, no source may be defined or changed.
+_E140_KEYWORDS = {"LOCATION", "SRCPARAM", "BUILDHGT", "BUILDWID", "BUILDLEN",
+                  "XBADJ", "YBADJ", "PLATFORM", "EMISFACT"}
+
+
+def _so_cards(text):
+    return [ln.split() for ln in text.splitlines() if ln.strip() and not ln.startswith("SO ")]
+
+
+def _group_members(text):
+    """{group: [member tokens]} of the SRCGROUP cards, continuations merged."""
+    groups = {}
+    for toks in _so_cards(text):
+        if toks[0] == "SRCGROUP":
+            groups.setdefault(toks[1], []).extend(toks[2:])
+    return groups
+
+
+def _member_ids(src):
+    if isinstance(src, BuoyLineSource):
+        return [seg.source_id for seg in src.line_segments]
+    return [src.source_id]
+
+
 class TestSourceGroupAllTypes:
-    """Test SRCGROUP keyword for all 10 source types."""
+    """A source's ``source_groups`` are written in the SO pathway's group
+    block, after every source, for every source type.
+
+    The source writers used to put ``SRCGROUP grp srcid`` among their own
+    cards, so the next source's LOCATION was fatal: the audit's two-OPENPIT
+    deck stopped with SO E140 on v26135. And a source naming group ALL
+    wrote ``SRCGROUP ALL srcid``, which is E203 (soset.f SOGRP reads only
+    BACKGROUND/NOBACKGROUND after ALL), so even ``create_example_project()``
+    failed setup.
+    """
 
     @pytest.mark.parametrize("source_cls", ALL_SOURCE_TYPES, ids=lambda c: c.__name__)
-    def test_single_source_group(self, source_cls):
-        src = _make_source(source_cls, source_groups=["ALL"])
-        output = src.to_aermod_input()
-        assert "SRCGROUP  ALL" in output
+    def test_source_text_has_no_group_card(self, source_cls):
+        src = _make_source(source_cls, source_groups=["ALL", "GRP1"])
+        assert "SRCGROUP" not in src.to_aermod_input()
 
     @pytest.mark.parametrize("source_cls", ALL_SOURCE_TYPES, ids=lambda c: c.__name__)
-    def test_multiple_source_groups(self, source_cls):
+    def test_groups_follow_every_source(self, source_cls):
         src = _make_source(source_cls, source_groups=["ALL", "GRP1", "MOBILE"])
-        output = src.to_aermod_input()
-        assert "SRCGROUP  ALL" in output
-        assert "SRCGROUP  GRP1" in output
-        assert "SRCGROUP  MOBILE" in output
+        last = AreaSource(source_id="LAST", x_coord=500, y_coord=500,
+                          emission_rate=0.001, source_groups=["GRP1"])
+        text = SourcePathway(sources=[src, last]).to_aermod_input()
+        keywords = [toks[0] for toks in _so_cards(text)]
+        first_group = keywords.index("SRCGROUP")
+        assert not _E140_KEYWORDS.intersection(keywords[first_group:]), text
+        groups = _group_members(text)
+        assert groups["ALL"] == []  # a source ID after ALL is E203
+        assert groups["GRP1"] == [*_member_ids(src), "LAST"]
+        assert groups["MOBILE"] == _member_ids(src)
 
     @pytest.mark.parametrize("source_cls", ALL_SOURCE_TYPES, ids=lambda c: c.__name__)
-    def test_no_source_groups_omits_keyword(self, source_cls):
+    def test_no_source_groups_writes_only_all(self, source_cls):
         src = _make_source(source_cls, source_groups=None)
-        output = src.to_aermod_input()
-        assert "SRCGROUP" not in output
+        text = SourcePathway(sources=[src]).to_aermod_input()
+        assert _group_members(text) == {"ALL": []}
 
-    def test_buoyline_srcgroup_uses_segment_ids(self):
-        """BuoyLineSource emits SRCGROUP per segment, not per group source_id."""
+    def test_buoyline_group_uses_segment_ids(self):
+        """A BUOYLINE source's groups name its segments, not the BLPGROUP ID."""
         seg1 = BuoyLineSegment(
             source_id="BS1", x_start=0, y_start=0,
             x_end=50, y_end=0, emission_rate=1, release_height=10,
@@ -191,11 +231,84 @@ class TestSourceGroupAllTypes:
             avg_line_length=50, avg_building_height=20,
             avg_building_width=15, avg_line_width=10,
             avg_building_separation=30, avg_buoyancy_parameter=0.5,
-            source_groups=["ALL"],
+            source_groups=["LINES"],
         )
-        output = blp.to_aermod_input()
-        assert "SRCGROUP  ALL      BS1" in output
-        assert "SRCGROUP  ALL      BS2" in output
+        text = SourcePathway(sources=[blp]).to_aermod_input()
+        assert "   SRCGROUP  LINES    BS1 BS2" in text.splitlines()
+
+    def test_per_source_groups_join_a_definition_of_the_same_name(self):
+        """The members a definition already lists are not repeated (W314),
+        and the rest follow the definition as continuation cards of the
+        same group: SOGRP files a continuation under the last group
+        defined, so the cards of one group must be adjacent."""
+        a1 = AreaSource(source_id="A1", x_coord=0, y_coord=0, source_groups=["G1", "G2"])
+        a2 = AreaSource(source_id="A2", x_coord=100, y_coord=0, source_groups=["G1"])
+        so = SourcePathway(sources=[a1, a2], group_definitions=[
+            SourceGroupDefinition("G1", ["A2"]), SourceGroupDefinition("G3", ["A1"])])
+        cards = [ln for ln in so.to_aermod_input().splitlines() if "SRCGROUP" in ln]
+        assert cards == [
+            "   SRCGROUP  ALL",
+            "   SRCGROUP  G1       A2",
+            "   SRCGROUP  G1       A1",
+            "   SRCGROUP  G3       A1",
+            "   SRCGROUP  G2       A1",
+        ]
+
+    def test_group_names_are_matched_in_upper_case(self):
+        """AERMOD upper-cases every card (aermod.f LWRUPR), and SOGRP takes
+        a card naming an existing group as a continuation of the group
+        defined last. ``Pit`` and ``PIT`` written apart, with ``ROAD``
+        between, put A2 in ROAD instead of PIT on v26135 (review deck
+        caseA), with no message; they must be one block."""
+        a1 = AreaSource(source_id="A1", x_coord=0, y_coord=0, source_groups=["Pit", "ROAD"])
+        a2 = AreaSource(source_id="A2", x_coord=300, y_coord=300, source_groups=["PIT"])
+        cards = [ln for ln in SourcePathway(sources=[a1, a2]).to_aermod_input().splitlines()
+                 if "SRCGROUP" in ln]
+        assert cards == [
+            "   SRCGROUP  ALL",
+            "   SRCGROUP  PIT      A1 A2",
+            "   SRCGROUP  ROAD     A1",
+        ]
+
+    def test_source_groups_join_a_definition_spelled_differently(self):
+        """A source naming ``g1`` joins the definition ``G1``, not the group
+        defined after it (review deck caseB gave ``G2  A2, A3``), and a
+        member the definition lists as ``a1`` is not repeated."""
+        a1 = AreaSource(source_id="A1", x_coord=0, y_coord=0, source_groups=["g1"])
+        a2 = AreaSource(source_id="A2", x_coord=300, y_coord=300)
+        a3 = AreaSource(source_id="A3", x_coord=600, y_coord=0, source_groups=["g1"])
+        so = SourcePathway(sources=[a1, a2, a3], group_definitions=[
+            SourceGroupDefinition("G1", ["a1"]), SourceGroupDefinition("G2", ["A2"])])
+        cards = [ln for ln in so.to_aermod_input().splitlines() if "SRCGROUP" in ln]
+        assert cards == [
+            "   SRCGROUP  ALL",
+            "   SRCGROUP  G1       a1",
+            "   SRCGROUP  G1       A3",
+            "   SRCGROUP  G2       A2",
+        ]
+
+    def test_long_member_lists_are_split_into_continuation_cards(self):
+        """AERMOD reads 512 characters of a line (ISTRG); a group gathered
+        from many sources is written ten IDs to a card."""
+        srcs = [AreaSource(source_id=f"AREA{i:04d}", x_coord=10.0 * i, y_coord=0,
+                           source_groups=["FIELD"]) for i in range(25)]
+        text = SourcePathway(sources=srcs).to_aermod_input()
+        cards = [ln for ln in text.splitlines() if ln.split()[:2] == ["SRCGROUP", "FIELD"]]
+        assert [len(c.split()) - 2 for c in cards] == [10, 10, 5]
+        assert _group_members(text)["FIELD"] == [s.source_id for s in srcs]
+
+    def test_psd_credit_writes_no_srcgroup(self):
+        """PSDCREDIT forbids SRCGROUP (E105), per-source groups included."""
+        src = AreaSource(source_id="A1", x_coord=0, y_coord=0, source_groups=["G1"])
+        text = SourcePathway(sources=[src]).to_aermod_input(psd_credit=True)
+        assert "SRCGROUP" not in text
+
+    def test_example_project_writes_a_bare_all_card(self):
+        """create_example_project() puts its stack in group ALL; the card
+        used to read "SRCGROUP ALL STACK1", E203 in AERMOD's setup."""
+        text = create_example_project().to_aermod_input(validate=False)
+        cards = [ln.split() for ln in text.splitlines() if "SRCGROUP" in ln]
+        assert cards == [["SRCGROUP", "ALL"]]
 
 
 class TestUrbanSourceAllTypes:
