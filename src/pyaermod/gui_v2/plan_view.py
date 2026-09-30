@@ -194,13 +194,13 @@ def plan_view_svg(project: Any) -> str:
             out.append(f'<circle cx="{x}" cy="{y}" r="5" fill="{SOURCE_COLOUR}" '
                        f'stroke="white" stroke-width="1.5"/>')
         elif fp.kind == POLYGON:
-            pts = " ".join(",".join(frame.px(*p)) for p in fp.parts[0])
-            out.append(f'<polygon points="{pts}" fill="{SOURCE_COLOUR}" fill-opacity="0.25" '
+            outline = " ".join(",".join(frame.px(*p)) for p in fp.parts[0])
+            out.append(f'<polygon points="{outline}" fill="{SOURCE_COLOUR}" fill-opacity="0.25" '
                        f'stroke="{SOURCE_COLOUR}" stroke-width="1.5"/>')
         elif fp.kind == LINES:
             for part in fp.parts:
-                pts = " ".join(",".join(frame.px(*p)) for p in part)
-                out.append(f'<polyline points="{pts}" fill="none" stroke="{SOURCE_COLOUR}" '
+                line = " ".join(",".join(frame.px(*p)) for p in part)
+                out.append(f'<polyline points="{line}" fill="none" stroke="{SOURCE_COLOUR}" '
                            f'stroke-width="3" stroke-linecap="round"/>')
         if label_sources:
             x, y = frame.px(*fp.anchor())

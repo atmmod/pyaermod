@@ -164,7 +164,7 @@ def receptor_points(receptor: Any, *, sources: Iterable[Any] = ()) -> List[Point
             if found is not None:
                 x0, y0 = found
         rings = receptor.ring_distances()
-        points = []
+        points: List[Tuple[float, float]] = []
         for theta in receptor.direction_angles():
             s, c = math.sin(math.radians(theta)), math.cos(math.radians(theta))
             points.extend((x0 + r * s, y0 + r * c) for r in rings)

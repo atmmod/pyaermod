@@ -540,12 +540,12 @@ def emit_field(parent, obj: Any, fmeta, *,
             _notify_on_edit(box, on_change)
     elif kind == BOOL:
         with parent:
-            box = ui.checkbox(label, value=bool(cur)).bind_value(obj, fname)
+            check = ui.checkbox(label, value=bool(cur)).bind_value(obj, fname)
             text = help_of(fmeta)
             if text:
-                with box:
+                with check:
                     ui.tooltip(text)
-            _notify_on_edit(box, on_change)
+            _notify_on_edit(check, on_change)
     elif kind == VERTICES:
         # Dispatched before the numeric kinds on purpose: polygon vertices
         # once crashed the editor as a ``ui.number``.
