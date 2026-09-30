@@ -1,0 +1,467 @@
+CO STARTING
+   TITLEONE  bins25
+   MODELOPT  CONC DDEP
+   AVERTIME  1 PERIOD
+   POLLUTID  PM10
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  PIT  OPENPIT  -300.0 -200.0 0.0
+   SRCPARAM  PIT  1.0E-5  0.0  600.0 400.0 2.4E7
+   PARTDIAM  PIT  0.5  1.5  2.5  3.5  4.5  5.5  6.5  7.5  8.5  9.5  10.5  11.5  12.5  13.5  14.5  15.5  16.5  17.5  18.5  19.5  20.5  21.5  22.5  23.5  24.5
+   MASSFRAX  PIT  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04  0.04
+   PARTDENS  PIT  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65  2.65
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART   500.0   0.0
+   DISCCART  1000.0   0.0
+   DISCCART     0.0 1000.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            4 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ RE W228      19       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ RE W228      20       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ RE W228      21       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Allows User-Specified Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * Model Is Setup For Calculation of Dry DEPosition Values.
+      * NO GAS DEPOSITION Data Provided.
+      * PARTICLE DEPOSITION Data Provided.
+      * Model Uses DRY DEPLETION. DDPLETE  =  T
+      * Model Uses WET DEPLETION. WETDPLT  =  T
+      * Stack-tip Downwash.
+      * Model Accounts for ELEVated Terrain Effects.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: PM10    
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+     and Calculates PERIOD Averages
+  
+ **This Run Includes:      1 Source(s);       1 Source Group(s); and       3 Receptor(s)
+
+                with:      0 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      1 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of PERIOD Averages by Receptor
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =     0.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+  Concentration:  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+     Deposition:  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =    3600.0    
+                  Output Units   = GRAMS/M**2                              
+  
+ **Approximate Storage Requirements of Model =      3.5 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+
+                                                  *** OPENPIT SOURCE DATA ***
+
+               NUMBER EMISSION RATE  COORD (SW CORNER)  BASE     RELEASE  X-DIM     Y-DIM    ORIENT.    VOLUME   URBAN  EMISSION RATE
+   SOURCE       PART.  (GRAMS/SEC       X        Y      ELEV.    HEIGHT  OF PIT    OF PIT    OF PIT     OF PIT   SOURCE  SCALAR VARY
+     ID         CATS.   /METER**2)   (METERS) (METERS) (METERS) (METERS) (METERS)  (METERS)   (DEG.)    (M**3)               BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ PIT             25   0.10000E-04    -300.0    -200.0     0.0     0.00    600.00    400.00      0.00   .24000E+08  NO           
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        PIT         ,
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                                *** SOURCE PARTICULATE/GAS DATA ***
+
+
+
+
+        *** SOURCE ID = PIT         ; SOURCE TYPE = OPENPIT  ***
+
+        MASS FRACTION =
+            0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000, 
+            0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000,   0.04000, 
+            0.04000,   0.04000,   0.04000,   0.04000,   0.04000, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            0.50000,   1.50000,   2.50000,   3.50000,   4.50000,   5.50000,   6.50000,   7.50000,   8.50000,   9.50000, 
+           10.50000,  11.50000,  12.50000,  13.50000,  14.50000,  15.50000,  16.50000,  17.50000,  18.50000,  19.50000, 
+           20.50000,  21.50000,  22.50000,  23.50000,  24.50000, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+            2.65000,   2.65000,   2.65000,   2.65000,   2.65000, 
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                             *** DISCRETE CARTESIAN RECEPTORS ***
+                                           (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                           (METERS)
+
+     (    500.0,       0.0,       0.0,       0.0,       0.0);         (   1000.0,       0.0,       0.0,       0.0,       0.0);      
+     (      0.0,    1000.0,       0.0,       0.0,       0.0);                                                                       
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   AERMET2.SFC                                                                        Met Version:  26135
+   Profile file:   AERMET2.PFL                                                                     
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    14735                  Upper air station no.:    14735
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1988                                     Year:   1988
+
+ First 24 hours of scalar data
+ YR MO DY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN  Z0 BOWEN  ALB  REF WS   WD   HT  REF TA  HT IPCOD PRATE  RH SFCP CCVR
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ ** 03 01 01   -2.7  0.062 -9.000 -9.000 -999.   37.      7.9 0.75 1.50 1.00    0.80  318.  10.  273.8  10.  0  -9.00  999. 1003.  4
+ 88 03 01 02   -3.5  0.069 -9.000 -9.000 -999.   44.      8.5 0.75 1.50 1.00    0.90  273.  10.  273.5  10.  0  -9.00  999. 1003.  1
+ 88 03 01 03   -1.6  0.046 -9.000 -9.000 -999.   24.      5.7 0.75 1.50 1.00    0.60  276.  10.  272.4  10.  0  -9.00  999. 1003.  1
+ 88 03 01 04   -1.0  0.034 -9.000 -9.000 -999.   15.      3.6 0.30 0.80 1.00    0.60  200.  10.  271.5  10.  0  -9.00  999. 1003.  1
+ 88 03 01 05   -6.3  0.093 -9.000 -9.000 -999.   68.     11.3 0.75 1.50 1.00    1.20  289.  10.  271.8  10.  0  -9.00  999. 1003.  0
+ 88 03 01 06   -2.8  0.062 -9.000 -9.000 -999.   37.      7.5 0.75 1.50 1.00    0.80  254.  10.  271.0  10.  0  -9.00  999. 1004.  0
+ 88 03 01 07   -3.6  0.069 -9.000 -9.000 -999.   44.      8.5 0.75 1.50 1.00    0.90  264.  10.  270.9  10.  0  -9.00  999. 1004.  0
+ 88 03 01 08   -5.4  0.148 -9.000 -9.000 -999.  137.     54.2 0.75 1.50 0.67    1.30  315.  10.  271.8  10.  0  -9.00  999. 1005.  6
+ 88 03 01 09   25.1  0.321  0.558  0.007  248.  437.   -118.3 0.75 1.50 0.56    1.90  310.  10.  272.3  10.  0  -9.00  999. 1005.  7
+ 88 03 01 10   60.6  0.396  0.949  0.008  506.  599.    -92.0 0.75 1.50 0.52    2.30  315.  10.  273.0  10.  0  -9.00  999. 1005.  6
+ 88 03 01 11   88.3  1.474  1.182  0.005  671. 4000.  -3249.5 0.75 1.50 0.51    7.70  297.   6.  268.8   2.  0  -9.00  999. 1005.  2
+ 88 03 01 12   97.8  0.438  1.247  0.005  711. 2198.    -76.9 0.75 1.50 0.51    2.50  309.  10.  274.7  10.  0  -9.00  999. 1004.  0
+ 88 03 01 13   99.6  0.535  1.277  0.005  749. 1158.   -137.9 0.75 1.50 0.51    3.20  316.  10.  274.9  10.  0  -9.00  999. 1003.  0
+ 88 03 01 14   88.9  0.533  1.248  0.006  781.  941.   -151.8 0.75 1.50 0.51    3.20  290.  10.  275.3  10.  0  -9.00  999. 1002.  0
+ 88 03 01 15   65.9  0.483  1.147  0.007  818.  808.   -152.3 0.75 1.50 0.52    2.90  300.  10.  275.5  10.  0  -9.00  999. 1002.  0
+ 88 03 01 16   31.5  0.453  0.905  0.007  841.  733.   -263.9 0.75 1.50 0.55    2.80  315.  10.  275.0  10.  0  -9.00  999. 1001.  0
+ 88 03 01 17  -15.1  0.430 -9.000 -9.000 -999.  678.    469.5 0.75 1.50 0.62    2.90  308.  10.  274.3  10.  0  -9.00  999. 1001.  0
+ 88 03 01 18  -15.6  0.147 -9.000 -9.000 -999.  249.     18.1 0.75 1.50 0.86    1.90  311.  10.  273.3  10.  0  -9.00  999. 1001.  0
+ 88 03 01 19  -11.2  0.124 -9.000 -9.000 -999.  108.     15.1 0.75 1.50 1.00    1.60  313.  10.  272.2  10.  0  -9.00  999. 1001.  0
+ 88 03 01 20   -7.4  0.100 -9.000 -9.000 -999.   76.     12.2 0.75 1.50 1.00    1.30  326.  10.  271.3  10.  0  -9.00  999. 1002.  0
+ 88 03 01 21  -17.5  0.154 -9.000 -9.000 -999.  146.     18.8 0.75 1.50 1.00    2.00  327.  10.  270.5  10.  0  -9.00  999. 1001.  0
+ 88 03 01 22  -15.8  0.147 -9.000 -9.000 -999.  135.     17.8 0.75 1.50 1.00    1.90  320.  10.  269.8  10.  0  -9.00  999. 1001.  0
+ 88 03 01 23   -2.8  0.062 -9.000 -9.000 -999.   40.      7.5 0.75 1.50 1.00    0.80  284.  10.  268.7  10.  0  -9.00  999. 1001.  0
+ 88 03 01 24  -11.2  0.124 -9.000 -9.000 -999.  104.     15.0 0.75 1.50 1.00    1.60  298.  10.  268.3  10.  0  -9.00  999. 1001.  0
+
+
+ First hour of profile data
+ YR MO DY HR HEIGHT F  WDIR    WSPD AMB_TMP sigmaA  sigmaW  sigmaV
+ ** 03 01 01   10.0 0  318.    0.80   273.8   48.7    0.11    0.48
+ ** 03 01 01   50.0 0  323.    2.00   275.0   14.7  -99.00    0.50
+ ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
+
+ F indicates top of profile (=1) or below (=0)
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE PERIOD (    96 HRS) AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** CONC OF PM10     IN MICROGRAMS/M**3                          **
+
+       X-COORD (M)   Y-COORD (M)        CONC                       X-COORD (M)   Y-COORD (M)        CONC
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+            500.00          0.00       17.33828                        1000.00          0.00        7.24548                         
+              0.00       1000.00        0.33401                                                                                     
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE PERIOD (    96 HRS)     DRY DEPOSITION      VALUES FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** DEPO OF PM10     IN GRAMS/M**2                               **
+
+       X-COORD (M)   Y-COORD (M)        DEPO                       X-COORD (M)   Y-COORD (M)        DEPO
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+            500.00          0.00        0.02384                        1000.00          0.00        0.00771                         
+              0.00       1000.00        0.00159                                                                                     
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE   1ST HIGHEST  1-HR AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** CONC OF PM10     IN MICROGRAMS/M**3                          **
+
+      X-COORD (M)  Y-COORD (M)        CONC     (YYMMDDHH)              X-COORD (M)  Y-COORD (M)        CONC     (YYMMDDHH)
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+           500.00         0.00      128.82188  (88030302)                  1000.00         0.00       87.12821  (88030302)          
+             0.00      1000.00       14.02104  (88030104)                                                                           
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE   1ST HIGHEST  1-HR     DRY DEPOSITION      VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** DEPO OF PM10     IN GRAMS/M**2                               **
+
+      X-COORD (M)  Y-COORD (M)        DEPO     (YYMMDDHH)              X-COORD (M)  Y-COORD (M)        DEPO     (YYMMDDHH)
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+           500.00         0.00        0.00157  (88030102)                  1000.00         0.00        0.00083  (88030301)          
+             0.00      1000.00        0.00043  (88030215)                                                                           
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  12
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                        *** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***
+
+
+                                    ** CONC OF PM10     IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS      17.33828 AT (     500.00,        0.00,     0.00,     0.00,    0.00)  DC          
+          2ND HIGHEST VALUE IS       7.24548 AT (    1000.00,        0.00,     0.00,     0.00,    0.00)  DC          
+          3RD HIGHEST VALUE IS       0.33401 AT (       0.00,     1000.00,     0.00,     0.00,    0.00)  DC          
+          4TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          5TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          6TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          7TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          8TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          9TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+         10TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  13
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** CONC OF PM10     IN MICROGRAMS/M**3                          **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                          AVERAGE CONC     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS     128.82188  ON 88030302: AT (     500.00,        0.00,     0.00,     0.00,    0.00)  DC          
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  14
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                        *** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***
+
+
+                                    ** DEPO OF PM10     IN GRAMS/M**2                               **
+
+                                                                                                             NETWORK
+GROUP ID                           DRY DEPO                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS       0.02384 AT (     500.00,        0.00,     0.00,     0.00,    0.00)  DC          
+          2ND HIGHEST VALUE IS       0.00771 AT (    1000.00,        0.00,     0.00,     0.00,    0.00)  DC          
+          3RD HIGHEST VALUE IS       0.00159 AT (       0.00,     1000.00,     0.00,     0.00,    0.00)  DC          
+          4TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          5TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          6TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          7TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          8TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          9TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+         10TH HIGHEST VALUE IS       0.00000 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  15
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** DEPO OF PM10     IN GRAMS/M**2                               **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                              DRY DEPO     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS       0.00157  ON 88030102: AT (     500.00,        0.00,     0.00,     0.00,    0.00)  DC          
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  bins25                                                              ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:24
+                                                                                                                       PAGE  16
+ *** MODELOPTs:    CONC  DDEP  ELEV  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            5 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of           96 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+
+ Met Data File Includes       0.00 Millimeters (     0.000 Inches) of Precipitation
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ RE W228      19       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ RE W228      20       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ RE W228      21       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+ MX W496      97         MAIN: Total precipitation in SURFFILE is zero (0.0) with     WetDepos
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+

@@ -77,6 +77,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- **The validator applies AERMOD v26135's remaining OPENPIT and Method 1
+  checks, with AERMOD's message codes in each finding.** For OPENPIT
+  `SRCPARAM` (`soset.f` OPARM): warnings for a zero emission rate, a
+  release height above 200 m, a length or width below 1e-5 m or above
+  2000 m, and a rotation angle beyond ±180° (W320), with W392 for an
+  aspect ratio above 10 and E209 for negative values. For `PARTDIAM`/
+  `MASSFRAX`/`PARTDENS`: an error for a mass fraction outside 0-1 (E332),
+  a warning for a density of 0.1 g/cm³ or less (W334), and E240 and E334
+  named on the existing count and density errors. Receptors that lie
+  strictly inside an open pit draw a warning with their count and first
+  coordinates: AERMOD skips them for that source and reports 0 there
+  (`calc1.f` PITCALC). It raises no message code for them; it only lists
+  them, marked OPENPIT, in the input summary's table of source-receptor
+  pairs for which calculations may not be performed (`inpsum.f` CHKREC).
+  Receptors on the edge are modelled. `regulatory_default=True` with
+  `terrain_type` FLAT or FLATSRCS draws a warning: pyaermod writes FLAT
+  with DFAULT, and AERMOD drops FLAT with W206 and runs in elevated
+  terrain. `ControlPathway`'s defaults are exactly that pair, so a
+  default project now carries this warning. So does a DFAULT deck read
+  back with `read_aermod_input` when its `MODELOPT` names no terrain
+  token: the reader maps that to FLAT, and pyaermod would write it back
+  as `FLAT DFAULT`, although AERMOD runs the original deck in elevated
+  terrain with no W206.
+  `tests/test_validator_openpit_method1.py` checks every rule against
+  real v26135 runs recorded in `tests/fixtures/validator_openpit/`.
 - `AERMODResults.summaries` (every summary table of the `.out` file, in
   order) and `AERMODResults.deposition` (deposition tables by output type
   and averaging period); `ConcentrationResult.output_type`, `.title` (the
@@ -95,6 +120,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dict whose keys are not all strings (background `sector_values`) as
   `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
   files written before this change still open.
+- **A zero OPENPIT length or width is a warning, not an error.** AERMOD
+  raises it to 1e-5 m with W320 and runs the deck; the validator now
+  says so. A negative one is still an error (E209).
 
 ### Fixed
 - **`examples/deposition_modeling.py` calculated no deposition.** Its
@@ -298,6 +326,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+- **An OPENPIT release height above the pit's effective depth was only a
+  warning.** AERMOD refuses such a deck at setup (`SO E322 ... Release
+  Height Exceeds Effective Depth for OPENPIT`, `soset.f` OPARM), so the
+  validator passed a deck that could not run and `project.write()` wrote
+  it. It is now an error, and `write()` refuses the deck. The depth is
+  computed as AERMOD does, with a dimension below 1e-5 m (zero included)
+  raised to 1e-5 m.
+- **The validator rejected more than 20 particle categories.** AERMOD
+  has no such limit: `soset.f` sizes its particle arrays to the deck, and
+  a 25-category OPENPIT deck runs to completion. The cap is gone.
+- **The mass-fraction warning fired at 1% instead of AERMOD's 2%.**
+  SRCQA warns (W330) only when the fractions sum below 0.98 or above
+  1.02; a sum of 0.985 no longer draws a warning.
+- **Particle diameters were checked only for being positive.** AERMOD
+  refuses a diameter of 0.001 µm or less, or above 1000 µm (E335); the
+  validator now does too. The particle checks test the values as the
+  deck carries them: the writer rounds `PARTDIAM` and `PARTDENS` to 4
+  significant figures and `MASSFRAX` to 6 decimals, so a 1000.4 µm
+  diameter, written as 1000, is accepted as AERMOD accepts it, and a
+  0.10004 g/cm³ density, written as 0.1, draws W334.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
