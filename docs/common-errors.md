@@ -80,6 +80,34 @@ print(summarize_failure(result.input_file, working_dir))
 That prints ERRMSG content plus the tail of `.OUT`, which is almost
 always enough to identify the cause without copying files manually.
 
+### "AERMOD was stopped by SIGTERM (signal 15) before it finished"
+
+- **Cause:** something outside AERMOD ended the process: `kill`, a job
+  scheduler's time limit, a closed terminal. On POSIX the runner sees
+  the signal as a negative return code (`result.return_code == -15`)
+  and names it. The `.out` ends wherever the run was cut off; it can
+  hold `*** SETUP Finishes Successfully ***` but never AERMOD's final
+  banner.
+- **Timeouts** read "Execution timed out after N seconds; AERMOD was
+  stopped before it finished". The partial `.out` is kept as
+  `<deck>.out`, so it can be inspected, and it replaces whatever an
+  earlier run of the deck left there.
+- **Fix:** run the deck again with more time. `resume_batch` counts
+  either kind of run as still to do.
+
+## Batch runs
+
+### Resuming an interrupted batch
+
+`resume_batch(input_files, output_dir)` counts a deck as done only when
+its `<deck>.out` passes the same test `AERMODRunner.run` applies (the
+`*** AERMOD Finishes Successfully ***` line and no fatal error in the
+final message summary) and is not older than the deck. A failed, killed
+or timed-out run, and an `.out` left from before the deck was edited,
+are all still to do. A deck whose modification time moved only because
+it was copied without `cp -p` is run again, which costs time but never
+a wrong result.
+
 ## Before you file a bug
 
 1. `Validator.validate(project, check_files=True)` — any errors?

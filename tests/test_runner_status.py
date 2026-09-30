@@ -10,7 +10,13 @@ These tests pin that rule against real AERMOD v26135 runs recorded in
 * ``runtime_error_e480/``: exits 0 after fatal error E480 (ANNUAL
   averages with four days of met data), the GUI's "Run succeeded" bug;
 * ``setup_error_e500/``: exits 0 after fatal error E500 (a missing
-  surface file) during setup.
+  surface file) during setup;
+* ``setup_error_e322_openpit/`` and ``setup_error_e140_srcgroup/``: the
+  2026-09-29 audit's OPENPIT deck with its release height above the
+  pit's effective depth (E322) and its two-pit deck with SRCGROUP inside
+  the source blocks (E140), both fatal at setup with exit code 0;
+* ``killed_sigterm/``: a run stopped with SIGTERM part way through, which
+  the fake replays by killing itself with the same signal.
 
 The fake ``aermod`` below replays those recordings: it finds the
 recording whose deck matches ``aermod.inp`` and writes back its stdout,
@@ -44,6 +50,9 @@ RECORDINGS = Path(__file__).parent / "fixtures" / "runner"
 SUCCESS = RECORDINGS / "success"
 E480 = RECORDINGS / "runtime_error_e480"
 E500 = RECORDINGS / "setup_error_e500"
+E322 = RECORDINGS / "setup_error_e322_openpit"
+E140 = RECORDINGS / "setup_error_e140_srcgroup"
+KILLED = RECORDINGS / "killed_sigterm"
 
 SUCCESS_WARNINGS = ["W206", "W361", "W362", "W362", "W214", "W403"]
 E480_TEXT = "Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave"
@@ -64,9 +73,22 @@ def _out_text(case: Path) -> str:
 class TestRecordings:
     """The recordings show what the rule is built on."""
 
-    @pytest.mark.parametrize("case", [SUCCESS, E480, E500], ids=lambda p: p.name)
+    @pytest.mark.parametrize("case", [SUCCESS, E480, E500, E322, E140], ids=lambda p: p.name)
     def test_aermod_exits_zero_in_every_case(self, case):
         assert (case / "exit_code.txt").read_text().strip() == "0"
+
+    def test_killed_run_just_stops(self):
+        """SIGTERM leaves the setup banner and nothing that says the run failed."""
+        assert (KILLED / "exit_code.txt").read_text().strip() == "143"
+        text = _out_text(KILLED)
+        assert "*** SETUP Finishes Successfully ***" in text
+        assert "AERMOD Finishes" not in text
+        assert "Message Summary : AERMOD Model Execution" not in text
+        # Only the setup summary is there, and it lists no fatal error.
+        summary = _read_message_summary(KILLED / "aermod.out")
+        assert summary.finished_successfully is False
+        assert summary.counts["E"] == 0
+        assert {m.severity for m in summary.messages} == {"W"}
 
     def test_failed_run_still_prints_the_setup_success_banner(self):
         """Why "FINISHES SUCCESSFULLY" anywhere in the file is not a success test."""
@@ -194,7 +216,10 @@ for case in "{recordings}"/*/; do
     if cmp -s aermod.inp "$case/aermod.inp"; then
         cat "$case/stdout.txt"
         cp "$case/aermod.out" aermod.out
-        exit "$(cat "$case/exit_code.txt")"
+        code="$(cat "$case/exit_code.txt")"
+        # The shell reports death by signal N as 128 + N: die the same way.
+        if [ "$code" -gt 128 ]; then kill -"$((code - 128))" $$; fi
+        exit "$code"
     fi
 done
 echo "no recording for this deck" >&2
@@ -296,8 +321,9 @@ class TestRunnerVerdict:
 
     def test_nonzero_exit_fails_even_with_a_good_out_file(self, replay_bin, tmp_path):
         exe = replay_bin / "aermod"
-        exe.write_text(exe.read_text().replace(
-            'exit "$(cat "$case/exit_code.txt")"', "exit 3"))
+        replay = exe.read_text()
+        assert 'exit "$code"' in replay
+        exe.write_text(replay.replace('exit "$code"', "exit 3"))
         result = _run(SUCCESS, replay_bin, tmp_path / "w")
         assert result.finished_successfully is True
         assert result.fatal_count == 0
@@ -353,6 +379,79 @@ class TestRunnerVerdict:
         assert result.output_file is None
         assert result.error_message == "AERMOD exited with code 0 but wrote no run.out"
 
+    @pytest.mark.parametrize(("case", "codes"), [
+        (E322, ["E322"]),
+        (E140, ["E140", "E140"]),
+    ], ids=["e322_openpit", "e140_srcgroup"])
+    def test_audit_setup_errors_fail(self, replay_bin, tmp_path, case, codes):
+        """The audit's E322 and E140 decks: exit code 0, fatal at setup."""
+        result = _run(case, replay_bin, tmp_path / "w")
+        assert result.return_code == 0
+        assert result.success is False
+        assert result.finished_successfully is False
+        assert [m.code for m in result.fatal_messages] == codes
+        assert result.error_message.startswith(f"{codes[0]} ")
+
+    def test_sigterm_reports_the_signal(self, replay_bin, tmp_path):
+        """A killed run says it was killed, not that a banner is missing."""
+        result = _run(KILLED, replay_bin, tmp_path / "w")
+        assert result.return_code == -15
+        assert result.success is False
+        assert result.output_file == str(tmp_path / "w" / "run.out")
+        assert result.error_message == (
+            "AERMOD was stopped by SIGTERM (signal 15) before it finished; "
+            "its output ends where the run was cut off"
+        )
+
+    def test_earlier_out_does_not_stand_in_for_this_run(self, replay_bin, tmp_path):
+        """A run that writes no .out must not be judged by the last run's."""
+        work = tmp_path / "w"
+        first = _run(SUCCESS, replay_bin, work)
+        assert first.success is True
+        exe = replay_bin / "aermod"
+        exe.write_text("#!/bin/bash\nexit 0\n")
+        result = AERMODRunner(executable_path=exe, log_level="WARNING").run(
+            work / "run.inp", working_dir=work)
+        assert result.success is False
+        assert result.output_file is None
+        assert result.error_message == "AERMOD exited with code 0 but wrote no run.out"
+        assert not (work / "run.out").exists()
+
+    def test_leftover_aermod_out_is_not_adopted(self, tmp_path):
+        """An aermod.out left by an interrupted run is not this run's output."""
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work)
+        shutil.copy(SUCCESS / "aermod.out", work / "aermod.out")
+        exe = tmp_path / "aermod"
+        exe.write_text("#!/bin/bash\nexit 0\n")
+        exe.chmod(0o755)
+        result = AERMODRunner(executable_path=exe, log_level="WARNING").run(inp, working_dir=work)
+        assert result.success is False
+        assert result.output_file is None
+        assert not (work / "aermod.out").exists()
+
+    def test_timeout_keeps_this_runs_partial_out(self, tmp_path):
+        """The .out a timed-out run leaves is its own, not the last run's."""
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work)
+        shutil.copy(SUCCESS / "aermod.out", work / "run.out")  # an earlier run
+        exe = tmp_path / "aermod"
+        exe.write_text(
+            "#!/bin/bash\n"
+            f'cp "{KILLED}/aermod.out" aermod.out\n'
+            "exec sleep 60\n"
+        )
+        exe.chmod(0o755)
+        result = AERMODRunner(executable_path=exe, log_level="WARNING").run(
+            inp, working_dir=work, timeout=5)
+        assert result.success is False
+        assert result.error_message == (
+            "Execution timed out after 5 seconds; AERMOD was stopped before it finished"
+        )
+        assert result.output_file == str(work / "run.out")
+        assert (work / "run.out").read_bytes() == (KILLED / "aermod.out").read_bytes()
+        assert not (work / "aermod.out").exists()
+
     def test_run_batch_inherits_the_verdict(self, replay_bin, tmp_path):
         work = tmp_path / "batch"
         inputs = [_stage(SUCCESS, work, "ok"), _stage(E480, work, "annual")]
@@ -403,6 +502,14 @@ class TestExtractErrorMessage:
             "E500 MEOPEN: Fatal Error Occurs Opening the Data File of SURFFILE "
             "(and 1 more fatal error(s))"
         )
+
+    def test_signal_without_a_name(self, tmp_path):
+        proc = CompletedProcess(args=[], returncode=-200, stdout="", stderr="")
+        files = {"error": tmp_path / "run.err", "output": KILLED / "aermod.out"}
+        msg = self._runner(tmp_path)._extract_error_message(
+            proc, files, messages=[], finished_successfully=False,
+        )
+        assert msg.startswith("AERMOD was stopped by signal 200 before it finished")
 
     def test_summary_heading_is_not_taken_for_an_error(self, tmp_path):
         """Without parsed messages the .out scan skips AERMOD's section heading."""

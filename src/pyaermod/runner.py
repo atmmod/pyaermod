@@ -10,6 +10,7 @@ import logging
 import platform
 import re
 import shutil
+import signal
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -65,6 +66,10 @@ _MESSAGE_LINE = re.compile(
 # errors and 999 warnings of about 95 bytes each, so a 1 MB tail always
 # contains it when the run got as far as writing the final summary.
 _SUMMARY_TAIL_BYTES = 1_000_000
+
+# The files AERMOD writes as aermod.out, aermod.err and aermod.sum, which
+# the runner renames after the deck: <stem>.out, <stem>.err, <stem>.sum.
+_OUTPUT_SUFFIXES = {"output": ".out", "error": ".err", "summary": ".sum"}
 
 
 @dataclass(frozen=True)
@@ -379,9 +384,8 @@ class AERMODRunner:
 
         # Expected output files (will be renamed from aermod.* after run)
         output_files = {
-            'output': work_dir / f"{input_name}.out",
-            'error': work_dir / f"{input_name}.err",
-            'summary': work_dir / f"{input_name}.sum"
+            key: work_dir / f"{input_name}{suffix}"
+            for key, suffix in _OUTPUT_SUFFIXES.items()
         }
 
         # Concurrency safety: AERMOD reads from a fixed filename
@@ -391,6 +395,17 @@ class AERMODRunner:
         # Released automatically in the finally clause below.
         lock_path = work_dir / ".pyaermod.lock"
         lock_fh = _acquire_dir_lock(lock_path)
+
+        # Files left by an earlier run would otherwise stand in for this
+        # one's whenever this run writes none: a timeout before AERMOD
+        # opens aermod.out, or a crash. The verdict below would then be
+        # read from the old .out, and resume_batch would count the deck
+        # as done. Remove this deck's outputs, and AERMOD's own
+        # aermod.out/.err/.sum, before AERMOD starts.
+        for suffix in _OUTPUT_SUFFIXES.values():
+            for stale in (work_dir / f"{input_name}{suffix}", work_dir / f"aermod{suffix}"):
+                with contextlib.suppress(FileNotFoundError):
+                    stale.unlink()
 
         # Create symlink: aermod.inp -> <input_name>.inp
         aermod_inp = work_dir / "aermod.inp"
@@ -448,14 +463,7 @@ class AERMODRunner:
                 result.stdout = _read_capped(stdout_path, 1_000_000)
                 result.stderr = _read_capped(stderr_path, 1_000_000)
 
-            # Rename AERMOD's default output files to match the input name
-            for suffix in ['.out', '.err', '.sum']:
-                aermod_file = work_dir / f"aermod{suffix}"
-                target_file = work_dir / f"{input_name}{suffix}"
-                if aermod_file.exists():
-                    if target_file.exists():
-                        target_file.unlink()
-                    aermod_file.rename(target_file)
+            _rename_aermod_outputs(work_dir, input_name)
 
             end_time = datetime.now()
             runtime = (end_time - start_time).total_seconds()
@@ -524,13 +532,25 @@ class AERMODRunner:
             end_time = datetime.now()
             runtime = (end_time - start_time).total_seconds()
 
+            # subprocess.run has killed AERMOD. Keep what it wrote under
+            # this deck's name, as after any other run: left as
+            # aermod.out, it would be taken for the next run's output.
+            _rename_aermod_outputs(work_dir, input_name)
+            has_output = output_files['output'].exists()
+
             self.logger.error(f"AERMOD execution timed out after {timeout}s")
 
             return AERMODRunResult(
                 success=False,
                 input_file=str(input_path),
                 runtime_seconds=runtime,
-                error_message=f"Execution timed out after {timeout} seconds",
+                output_file=str(output_files['output']) if has_output else None,
+                error_file=str(output_files['error']) if output_files['error'].exists() else None,
+                summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
+                error_message=(
+                    f"Execution timed out after {timeout} seconds; AERMOD was "
+                    "stopped before it finished"
+                ),
                 start_time=start_time,
                 end_time=end_time
             )
@@ -585,9 +605,19 @@ class AERMODRunner:
                 first += f" (and {len(fatal) - 1} more fatal error(s))"
             parts.append(first)
 
-        parts.extend(self._error_context(result, output_files, scan_output=not fatal))
+        # A negative return code is a POSIX signal: AERMOD was stopped
+        # from outside (SIGTERM, SIGKILL, ...) and its .out simply ends
+        # where the run was cut off, so neither the .out scan nor the
+        # missing banner says anything more.
+        killed = result.returncode is not None and result.returncode < 0
+        if killed:
+            parts.append(_describe_signal(-result.returncode))
 
-        if (not fatal and finished_successfully is False
+        parts.extend(self._error_context(
+            result, output_files, scan_output=not fatal and not killed,
+        ))
+
+        if (not fatal and not killed and finished_successfully is False
                 and output_files['output'].exists()):
             parts.append(
                 "AERMOD did not report success: no '*** AERMOD Finishes "
@@ -836,6 +866,27 @@ def _batch_worker(executable_path: str, input_file: str, timeout: int) -> "AERMO
     """
     runner = AERMODRunner(executable_path=executable_path, log_level="WARNING")
     return runner.run(input_file, timeout=timeout)
+
+
+def _rename_aermod_outputs(work_dir: Path, input_name: str) -> None:
+    """Rename AERMOD's ``aermod.out``/``.err``/``.sum`` after the deck, as ``<input_name>.*``."""
+    for suffix in _OUTPUT_SUFFIXES.values():
+        aermod_file = work_dir / f"aermod{suffix}"
+        target_file = work_dir / f"{input_name}{suffix}"
+        if aermod_file.exists() and aermod_file != target_file:
+            aermod_file.replace(target_file)
+
+
+def _describe_signal(signum: int) -> str:
+    """Say which signal stopped AERMOD, such as ``SIGTERM (signal 15)``."""
+    try:
+        name = f"{signal.Signals(signum).name} (signal {signum})"
+    except ValueError:
+        name = f"signal {signum}"
+    return (
+        f"AERMOD was stopped by {name} before it finished; "
+        "its output ends where the run was cut off"
+    )
 
 
 def _read_capped(path: Path, max_bytes: int = 1_000_000) -> str:

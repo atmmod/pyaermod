@@ -37,6 +37,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **`resume_batch` counted runs as done that were not, and a timed-out
+  run left the previous run's `.out` under the deck's name.**
+  `resume_batch` called a deck done when the last 50 lines of its `.out`
+  contained "FINISHES SUCCESSFULLY", which `*** SETUP Finishes
+  Successfully ***` also matches, and it never asked whether the `.out`
+  came from the current deck. On a timeout `AERMODRunner.run` skipped
+  renaming `aermod.out`, so the partial output of the re-run stayed as
+  `aermod.out` and the earlier, successful `<deck>.out` survived: the
+  2026-09-29 defect verification re-ran an edited deck, the re-run timed
+  out, and `resume_batch` still called it done. A run that wrote no
+  `.out` at all was judged by the one an earlier run had left. Now
+  `resume_batch` applies `AERMODRunner.run`'s own test (AERMOD's
+  `*** AERMOD Finishes Successfully ***` line and no fatal error in the
+  final message summary) and treats an `.out` older than its deck as
+  stale; `run` removes the deck's `.out`, `.err` and `.sum` and any
+  leftover `aermod.out`, `.err` and `.sum` before it starts AERMOD, and
+  keeps a timed-out run's partial output as `<deck>.out`, reported in
+  `output_file`. **A timed-out or crashed re-run no longer leaves the
+  earlier run's output in place.**
+- **A killed AERMOD run was reported as "AERMOD did not report
+  success".** A run stopped by a signal (the pilot ended its slowest
+  run, an area source, with SIGTERM) now reads "AERMOD was stopped by
+  SIGTERM (signal 15) before it finished; its output ends where the run
+  was cut off", and a timeout reads "Execution timed out after N
+  seconds; AERMOD was stopped before it finished". The runner recordings
+  in `tests/fixtures/runner/` gain a run killed with SIGTERM part way
+  through, and the audit's E322 (OPENPIT release height above the pit's
+  effective depth) and E140 (SRCGROUP inside a source block) decks, both
+  of which AERMOD ends with exit code 0 and which the runner reports as
+  failures.
 - **`AERSCREENRunResult` named files in a spelling AERSCREEN had not
   written, on macOS and Windows.** The runner found the log by checking
   `<stem>.log` before `aerscreen.log`; a case-insensitive filesystem

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Union
 
 from ._optional import optional_import, require
+from .runner import _read_message_summary, _severity_count
 
 _tqdm_mod = optional_import("tqdm")
 HAS_TQDM = _tqdm_mod is not None
@@ -169,15 +170,34 @@ class TqdmProgress:
 # Resume / skip-completed
 # ---------------------------------------------------------------------------
 
-def _output_is_valid(out_path: Path) -> bool:
-    """Heuristic: treat an .OUT file as valid if it exists AND ends
-    with the 'AERMOD Finishes Successfully' marker."""
+def _output_is_valid(out_path: Path, input_path: Optional[Path] = None) -> bool:
+    """Whether ``out_path`` records a finished, successful run of ``input_path``.
+
+    The test is the runner's own (``AERMODRunner.run``): the final
+    message summary ends with ``*** AERMOD Finishes Successfully ***``
+    and lists no fatal error. Searching the end of the file for
+    "FINISHES SUCCESSFULLY", as this check used to, also accepts
+    ``*** SETUP Finishes Successfully ***``, which AERMOD prints before
+    every run that gets past setup, including runs that fail or are
+    killed afterwards.
+
+    When ``input_path`` is given and exists, an ``.out`` older than the
+    deck is stale: it was written by a run of an earlier version of the
+    deck.
+    """
     if not out_path.exists() or out_path.stat().st_size == 0:
         return False
-    # Read the tail
-    tail = tail_output(out_path, n_lines=50)
-    joined = "\n".join(tail).upper()
-    return "FINISHES SUCCESSFULLY" in joined or "RUN SUCCESSFULLY" in joined
+    if (input_path is not None and input_path.exists()
+            and out_path.stat().st_mtime < input_path.stat().st_mtime):
+        return False
+    try:
+        summary = _read_message_summary(out_path)
+    except OSError:
+        return False
+    return (
+        summary.finished_successfully
+        and _severity_count(summary.messages, summary.counts, "E") == 0
+    )
 
 
 def resume_batch(
@@ -186,8 +206,15 @@ def resume_batch(
 ) -> Dict[str, List[Path]]:
     """Partition `input_files` into 'done' and 'todo' lists.
 
-    An input is 'done' if a sibling `.out` in `output_dir` has the
-    AERMOD success marker.
+    An input is 'done' when its ``<stem>.out`` in `output_dir` records a
+    successful run by the rule ``AERMODRunner.run`` applies (AERMOD's
+    ``*** AERMOD Finishes Successfully ***`` line and no fatal errors in
+    its final message summary), and that ``.out`` is not older than the
+    input file. Everything else is 'todo': no ``.out``, a run that failed
+    or was cut off (killed, timed out), and an ``.out`` left from before
+    the deck was last changed. A deck whose modification time is later
+    than its ``.out``'s only because it was copied (``cp`` without
+    ``-p``) is run again, which is the safe mistake.
     """
     out_dir = Path(output_dir)
     done: List[Path] = []
@@ -195,7 +222,7 @@ def resume_batch(
     for inp in input_files:
         inp_path = Path(inp)
         out_path = out_dir / f"{inp_path.stem}.out"
-        (done if _output_is_valid(out_path) else todo).append(inp_path)
+        (done if _output_is_valid(out_path, inp_path) else todo).append(inp_path)
     return {"done": done, "todo": todo}
 
 
