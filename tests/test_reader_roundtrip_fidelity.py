@@ -700,20 +700,27 @@ class TestRemainingSourceKeywords:
         again = rewrite(project)
         assert again.sources.sources == project.sources.sources
 
-    def test_flat_location_literal_round_trips(self):
+    @pytest.mark.parametrize("tokens", ["FLAT ELEV", "ELEV FLAT"])
+    def test_flat_location_literal_round_trips(self, tokens):
         # soset.f SOLOCA: the elevation field may be the literal FLAT (a
         # flat-terrain source in a FLAT ELEV run); EPA's flatelev deck. The
         # reader used to note it and the writer wrote 0.00 (parity 1.17).
+        # ELEV FLAT is the same run; read as ELEV, it was rewritten as
+        # CONC ELEV, where AERMOD rejects the FLAT elevation (E208).
         so = ("   LOCATION  ELEV_STK  POINT  5510.  67960.  3.25\n   SRCPARAM  ELEV_STK  1  30  400  10  2\n"
               "   LOCATION  FLAT_STK  POINT  5510.  67960.  FLAT\n   SRCPARAM  FLAT_STK  1  30  400  10  2\n"
               "   LOCATION  FLAT_AREA  AREA  0.  0.  FLAT\n   SRCPARAM  FLAT_AREA  1  1  10  10\n"
               "   SRCGROUP  ALL\n")
-        project = parse(modelopt="FLAT ELEV", so_body=so)
+        project = parse(modelopt=tokens, so_body=so)
+        assert project.control.terrain_type == TerrainType.FLATSRCS
         flags = {s.source_id: s.flat_source for s in project.sources.sources}
         assert flags == {"ELEV_STK": False, "FLAT_STK": True, "FLAT_AREA": True}
         text = project.to_aermod_input(validate=False)
+        assert keyword_lines(text, "MODELOPT")[0] == ["CONC", "FLAT", "ELEV"]
         assert [ln[-1] for ln in keyword_lines(text, "LOCATION")] == ["3.25", "FLAT", "FLAT"]
-        assert {s.source_id: s.flat_source for s in rewrite(project).sources.sources} == flags
+        again = rewrite(project)
+        assert again.control.terrain_type == TerrainType.FLATSRCS
+        assert {s.source_id: s.flat_source for s in again.sources.sources} == flags
 
     def test_open_pit_spellings_are_openpit(self):
         # soset.f SOLOCA takes OPENPIT, OPEN_PIT and OPEN-PIT.
@@ -804,10 +811,10 @@ class TestControlPathwayFidelity:
         opts = keyword_lines(text, "MODELOPT")[0]
         assert opts.index("FLAT") < opts.index("ELEV") and "FLATSRCS" not in opts
 
-    def test_flat_then_elev_reads_as_flatsrcs_and_back(self):
-        control = parse(modelopt="FLAT ELEV").control
-        assert control.terrain_type == TerrainType.FLATSRCS
-        assert parse(modelopt="ELEV FLAT").control.terrain_type == TerrainType.ELEVATED
+    def test_flat_and_elev_read_as_flatsrcs_in_either_order(self):
+        # coset.f MODOPT scans the line for FLAT, then for ELEV.
+        assert parse(modelopt="FLAT ELEV").control.terrain_type == TerrainType.FLATSRCS
+        assert parse(modelopt="ELEV FLAT").control.terrain_type == TerrainType.FLATSRCS
         assert parse(modelopt="ELEV").control.terrain_type == TerrainType.ELEVATED
         assert parse(modelopt="ELEVATED").control.terrain_type == TerrainType.ELEVATED
 

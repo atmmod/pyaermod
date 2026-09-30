@@ -15,7 +15,7 @@ EPA's own deck reports CO E500 there, and so must ours.
 Alongside, the writer forms this branch changed are checked on minimal
 decks the way ``tests/test_source_deck_acceptance.py`` checks source
 types: the polar and Cartesian grid layouts, MAXIFILE, URBANOPT, the
-ELEV terrain token, STARTEND with hours.
+ELEV terrain token, FLAT with ELEV in either order, STARTEND with hours.
 
 Needs ``aermod`` on PATH (``scripts/build_aermod.sh``) and, for the
 archive sweep, the EPA test cases under ``test_cases/``. Marked slow:
@@ -236,6 +236,89 @@ def test_writer_forms_pass_aermod_setup(label, project, tmp_path):
     assert not errors, (
         f"AERMOD rejected the {label} deck:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
     )
+
+
+# ---------------------------------------------------------------------
+# FLAT and ELEV on one MODELOPT, in either order
+# ---------------------------------------------------------------------
+
+_TERRAIN_DECK = """\
+CO STARTING
+   TITLEONE  terrain tokens
+   MODELOPT  {modelopt}
+   AVERTIME  1
+   POLLUTID  SO2
+   RUNORNOT  NOT
+CO FINISHED
+SO STARTING
+   LOCATION  ELEV_STK  POINT  0.0  0.0  3.25
+   SRCPARAM  ELEV_STK  150.0  145.0  400.0  25.0  5.0
+{flat_source}   SRCGROUP  ALL
+SO FINISHED
+RE STARTING
+   DISCCART  500.0  500.0  10.0  12.0
+RE FINISHED
+ME STARTING
+   SURFFILE  {surface}
+   PROFFILE  {profile}
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0
+ME FINISHED
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+"""
+_FLAT_SOURCE = (
+    "   LOCATION  FLAT_STK  POINT  100.0  0.0  FLAT\n"
+    "   SRCPARAM  FLAT_STK  150.0  145.0  400.0  25.0  5.0\n"
+)
+# The terrain lines of the setup summary (inpsum.f PRTOPT).
+_TERRAIN_SUMMARY_RE = re.compile(
+    r"^[ *]*(Allow FLAT/ELEV Terrain Option by Source,|with +\d+ FLAT and +\d+ ELEV Source\(s\)\."
+    r"|Model Assumes Receptors on FLAT Terrain\.|Model Accounts for ELEVated Terrain Effects\.)",
+    re.MULTILINE,
+)
+_MESSAGE_CODE_RE = re.compile(r"^\s*(?:CO|SO|RE|ME|OU) ([EW]\d{3}) ", re.MULTILINE)
+_FLATSRCS_SUMMARY = ["Allow FLAT/ELEV Terrain Option by Source,", "with 1 FLAT and 1 ELEV Source(s)."]
+
+
+def _terrain_setup(deck: str, work: Path) -> tuple[list[str], list[str], set[str]]:
+    """Fatal lines, terrain summary lines and message codes of a setup pass."""
+    work.mkdir()
+    errors = run_setup_check(deck, work)
+    text = (work / "aermod.out").read_text(encoding="latin-1", errors="replace")
+    summary = [" ".join(line.split()) for line in _TERRAIN_SUMMARY_RE.findall(text)]
+    return errors, summary, set(_MESSAGE_CODE_RE.findall(text))
+
+
+@_met_ok
+@pytest.mark.parametrize(("modelopt", "summary"), [
+    ("CONC FLAT ELEV", _FLATSRCS_SUMMARY),
+    ("CONC ELEV FLAT", _FLATSRCS_SUMMARY),
+    ("CONC ELEV FLAT DFAULT", ["Model Accounts for ELEVated Terrain Effects."]),
+    ("DFAULT CONC FLAT ELEV", ["Model Accounts for ELEVated Terrain Effects."]),
+])
+def test_flat_with_elev_is_rewritten_to_the_run_aermod_makes(modelopt, summary, tmp_path):
+    """coset.f MODOPT reads FLAT with ELEV as FLATSRCS in either order,
+    and DFAULT overrides the FLAT (W206) in either order. The deck is
+    read, written and read again, and AERMOD's setup pass gives the
+    original and the rewrite the same terrain and the same warnings."""
+    dfault = "DFAULT" in modelopt.split()
+    # Under DFAULT, FLATSRCS is off and a FLAT source elevation is E208.
+    deck = _TERRAIN_DECK.format(modelopt=modelopt, flat_source="" if dfault else _FLAT_SOURCE,
+                                surface=SURFACE.name, profile=PROFILE.name)
+    project = parse_aermod_input(deck)
+    assert project.control.terrain_type == TerrainType.FLATSRCS
+    written = project.to_aermod_input(validate=False)
+    assert parse_aermod_input(written).control.terrain_type == TerrainType.FLATSRCS
+    for label, text in (("original", deck), ("rewrite", written)):
+        errors, ran, codes = _terrain_setup(text, tmp_path / label)
+        assert not errors, f"{label}:\n  " + "\n  ".join(errors) + f"\n\ndeck:\n{text}"
+        assert ran == summary, f"{label}:\n{text}"
+        assert ("W206" in codes) is dfault, f"{label}:\n{text}"
+        # W752: FLAT_STK was taken as a flat source in elevated terrain.
+        assert ("W752" in codes) is not dfault, f"{label}:\n{text}"
 
 
 # ---------------------------------------------------------------------
