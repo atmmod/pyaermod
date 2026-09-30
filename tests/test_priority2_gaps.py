@@ -427,9 +427,10 @@ class TestRunnerPathSearch:
         inp = tmp_path / "test.inp"
         inp.write_text("CO STARTING\nCO FINISHED")
 
-        # Create the output file that AERMOD would produce: that of a real,
+        # Create the output file that AERMOD would produce, under the name
+        # AERMOD gives it (the runner renames it test.out): that of a real,
         # successful run (tests/fixtures/runner/README.md)
-        out_file = tmp_path / "test.out"
+        out_file = tmp_path / "aermod.out"
         success_out = Path(__file__).parent / "fixtures" / "runner" / "success" / "aermod.out"
         out_file.write_bytes(success_out.read_bytes())
 

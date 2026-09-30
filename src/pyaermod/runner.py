@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -564,9 +565,10 @@ class AERMODRunner:
         self.logger.debug(f"AERMOD completed with return code: {result.returncode}")
         self.logger.debug(f"Runtime: {runtime:.2f}s")
 
-        # Check for output files. A cancelled run may have been stopped before
-        # AERMOD wrote any; an .out left by an earlier run is not this run's.
-        has_output = output_files['output'].exists() and (not cancelled or '.out' in written)
+        # Check for output files. AERMOD writes aermod.out, renamed above: an
+        # <name>.out left by an earlier run is not this run's, whether this
+        # one was cancelled or crashed before writing any.
+        has_output = '.out' in written and output_files['output'].exists()
 
         # AERMOD's verdict is in the .out file, not in its exit code,
         # which is 0 even after a fatal error (see the comment above
@@ -600,6 +602,7 @@ class AERMODRunner:
                 result, output_files,
                 messages=summary.messages,
                 finished_successfully=summary.finished_successfully,
+                has_output=has_output,
             )
             self.logger.error(f"AERMOD run failed: {error_msg}")
         else:
@@ -646,7 +649,8 @@ class AERMODRunner:
                                result: subprocess.CompletedProcess,
                                output_files: Dict[str, Path],
                                messages: Optional[Sequence[AERMODMessage]] = None,
-                               finished_successfully: Optional[bool] = None) -> str:
+                               finished_successfully: Optional[bool] = None,
+                               has_output: Optional[bool] = None) -> str:
         """Explain why a run failed, naming AERMOD's first fatal error when there is one.
 
         Args:
@@ -655,7 +659,11 @@ class AERMODRunner:
             messages: The messages parsed from the ``.out`` file, if any.
             finished_successfully: Whether the ``.out`` file carries
                 AERMOD's completion banner; None when it was not checked.
+            has_output: Whether this run wrote the ``output`` file; None
+                to take any ``output`` file that exists as this run's.
         """
+        out = output_files['output']
+        wrote_out = out.exists() if has_output is None else has_output
         fatal = [m for m in (messages or ()) if m.severity == "E"]
         parts = []
         if fatal:
@@ -664,19 +672,28 @@ class AERMODRunner:
                 first += f" (and {len(fatal) - 1} more fatal error(s))"
             parts.append(first)
 
-        parts.extend(self._error_context(result, output_files, scan_output=not fatal))
+        parts.extend(self._error_context(result, output_files,
+                                         scan_output=not fatal and wrote_out))
 
-        if (not fatal and finished_successfully is False
-                and output_files['output'].exists()):
+        if not fatal and finished_successfully is False and wrote_out:
             parts.append(
                 "AERMOD did not report success: no '*** AERMOD Finishes "
-                f"Successfully ***' line in {output_files['output'].name}"
+                f"Successfully ***' line in {out.name}"
             )
+
+        if result.returncode is not None and result.returncode < 0:
+            # Killed by a signal (a crash, or something outside pyaermod).
+            try:
+                name = f" ({signal.Signals(-result.returncode).name})"
+            except ValueError:
+                name = ""
+            before = "" if wrote_out else f" before writing {out.name}"
+            parts.insert(0, f"AERMOD was stopped by signal {-result.returncode}{name}{before}")
 
         if parts:
             return "; ".join(parts)
-        if result.returncode == 0 and not output_files['output'].exists():
-            return f"AERMOD exited with code 0 but wrote no {output_files['output'].name}"
+        if result.returncode == 0 and not wrote_out:
+            return f"AERMOD exited with code 0 but wrote no {out.name}"
         return f"AERMOD failed with return code {result.returncode}"
 
     def _error_context(self,

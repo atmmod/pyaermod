@@ -119,6 +119,24 @@ def test_a_cancelled_run_does_not_claim_an_earlier_runs_out_file(fake, monkeypat
     assert run.wait(20).output_file is None
 
 
+@pytest.mark.parametrize("background", [True, False])
+def test_a_crashed_run_does_not_claim_an_earlier_runs_out_file(fake, tmp_path, background):
+    runner, deck = fake
+    runner.run(deck, working_dir=deck.parent)
+    assert deck.with_suffix(".out").exists()             # E480, left by the first run
+    crash = _script(tmp_path, "echo '+Now Processing SETUP Information'\nkill -SEGV $$")
+    if background:
+        result = crash.start(deck, working_dir=deck.parent).wait(20)
+    else:
+        result = crash.run(deck, working_dir=deck.parent)
+    assert result.return_code == -11 and result.success is False
+    assert result.output_file is None
+    assert result.messages == [] and result.message_counts == {}
+    assert result.error_message.startswith(
+        "AERMOD was stopped by signal 11 (SIGSEGV) before writing deck.out")
+    assert "E480" not in result.error_message
+
+
 def test_a_run_cancelled_before_aermod_starts_never_starts_it(fake):
     runner, deck = fake
     # Another run holds the working directory: this one waits for it.
