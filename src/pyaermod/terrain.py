@@ -8,12 +8,13 @@ Requires: pip install pyaermod[terrain]
 """
 
 import logging
+import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 from ._optional import optional_import, require
 
@@ -183,9 +184,91 @@ class DEMDownloader:
 # ============================================================================
 
 
+# ============================================================================
+# AERMAP'S VERDICT
+# ============================================================================
+#
+# AERMAP ends with a bare STOP, so it exits with code 0 whether or not it
+# worked: a deck with 12 fatal setup errors and a domain outside the DEM
+# (E310, which still leaves empty RECEPTOR and SOURCLOC files behind) both
+# exit 0. Its verdict is in the message file, <input stem>.out, which the
+# main program of aermap.f (AERMAP 24142) ends with one of
+#
+#     *** AERMAP Finishes Successfully ***
+#     *** AERMAP Finishes UN-successfully ***
+#
+# after a "Message Summary For AERMAP Execution" whose "A Total of N Fatal
+# Error Message(s)" counts every error of the run. A run with setup
+# messages also has an earlier "Message Summary For AERMAP Setup" and a
+# "*** SETUP Finishes ... ***" line, so only the last summary is read.
+# SUMTBL writes each message as FORMAT(1X,A2,1X,A1,A3,I8,1X,A6,':',A50,1X,A12):
+# pathway, severity, number, line, routine, text and detail. The
+# recordings in tests/fixtures/aermap_runner/ show all of this.
+
+_AERMAP_SUMMARY_HEADING = re.compile(r"\*\*\* Message Summary", re.IGNORECASE)
+_AERMAP_BANNER = re.compile(
+    r"^[ \t]*\*\*\*[ \t]*AERMAP Finishes (?P<verdict>Successfully|UN-successfully)[ \t]*\*\*\*[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_AERMAP_TOTAL = re.compile(
+    r"^[ \t]*A Total of[ \t]+(\d+)[ \t]+(Fatal Error|Warning) Message",
+    re.IGNORECASE | re.MULTILINE,
+)
+_AERMAP_MESSAGE = re.compile(
+    r"^ (?P<pathway>.{2}) (?P<code>[EW]\d{3})(?P<line>[ \d]{7}\d) "
+    r"(?P<module>.{6}):(?P<body>.*?)\s*$"
+)
+
+
+class _AERMAPVerdict(NamedTuple):
+    finished_successfully: bool
+    fatal_count: Optional[int]
+    warning_count: Optional[int]
+    fatal_errors: List[str]
+
+
+def _read_aermap_verdict(out_file: Path) -> _AERMAPVerdict:
+    """Read the completion banner and the final message summary of an AERMAP ``.out`` file."""
+    text = out_file.read_bytes().decode("latin-1").replace("\r\n", "\n")
+    headings = list(_AERMAP_SUMMARY_HEADING.finditer(text))
+    region = text[headings[-1].start():] if headings else ""
+    banner = _AERMAP_BANNER.search(region)
+    finished = banner is not None and banner.group("verdict").lower() == "successfully"
+    if banner:
+        region = region[:banner.start()]
+    counts = {m.group(2).lower(): int(m.group(1)) for m in _AERMAP_TOTAL.finditer(region)}
+    fatal_errors = []
+    for raw in region.splitlines():
+        m = _AERMAP_MESSAGE.match(raw)
+        if m is None or not m.group("code").startswith("E"):
+            continue
+        body = m.group("body")
+        # A50, 1X, A12: the text and the detail sit at fixed columns.
+        text_part, detail = body[:50].strip(), body[51:].strip()
+        message = f"{m.group('pathway').strip()} {m.group('code')} line {m.group('line').strip()} "
+        message += f"{m.group('module').strip()}: {text_part}"
+        fatal_errors.append(f"{message} {detail}" if detail else message)
+    return _AERMAPVerdict(
+        finished_successfully=finished,
+        fatal_count=counts.get("fatal error"),
+        warning_count=counts.get("warning"),
+        fatal_errors=fatal_errors,
+    )
+
+
 @dataclass
 class AERMAPRunResult:
-    """Result from an AERMAP execution."""
+    """Result from an AERMAP execution.
+
+    ``success`` is AERMAP's own verdict: exit code 0, the message file
+    ``<input stem>.out`` present, its ``*** AERMAP Finishes Successfully
+    ***`` line, and no fatal error in its final message summary. AERMAP
+    exits with code 0 after a fatal error, so the exit code alone says
+    nothing. ``message_file`` is the path of that ``.out`` file,
+    ``fatal_count`` and ``warning_count`` are AERMAP's own totals, and
+    ``fatal_errors`` lists its fatal errors, such as ``"OU E310 line 29
+    CHKEXT: Domain Coordinate is NOT Inside a DEM File. Pt.= 1"``.
+    """
     success: bool
     input_file: str
     return_code: Optional[int] = None
@@ -198,6 +281,11 @@ class AERMAPRunResult:
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     error_message: Optional[str] = None
+
+    finished_successfully: Optional[bool] = None
+    fatal_count: Optional[int] = None
+    warning_count: Optional[int] = None
+    fatal_errors: List[str] = field(default_factory=list)
 
     def __repr__(self) -> str:
         status = "SUCCESS" if self.success else "FAILED"
@@ -284,6 +372,10 @@ class AERMAPRunner:
         # AERMAP fail to locate the runstream and exit without processing
         # (it still returns code 0), so the run silently produces no output.
         input_name = input_path.name
+        # A message file left by an earlier run must not supply this run's
+        # verdict. AERMAP replaces the file anyway when it starts.
+        out_file = work_dir / f"{input_path.stem}.out"
+        out_file.unlink(missing_ok=True)
         start_time = datetime.now()
 
         # Pipe-safe stdout/stderr (file redirect, not OS pipes); see
@@ -327,19 +419,74 @@ class AERMAPRunner:
 
         end_time = datetime.now()
         runtime = (end_time - start_time).total_seconds()
-        success = result.returncode == 0
         captured_out = _read_capped(stdout_path) if stdout_path else None
         captured_err = _read_capped(stderr_path) if stderr_path else None
+
+        # AERMAP names its message file after the input file it was given
+        # (``run.inp`` -> ``run.out``) and exits 0 even after a fatal error;
+        # see the comment above _read_aermap_verdict.
+        verdict = None
+        read_error = None
+        if out_file.exists():
+            try:
+                verdict = _read_aermap_verdict(out_file)
+            except OSError as exc:
+                read_error = f"could not read {out_file}: {exc}"
+
+        success = (
+            result.returncode == 0
+            and verdict is not None
+            and verdict.finished_successfully
+            and not verdict.fatal_count
+            and not verdict.fatal_errors
+        )
+
+        error_message = None
+        if not success:
+            error_message = self._failure_reason(result.returncode, out_file, verdict, read_error)
+            self.logger.error(f"AERMAP run failed: {error_message}")
 
         return AERMAPRunResult(
             success=success,
             input_file=str(input_path),
             return_code=result.returncode,
             runtime_seconds=runtime,
+            message_file=str(out_file) if out_file.exists() else None,
             stdout=captured_out,
             stderr=captured_err,
-            error_message=None if success else f"AERMAP failed with return code {result.returncode}",
+            error_message=error_message,
+            finished_successfully=verdict.finished_successfully if verdict else None,
+            fatal_count=verdict.fatal_count if verdict else None,
+            warning_count=verdict.warning_count if verdict else None,
+            fatal_errors=verdict.fatal_errors if verdict else [],
         )
+
+    @staticmethod
+    def _failure_reason(
+        return_code: int,
+        out_file: Path,
+        verdict: Optional[_AERMAPVerdict],
+        read_error: Optional[str],
+    ) -> str:
+        """Explain a failed run, naming AERMAP's first fatal error when there is one."""
+        if verdict is not None and verdict.fatal_errors:
+            reason = verdict.fatal_errors[0]
+            total = max(verdict.fatal_count or 0, len(verdict.fatal_errors))
+            if total > 1:
+                reason += f" (and {total - 1} more fatal error(s))"
+        elif verdict is not None and verdict.fatal_count:
+            reason = f"AERMAP reported {verdict.fatal_count} fatal error(s) in {out_file.name}"
+        elif read_error is not None:
+            reason = f"AERMAP's verdict is unknown: {read_error}"
+        elif verdict is None:
+            reason = f"AERMAP wrote no message file {out_file.name}"
+        elif not verdict.finished_successfully:
+            reason = f"{out_file.name} lacks AERMAP's '*** AERMAP Finishes Successfully ***' line"
+        else:
+            return f"AERMAP exited with code {return_code}"
+        if return_code != 0:
+            reason += f"; exit code {return_code}"
+        return reason
 
 
 # ============================================================================
@@ -357,7 +504,13 @@ class AERMAPOutputParser:
     def parse_receptor_output(filepath: Union[str, Path]) -> "pd.DataFrame":  # noqa: F821
         """Parse AERMAP receptor output to extract elevations and hill heights.
 
-        Handles both discrete (DISCCART) and grid (GRIDCART ELEV/HILL) formats.
+        Reads discrete receptors (``DISCCART``) and every receptor network
+        in the file, Cartesian (``GRIDCART``, from ``XYINC`` or
+        ``XPNTS``/``YPNTS``) and polar (``GRIDPOLR``, from ``ORIG``,
+        ``DIST`` and ``GDIR`` or ``DDIR``), each under its own network ID.
+        AERMAP echoes each network's definition and adds its ``ELEV`` and
+        ``HILL`` rows: a Cartesian row is one y value across the x values,
+        a polar row one direction across the ring distances.
 
         Parameters
         ----------
@@ -367,8 +520,15 @@ class AERMAPOutputParser:
         Returns
         -------
         pd.DataFrame
-            Columns: x, y, zelev, zhill
+            Columns: x, y, zelev, zhill, network, row, col. ``network`` is
+            the grid's ID (``None`` for a discrete receptor), and ``row``
+            and ``col`` are its 0-based indices (``grid_elevations[row][col]``
+            of a Cartesian grid, ``elevations[row][col]`` of a polar one).
+            A polar network centred on a source ID (``ORIG srcid``) has no
+            coordinates in the file, so its x and y are NaN.
         """
+        import math
+
         import pandas as pd
 
         filepath = Path(filepath)
@@ -376,95 +536,96 @@ class AERMAPOutputParser:
             raise FileNotFoundError(f"AERMAP receptor output not found: {filepath}")
 
         records = []
+        networks: Dict[str, Dict] = {}  # network ID -> its definition and rows, in file order
 
-        # State for parsing GRIDCART sections
-        grid_elevs = {}   # row_num -> list of elevs
-        grid_hills = {}   # row_num -> list of hills
-        grid_x_init = None
-        grid_y_init = None
-        _grid_x_num = None
-        _grid_y_num = None
-        grid_x_delta = None
-        grid_y_delta = None
+        def _floats(values):
+            return [float(v) for v in values]
 
         with open(filepath) as f:
             for line in f:
-                stripped = line.strip()
+                parts = line.split()
+                # Skip blank lines, comments and other keywords (ELEVUNIT)
+                if not parts or parts[0].startswith("**"):
+                    continue
+                if parts[0] == "RE":
+                    parts = parts[1:]
+                if not parts:
+                    continue
+                keyword = parts[0]
 
-                # Skip comments and blank lines
-                if not stripped or stripped.startswith("**"):
+                # DISCCART x(F12.2) y(F12.2) zelev(F10.2) zhill(F10.2)
+                if keyword == "DISCCART":
+                    try:
+                        x, y, zelev = _floats(parts[1:4])
+                        zhill = float(parts[4]) if len(parts) > 4 else 0.0
+                    except ValueError:  # too few fields, or not numbers
+                        continue
+                    records.append({"x": x, "y": y, "zelev": zelev, "zhill": zhill,
+                                    "network": None, "row": None, "col": None})
                     continue
 
-                # DISCCART format: "   DISCCART  x(F12.2)  y(F12.2)  zelev(F10.2)  zhill(F10.2)"
-                if "DISCCART" in stripped and "ELEV" not in stripped:
-                    parts = stripped.split()
-                    try:
-                        idx = parts.index("DISCCART")
-                        x = float(parts[idx + 1])
-                        y = float(parts[idx + 2])
-                        zelev = float(parts[idx + 3])
-                        zhill = float(parts[idx + 4]) if len(parts) > idx + 4 else 0.0
-                        records.append({"x": x, "y": y, "zelev": zelev, "zhill": zhill})
-                    except (ValueError, IndexError):
-                        continue
+                if keyword not in ("GRIDCART", "GRIDPOLR") or len(parts) < 3:
+                    continue
+                name, sub, values = parts[1], parts[2], parts[3:]
+                net = networks.setdefault(name, {
+                    "polar": keyword == "GRIDPOLR", "xs": [], "ys": [], "origin": None,
+                    "dists": [], "dirs": [], "ELEV": {}, "HILL": {},
+                })
+                try:
+                    if sub == "XYINC":
+                        x0, nx, dx, y0, ny, dy = values[:6]
+                        net["xs"] = [float(x0) + i * float(dx) for i in range(int(nx))]
+                        net["ys"] = [float(y0) + j * float(dy) for j in range(int(ny))]
+                    elif sub == "XPNTS":
+                        net["xs"] += _floats(values)
+                    elif sub == "YPNTS":
+                        net["ys"] += _floats(values)
+                    elif sub == "ORIG":
+                        # ORIG x y, or ORIG srcid (no coordinates in this file)
+                        net["origin"] = tuple(_floats(values[:2])) if len(values) >= 2 else None
+                    elif sub == "DIST":
+                        net["dists"] += _floats(values)
+                    elif sub == "GDIR":
+                        n, first, step = values[:3]
+                        net["dirs"] = [float(first) + k * float(step) for k in range(int(n))]
+                    elif sub == "DDIR":
+                        net["dirs"] += _floats(values)
+                    elif sub in ("ELEV", "HILL"):
+                        net[sub].setdefault(int(values[0]), []).extend(_floats(values[1:]))
+                except (ValueError, IndexError):
+                    continue
 
-                # GRIDCART XYINC: extract grid parameters
-                elif "GRIDCART" in stripped and "XYINC" in stripped:
-                    parts = stripped.split()
-                    try:
-                        idx = parts.index("XYINC")
-                        grid_x_init = float(parts[idx + 1])
-                        _grid_x_num = int(parts[idx + 2])
-                        grid_x_delta = float(parts[idx + 3])
-                        grid_y_init = float(parts[idx + 4])
-                        _grid_y_num = int(parts[idx + 5])
-                        grid_y_delta = float(parts[idx + 6])
-                    except (ValueError, IndexError):
-                        continue
+        for name, net in networks.items():
+            for row_num in sorted(net["ELEV"]):
+                elevs = net["ELEV"][row_num]
+                hills = net["HILL"].get(row_num, [0.0] * len(elevs))
+                row = row_num - 1
+                for col, (zelev, zhill) in enumerate(zip(elevs, hills)):
+                    if net["polar"]:
+                        if row >= len(net["dirs"]) or col >= len(net["dists"]):
+                            continue
+                        if net["origin"] is None:
+                            x = y = float("nan")
+                        else:
+                            angle = math.radians(net["dirs"][row])
+                            x = net["origin"][0] + net["dists"][col] * math.sin(angle)
+                            y = net["origin"][1] + net["dists"][col] * math.cos(angle)
+                    else:
+                        if row >= len(net["ys"]) or col >= len(net["xs"]):
+                            continue
+                        x, y = net["xs"][col], net["ys"][row]
+                    records.append({"x": x, "y": y, "zelev": zelev, "zhill": zhill,
+                                    "network": name, "row": row, "col": col})
 
-                # GRIDCART ELEV rows
-                elif "GRIDCART" in stripped and "ELEV" in stripped:
-                    parts = stripped.split()
-                    try:
-                        idx = parts.index("ELEV")
-                        row_num = int(parts[idx + 1])
-                        values = [float(v) for v in parts[idx + 2:]]
-                        if row_num not in grid_elevs:
-                            grid_elevs[row_num] = []
-                        grid_elevs[row_num].extend(values)
-                    except (ValueError, IndexError):
-                        continue
-
-                # GRIDCART HILL rows
-                elif "GRIDCART" in stripped and "HILL" in stripped:
-                    parts = stripped.split()
-                    try:
-                        idx = parts.index("HILL")
-                        row_num = int(parts[idx + 1])
-                        values = [float(v) for v in parts[idx + 2:]]
-                        if row_num not in grid_hills:
-                            grid_hills[row_num] = []
-                        grid_hills[row_num].extend(values)
-                    except (ValueError, IndexError):
-                        continue
-
-        # Convert GRIDCART data to records
-        if grid_elevs and grid_x_init is not None:
-            for row_num in sorted(grid_elevs.keys()):
-                y = grid_y_init + (row_num - 1) * grid_y_delta
-                elevs = grid_elevs[row_num]
-                hills = grid_hills.get(row_num, [0.0] * len(elevs))
-                for col_idx, (zelev, zhill) in enumerate(zip(elevs, hills)):
-                    x = grid_x_init + col_idx * grid_x_delta
-                    records.append({"x": x, "y": y, "zelev": zelev, "zhill": zhill})
-
-        return pd.DataFrame(records)
+        return pd.DataFrame(records, columns=["x", "y", "zelev", "zhill", "network", "row", "col"])
 
     @staticmethod
     def parse_source_output(filepath: Union[str, Path]) -> "pd.DataFrame":  # noqa: F821
         """Parse AERMAP source output to extract base elevations.
 
-        Format: "SO LOCATION  srcid(A12)  type(A8)  x(F12.2)  y(F12.2)  zelev(F12.2)"
+        Format: "SO LOCATION  srcid(A12)  type(A8)  x(F12.2)  y(F12.2)  zelev(F12.2)",
+        with the end point (x2, y2) before zelev for LINE, RLINE and
+        BUOYLINE sources. ``x`` and ``y`` are the first point.
 
         Parameters
         ----------
@@ -498,7 +659,9 @@ class AERMAPOutputParser:
                         source_type = parts[idx + 2]
                         x = float(parts[idx + 3])
                         y = float(parts[idx + 4])
-                        zelev = float(parts[idx + 5]) if len(parts) > idx + 5 else 0.0
+                        # The elevation is the last field: a LINE, RLINE or
+                        # BUOYLINE row has both end points before it.
+                        zelev = float(parts[-1]) if len(parts) > idx + 5 else 0.0
                         records.append({
                             "source_id": source_id,
                             "source_type": source_type,
@@ -531,11 +694,19 @@ class TerrainProcessor:
         dem_files: List[str],
         utm_zone: int = 16,
         datum: str = "NAD83",
+        domain_buffer: Optional[float] = None,
+        nad_grids_dir: Optional[str] = None,
     ):
         """Create an AERMAPProject from an AERMODProject.
 
-        Extracts source and receptor locations from the AERMOD project
-        and builds corresponding AERMAP input.
+        The same as ``AERMAPProject.from_aermod_project``: the AERMOD
+        coordinates are read as UTM coordinates in ``utm_zone``, and every
+        source, grid and discrete receptor is written. By default there is
+        no ``DOMAINXY``, so AERMAP searches the whole DEM for hill heights.
+        ``domain_buffer`` (metres) limits the search to the project's
+        extent widened by that much, which the DEM files must cover and
+        which must take in every terrain feature that rises above a 10%
+        slope from any receptor, or the hill heights come out too low.
 
         Parameters
         ----------
@@ -543,76 +714,21 @@ class TerrainProcessor:
         dem_files : list of str
         utm_zone : int
         datum : str
+        domain_buffer : float, optional
+        nad_grids_dir : str, optional
+            Directory of the NADCON grid files, needed when ``datum``
+            differs from the DEM files' datum.
 
         Returns
         -------
         AERMAPProject
         """
-        from pyaermod.aermap import AERMAPProject, AERMAPReceptor, AERMAPSource
+        from pyaermod.aermap import AERMAPProject
 
-        # Determine domain bounds from sources and receptors
-        all_x, all_y = [], []
-        for src in aermod_project.sources.sources:
-            if hasattr(src, "x_coord"):
-                all_x.append(src.x_coord)
-                all_y.append(src.y_coord)
-            elif hasattr(src, "x_start"):
-                all_x.extend([src.x_start, src.x_end])
-                all_y.extend([src.y_start, src.y_end])
-
-        for grid in aermod_project.receptors.cartesian_grids:
-            all_x.extend([
-                grid.x_init,
-                grid.x_init + (grid.x_num - 1) * grid.x_delta,
-            ])
-            all_y.extend([
-                grid.y_init,
-                grid.y_init + (grid.y_num - 1) * grid.y_delta,
-            ])
-
-        for rec in aermod_project.receptors.discrete_receptors:
-            all_x.append(rec.x_coord)
-            all_y.append(rec.y_coord)
-
-        if not all_x:
-            raise ValueError("No source or receptor coordinates found in project")
-
-        anchor_x = min(all_x) - 1000  # 1km buffer
-        anchor_y = min(all_y) - 1000
-
-        aermap = AERMAPProject(
-            title_one=f"AERMAP for {aermod_project.control.title_one}",
-            dem_files=dem_files,
-            dem_format="NED",
-            anchor_x=anchor_x,
-            anchor_y=anchor_y,
-            utm_zone=utm_zone,
-            datum=datum,
-            terrain_type="ELEVATED",
+        return AERMAPProject.from_aermod_project(
+            aermod_project, dem_files, utm_zone=utm_zone, datum=datum,
+            buffer=domain_buffer, nad_grids_dir=nad_grids_dir,
         )
-
-        # Add sources
-        for src in aermod_project.sources.sources:
-            if hasattr(src, "x_coord"):
-                aermap.add_source(AERMAPSource(src.source_id, src.x_coord, src.y_coord))
-            elif hasattr(src, "x_start"):
-                aermap.add_source(AERMAPSource(src.source_id, src.x_start, src.y_start))
-
-        # Add grid receptors (AERMAP supports one grid)
-        for grid in aermod_project.receptors.cartesian_grids:
-            aermap.grid_receptor = True
-            aermap.grid_x_init = grid.x_init
-            aermap.grid_y_init = grid.y_init
-            aermap.grid_x_num = grid.x_num
-            aermap.grid_y_num = grid.y_num
-            aermap.grid_spacing = grid.x_delta
-            break
-
-        # Add discrete receptors
-        for i, rec in enumerate(aermod_project.receptors.discrete_receptors):
-            aermap.add_receptor(AERMAPReceptor(f"R{i + 1:04d}", rec.x_coord, rec.y_coord))
-
-        return aermap
 
     def process(
         self,
@@ -625,6 +741,8 @@ class TerrainProcessor:
         skip_download: bool = False,
         dem_files: Optional[List[str]] = None,
         timeout: int = 3600,
+        domain_buffer: Optional[float] = None,
+        nad_grids_dir: Optional[str] = None,
     ):
         """Run the full terrain processing pipeline.
 
@@ -649,11 +767,19 @@ class TerrainProcessor:
             Pre-existing DEM files.
         timeout : int
             AERMAP execution timeout in seconds.
+        domain_buffer : float, optional
+            Metres around the project's extent for AERMAP's ``DOMAINXY``.
+            ``None`` (the default) lets AERMAP search the whole DEM for
+            hill heights; see ``create_aermap_project_from_aermod``.
+        nad_grids_dir : str, optional
+            Directory of the NADCON grid files (``NADGRIDS``).
 
         Returns
         -------
         AERMODProject
-            Updated project with receptor elevations.
+            Updated project: every source's base elevation, and the
+            elevations and hill heights of every discrete receptor and of
+            every Cartesian and polar grid.
         """
         work_dir = Path(working_dir) if working_dir else Path.cwd() / "aermap_work"
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -676,6 +802,7 @@ class TerrainProcessor:
         self.logger.info("Step 2: Generating AERMAP input...")
         aermap_project = self.create_aermap_project_from_aermod(
             project, dem_files_list, utm_zone, datum,
+            domain_buffer=domain_buffer, nad_grids_dir=nad_grids_dir,
         )
         aermap_input = work_dir / "aermap.inp"
         aermap_project.write(str(aermap_input))
@@ -697,6 +824,7 @@ class TerrainProcessor:
             self.logger.info(f"Parsed {len(rec_df)} receptor elevations")
             self._update_receptor_elevations(project, rec_df)
             self._update_grid_receptor_elevations(project, rec_df)
+            self._update_polar_grid_elevations(project, rec_df)
 
         # Parse source elevations if available
         src_output = work_dir / aermap_project.source_output
@@ -711,6 +839,8 @@ class TerrainProcessor:
         """Update discrete receptors with parsed elevation data."""
         if rec_df.empty:
             return
+        if "network" in rec_df.columns:
+            rec_df = rec_df[rec_df["network"].isna()]
 
         for rec in project.receptors.discrete_receptors:
             match = rec_df[
@@ -721,35 +851,54 @@ class TerrainProcessor:
                 rec.z_elev = float(match.iloc[0]["zelev"])
                 rec.z_hill = float(match.iloc[0]["zhill"])
 
+    @staticmethod
+    def _network_arrays(rec_df, name: str, n_rows: int, n_cols: int):
+        """The ``[row][col]`` elevations and hill heights of one network, or None."""
+        rows = rec_df[rec_df["network"] == name]
+        if rows.empty:
+            return None
+        elevations = [[0.0] * n_cols for _ in range(n_rows)]
+        hills = [[0.0] * n_cols for _ in range(n_rows)]
+        for r in rows.itertuples(index=False):
+            row, col = int(r.row), int(r.col)
+            if row < n_rows and col < n_cols:
+                elevations[row][col] = float(r.zelev)
+                hills[row][col] = float(r.zhill)
+        return elevations, hills
+
     def _update_grid_receptor_elevations(self, project, rec_df):
         """Update CartesianGrid receptors with parsed AERMAP elevation data.
 
-        Maps AERMAP receptor output (x, y, zelev, zhill) back to
-        CartesianGrid objects by computing expected grid coordinates
-        and populating grid_elevations and grid_hills 2D arrays.
+        Fills each grid's ``grid_elevations`` and ``grid_hills`` (``[row]
+        [col]``, row = y index) from the rows AERMAP wrote under the
+        grid's name. A frame without a ``network`` column is matched by
+        coordinates instead.
 
         Parameters
         ----------
         project : AERMODProject
         rec_df : pandas.DataFrame
-            AERMAP receptor output with columns: x, y, zelev, zhill.
+            AERMAP receptor output with columns: x, y, zelev, zhill
+            (and network, row, col from ``parse_receptor_output``).
         """
         if rec_df.empty:
             return
 
         for grid in project.receptors.cartesian_grids:
-            # Compute expected x/y coordinates for this grid
-            x_coords = [grid.x_init + i * grid.x_delta for i in range(grid.x_num)]
-            y_coords = [grid.y_init + j * grid.y_delta for j in range(grid.y_num)]
+            x_coords, y_coords = grid.x_values(), grid.y_values()
+            if "network" in rec_df.columns:
+                arrays = self._network_arrays(rec_df, grid.grid_name, len(y_coords), len(x_coords))
+                if arrays is not None:
+                    grid.grid_elevations, grid.grid_hills = arrays
+                continue
 
             elevations = []
             hills = []
             has_data = False
-
-            for _j, y_val in enumerate(y_coords):
+            for y_val in y_coords:
                 elev_row = []
                 hill_row = []
-                for _i, x_val in enumerate(x_coords):
+                for x_val in x_coords:
                     match = rec_df[
                         (abs(rec_df["x"] - x_val) < 0.5) &
                         (abs(rec_df["y"] - y_val) < 0.5)
@@ -768,8 +917,27 @@ class TerrainProcessor:
                 grid.grid_elevations = elevations
                 grid.grid_hills = hills
 
+    def _update_polar_grid_elevations(self, project, rec_df):
+        """Fill each PolarGrid's ``elevations`` and ``hills`` from the rows under its name.
+
+        One row per direction, one value per ring distance, as
+        ``PolarGrid.to_aermod_input`` writes them.
+        """
+        if rec_df.empty or "network" not in rec_df.columns:
+            return
+        for grid in project.receptors.polar_grids:
+            arrays = self._network_arrays(
+                rec_df, grid.grid_name, len(grid.direction_angles()), len(grid.ring_distances()),
+            )
+            if arrays is not None:
+                grid.elevations, grid.hills = arrays
+
     def _update_source_elevations(self, project, src_df):
         """Update source base elevations from AERMAP source output.
+
+        A BUOYLINE source's segments each get their own elevation (AERMAP
+        places each at its midpoint), and the group's ``base_elevation``
+        takes the first segment's.
 
         Parameters
         ----------
@@ -783,16 +951,24 @@ class TerrainProcessor:
 
         from pyaermod.input_generator import BuoyLineSource
 
+        by_id = {}
+        for sid, zelev in zip(src_df["source_id"].astype(str).str.strip(), src_df["zelev"]):
+            by_id.setdefault(sid, float(zelev))
+
         for source in project.sources.sources:
             if isinstance(source, BuoyLineSource):
+                first = None
                 for seg in source.line_segments:
-                    match = src_df[src_df["source_id"].str.strip() == seg.source_id.strip()]
-                    if not match.empty:
-                        source.base_elevation = float(match.iloc[0]["zelev"])
+                    zelev = by_id.get(seg.source_id.strip())
+                    if zelev is not None:
+                        seg.base_elevation = zelev
+                        first = zelev if first is None else first
+                if first is not None:
+                    source.base_elevation = first
             else:
-                match = src_df[src_df["source_id"].str.strip() == source.source_id.strip()]
-                if not match.empty:
-                    source.base_elevation = float(match.iloc[0]["zelev"])
+                zelev = by_id.get(source.source_id.strip())
+                if zelev is not None:
+                    source.base_elevation = zelev
 
 
 # ============================================================================

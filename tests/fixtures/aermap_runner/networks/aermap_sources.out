@@ -1,0 +1,21 @@
+** AERMAP - VERSION 24142                                              09/30/26
+**                                                                     01:38:59
+**  pyaermod AERMAP networks recording
+** 
+** A total of      1  DEM files were used
+** A total of     10  sources were processed
+** No user-specifed DOMAIN; all available data used
+** ANCHORXY  500000.00 4000000.00 500000.00 4000000.00 13 1
+** TERRHGTS  EXTRACT
+  
+SO ELEVUNIT METERS
+SO LOCATION  STK           POINT        500200.00    4000300.00        113.00
+SO LOCATION  CAP           POINTCAP     500300.00    4000200.00        112.00
+SO LOCATION  VOL           VOLUME       500400.00    4000200.00        114.00
+SO LOCATION  AR            AREA         500100.00    4000500.00        117.00
+SO LOCATION  AC            AREACIRC     500250.00    4000250.00        112.50
+SO LOCATION  AP            AREAPOLY     500350.00    4000450.00        120.50
+SO LOCATION  PIT           OPENPIT      500450.00    4000150.00        113.50
+SO LOCATION  LN            LINE         500100.00    4000400.00     500400.00    4000400.00        114.15
+SO LOCATION  RL            RLINE        500100.00    4000100.00     500300.00    4000300.00        110.00
+SO LOCATION  BL1           BUOYLINE     500200.00    4000500.00     500300.00    4000500.00        120.00

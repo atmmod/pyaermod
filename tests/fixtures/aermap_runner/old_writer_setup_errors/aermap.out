@@ -1,0 +1,128 @@
+** AERMAP - VERSION 24142                                              09/29/26
+**                                                                     19:31:05
+
+** AERMAP Input File
+** pyaermod AERMAP runner recording
+**
+
+CO STARTING
+   TITLEONE  pyaermod AERMAP runner recording
+   DATATYPE  DEM
+   TERRHGTS  ELEVATED
+   DOMAINXY  500050.00 4000050.00 13 NAD27
+
+   DATAFILE  synth.dem
+
+CO FINISHED
+
+RE STARTING
+   DISCCART  R0001       500100.00   4000100.00
+   GRIDCART  GRID     XYINC   500100.00     3   100.00  4000200.00     2   100.00
+
+   RECOUTPUT aermap_receptors.out
+
+RE FINISHED
+
+SO STARTING
+   LOCATION  STACK1   POINT      500200.00   4000300.00
+
+   SRCOUTPUT aermap_sources.out
+
+SO FINISHED
+
+OU STARTING
+   MSGOUTPUT aermap.msg
+OU FINISHED
+ *** AERMAP - VERSION 24142 ***    ***  pyaermod AERMAP runner recording                                    ***        09/29/26
+                                   ***                                                                      ***        19:31:05
+
+
+  *** Message Summary For AERMAP Setup ***
+
+ --------- Summary of Total Messages --------
+  
+ A Total of         11 Fatal Error Message(s)
+ A Total of          3 Warning Message(s)
+ A Total of          0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ CO E203       8 TERRHT:Invalid Parameter Specified.  Troubled Parameter:      TERRHGTS
+ CO E200       9 DOMAIN:Missing Parameter(s). No Options Specified For         DOMAINXY
+ CO E130      13 COCARD:Missing Mandatory Keyword.  The Missing Keyword is     ANCHORXY
+ CO E130      13 COCARD:Missing Mandatory Keyword.  The Missing Keyword is     RUNORNOT
+ RE E208      16 DISCAR:Illegal Numerical Field Encountered in                 DISCCART
+ RE E200      17 RECART:Missing Parameter(s). No Options Specified For              STA
+ RE E105      19  SETUP:Invalid Keyword Specified. The Troubled Keyword is     RECOUTPU
+ RE E120      23 SETORD:Pathway is Out of Sequence:  Pathway =                       SO
+ SO E105      26  SETUP:Invalid Keyword Specified. The Troubled Keyword is     SRCOUTPU
+ OU E105      31  SETUP:Invalid Keyword Specified. The Troubled Keyword is     MSGOUTPU
+ OU E194      32 OUCARD:Either SOURCLOC or RECEPTOR keyword is required.              1
+  
+    ********   WARNING MESSAGES   ******** 
+ RE W229      16 DISCAR:Too Many Parameters - Inputs Ignored on Keyword        DISCCART
+ OU W193      32 OUCARD:No RECEPTOR keyword spec w/ EXTRACT option, NREC=             1
+ OU W191      32 OUCARD:No SOURLOC keyword spec with EXTRACT option, NSRC=            1
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMAP - VERSION 24142 ***    ***  pyaermod AERMAP runner recording                                    ***        09/29/26
+                                   ***                                                                      ***        19:31:05
+
+
+                                            ***     AERMAP SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  
+ **This Run Includes:       1  DEM File(s)
+  
+ **This Run Includes:       1  Receptor(s); and        1  Source(s)
+  
+ **The Input Receptors and Sources Were Assigned a NADA Value of  0:  No NAD Shifts Included in Calculations
+
+ **The Input Receptors and Sources Are Offset:        0.00 meters East;         0.00 meters North
+      from the User-specified Anchor Point at:        0.00 meters East;         0.00 meters North;  Zone   0
+  
+ **Terrain heights were EXTRACTed from DEM data
+  
+ **The Following Debug Output Files Have Been Automatically Generated:
+
+   DOMDETAIL.OUT - Details of User-specified Domain and Relation to DEM Files
+   MAPDETAIL.OUT - Details Regarding Input DEM Files
+   MAPPARAMS.OUT - Summary of DEM File Parameters and DEM File Adjacency
+ *** AERMAP - VERSION 24142 ***    ***  pyaermod AERMAP runner recording                                    ***        09/29/26
+                                   ***                                                                      ***        19:31:05
+
+ *** Message Summary For AERMAP Execution ***
+
+ --------- Summary of Total Messages --------
+  
+ A Total of         11 Fatal Error Message(s)
+ A Total of          3 Warning Message(s)
+ A Total of          0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ CO E203       8 TERRHT:Invalid Parameter Specified.  Troubled Parameter:      TERRHGTS
+ CO E200       9 DOMAIN:Missing Parameter(s). No Options Specified For         DOMAINXY
+ CO E130      13 COCARD:Missing Mandatory Keyword.  The Missing Keyword is     ANCHORXY
+ CO E130      13 COCARD:Missing Mandatory Keyword.  The Missing Keyword is     RUNORNOT
+ RE E208      16 DISCAR:Illegal Numerical Field Encountered in                 DISCCART
+ RE E200      17 RECART:Missing Parameter(s). No Options Specified For              STA
+ RE E105      19  SETUP:Invalid Keyword Specified. The Troubled Keyword is     RECOUTPU
+ RE E120      23 SETORD:Pathway is Out of Sequence:  Pathway =                       SO
+ SO E105      26  SETUP:Invalid Keyword Specified. The Troubled Keyword is     SRCOUTPU
+ OU E105      31  SETUP:Invalid Keyword Specified. The Troubled Keyword is     MSGOUTPU
+ OU E194      32 OUCARD:Either SOURCLOC or RECEPTOR keyword is required.              1
+  
+    ********   WARNING MESSAGES   ******** 
+ RE W229      16 DISCAR:Too Many Parameters - Inputs Ignored on Keyword        DISCCART
+ OU W193      32 OUCARD:No RECEPTOR keyword spec w/ EXTRACT option, NREC=             1
+ OU W191      32 OUCARD:No SOURLOC keyword spec with EXTRACT option, NSRC=            1
+
+    ***************************************
+    *** AERMAP Finishes UN-successfully ***
+    ***************************************
+

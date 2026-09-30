@@ -1,0 +1,19 @@
+** AERMAP - VERSION 24142                                              09/29/26
+**                                                                     19:31:03
+**  pyaermod AERMAP runner recording
+** 
+** A total of       1  DEM files were used
+** A total of       7  receptors were processed
+** DOMAINXY  500050.00 4000050.00 13 500550.00 4000550.00 13
+** ANCHORXY  500000.00 4000000.00 500000.00 4000000.00 13 1
+** TERRHGTS  EXTRACT
+  
+RE ELEVUNIT METERS
+   DISCCART     500100.00   4000100.00     105.00     105.00
+   GRIDCART  GRID     STA
+   GRIDCART  GRID     XYINC     500100.00     3     100.00    4000200.00     2     100.00
+   GRIDCART GRID     ELEV    1    108.0    110.0    112.0
+   GRIDCART GRID     ELEV    2    111.0    113.0    115.0
+   GRIDCART GRID     HILL    1    108.0    110.0    112.0
+   GRIDCART GRID     HILL    2    111.0    113.0    115.0
+   GRIDCART  GRID     END

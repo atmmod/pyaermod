@@ -1,0 +1,32 @@
+** AERMAP Input File
+** pyaermod AERMAP runner recording
+**
+
+CO STARTING
+   TITLEONE  pyaermod AERMAP runner recording
+   DATATYPE  DEM
+   TERRHGTS  ELEVATED
+   DOMAINXY  500050.00 4000050.00 13 NAD27
+
+   DATAFILE  synth.dem
+
+CO FINISHED
+
+RE STARTING
+   DISCCART  R0001       500100.00   4000100.00
+   GRIDCART  GRID     XYINC   500100.00     3   100.00  4000200.00     2   100.00
+
+   RECOUTPUT aermap_receptors.out
+
+RE FINISHED
+
+SO STARTING
+   LOCATION  STACK1   POINT      500200.00   4000300.00
+
+   SRCOUTPUT aermap_sources.out
+
+SO FINISHED
+
+OU STARTING
+   MSGOUTPUT aermap.msg
+OU FINISHED

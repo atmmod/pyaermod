@@ -805,16 +805,22 @@ class TestTerrainProcessorProcessFull:
             return_code=0, runtime_seconds=1.0,
         )
 
-        # Build receptor output with all 9 grid points (3x3)
+        # Receptor output for the 3x3 grid, in the form AERMAP writes it:
+        # the network echoed under its name with one ELEV and one HILL
+        # row per y value.
         grid = project.receptors.cartesian_grids[0]
-        lines = ["** AERMAP"]
-        for j in range(grid.y_num):
-            for i in range(grid.x_num):
-                x = grid.x_init + i * grid.x_delta
-                y = grid.y_init + j * grid.y_delta
-                elev = 100.0 + i * 10 + j * 5
-                hill = elev + 10
-                lines.append(f"   DISCCART  {x:12.2f} {y:12.2f} {elev:10.2f} {hill:10.2f}")
+        name = grid.grid_name
+        lines = [
+            "** AERMAP",
+            f"   GRIDCART  {name:<8} STA",
+            f"   GRIDCART  {name:<8} XYINC  {grid.x_init:12.2f} {grid.x_num:5d} {grid.x_delta:10.2f}"
+            f"  {grid.y_init:12.2f} {grid.y_num:5d} {grid.y_delta:10.2f}",
+        ]
+        for sub in ("ELEV", "HILL"):
+            for j in range(grid.y_num):
+                vals = [100.0 + i * 10 + j * 5 + (10 if sub == "HILL" else 0) for i in range(grid.x_num)]
+                lines.append(f"   GRIDCART {name:<8} {sub} {j + 1:4d} " + " ".join(f"{v:8.1f}" for v in vals))
+        lines.append(f"   GRIDCART  {name:<8} END")
 
         rec_file = tmp_path / "aermap_receptors.out"
         rec_file.write_text("\n".join(lines))
@@ -952,7 +958,7 @@ class TestAERMAPFromAermodProject:
         assert aermap.sources[0].x_coord == 100.0
 
     def test_cartesian_grid_receptor(self):
-        """CartesianGrid is converted to AERMAP grid_receptor params."""
+        """CartesianGrid is carried into AERMAPProject.grids under its own name."""
         from pyaermod.aermap import AERMAPProject
 
         grid = CartesianGrid(x_init=-500, x_num=11, x_delta=100,
@@ -963,10 +969,9 @@ class TestAERMAPFromAermodProject:
             grids=[grid],
         )
         aermap = AERMAPProject.from_aermod_project(project, dem_files=["dem.tif"])
-        assert aermap.grid_receptor is True
-        assert aermap.grid_x_init == -500
-        assert aermap.grid_x_num == 11
-        assert aermap.grid_spacing == 100
+        assert aermap.grid_receptor is False
+        (written,) = aermap.grids
+        assert (written.grid_name, written.x_init, written.x_num, written.x_delta) == (grid.grid_name, -500, 11, 100)
 
     def test_discrete_receptors_to_aermap(self):
         """Discrete receptors get sequential IDs R0001, R0002, ..."""
