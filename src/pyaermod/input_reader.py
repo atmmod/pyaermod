@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -2370,9 +2371,148 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# The files a deck reads
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class InputFile:
+    """A file AERMOD reads (never writes) that a project names.
+
+    ``keyword`` says where the deck names it, as AERMOD's user guide
+    does (``ME SURFFILE``, ``CO OZONEFIL SECT2``, ``SO HOUREMIS at line
+    40`` for a line kept verbatim); ``path`` is the path as written.
+    """
+
+    keyword: str
+    path: str
+
+
+def _unparsed_input_field(line: UnparsedLine, fields: List[str]) -> Optional[int]:
+    """Which of a kept line's fields names a file AERMOD reads, if any.
+
+    ``fields`` are the line's data fields as AERMOD splits them
+    (:func:`runstream_fields`).
+
+    Positions from AERMOD's source (v26135), counted from the first field
+    after the keyword: ``INCLUDED`` on any pathway (setup.f, INCLUD),
+    ``SO HOUREMIS`` (soset.f, HREMIS), the field after ``HOURLY`` on
+    ``SO BACKGRND`` (soset.f, BACKGRND), and the file of ``CO OZONEFIL``
+    and ``CO NOX_FILE``, after a sector ID if there is one (coset.f,
+    O3FILE and NOXFILE).
+    """
+    if not fields:
+        return None
+    if line.keyword == "INCLUDED" or (line.pathway, line.keyword) == ("SO", "HOUREMIS"):
+        return 0
+    if (line.pathway, line.keyword) == ("SO", "BACKGRND"):
+        upper = [f.upper() for f in fields]
+        if "HOURLY" in upper and upper.index("HOURLY") + 1 < len(fields):
+            return upper.index("HOURLY") + 1
+        return None
+    if (line.pathway, line.keyword) in (("CO", "OZONEFIL"), ("CO", "NOX_FILE")):
+        index = 1 if fields[0].upper().startswith("SECT") else 0
+        return index if index < len(fields) else None
+    return None
+
+
+def _input_file_slots(project: AERMODProject) -> List[Tuple[InputFile, Any]]:
+    """Every input file the project names, with a setter for its path."""
+    slots: List[Tuple[InputFile, Any]] = []
+
+    def attr(obj: Any, name: str, keyword: str) -> None:
+        value = getattr(obj, name, None)
+        if value:
+            slots.append((InputFile(keyword, value),
+                          lambda new, o=obj, n=name: setattr(o, n, new)))
+
+    met = project.meteorology
+    attr(met, "surface_file", "ME SURFFILE")
+    attr(met, "profile_file", "ME PROFFILE")
+
+    control = project.control
+    chem = getattr(control, "chemistry", None)
+    if chem is not None:
+        oz = getattr(chem, "ozone_data", None)
+        if oz is not None:
+            attr(oz, "ozone_file", "CO OZONEFIL")
+            for sector, spec in sorted((oz.by_sector or {}).items()):
+                attr(spec, "hourly_file", f"CO OZONEFIL SECT{sector}")
+        attr(chem, "nox_file", "CO NOX_FILE")
+        nox = getattr(chem, "nox_background", None)
+        if nox is not None:
+            attr(nox, "hourly_file", "CO NOX_FILE")
+            for sector, spec in sorted(nox.by_sector.items()):
+                attr(spec, "hourly_file", f"CO NOX_FILE SECT{sector}")
+    if control.init_file is not None:
+        attr(control.init_file, "filename", "CO INITFILE")
+    if control.multiyear is not None:
+        attr(control.multiyear, "init_file", "CO MULTYEAR")
+
+    for line in project.unparsed_lines:
+        # The line goes back into the deck as its fields joined by blanks;
+        # AERMOD splits that text again, quotes and all.
+        fields = runstream_fields("  ".join(line.fields))
+        index = _unparsed_input_field(line, fields)
+        if index is None:
+            continue
+
+        def set_field(new: str, ln: UnparsedLine = line, fs: List[str] = fields,
+                      i: int = index) -> None:
+            fs = [*fs[:i], new, *fs[i + 1:]]
+            ln.fields = [f'"{f}"' if not f or any(c.isspace() for c in f) else f
+                         for f in fs]
+
+        keyword = f"{line.pathway} {line.keyword} at line {line.lineno}"
+        slots.append((InputFile(keyword, fields[index]), set_field))
+    return slots
+
+
+def input_files(project: AERMODProject) -> List[InputFile]:
+    """Every file AERMOD reads that ``project`` names.
+
+    In this order: the met files, the ozone and NOx background files,
+    the file a run starts from (``INITFILE``, ``MULTYEAR``), and, among
+    the lines kept verbatim, in deck order, ``INCLUDED``, ``HOUREMIS``
+    and hourly ``BACKGRND`` files.
+    Files AERMOD writes (outputs, ``SAVEFILE``, ``ERRORFIL``) are not
+    listed.
+    """
+    return [ref for ref, _set in _input_file_slots(project)]
+
+
+def anchor_input_files(
+    project: AERMODProject, deck_dir: Union[str, Path],
+) -> List[Tuple[InputFile, Path]]:
+    """Give each input file named by a relative path its full path, in place.
+
+    AERMOD reads a relative path from its working directory; a deck that
+    names ``ozone.dat`` means the file beside it. Every input file of
+    :func:`input_files` whose relative path names an existing file when
+    read from ``deck_dir`` gets that file's full path, so the project
+    runs from any working directory. A relative path that names no file
+    there, and every path already absolute, is left as written, as are
+    the files AERMOD writes. Returns ``(file as the deck named it, full
+    path)`` for each path changed.
+    """
+    base = Path(deck_dir).absolute()
+    changed: List[Tuple[InputFile, Path]] = []
+    for ref, set_path in _input_file_slots(project):
+        if Path(ref.path).is_absolute():
+            continue
+        candidate = Path(os.path.normpath(base / ref.path))
+        if candidate.is_file():
+            set_path(str(candidate))
+            changed.append((ref, candidate))
+    return changed
+
+
 __all__ = [
+    "InputFile",
     "PathTraversalError",
     "SandboxViolation",
+    "anchor_input_files",
+    "input_files",
     "parse_aermod_input",
     "read_aermod_input",
     "runstream_fields",
