@@ -2070,6 +2070,44 @@ class TestReviewAndRun:
         await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
 
     @pytest.mark.asyncio
+    async def test_the_badges_after_a_cancel(self, gui, recorded_aermod, tmp_path, monkeypatch):
+        """A cancelled run is no result: the badges agree with Results."""
+        recorded_aermod("albany_success")
+        await _open_albany(gui, tmp_path, ["1", "3", "24", "PERIOD"])
+        work_dir = _one(gui, kind=ui.input, content="Working directory")
+        with gui.user:
+            work_dir.value = str(tmp_path / "first")
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await _run_ends(gui, "Succeeded in")
+        await _badge_reads(gui, "Review & Run", "complete")
+        await _badge_reads(gui, "Results", "complete")
+        monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
+        with gui.user:
+            work_dir.value = str(tmp_path / "second")
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("Day 61 of 1988 (1 of 4 days)", retries=50)
+        _click(gui, _one(gui, kind=ui.button, content="Cancel"))
+        await _run_ends(gui, "Cancelled after")
+        # Results still shows run 1, and both badges follow it.
+        await gui.user.should_see("Run 1 succeeded")
+        await _badge_reads(gui, "Review & Run", "complete")
+        await _badge_reads(gui, "Results", "complete")
+
+    @pytest.mark.asyncio
+    async def test_only_a_cancelled_run_leaves_the_badges_not_started(
+            self, gui, recorded_aermod, tmp_path, monkeypatch):
+        recorded_aermod("albany_e480")
+        monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
+        await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("Day 61 of 1988 (1 of 4 days)", retries=50)
+        _click(gui, _one(gui, kind=ui.button, content="Cancel"))
+        await _run_ends(gui, "Cancelled after")
+        await gui.user.should_see("No run yet. Run AERMOD from the Review & Run step.")
+        await _badge_reads(gui, "Review & Run", "not started")
+        await _badge_reads(gui, "Results", "not started")
+
+    @pytest.mark.asyncio
     async def test_a_double_click_starts_one_aermod(self, gui, recorded_aermod, tmp_path,
                                                     monkeypatch):
         gui.expect_error_log("AERMOD run failed: E480")

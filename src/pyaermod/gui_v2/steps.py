@@ -13,7 +13,8 @@ A step's status is one of :class:`StepStatus`:
 - *not started*: nothing has been entered yet (no sources, no receptors,
   no met files; no run for Review & Run and Results);
 - *error*: the validator reports an error for a part of the project the
-  step edits (or, for Review & Run and Results, the latest run failed);
+  step edits (or, for Review & Run and Results, the latest run failed;
+  a cancelled run is no result, so the run before it decides);
 - *warning*: only warnings;
 - *complete*: neither.
 
@@ -142,8 +143,11 @@ def step_statuses(project: AERMODProject, validation: Optional[ValidationResult]
 
     ``validation`` is the session's latest result (None: not validated,
     which shows the editing steps as complete unless they are empty);
-    ``runs`` its finished runs, oldest first. Review & Run follows the
-    latest run, and Results the latest run AERMOD completed.
+    ``runs`` its finished runs, oldest first. Review & Run and Results
+    both follow the latest run that was not cancelled, which is the run
+    the Results step shows (:func:`~pyaermod.gui_v2.run_results.completed_runs`):
+    a cancel is no result (WP-G4), so it neither marks the steps as
+    failed nor hides the run before it.
     """
     grouped = problems_by_step(validation)
     empty = _not_started(project)
@@ -153,9 +157,8 @@ def step_statuses(project: AERMODProject, validation: Optional[ValidationResult]
             statuses[step] = StepStatus.NOT_STARTED
         else:
             statuses[step] = _from_problems(grouped[step])
-    statuses["run"] = _from_run(runs[-1] if runs else None)
-    completed = [r for r in runs if r.result is not None]
-    statuses["results"] = _from_run(completed[-1] if completed else None)
+    shown = [r for r in runs if not r.in_progress and not r.cancelled]
+    statuses["run"] = statuses["results"] = _from_run(shown[-1] if shown else None)
     return statuses
 
 

@@ -37,10 +37,11 @@ def _stack() -> PointSource:
                        exit_velocity=18.0, stack_diameter=3.0, emission_rate=100.0)
 
 
-def _run(success: bool, *, raised: bool = False) -> RunRecord:
+def _run(success: bool, *, raised: bool = False, cancelled: bool = False) -> RunRecord:
     class _Result:
         def __init__(self, ok):
             self.success = ok
+            self.cancelled = cancelled
 
     return RunRecord(number=1, work_dir=Path("run"), deck_path=Path("run/x.inp"),
                      started_at=datetime(2026, 9, 29), finished_at=datetime(2026, 9, 29),
@@ -118,10 +119,21 @@ def test_runs():
     assert step_statuses(project, None, [_run(True)])["run"] is COMPLETE
     assert step_statuses(project, None, [_run(True)])["results"] is COMPLETE
     assert step_statuses(project, None, [_run(False)])["run"] is ERROR
-    # A run whose runner raised is on Review & Run; Results shows the last
-    # run AERMOD completed.
+    # A run whose runner raised is the latest run on both steps: Results
+    # shows it, as failed, with the runner's reason.
     statuses = step_statuses(project, None, [_run(True), _run(False, raised=True)])
-    assert statuses["run"] is ERROR and statuses["results"] is COMPLETE
+    assert statuses["run"] is ERROR and statuses["results"] is ERROR
+
+
+def test_a_cancelled_run_is_no_result():
+    """Results skips a cancelled run, and so do the badges (WP-G4's rule)."""
+    project = _empty_project()
+    only = step_statuses(project, None, [_run(False, cancelled=True)])
+    assert only["run"] is NOT_STARTED and only["results"] is NOT_STARTED
+    after = step_statuses(project, None, [_run(True), _run(False, cancelled=True)])
+    assert after["run"] is COMPLETE and after["results"] is COMPLETE
+    failed = step_statuses(project, None, [_run(False), _run(False, cancelled=True)])
+    assert failed["run"] is ERROR and failed["results"] is ERROR
 
 
 def test_problems_by_step_keeps_every_step():
