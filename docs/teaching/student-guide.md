@@ -1003,15 +1003,15 @@ At this point you should understand:
 
 ## 8. Tutorial 5 — Processing Meteorological Data with AERMET
 
-**Goal:** Use the GUI's AERMET configuration page to generate the three-stage
-AERMET input files needed to process raw weather station data into AERMOD-ready
-meteorological files.
+**Goal:** Use the GUI's AERMET configuration page to generate the two AERMET
+input files (Stage 1 and METPREP) needed to process raw weather station data
+into AERMOD-ready meteorological files.
 
 **Time:** 30--40 minutes
 
 **What you'll learn:**
 - What AERMET does and why AERMOD needs it
-- How the three AERMET stages work
+- How AERMET's two stages, Stage 1 and METPREP, work
 - How to configure each stage in the GUI
 - What the monthly surface parameters mean and how to choose values
 
@@ -1042,23 +1042,25 @@ contain:
   direction, and temperature at multiple heights above ground.
 
 **AERMET** is the preprocessor that transforms raw weather station observations
-into these two files. It runs in three stages:
+into these two files. Current AERMET (versions 24142 and 26135) runs in two
+stages, each from its own input file:
 
 ```
 Raw weather data (NOAA archives)
           |
    Stage 1: Extract & QA/QC
           |
-   Extracted hourly data
+   Quality-assured hourly data (QAOUT files)
           |
-   Stage 2: Merge surface + upper air
-          |
-   Merged dataset
-          |
-   Stage 3: Compute boundary-layer parameters
+   METPREP: merge surface + upper air, compute boundary-layer parameters
           |
    aermod.sfc  +  aermod.pfl   (ready for AERMOD)
 ```
+
+Older AERMET versions had a separate merge stage between the two; current
+AERMET merges the data inside METPREP. pyaermod calls the METPREP deck
+"Stage 3" (`AERMETStage3`, `aermet_stage3.inp`) so older projects keep their
+file names.
 
 ### What Data Does AERMET Need?
 
@@ -1087,7 +1089,9 @@ AERMET requires two types of weather observations:
 3. Click **Meteorology** in the sidebar.
 4. Select the **Configure AERMET** radio button (not "Use existing files").
 
-You'll see three tabs: **Stage 1**, **Stage 2**, and **Stage 3**.
+You'll see three tabs: **Stage 1**, **Stage 2**, and **Stage 3**. Current
+AERMET (11 and later) runs only two of them, Stage 1 and Stage 3; Stage 2
+is skipped (see Step 3).
 
 ### Step 2: Configure Stage 1 — Extract & QA/QC
 
@@ -1104,7 +1108,7 @@ values. Example for Atlanta, GA:
 
 | Parameter | Example Value | What It Means |
 |---|---|---|
-| Station ID | `KATL` | ICAO airport code or WBAN number |
+| Station ID | `13874` | The station's WBAN number (Atlanta Hartsfield, ICAO `KATL`). AERMET reads it as a number, so an ICAO code such as `KATL` makes the METPREP stage stop |
 | Station Name | `Atlanta Hartsfield` | Descriptive name (for your reference) |
 | Latitude | `33.6300` | Station latitude (decimal degrees, negative = south) |
 | Longitude | `-84.4400` | Station longitude (decimal degrees, negative = west) |
@@ -1161,6 +1165,11 @@ Click **Download Stage 1 Input File** to save it as `aermet_stage1.inp`.
 
 ### Step 3: Configure Stage 2 — Merge
 
+> **Skip this step.** Current AERMET has no separate merge stage: METPREP
+> (Stage 3) reads Stage 1's output and merges it itself, and pyaermod no
+> longer writes a Stage 2 file. Go on to Step 4. The description below is
+> kept for readers of older AERMET material.
+
 Click the **Stage 2: Merge** tab.
 
 **Purpose:** Stage 2 takes the extracted surface and upper air data from
@@ -1181,8 +1190,8 @@ Click **Save Stage 2 Configuration**, then preview and download.
 
 Click the **Stage 3: Boundary Layer** tab.
 
-**Purpose:** This is the most important stage. Stage 3 reads the merged data
-and computes the **planetary boundary layer parameters** that AERMOD needs:
+**Purpose:** This is the most important stage. Stage 3 (AERMET's METPREP)
+reads Stage 1's quality-assured files, merges them, and computes the **planetary boundary layer parameters** that AERMOD needs:
 friction velocity, Monin-Obukhov length, convective velocity scale, mixing
 height, and more. These parameters depend on both the meteorological data and
 the **surface characteristics** around the station.
@@ -1191,7 +1200,6 @@ the **surface characteristics** around the station.
 
 | Parameter | Example Value |
 |---|---|
-| Merge File | `stage2.mrg` |
 | Start Date | `2020/01/01` |
 | End Date | `2020/12/31` |
 | Surface Output (.sfc) | `aermod.sfc` |
@@ -1251,17 +1259,18 @@ Setup page.
 
 Click **Save Stage 3 Configuration**.
 
-### Step 5: Download All Three Input Files
+### Step 5: Download the Two Input Files
 
-You now have three AERMET input files:
+You now have two AERMET input files to run (the GUI may still offer a
+third, for Stage 2, which current AERMET does not use):
 
 | File | Stage | What It Does |
 |---|---|---|
 | `aermet_stage1.inp` | Extract & QA/QC | Reads raw data, checks quality |
-| `aermet_stage2.inp` | Merge | Combines surface + upper air |
-| `aermet_stage3.inp` | Boundary Layer | Computes AERMOD-ready parameters |
+| `aermet_stage2.inp` | Merge | Not used: current AERMET merges inside METPREP |
+| `aermet_stage3.inp` | METPREP | Merges surface + upper air, computes AERMOD-ready parameters |
 
-Download all three from their respective preview sections.
+Download the Stage 1 and Stage 3 files from their preview sections.
 
 ### Step 6: Run AERMET (Outside the GUI)
 
@@ -1282,18 +1291,22 @@ input files and run each stage:
 
 ```bash
 # Stage 1
-aermet < aermet_stage1.inp
+aermet aermet_stage1.inp
 
-# Stage 2
-aermet < aermet_stage2.inp
-
-# Stage 3
-aermet < aermet_stage3.inp
+# METPREP (merge + boundary layer)
+aermet aermet_stage3.inp
 ```
 
-Each stage reads the output of the previous stage, so they must be run **in
-order**. When Stage 3 completes, you'll have your `aermod.sfc` and
-`aermod.pfl` files — the meteorological inputs AERMOD needs.
+AERMET reads the input file named after the command (not from `<`
+redirection). METPREP reads the QAOUT files Stage 1 writes, so the two must
+be run **in order**. When METPREP completes, you'll have your `aermod.sfc`
+and `aermod.pfl` files — the meteorological inputs AERMOD needs.
+
+AERMET exits without an error code even when it fails. Check that the
+screen output ends with `AERMET FINISHED SUCCESSFULLY` and read the messages
+file each deck names (`MESSAGES`) for lines with an `E` code such as `E05`.
+From Python, `pyaermod.aermet_runner.run_aermet_pipeline` runs both decks
+and reports each run's `success` and first error for you.
 
 > **Troubleshooting common errors:**
 >
@@ -1345,12 +1358,13 @@ length, low mixing height) trapped the plume near the ground.
 At this point you should understand:
 
 - [x] Why AERMOD needs preprocessed meteorological data (not raw observations)
-- [x] The three AERMET stages: Extract, Merge, Boundary Layer
+- [x] The two AERMET stages: Stage 1 (extract and QA) and METPREP (merge and
+  boundary layer)
 - [x] That surface characteristics (albedo, Bowen ratio, roughness) vary by
   land use and season
-- [x] How to generate the three AERMET input files using the GUI
-- [x] That AERMET must be run in order (Stage 1 → 2 → 3) to produce `.sfc`
-  and `.pfl` files
+- [x] How to generate the two AERMET input files using the GUI
+- [x] That AERMET must be run in order (Stage 1, then METPREP, which the GUI
+  calls Stage 3) to produce `.sfc` and `.pfl` files
 
 ---
 

@@ -1,0 +1,21 @@
+** AERMET Stage 1 Input
+** Job: STAGE1
+**
+JOB
+   REPORT     stage1.out
+   MESSAGES   stage1.msg
+
+UPPERAIR
+   DATA       14735-88.UA 6201FB
+   EXTRACT    stage1_ua.ext
+   QAOUT      stage1_ua.qa
+   XDATES     1988/3/1 TO 1988/3/10
+   LOCATION   00014735 42.75N 73.8W 5 83.8
+   AUDIT      UATT UAWS UALR
+
+SURFACE
+   DATA       S1473588.144 CD144
+   EXTRACT    stage1.ext
+   QAOUT      stage1.qa
+   XDATES     1988/3/1 TO 1988/3/10
+   LOCATION   14735 42.75N 73.8W 0 83.8

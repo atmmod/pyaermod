@@ -453,8 +453,8 @@ pyaermod/
 │   ├── postfile.py            # POSTFILE parser (text PLOT + binary UNFORM)
 │   ├── visualization.py       # Contour plots, Folium maps
 │   ├── advanced_viz.py        # 3D surfaces, wind roses, animations
-│   ├── aermet.py              # AERMET Stages 1-3 input generation + SFC/PFL parsers
-│   ├── aermet_runner.py       # AERMETRunner + three-stage pipeline
+│   ├── aermet.py              # AERMET Stage 1 + METPREP runstreams, SFC/PFL parsers
+│   ├── aermet_runner.py       # AERMETRunner (AERMET's own verdict) + two-stage pipeline
 │   ├── met_ingest.py          # ASOS 1-min, ISD, IGRA, MMIF data ingest
 │   ├── met_qaqc.py            # Meteorological data QA/QC checks
 │   ├── aermap.py              # AERMAP input generation

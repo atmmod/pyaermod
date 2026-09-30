@@ -31,7 +31,7 @@ data and site-appropriate surface parameters.
 - How to identify surface and upper air stations for a specific location
 - How Gulf Coast meteorology differs from inland sites
 - How to select monthly surface parameters for an industrial/coastal setting
-- How to run all three AERMET stages and verify the output
+- How to run AERMET's two stages (Stage 1 and METPREP) and verify the output
 
 ### Background: Why Houston?
 
@@ -60,7 +60,7 @@ For a refinery near the Houston Ship Channel (approximately 29.75 N,
 
 | Parameter | Value | Notes |
 |---|---|---|
-| Station ID | `KHOU` | ICAO code; WBAN 12918 |
+| Station ID | `12918` | WBAN number (ICAO `KHOU`). AERMET needs the WBAN: it reads the surface ID as a number |
 | Station Name | `Houston Hobby Airport` | |
 | Latitude | `29.6454` | Decimal degrees |
 | Longitude | `-95.2789` | Negative = west |
@@ -127,6 +127,11 @@ NOAA's NCEI archive.
 
 ### Step 3: Configure Stage 2
 
+> **Skip this step.** Current AERMET has no separate merge stage: METPREP
+> (Stage 3) reads Stage 1's output and merges it itself, and there is no
+> `s2` file to run. Go on to Step 4. The steps below are kept for readers
+> of older AERMET material.
+
 1. Click the **Stage 2** tab.
 2. Enter the filenames that Stage 1 will produce:
 
@@ -152,7 +157,6 @@ defaults in the GUI.
 
    | Parameter | Value |
    |---|---|
-   | Merge File | `houston_merged.mrg` |
    | Start Date | `2023/01/01` |
    | End Date | `2023/12/31` |
    | Surface Output | `houston_2023.sfc` |
@@ -195,15 +199,16 @@ defaults in the GUI.
 
 ### Step 5: Run AERMET
 
-In a terminal, run the three stages in order:
+In a terminal, run Stage 1 and then METPREP (current AERMET has no separate
+merge stage, so there is no `s2` file to run):
 
 ```bash
-aermet < aermet_houston_s1.inp
-aermet < aermet_houston_s2.inp
-aermet < aermet_houston_s3.inp
+aermet aermet_houston_s1.inp
+aermet aermet_houston_s3.inp
 ```
 
-When Stage 3 completes, you should have `houston_2023.sfc` and
+AERMET exits without an error code even when it fails: check that each run
+ends with `AERMET FINISHED SUCCESSFULLY`. When METPREP completes, you should have `houston_2023.sfc` and
 `houston_2023.pfl` in your working directory.
 
 ### Step 6: Verify the Output
@@ -1091,7 +1096,7 @@ sections:
 Submit the following files and documents:
 
 ### From Tutorial 6 (AERMET)
-- [ ] Three AERMET input files (`aermet_houston_s1.inp`, `s2.inp`, `s3.inp`)
+- [ ] Two AERMET input files (`aermet_houston_s1.inp`, `aermet_houston_s3.inp`)
 - [ ] Written answers to the three Discussion Questions
 - [ ] Brief description of the monthly surface parameter choices and
   rationale

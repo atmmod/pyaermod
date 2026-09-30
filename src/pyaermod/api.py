@@ -48,6 +48,7 @@ from .aermet import (
     AERMETStage2,
     AERMETStage3,
     AERMETStation,
+    OnsiteData,
     ProfileFileHeader,
     SurfaceFileHeader,
     UpperAirStation,
@@ -56,8 +57,11 @@ from .aermet import (
     write_aermet_runfile,
 )
 from .aermet_runner import (
+    AERMETMessage,
     AERMETRunner,
     AERMETRunResult,
+    parse_aermet_messages,
+    read_aermet_messages,
     run_aermet_pipeline,
 )
 from .aermod_outputs import (
@@ -376,6 +380,7 @@ __all__ = [
     "AERMETStage3", "SurfaceFileHeader", "ProfileFileHeader",
     "write_aermet_runfile", "read_surface_file", "read_profile_file",
     "AERMETRunner", "AERMETRunResult", "run_aermet_pipeline",
+    "OnsiteData", "AERMETMessage", "parse_aermet_messages", "read_aermet_messages",
     "AERSURFACEConfig", "AERSURFACERunner", "AERSURFACERunResult",
     "AERSCREENConfig", "AERSCREENSourceType", "AERSCREENRunner",
     "AERSCREENRunResult", "AERSCREENSummary", "AERSCREENImpact",
