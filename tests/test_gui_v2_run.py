@@ -88,6 +88,26 @@ class TestReview:
         [warning] = run_page.review(s).warnings
         assert "AERMET2.SFC holds" in warning.problems[0]
 
+    def test_a_relative_met_file_needs_a_working_directory(self, monkeypatch):
+        """A blank working directory is a new temp folder: AERMOD would not find
+        the file there (E500), so it is not read from the server's own directory."""
+        monkeypatch.chdir(ALBANY_SFC.parent)                 # the file is right here
+        s = _ready_session(("1", "ANNUAL"))
+        s.project.meteorology.surface_file = "AERMET2.SFC"
+        s.project.meteorology.profile_file = "AERMET2.PFL"
+        found = run_page.review(s)
+        assert not found.ready
+        [item] = found.blocking
+        assert item.step == "meteorology"
+        assert item.problems == [
+            run_page.RELATIVE_MET.format(label="surface file", name="AERMET2.SFC"),
+            run_page.RELATIVE_MET.format(label="profile file", name="AERMET2.PFL")]
+        assert found.met_summary is None and found.warnings == []
+
+        s.run_options.working_dir = str(ALBANY_SFC.parent)
+        found = run_page.review(s)
+        assert found.ready and found.met_summary.startswith("AERMET2.SFC holds")
+
     def test_a_deck_the_project_cannot_be_written_as_names_the_step(self):
         s = _ready_session()
         s.project.meteorology.start_year = 2020.5

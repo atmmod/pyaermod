@@ -1556,6 +1556,8 @@ class TestEndToEnd:
     async def test_a_binary_gone_when_run_is_clicked_is_reported(
             self, gui, fake_aermod_on_path, monkeypatch, tmp_path):
         await _fill_minimal_project(gui)
+        # met.sfc is a relative path: it needs a working directory.
+        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
         # The binary was on PATH when the checklist was built, and the
         # button checks again when it is clicked.
         monkeypatch.setenv("PATH", str(tmp_path / "empty"))
@@ -1614,8 +1616,10 @@ class TestWholeNumbersReachTheDeck:
 
 class TestRunPageFailurePaths:
     @pytest.mark.asyncio
-    async def test_deck_generation_failure_is_reported(self, gui, fake_aermod_on_path, monkeypatch):
+    async def test_deck_generation_failure_is_reported(self, gui, fake_aermod_on_path, monkeypatch,
+                                                       tmp_path):
         session = await _fill_minimal_project(gui)
+        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
         assert _run_button(gui).enabled is True
 
         def _boom(self, **kwargs):
@@ -1740,8 +1744,25 @@ class TestReviewAndRun:
         await gui.user.should_not_see("Nothing blocks the run.")
 
     @pytest.mark.asyncio
-    async def test_the_deck_preview_shows_and_downloads_the_deck(self, gui, fake_aermod_on_path):
+    async def test_a_relative_met_file_blocks_the_run_until_a_working_directory_is_set(
+            self, gui, fake_aermod_on_path, tmp_path):
+        await _fill_minimal_project(gui)                 # met.sfc and met.pfl, relative
+        await gui.user.should_see("Surface file met.sfc is a relative path")
+        await gui.user.should_see("Profile file met.pfl is a relative path")
+        assert _run_button(gui).enabled is False
+        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        assert _run_button(gui).enabled is True          # at once, for a click that follows
+        await gui.user.should_see("Nothing blocks the run.")
+        await gui.user.should_not_see("Surface file met.sfc is a relative path")
+        _one(gui, kind=ui.input, content="Working directory").set_value("")
+        assert _run_button(gui).enabled is False
+        await gui.user.should_see("Surface file met.sfc is a relative path")
+
+    @pytest.mark.asyncio
+    async def test_the_deck_preview_shows_and_downloads_the_deck(self, gui, fake_aermod_on_path,
+                                                                 tmp_path):
         session = await _fill_minimal_project(gui)
+        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
         await gui.user.should_see("Nothing blocks the run.")
         preview = _one(gui, kind=ui.textarea, content="Deck preview")
         assert preview.value == session.deck_text() and "STK1" in preview.value
@@ -1830,6 +1851,12 @@ class TestReviewAndRun:
         gui.user.find(kind=ui.button, marker="project-new").click()
         await gui.user.should_see("AERMOD has not been run for this project yet.")
         assert session.run_in_progress is None and session.runs == []
+        # Nothing of the stopped run stays: no progress, no Cancel to click.
+        await gui.user.should_not_see(kind=ui.linear_progress)
+        await gui.user.should_not_see("Day 6")
+        # find() sees only what is shown; the dialogs' Cancel buttons are not the run's.
+        assert not [b for b in gui.user.find(kind=ui.button, content="Cancel").elements
+                    if b.props.get("color") == "negative"]
         from tests.e2e.harness import process_running
         for _ in range(200):
             starts = _fake_starts(log)

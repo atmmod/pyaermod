@@ -37,7 +37,7 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .._live import live
 from ..session import (
@@ -164,10 +164,29 @@ def _ordered(items: Dict[str, ChecklistItem]) -> List[ChecklistItem]:
                   if i.step in STEP_IDS else len(STEP_IDS))
 
 
+#: A relative met file with a blank working directory. AERMOD opens a
+#: relative path from its working directory, and a blank one is a new,
+#: empty temporary folder, so the run would fail with E500.
+RELATIVE_MET = ("{label} {name} is a relative path, which AERMOD looks for in its working "
+                "directory, and a blank working directory is a new, empty folder: give the "
+                "file's full path, or set the working directory below")
+
+
+def _relative_met_files(met: Any) -> List[Tuple[str, str]]:
+    """``[(label, path)]`` for the met files ``met`` names by a relative path."""
+    found = []
+    for label, attr in (("surface file", "surface_file"), ("profile file", "profile_file")):
+        name = str(getattr(met, attr, "") or "").strip().strip('"')
+        if name and not Path(name).expanduser().is_absolute():
+            found.append((label, name))
+    return found
+
+
 def review(session: Session, *, have_binary: bool = True) -> Review:
     """Review the session's project for a run. Emits nothing.
 
-    Validator errors, a deck the project cannot be written as, and a
+    Validator errors, a deck the project cannot be written as, a met file
+    named by a relative path while the working directory is blank, and a
     missing AERMOD binary block the run; validator warnings, a surface
     file that cannot be read, and ANNUAL with less than a year of met
     data (:func:`~pyaermod.validator_advanced.check_annual_met_coverage`)
@@ -198,8 +217,16 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
     if not have_binary:
         _add(blocking, "run", NO_BINARY)
 
-    base_dir = session.run_options.working_dir or None
-    path, period, problem = session.met_period(base_dir)
+    working_dir = str(session.run_options.working_dir or "").strip()
+    base_dir = working_dir or None
+    relative = [] if working_dir else _relative_met_files(project.meteorology)
+    for label, name in relative:
+        _add(blocking, "meteorology", RELATIVE_MET.format(label=label, name=name))
+
+    path, period, problem = (None, None, None)
+    if "surface file" not in dict(relative):
+        # Not read from the server's own directory: AERMOD would not see it.
+        path, period, problem = session.met_period(base_dir)
     summary = None
     if problem is not None:
         _add(warnings, "meteorology", f"surface file {problem}")
@@ -449,8 +476,24 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
             "Working directory (blank = temp)",
         ).classes("w-96").bind_value(session.run_options, "working_dir")
         ui.number("Timeout (s)", format="%d").bind_value(session.run_options, "timeout_s")
-    # A relative surface file is read from the working directory.
+    # A relative met file is read from the working directory, and needs
+    # one: the review follows the directory when the field loses focus,
+    # and the Run button at once when the field becomes blank or not.
     workdir.on("blur", lambda: _review.refresh())
+    was_blank = [not str(session.run_options.working_dir or "").strip()]
+
+    def _workdir_changed(_event: Any) -> None:
+        blank = not str(session.run_options.working_dir or "").strip()
+        if blank == was_blank[0]:
+            return
+        was_blank[0] = blank
+        # The rebuild runs in a task of its own; a click that follows the
+        # typing at once must meet a button that already agrees.
+        readiness["ready"] = review(session, have_binary=_aermod_available()).ready
+        _sync_run_button()
+        _review.refresh()
+
+    workdir.on_value_change(_workdir_changed)
 
     # ---- progress: updated in place as AERMOD reports each day --------
     with ui.column().classes("w-full q-mt-sm") as progress_box:
@@ -466,6 +509,7 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
         shown = record is not None and (record.in_progress or record.progress is not None)
         progress_box.set_visibility(shown)
         if record is None or not shown:
+            cancel.set_visibility(False)
             return
         fraction = record.fraction_done
         if fraction is None and record.in_progress:
@@ -490,8 +534,11 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
             with progress_box:
                 _notify_finished(ui, change.run)
 
+    # PROJECT_REPLACED too: New or Open stops the run without a
+    # RUN_FINISHED, and its progress must not stay on the page.
     ui.context.client.on_delete(session.subscribe(
-        (SessionEvent.RUN_STARTED, SessionEvent.RUN_PROGRESS, SessionEvent.RUN_FINISHED),
+        (SessionEvent.RUN_STARTED, SessionEvent.RUN_PROGRESS, SessionEvent.RUN_FINISHED,
+         SessionEvent.PROJECT_REPLACED),
         _on_run_event))
 
     # ---- outcome: status, messages, log --------------------------------
@@ -543,7 +590,10 @@ def _message_table(ui: Any, record: RunRecord) -> None:
     """AERMOD's messages: severity, pathway, code, line, text, and help where there is some."""
     assert record.result is not None
     ui.label("AERMOD messages").classes("text-subtitle1 q-mt-md")
-    with ui.element("table").props('aria-label="AERMOD messages"').classes(
+    # Its own scroll container: on a phone a wide table must not widen the
+    # whole step. Focusable, so the keyboard can scroll it too.
+    scroller = ui.element("div").props("tabindex=0").style("overflow-x: auto; max-width: 100%")
+    with scroller, ui.element("table").props('aria-label="AERMOD messages"').classes(
             "q-table q-table--dense q-table--horizontal-separator"):
         with ui.element("thead"), ui.element("tr"):
             for heading in ("Severity", "Pathway", "Code", "Line", "Message", "Help"):

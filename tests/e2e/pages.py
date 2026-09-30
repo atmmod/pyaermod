@@ -553,7 +553,7 @@ class RunPage(_Step):
     def log(self) -> str:
         return self.panel.get_by_label("Run log", exact=True).input_value()
 
-    # -- planned (WP-G4) --------------------------------------------------
+    # -- Review & Run (WP-G4) --------------------------------------------
     def messages(self) -> Locator:
         return self.panel.get_by_role("table", name=re.compile("messages", re.I))
 
@@ -601,6 +601,12 @@ class RunPage(_Step):
         expect(bar).to_be_visible()
         expect(self.panel.get_by_text(re.compile(rf"\bday\b\D*\b{day}\b", re.I))
                ).to_be_visible()
+
+    def expect_no_progress(self) -> None:
+        """No run is going: no progress bar, no Cancel (WP-G4)."""
+        panel = self.panel
+        expect(panel.get_by_role("progressbar")).to_have_count(0)
+        expect(panel.get_by_role("button", name="Cancel", exact=True)).to_have_count(0)
 
     def cancel(self) -> None:
         self.panel.get_by_role("button", name="Cancel", exact=True).click()

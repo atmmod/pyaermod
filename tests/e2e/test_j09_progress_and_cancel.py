@@ -5,7 +5,8 @@ count, and other steps stay usable during the run. Cancel stops the
 process without leaving an orphaned ``aermod``, and the status reads
 "Cancelled". WP-G2's review added two checks (PLAN-gui.md, "Notes from
 WP-G2"): a double-click on Run starts exactly one AERMOD, and another
-browser tab stays usable while a run goes on.
+browser tab stays usable while a run goes on. WP-G4's review added a
+third: New during a run stops AERMOD and leaves no progress or Cancel.
 
 The long run is a recording replayed with a pause between stdout lines,
 so these tests belong to tier T2 only: the real binary finishes the
@@ -17,9 +18,11 @@ cancelled run never reaches the E480 check, so its outcome is irrelevant.
 
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
+from playwright.sync_api import expect
 
 from .harness import REAL_AERMOD, process_running
 from .pages import App
@@ -91,3 +94,22 @@ def test_j09_another_tab_stays_usable_during_a_run(gui, step, run_dir, journey):
     assert took < 5, f"switching four steps in another tab took {took:.1f} s during a run"
     gui.run.expect_progress_day(64)
     gui.run.wait_until_finished()
+
+
+@SLOW
+def test_j09_new_during_a_run_stops_it_and_clears_its_progress(gui, step, run_dir, journey):
+    _start_long_run(gui, run_dir)
+    gui.run.expect_progress_day(61)
+    gui.project.new()
+    gui.run.open()
+    step("after_new")
+    gui.run.expect_no_progress()
+    expect(gui.run.panel.get_by_text(re.compile(r"\bnot been run\b", re.I))).to_be_visible()
+    started = journey.server.fake_events("start")
+    assert started, "AERMOD was never started"
+    deadline = time.monotonic() + 15      # SIGTERM, then a kill after 5 s
+    left = [e["pid"] for e in started]
+    while left and time.monotonic() < deadline:
+        time.sleep(0.1)
+        left = [pid for pid in left if process_running(pid)]
+    assert not left, f"New left aermod running: pids {left}"
