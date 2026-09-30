@@ -201,6 +201,7 @@ class DeckImport:
 Observer = Callable[[Change], None]
 
 
+# WP-G6: shared by clean_file_name (WP-G2) and the deck import below.
 def _last_name_part(name: Optional[str]) -> str:
     """The last part of ``name`` after either separator, browser-safe; may be ''."""
     # "C:" is not a directory here.
@@ -217,7 +218,7 @@ def clean_file_name(name: Optional[str]) -> str:
     ``_`` so the header names the file the browser saved, an empty name
     becomes ``project.json`` and a name without a ``.json`` suffix gets one.
     """
-    base = _last_name_part(name)
+    base = _last_name_part(name)  # WP-G6: shared with the deck import
     if not base:
         return _DEFAULT_FILE_NAME
     if not base.lower().endswith(".json"):
@@ -270,8 +271,8 @@ class Session:
         self.runs: List[RunRecord] = []
         self.run_in_progress: Optional[RunRecord] = None
         self.run_options = RunOptions()
-        self.last_import: Optional[DeckImport] = None
-        self.show_import_notice: bool = False
+        self.last_import: Optional[DeckImport] = None  # WP-G6
+        self.show_import_notice: bool = False  # WP-G6
         self.tab_id: Optional[str] = tab_id
         self._observers: List[Tuple[frozenset, Observer]] = []
         # id(obj) -> (key, obj). Holding obj keeps its id from being reused
@@ -298,6 +299,7 @@ class Session:
     @property
     def title(self) -> str:
         """The header text: the file name, and whether it has unsaved changes."""
+        # WP-G6: an imported deck names the project until it has a file.
         name = self.file_name or (self.last_import.name if self.last_import else None)
         return f"PyAERMOD — {name or 'Untitled'}{' (modified)' if self.dirty else ''}"
 
@@ -305,7 +307,7 @@ class Session:
         if self.file_name:
             return self.file_name
         if self.last_import is not None:
-            # An imported deck is saved as a project named after it.
+            # WP-G6: an imported deck is saved as a project named after it.
             return clean_file_name(Path(self.last_import.name).stem)
         return _DEFAULT_FILE_NAME
 
@@ -376,13 +378,14 @@ class Session:
 
     def _replaced(self, project: AERMODProject, *, path: Optional[Path],
                   name: Optional[str], imported: Optional[DeckImport] = None) -> None:
-        # The header shows the name and the dirty flag: DIRTY_CHANGED says
-        # either changed.
+        # WP-G6 changed this method (``imported``, the dirty flag, and the
+        # DIRTY_CHANGED rule). The header shows the name and the dirty
+        # flag: DIRTY_CHANGED says either changed.
         old_title = self.title
         self.project = project
         self.project_path = path
         self.file_name = name
-        # An imported deck is not saved anywhere as a project yet.
+        # WP-G6: an imported deck is not saved anywhere as a project yet.
         self.dirty = imported is not None
         self.last_import = imported
         self.show_import_notice = imported is not None
@@ -780,8 +783,8 @@ class Session:
         other.validation = self.validation
         other.runs = list(self.runs)
         other.run_options = replace(self.run_options)
-        other.last_import = self.last_import
-        other.show_import_notice = self.show_import_notice
+        other.last_import = self.last_import  # WP-G6
+        other.show_import_notice = self.show_import_notice  # WP-G6
         return other
 
 
