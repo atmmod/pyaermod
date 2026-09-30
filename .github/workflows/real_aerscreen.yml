@@ -24,6 +24,7 @@ on:
       - "scripts/build_aerscreen.sh"
       - "scripts/build_aermod.sh"
       - "scripts/build_bpip.sh"
+      - "scripts/build_common.sh"
       - "scripts/fetch_epa_source.sh"
       - "scripts/patches/aerscreen_*.patch"
       - ".github/workflows/real_aerscreen.yml"

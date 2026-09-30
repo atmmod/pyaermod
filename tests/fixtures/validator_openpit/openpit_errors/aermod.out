@@ -1,0 +1,100 @@
+CO STARTING
+   TITLEONE  openpit_errors
+   MODELOPT  CONC DDEP
+   AVERTIME  1 PERIOD
+   POLLUTID  PM10
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  PNX  OPENPIT  0.0 0.0 0.0
+   SRCPARAM  PNX  1.0E-5  0.0  -100.0 100.0 1.0E6
+   LOCATION  PNH  OPENPIT  5000.0 0.0 0.0
+   SRCPARAM  PNH  1.0E-5  -1.0  100.0 100.0 1.0E6
+   LOCATION  PDP  OPENPIT  10000.0 0.0 0.0
+   SRCPARAM  PDP  1.0E-5  100.1  100.0 100.0 1.0E6
+   LOCATION  PEQ  OPENPIT  20000.0 0.0 0.0
+   SRCPARAM  PEQ  1.0E-5  100.0  100.0 100.0 1.0E6
+   PARTDIAM  PNX  1  2.5  5  10  20
+   MASSFRAX  PNX  0.2  0.2  0.2  0.2  0.2
+   PARTDENS  PNX  2.65  2.65  2.65  2.65  2.65
+   PARTDIAM  PNH  1  2.5  5  10  20
+   MASSFRAX  PNH  0.2  0.2  0.2  0.2  0.2
+   PARTDENS  PNH  2.65  2.65  2.65  2.65  2.65
+   PARTDIAM  PDP  1  2.5  5  10  20
+   MASSFRAX  PDP  0.2  0.2  0.2  0.2  0.2
+   PARTDENS  PDP  2.65  2.65  2.65  2.65  2.65
+   PARTDIAM  PEQ  1  2.5  5  10  20
+   MASSFRAX  PEQ  0.2  0.2  0.2  0.2  0.2
+   PARTDENS  PEQ  2.65  2.65  2.65  2.65  2.65
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   DISCCART  1000.0  1000.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            4 Fatal Error Message(s)
+ A Total of            2 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E209      11        OPARM: Negative Value Appears For Non-negative Variable.         XINIT
+ SO E322      11        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PNX
+ SO E209      13        OPARM: Negative Value Appears For Non-negative Variable.            HS
+ SO E322      15        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PDP
+  
+    ********   WARNING MESSAGES   ******** 
+ RE W228      34       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      43       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    **************************************
+    *** SETUP Finishes UN-successfully ***
+    **************************************
+
+ *** AERMOD - VERSION 26135  ***   ***  openpit_errors                                                      ***        09/29/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        22:22:37
+                                                                                                                       PAGE   1
+ *** MODELOPTs:  
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            4 Fatal Error Message(s)
+ A Total of            2 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+ SO E209      11        OPARM: Negative Value Appears For Non-negative Variable.         XINIT
+ SO E322      11        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PNX
+ SO E209      13        OPARM: Negative Value Appears For Non-negative Variable.            HS
+ SO E322      15        OPARM: Release Height Exceeds Effective Depth for OPENPIT          PDP
+  
+    ********   WARNING MESSAGES   ******** 
+ RE W228      34       DISCAR: Default(s) Used for Missing Parameters on Keyword      DISCCART
+ MX W403      43       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+    ***************************************
+    *** AERMOD Finishes UN-successfully ***
+    ***************************************
+
