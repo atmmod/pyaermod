@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The EPA build scripts build into a directory you choose and say what
+  they built.** `scripts/build_aermod.sh`, `build_bpip.sh`,
+  `build_aersurface.sh` and `build_aerscreen.sh` always wrote into the
+  checkout's `bin/`, so a second build of the same source (a diagnostic
+  variant, another compiler) could only be made by overwriting the
+  first, and nothing recorded which binary a run had used. They now
+  honour `BIN_DIR` (default `bin/`, unchanged; a relative path is taken
+  from the directory the script is run in, although the scripts `cd`
+  into scratch directories before linking) and print a build record
+  after each link: the binary's path and SHA-256, the compiler's
+  version, the compile and link flags actually passed to it (AERMET and
+  the AERSURFACE link use their own flags, not `FFLAGS`, and the record
+  says so), and for AERMOD the version token in its usage banner, kept
+  whole so EPA's draft form (`D26135`) is not read as `26135`, and
+  printed as `unknown (banner not found)` with a warning when the probe
+  finds none rather than left out. `AERMOD_EXE_NAME` (default `aermod`)
+  names the AERMOD binary, so a variant built from patched source can sit
+  beside the regulatory one in the same `BIN_DIR`, and a build that
+  replaces an existing binary says so and quotes the old file's SHA-256.
+  After a build into another `BIN_DIR`, `build_aermod.sh` suggests the
+  pytest command with that directory on `PATH` rather than
+  `make test-binaries`, which always tests `./bin`. The shared code is the new
+  `scripts/build_common.sh`. The hash identifies the
+  binary, not the recipe: gfortran writes each source file's absolute
+  path into the binary, so a build from another source directory, or
+  from a downloaded archive (unpacked into a fresh temporary directory),
+  hashes differently, and on macOS, where the linker signs the binary
+  with its file name, so does the same build under another
+  `AERMOD_EXE_NAME`. `tests/test_build_scripts.py` runs every script
+  against a stand-in compiler and pins the default, the override, a
+  relative override and the record; building AERMOD 26135 into a
+  scratch `BIN_DIR` with gfortran 15.2 gave the same SHA-256 as the
+  same source built into `bin/`, and banner 26135.
 - `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
   UI-free session, with one method per user operation (`new`,
   `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
