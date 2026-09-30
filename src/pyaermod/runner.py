@@ -1181,7 +1181,11 @@ class BatchRunner:
 
         Every output file the deck names (PLOTFILE, POSTFILE, ...) is
         renamed to ``run_{name}_{label}_<file name>`` in ``output_dir``,
-        so the runs do not overwrite each other's results.
+        so the runs do not overwrite each other's results. Files AERMOD
+        names itself are not renamed, so the runs share them and the
+        last run's copy is kept: the file of a debug option or ERRORFIL
+        given without a name, DEPOS's ``GDEP.DAT``, ``PDEP.DAT`` and
+        ``DEPOS.DBG``, and PVMRM's ``RelDisp.dbg``.
 
         All the decks share ``output_dir``, whose lock lets one AERMOD
         run at a time there (see :meth:`AERMODRunner.run`), so the runs

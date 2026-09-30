@@ -124,10 +124,12 @@ _RESERVED_FILES = frozenset({
 # DEBUGOPT: the debug files a successful run wrote (see _drop_unwritten).
 _REQUIRED_OUTPUTS = ("PLOTFILE", "POSTFILE", "DEBUGOPT")
 
-# Outputs AERMOD may leave unwritten in a successful run: coset.f opens
-# a named debug file only when its option applies (PRIME without a
-# building, AREA without an area-type source) and sends MODEL's output
-# to DEPOS.DBG when DEPOS is not followed by MODEL (checked on v26135).
+# Outputs AERMOD may leave unwritten in a successful run. When DEPOS is
+# not followed by MODEL, coset.f (v26135, lines 3946-3949) sends MODEL's
+# output to DEPOS.DBG, so the file named for MODEL is never written
+# (checked on v26135). An option whose feature the deck lacks (PRIME
+# without a building, AREA without an area-type source, and so on) is
+# fatal E194 (coset.f 3644-3725), so it never reaches _drop_unwritten.
 _MAYBE_UNWRITTEN = ("DEBUGOPT",)
 
 # The met files' roles in the run ID, by the keyword that names them.

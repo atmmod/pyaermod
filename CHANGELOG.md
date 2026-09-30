@@ -343,8 +343,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `run_particle_deposition_001_3fa9c0d27e41.inp`. Two values whose
     text would give the same name are named the same way. Plain values
     keep names such as `run_emission_rate_0.5.inp`.
-  - **Output names.** Each deck's output files are renamed
-    `<deck stem>_<file name>`, in the sweep's directory.
+  - **Output names.** Each output file a deck names is renamed
+    `<deck stem>_<file name>`, in the sweep's directory. Files AERMOD
+    names itself (a debug option or ERRORFIL given without a name,
+    DEPOS's `GDEP.DAT`, `PDEP.DAT` and `DEPOS.DBG`, PVMRM's
+    `RelDisp.dbg`) are still shared by the runs, and the last run's copy
+    is kept; `run_design` keeps them per run.
   - **Equal values** are refused with `ValueError`.
   - **Outputs that would become one file** are refused with
     `ValueError` before any deck is written: two output files with the

@@ -296,10 +296,23 @@ overlap (see above). Use `run_design` for parallel runs.
   (`run_emission_rate_0.5.inp`) when the value is a short plain number,
   string or boolean. Any other value is named by its position and a hash,
   such as `run_particle_deposition_001_3fa9c0d27e41.inp`.
-- **Output names.** Each deck's output files are prefixed with the
-  deck's stem, so the runs do not overwrite each other's PLOTFILEs. As
-  they all land in the sweep's directory, two outputs with the same file
-  name in different directories (`annual/result.plt` and
-  `hourly/result.plt`, compared ignoring case) are refused with
-  `ValueError`, as is a new name longer than 200 characters.
+- **Output names.** Each output file the deck names is prefixed with
+  the deck's stem, so the runs do not overwrite each other's PLOTFILEs,
+  POSTFILEs or named debug files. As they all land in the sweep's
+  directory, two outputs with the same file name in different
+  directories (`annual/result.plt` and `hourly/result.plt`, compared
+  ignoring case) are refused with `ValueError`, as is a new name longer
+  than 200 characters.
+- **Files AERMOD names itself are shared.** Some files get their name
+  from AERMOD, not from the deck, so the sweep cannot rename them. Every
+  run writes each of them to the same file in the sweep's directory, and
+  only the last run's copy is kept. They are the file of a debug option
+  given without a name (`MODEL.DBG`, `METEOR.DBG`, `AREA.DBG`, ..., with
+  RLINE's `RLINE_GRIDWS.DBG` and URBANDB's `URBDBUG1.DBG` and
+  `URBDBUG2.DBG`), the `ERRORS.LST` of an ERRORFIL given without a name,
+  and the files whose names AERMOD always chooses: DEPOS's `GDEP.DAT`,
+  `PDEP.DAT` and `DEPOS.DBG`, and PVMRM's `RelDisp.dbg`. Name each debug
+  file in `ControlPathway.debug_options`, and the ERRORFIL, to keep those
+  per run. For the files AERMOD always names, use `run_design`, which
+  gives each run its own directory.
 - **Equal values** are refused, because they would be the same run.
