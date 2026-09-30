@@ -80,8 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on MODELOPT. Its met, `tests/fixtures/deposition_met/`, is four wet
   days (28.4 mm) of EPA's AERMET test case EX04 (Houston 1996) run with
   AERMET v26135; the vendored AERMET2 met has no precipitation, so wet
-  deposition was 0 everywhere. The example's POSTFILE section says that
-  `read_postfile` mislabels the columns of its own decks' POSTFILEs.
+  deposition was 0 everywhere. The example's POSTFILE section gives the
+  columns `read_postfile` returns for its decks' POSTFILEs, now that the
+  reader labels them by output type (see the `read_postfile` entry
+  below).
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
