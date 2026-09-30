@@ -541,6 +541,20 @@ class AERMODRunner:
 
         Returns the :class:`_Staged` run, or a failed :class:`AERMODRunResult`
         (the lock already released) when ``aermod.inp`` is another deck.
+        It is :meth:`_claim` then :meth:`_prepare`.
+        """
+        staged = self._claim(input_path, work_dir)
+        if not isinstance(staged, AERMODRunResult):
+            self._prepare(input_path, work_dir, staged)
+        return staged
+
+    def _claim(self, input_path: Path, work_dir: Path) -> Union["_Staged", AERMODRunResult]:
+        """Lock ``work_dir`` and check its ``aermod.inp``, changing nothing.
+
+        Returns the :class:`_Staged` run, not yet prepared, or a failed
+        :class:`AERMODRunResult` (the lock already released) when
+        ``aermod.inp`` is another deck. A run that stops here releases
+        the lock alone, with :func:`_release_dir_lock`.
         """
         lock_path = work_dir / ".pyaermod.lock"
         lock_fh = _acquire_dir_lock(lock_path)
@@ -570,7 +584,11 @@ class AERMODRunner:
                     "that deck, or give this run a different working_dir"
                 ),
             )
+        return _Staged(lock_fh, aermod_inp, copy_marker, in_place)
 
+    @staticmethod
+    def _prepare(input_path: Path, work_dir: Path, staged: "_Staged") -> None:
+        """Remove an earlier run's outputs and point ``aermod.inp`` at the deck."""
         # Files left by an earlier run would otherwise stand in for this
         # one's whenever this run writes none: a timeout before AERMOD
         # opens aermod.out, a cancel, or a crash. The verdict would then be
@@ -584,8 +602,9 @@ class AERMODRunner:
                     stale.unlink()
 
         # Create symlink: aermod.inp -> <input_name>.inp, unless the deck
-        # is already in place (see above).
-        if not in_place:
+        # is already in place (see _claim).
+        if not staged.in_place:
+            aermod_inp = staged.aermod_inp
             try:
                 if aermod_inp.exists() or aermod_inp.is_symlink():
                     aermod_inp.unlink()
@@ -594,9 +613,8 @@ class AERMODRunner:
                 # Fallback: copy the file (ValueError: relpath across
                 # Windows drives). Mark the copy first, so that one left
                 # by a killed process is still known as the runner's.
-                copy_marker.write_text(_sha256(input_path) + "\n")
+                staged.copy_marker.write_text(_sha256(input_path) + "\n")
                 shutil.copy2(str(input_path), str(aermod_inp))
-        return _Staged(lock_fh, aermod_inp, copy_marker, in_place)
 
     @staticmethod
     def _unstage(staged: "_Staged") -> None:
@@ -1191,17 +1209,26 @@ class AERMODRun:
         input_name = input_path.stem
         runner.logger.info(f"Starting AERMOD in the background: {input_name}")
 
-        staged = runner._stage(input_path, work_dir)
+        staged = runner._claim(input_path, work_dir)
         if isinstance(staged, AERMODRunResult):
             return staged
         stdout_path = work_dir / f"{input_name}.subproc.stdout"
         stderr_path = work_dir / f"{input_name}.subproc.stderr"
         start_time = datetime.now()
+        prepared = False
         try:
-            with open(stdout_path, "wb") as stdout_fh, open(stderr_path, "wb") as stderr_fh:
+            with contextlib.ExitStack() as logs:
+                # One hold of the lock from the cancel check to Popen: a
+                # run cancelled while it waited for the directory returns
+                # before it removes an earlier run's outputs or opens
+                # anything, and one cancelled later has an AERMOD to stop.
                 with self._lock:
                     if self._cancel_at is not None:
                         return self._never_started(input_path, start_time)
+                    prepared = True
+                    runner._prepare(input_path, work_dir, staged)
+                    stdout_fh = logs.enter_context(open(stdout_path, "wb"))
+                    stderr_fh = logs.enter_context(open(stderr_path, "wb"))
                     env = dict(os.environ)
                     env.setdefault("GFORTRAN_UNBUFFERED_PRECONNECTED", "y")
                     proc = subprocess.Popen(
@@ -1235,7 +1262,10 @@ class AERMODRun:
             )
         finally:
             self._kill()                     # nothing may outlive the run
-            runner._unstage(staged)
+            if prepared:
+                runner._unstage(staged)
+            else:
+                _release_dir_lock(staged.lock_fh)
 
     def _never_started(self, input_path: Path, start_time: datetime) -> AERMODRunResult:
         self._runner.logger.info("AERMOD run cancelled before it started")

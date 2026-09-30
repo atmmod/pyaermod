@@ -137,12 +137,22 @@ def test_a_crashed_run_does_not_claim_an_earlier_runs_out_file(fake, tmp_path, b
     assert "E480" not in result.error_message
 
 
+def _files(work: Path) -> dict:
+    """The directory's files and their bytes, but the runner's (empty) lock file."""
+    return {path.name: path.read_bytes() for path in work.iterdir()
+            if path.is_file() and path.name != ".pyaermod.lock"}
+
+
 def test_a_run_cancelled_before_aermod_starts_never_starts_it(fake):
     runner, deck = fake
+    work = deck.parent
+    earlier = runner.start(deck, working_dir=work).wait(30)
+    left = _files(work)
+    assert earlier.output_file and "deck.out" in left     # E480, left by the first run
     # Another run holds the working directory: this one waits for it.
-    lock = _acquire_dir_lock(deck.parent / ".pyaermod.lock")
+    lock = _acquire_dir_lock(work / ".pyaermod.lock")
     try:
-        run = runner.start(deck, working_dir=deck.parent)
+        run = runner.start(deck, working_dir=work)
         time.sleep(0.2)
         assert run.pid is None and not run.done
         assert run.cancel() is True
@@ -151,6 +161,64 @@ def test_a_run_cancelled_before_aermod_starts_never_starts_it(fake):
     result = run.wait(20)
     assert run.pid is None
     assert result.cancelled and result.error_message == "Cancelled before AERMOD started"
+    # It touched nothing: the first run's outputs and logs are as they were.
+    assert _files(work) == left
+    assert not (work / "aermod.inp").exists()
+
+
+def _run(runner: AERMODRunner, deck: Path, background: bool):
+    """(result, pid): ``start()`` then ``wait()``, or ``run()`` (pid None)."""
+    if background:
+        run = runner.start(deck, working_dir=deck.parent)
+        return run.wait(30), run.pid
+    return runner.run(deck, working_dir=deck.parent), None
+
+
+@pytest.mark.parametrize("background", [True, False])
+def test_another_deck_named_aermod_inp_and_its_results_are_kept(fake, background):
+    """#27's refusal, for start() as for run(): AERMOD would read that deck."""
+    runner, deck = fake
+    work = deck.parent
+    base = work / "aermod.inp"
+    base.write_text((RECORDINGS / "albany_success" / "aermod.inp").read_text())
+    (work / "aermod.out").write_text("the base deck's results\n")
+    kept = _files(work)
+    result, pid = _run(runner, deck, background)
+    assert result.success is False and pid is None       # AERMOD never started
+    assert "already holds another deck named aermod.inp" in result.error_message
+    assert result.input_file == str(deck)
+    assert not base.is_symlink()
+    assert _files(work) == kept
+
+
+@pytest.mark.parametrize("background", [True, False])
+def test_a_deck_named_aermod_inp_runs_in_place_and_stays(fake, background):
+    runner, deck = fake
+    inp = deck.rename(deck.parent / "aermod.inp")
+    text = inp.read_bytes()
+    result, pid = _run(runner, inp, background)
+    assert (pid is not None) == background
+    assert "E480" in [m.code for m in result.messages]  # AERMOD read this deck
+    assert result.output_file == str(inp.parent / "aermod.out")
+    assert not inp.is_symlink() and inp.read_bytes() == text
+
+
+@pytest.mark.parametrize("background", [True, False])
+def test_the_aermod_inp_link_is_relative(fake, monkeypatch, background):
+    """A relative link still finds the deck when the directory is moved or mounted elsewhere."""
+    runner, deck = fake
+    made = []
+    symlink_to = Path.symlink_to
+
+    def _spy(self, target, *args, **kwargs):
+        made.append((self, str(target)))
+        return symlink_to(self, target, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "symlink_to", _spy)
+    result, _ = _run(runner, deck, background)
+    assert "E480" in [m.code for m in result.messages]  # AERMOD read the deck through it
+    assert made == [(deck.parent / "aermod.inp", "deck.inp")]
+    assert not (deck.parent / "aermod.inp").exists()
 
 
 def test_an_aermod_that_ignores_sigterm_is_killed(tmp_path, monkeypatch):
