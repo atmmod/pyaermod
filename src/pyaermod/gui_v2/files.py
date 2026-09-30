@@ -382,6 +382,11 @@ def import_controls(session: Session, *, dialogs: Any = None,
                          "beside the deck.")
             if report.met_needed:
                 _met_notice(session, report, goto)
+            if report.inputs_found:
+                ui.label("Found the other files it reads beside the deck: "
+                         f"{_file_list(report.inputs_found)}.")
+            if report.inputs_missing:
+                _inputs_notice(report)
             ui.button("Dismiss", on_click=_dismiss).props("flat")
 
     # ----- recent files ---------------------------------------------------
@@ -459,6 +464,22 @@ def _met_notice(session: Session, report: DeckImport,
         met_file_input(session, field_name, label=f"{kind.capitalize()} met file (full path)")
     if goto is not None:
         ui.button("Go to Meteorology", on_click=lambda: goto("meteorology")).props("flat")
+
+
+def _file_list(files_: Sequence[Tuple[str, str]]) -> str:
+    """``path (KEYWORD), ...`` for the notice."""
+    return ", ".join(f"{path} ({keyword})" for keyword, path in files_)
+
+
+def _inputs_notice(report: DeckImport) -> None:
+    from nicegui import ui
+
+    upload = "An uploaded deck brings no files. " if report.path is None else ""
+    ui.label(
+        "The deck also reads files that are not on this computer as it names them: "
+        f"{_file_list(report.inputs_missing)}. {upload}AERMOD reads a relative path "
+        "from the run's working directory: put the files there, or give their full "
+        "paths in the deck, before you run it.")
 
 
 __all__ = [

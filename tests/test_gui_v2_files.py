@@ -203,6 +203,24 @@ class TestImportNotice:
                              str(tmp_path / "meteorology" / "aermet2.sfc"))
 
     @pytest.mark.asyncio
+    async def test_the_other_files_the_deck_reads_are_named(self, gui, tmp_path):
+        text = AERTEST.read_text(encoding="utf-8").replace(
+            "SO FINISHED", "   HOUREMIS  hourly.emi  STACK1\nSO FINISHED", 1)
+        await gui.open()
+        await _upload_deck(gui, "hourly.inp", text.encode("utf-8"))
+        await gui.user.should_see(
+            "The deck also reads files that are not on this computer as it names them: "
+            "hourly.emi (SO HOUREMIS at line 52). An uploaded deck brings no files.")
+        # Read from its path, with the file beside it, it brings the file along.
+        deck = tmp_path / "hourly.inp"
+        deck.write_text(text, encoding="utf-8")
+        (tmp_path / "hourly.emi").write_text("x")
+        _read_from_path(gui, deck)
+        await gui.user.should_see(
+            "Found the other files it reads beside the deck: hourly.emi (SO HOUREMIS at line 52).")
+        await gui.user.should_not_see("The deck also reads files")
+
+    @pytest.mark.asyncio
     async def test_dismiss_hides_the_notice_until_the_next_import(self, gui):
         await gui.open()
         await _upload_deck(gui, "aertest.inp", AERTEST.read_bytes())

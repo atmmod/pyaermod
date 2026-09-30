@@ -49,6 +49,19 @@ def _archive(tmp_path: Path) -> Path:
     return deck
 
 
+def _with_houremis(folder: Path) -> Path:
+    """The recorded aertest deck reading hourly emissions from hourly.emi.
+
+    SO HOUREMIS has no field in PyAERMOD: the line is kept as written, at
+    line 52 of this deck.
+    """
+    text = AERTEST.read_text(encoding="utf-8").replace(
+        "SO FINISHED", "   HOUREMIS  hourly.emi  STACK1\nSO FINISHED", 1)
+    deck = folder / "hourly.inp"
+    deck.write_text(text, encoding="utf-8")
+    return deck
+
+
 class TestUpload:
     def test_an_uploaded_deck_populates_the_project(self):
         session = Session()
@@ -101,6 +114,43 @@ class TestUpload:
         # Nothing changed.
         assert events == []
         assert session.project.control.title_one == "kept"
+        assert session.last_import is None
+
+    def test_a_kept_line_naming_a_file_outside_is_refused(self):
+        text = AERTEST.read_text(encoding="utf-8").replace(
+            "ERRORFIL  AERTEST_ERRORS.OUT", "ERRORFIL  /tmp/elsewhere/errors.out")
+        session = Session()
+        with pytest.raises(DeckImportError) as caught:
+            session.import_inp(text, name="aertest.inp")
+        assert ("names /tmp/elsewhere/errors.out (CO ERRORFIL at line 14)"
+                in str(caught.value))
+        assert session.last_import is None
+
+    def test_the_files_it_reads_are_to_be_supplied(self, tmp_path):
+        deck = _with_houremis(tmp_path)
+        report = Session().import_inp(deck.read_bytes(), name=deck.name)
+        assert report.inputs_found == ()
+        assert report.inputs_missing == (("SO HOUREMIS at line 52", "hourly.emi"),)
+
+    def test_a_long_name_is_shortened_for_the_header(self):
+        name = "a" * 300 + ".inp"
+        session = Session()
+        report = session.import_inp(AERTEST.read_bytes(), name=name)
+        assert len(report.name) == 120
+        assert report.name == "a" * 113 + "....inp"
+        assert session.title == f"PyAERMOD — {report.name} (modified)"
+        assert [s.source_id for s in session.project.sources.sources] == ["STACK1"]
+
+    def test_a_deck_that_cannot_be_stored_is_refused(self, monkeypatch):
+        def full(self, data):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(Path, "write_bytes", full)
+        session = Session()
+        with pytest.raises(DeckImportError,
+                           match=r"^aertest\.inp: could not be stored for reading: "
+                                 r"No space left on device$"):
+            session.import_inp(AERTEST.read_bytes(), name="aertest.inp")
         assert session.last_import is None
 
     @pytest.mark.parametrize("data, reason", [
@@ -169,6 +219,21 @@ class TestPath:
         report = Session().import_inp(deck)
         assert report.met_found == ()
         assert report.met_needed == (("profile_file", "AERMET2.PFL"),)
+
+    def test_other_files_beside_the_deck_come_along(self, tmp_path):
+        deck = _with_houremis(tmp_path)
+        (tmp_path / "hourly.emi").write_text("x")
+        session = Session()
+        report = session.import_inp(deck)
+        assert report.inputs_found == (("SO HOUREMIS at line 52", "hourly.emi"),)
+        assert report.inputs_missing == ()
+        assert (f"HOUREMIS  {tmp_path / 'hourly.emi'}  STACK1"
+                in session.project.to_aermod_input(validate=False))
+
+    def test_other_files_not_beside_the_deck_are_named(self, tmp_path):
+        report = Session().import_inp(_with_houremis(tmp_path))
+        assert report.inputs_found == ()
+        assert report.inputs_missing == (("SO HOUREMIS at line 52", "hourly.emi"),)
 
     def test_a_missing_file_is_refused(self, tmp_path):
         session = Session()

@@ -25,7 +25,6 @@ from __future__ import annotations
 import copy
 import dataclasses
 import logging
-import os
 import re
 import tempfile
 from dataclasses import dataclass, replace
@@ -157,8 +156,18 @@ MET_FILE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("profile_file", "profile"),
 )
 
-#: The name an uploaded deck is read under when it came without one.
+#: The name an uploaded deck is shown under when it came without one.
 _DEFAULT_DECK_NAME = "deck.inp"
+
+#: The file an upload is written to in its temporary folder: the name the
+#: user sees may be longer than a file name can be.
+_UPLOAD_FILE_NAME = "upload.inp"
+
+#: How long a deck's name may be in the header and in messages.
+_MAX_DECK_NAME = 120
+
+#: The deck keyword that names each met file field.
+_MET_KEYWORDS = {"ME SURFFILE": "surface_file", "ME PROFFILE": "profile_file"}
 
 
 @dataclass(frozen=True)
@@ -170,7 +179,12 @@ class DeckImport:
     (:attr:`AERMODProject.unparsed_lines`). ``met_found`` names the met
     file fields whose relative path was found beside the deck and is now
     a full path; ``met_needed`` lists ``(field, path as written)`` for
-    each met file the user still has to point at.
+    each met file the user still has to point at. The deck's other input
+    files (ozone and NOx files, ``INCLUDED``, ``HOUREMIS`` ...; see
+    :func:`~pyaermod.input_reader.input_files`) are listed as
+    ``(keyword, path as written)``: ``inputs_found`` for those found
+    beside the deck, now full paths, and ``inputs_missing`` for those
+    that are not a file on this computer as the project names them.
     """
 
     name: str
@@ -178,6 +192,8 @@ class DeckImport:
     unparsed: Tuple[UnparsedLine, ...] = ()
     met_found: Tuple[str, ...] = ()
     met_needed: Tuple[Tuple[str, str], ...] = ()
+    inputs_found: Tuple[Tuple[str, str], ...] = ()
+    inputs_missing: Tuple[Tuple[str, str], ...] = ()
 
 # --- end WP-G6 --------------------------------------------------------------
 
@@ -456,32 +472,41 @@ class Session:
 
         A :class:`~pathlib.Path` is a deck on this computer that the user
         chose (a native dialog, a path they typed, the recent-files list):
-        it is read as it stands, and a met file it names by a relative
-        path that exists beside it becomes a full path, so a run in any
-        working directory finds it. Text or bytes are an upload, whose
-        folder the server never sees: the deck is read with
+        it is read as it stands, and each file it reads (met, ozone,
+        ``INCLUDED`` ...) named by a relative path that exists beside it
+        becomes a full path (:func:`~pyaermod.input_reader.anchor_input_files`),
+        so a run in any working directory finds it. Text or bytes are an
+        upload, whose folder the server never sees: the deck is read with
         ``read_aermod_input(..., sandbox=True)`` from a private temporary
-        folder, so it may name only files beside itself, and every met
-        file it names is one the user still has to supply.
+        folder, so no path in it, kept-as-written lines included, may
+        lead outside its own folder, and every file it reads is one the
+        user still has to supply.
 
         The project has no file of its own afterwards and counts as
         modified. Raises :class:`DeckImportError`, with nothing changed,
         when the deck cannot be imported. Returns what came in, which is
         also kept as :attr:`last_import`.
         """
+        from ..input_reader import anchor_input_files
+
         if isinstance(source, Path):
-            deck_name = source.name or _DEFAULT_DECK_NAME
+            deck_name = _shorten_deck_name(source.name or _DEFAULT_DECK_NAME)
             project = self._read_deck(source, deck_name, sandbox=False)
-            met_found = _bring_met_files(project, source.parent)
+            anchored = [ref for ref, _full in anchor_input_files(project, source.parent)]
             path: Optional[Path] = source
         else:
             deck_name = _clean_deck_name(name)
             data = source.encode("utf-8") if isinstance(source, str) else source
             with tempfile.TemporaryDirectory(prefix="pyaermod_import_") as tmp:
-                deck = Path(tmp) / deck_name
-                deck.write_bytes(data)
+                deck = Path(tmp) / _UPLOAD_FILE_NAME
+                try:
+                    deck.write_bytes(data)
+                except OSError as exc:
+                    raise DeckImportError(
+                        f"{deck_name}: could not be stored for reading: "
+                        f"{exc.strerror or exc}") from exc
                 project = self._read_deck(deck, deck_name, sandbox=True)
-            met_found, path = (), None
+            anchored, path = [], None
         try:
             # The project as its file would reopen it, like every project the
             # session holds: a value the pages or the deck writer could not
@@ -491,7 +516,12 @@ class Session:
             raise DeckImportError(str(exc)) from exc
         report = DeckImport(
             name=deck_name, path=path, unparsed=tuple(project.unparsed_lines),
-            met_found=met_found, met_needed=_met_needed(project),
+            met_found=tuple(_MET_KEYWORDS[ref.keyword] for ref in anchored
+                            if ref.keyword in _MET_KEYWORDS),
+            met_needed=_met_needed(project),
+            inputs_found=tuple((ref.keyword, ref.path) for ref in anchored
+                               if ref.keyword not in _MET_KEYWORDS),
+            inputs_missing=_inputs_missing(project),
         )
         self._replaced(project, path=None, name=None, imported=report)
         return report
@@ -757,28 +787,24 @@ class Session:
 
 # --- WP-G6: deck import helpers ----------------------------------------------
 
+def _shorten_deck_name(name: str) -> str:
+    """``name``, cut to fit the header, keeping its suffix."""
+    if len(name) <= _MAX_DECK_NAME:
+        return name
+    suffix = Path(name).suffix if len(Path(name).suffix) <= 10 else ""
+    return name[:_MAX_DECK_NAME - len(suffix) - 3] + "..." + suffix
+
+
 def _clean_deck_name(name: Optional[str]) -> str:
-    """An uploaded deck's file name, safe to create in a temporary folder."""
-    return _last_name_part(name) or _DEFAULT_DECK_NAME
+    """An uploaded deck's bare name, as the header and messages show it."""
+    return _shorten_deck_name(_last_name_part(name) or _DEFAULT_DECK_NAME)
 
 
-def _bring_met_files(project: AERMODProject, deck_dir: Path) -> Tuple[str, ...]:
-    """Make each relative met path that exists beside the deck a full path.
-
-    AERMOD reads a relative path from its working directory, which for a
-    GUI run is not the deck's folder. Returns the fields changed.
-    """
-    met = project.meteorology
-    found = []
-    for field_name, _label in MET_FILE_FIELDS:
-        raw = getattr(met, field_name, None)
-        if not raw or Path(raw).is_absolute():
-            continue
-        candidate = Path(os.path.normpath(deck_dir.absolute() / raw))
-        if candidate.is_file():
-            setattr(met, field_name, str(candidate))
-            found.append(field_name)
-    return tuple(found)
+def _is_local_file(raw: str) -> bool:
+    try:
+        return Path(raw).is_absolute() and Path(raw).is_file()
+    except (OSError, ValueError):
+        return False
 
 
 def _met_needed(project: AERMODProject) -> Tuple[Tuple[str, str], ...]:
@@ -787,9 +813,17 @@ def _met_needed(project: AERMODProject) -> Tuple[Tuple[str, str], ...]:
     needed = []
     for field_name, _label in MET_FILE_FIELDS:
         raw = getattr(met, field_name, None) or ""
-        if not (raw and Path(raw).is_absolute() and Path(raw).is_file()):
+        if not (raw and _is_local_file(raw)):
             needed.append((field_name, raw))
     return tuple(needed)
+
+
+def _inputs_missing(project: AERMODProject) -> Tuple[Tuple[str, str], ...]:
+    """``(keyword, path)`` for each other input file not on this computer."""
+    from ..input_reader import input_files
+
+    return tuple((ref.keyword, ref.path) for ref in input_files(project)
+                 if ref.keyword not in _MET_KEYWORDS and not _is_local_file(ref.path))
 
 # --- end WP-G6 ----------------------------------------------------------------
 
