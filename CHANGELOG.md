@@ -36,8 +36,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `Vg` of all 64 categories of a real v26135 run recorded with
   `DEBUGOPT DEPOS` in `tests/fixtures/psd/`. Documented in
   `docs/psd.md` and `docs/api/psd.md`.
+- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
+  UI-free session, with one method per user operation (`new`,
+  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
+  `update_source`, `delete_source`, the same for receptors,
+  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
+  for observers.
+- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
+  the project file format as text.
+
+### Changed
+- GUI: in the source and receptor editors, Close now discards changes,
+  and Add only adds the item on Save.
+- GUI: in the browser, Save on a project that has no file on disk opens
+  Save As.
+- GUI: the app keeps one `Session` per browser tab. A duplicated tab, or
+  a reload of the desktop window, gets its own copy.
+- The GUI project file tags every nested object with `_type` and writes a
+  dict whose keys are not all strings (background `sector_values`) as
+  `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
+  files written before this change still open.
 
 ### Fixed
+- **`examples/deposition_modeling.py` calculated no deposition.** Its
+  decks set only `OutputPathway.output_type`, which selects nothing in
+  AERMOD, so the particle deck was `MODELOPT CONC FLAT DFAULT`, a
+  concentration-only run; the two gas decks failed validation (GASDEPOS
+  without ALPHA, E198) and were left empty, and `main()` printed the
+  errors and carried on. The example now sets the `ControlPathway` flags
+  that put DEPOS, DDEP and WDEP on MODELOPT, runs the gas decks under
+  ALPHA without DFAULT with the GDSEASON/GDLANUSE site categories that
+  gas dry deposition needs (E244 otherwise), gives every source of the
+  mixed deck deposition inputs (E242 otherwise) and uses POLLUTID OTHER
+  there (a 1-hour PM25 average is E363). Its FLAT particle deck leaves
+  DFAULT off, because DFAULT overrides FLAT with ELEV (W206), which put
+  its 50 m source base above receptors at 0 m. The example and the
+  quickstart state that E242 applies whenever any source has deposition
+  inputs, even with CONC alone, since depletion is then on by default
+  (NODRYDPLT NOWETDPLT turn it off). It no longer passes
+  `deposition_method`, which writes nothing. Its "(g/m2/s)" comment
+  was wrong: AERMOD writes deposition in g/m², totalled over each
+  averaging period, and g/m²/yr for ANNUAL (coset.f MODOPT; output.f
+  PERAVE averages only CONC). The POSTFILE section now shows the
+  columns `read_postfile` returns and recommends `FILEFORM EXP`, since
+  the fixed format prints hourly fluxes as 0.00000. `main()` lets errors
+  through. `docs/quickstart.md`, which told readers to set
+  `output_type="DEPOS"`, now describes the MODELOPT flags and units.
+  `tests/test_example_deposition.py` checks each deck's MODELOPT and
+  runs all three through the real AERMOD binary (skipped without
+  `aermod` on PATH; ANNUAL becomes PERIOD there because the met covers
+  four days), failing on any warning beyond the placeholder
+  SURFDATA/UAIRDATA ones and on a zero PERIOD maximum for any quantity
+  on MODELOPT. Its met, `tests/fixtures/deposition_met/`, is four wet
+  days (28.4 mm) of EPA's AERMET test case EX04 (Houston 1996) run with
+  AERMET v26135; the vendored AERMET2 met has no precipitation, so wet
+  deposition was 0 everywhere. The example's POSTFILE section says that
+  `read_postfile` mislabels the columns of its own decks' POSTFILEs.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
@@ -67,6 +121,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **GUI: Results now updates when a run finishes** (defect D2). The shell
+  built every tab once per page load, so Results kept saying "No run yet"
+  after a run. Results and the Run tab's status are now rebuilt from the
+  session's run history.
+- **GUI: New and Open show the project they load** (defect D3). Every
+  widget stayed bound to the replaced project, so the screen kept the
+  old values and later edits went to the discarded project; editing a
+  row of the old table after New also crashed the server. Every step is
+  now rebuilt from the session when the project is replaced.
+- **GUI: Open works on NiceGUI 3** (defect D4) and sends the file as soon
+  as it is chosen. A malformed project file is reported ("Load failed:
+  ...") instead of raising.
+- **GUI: Save As no longer writes to `/tmp`**, which does not exist on
+  Windows. It downloads the file in the browser and asks where to save it
+  through a native dialog in `pyaermod-desktop`.
+- GUI: opening the Meteorology tab no longer marks the project modified,
+  and neither does leaving a number field without editing it.
+- GUI: a browser reload keeps the project and the last run.
+- GUI: the "No sources yet" and "No receptors yet" messages now follow
+  the list.
+- The `pyaermod-desktop` PyInstaller bundle now starts from a launcher
+  script (`packaging/desktop_entry.py`). It used to run
+  `gui_v2/desktop.py` itself, whose relative imports fail when it is the
+  entry script, so the frozen app could not start.
+- **GUI project files kept only part of the project.** `project_io` rebuilt
+  sources, receptors and the top level of each pathway, and left every
+  nested object as a plain dict: a source's `particle_deposition` or
+  `gas_deposition`, background sectors, event periods and the like. It
+  also dropped the rest of `SourcePathway` (background, source groups,
+  emission units, barriers), `AERMODProject.events` and
+  `unparsed_lines`. A file pyaermod had written itself opened
+  "successfully" and then failed at Run with "Could not generate deck":
+  an open pit with size-resolved dry deposition could not survive a Save
+  and an Open. Reading is now driven by the model's type annotations, so
+  every nested object is rebuilt as its class, and every value is checked
+  against the field it fills. Of the 79 AERMOD decks in the repository,
+  4 survived a save and an open unchanged before; all 79 do now, field
+  for field and deck for deck, and the fixture decks are pinned by
+  `tests/test_gui_v2_project_io.py`.
+- **A project file with a value of the wrong type is refused**, naming the
+  file and the field ("Load failed: f.json:
+  project.sources.sources[0].stack_height must be a number, not text
+  'tall'"). Such a file used to load and then break the page, and, as
+  the GUI now keeps the session across reloads, every reload of that tab.
+  So is
+  a source or receptor whose `_type` is unknown (it used to be dropped
+  silently, and the next save lost it), an unknown enum member, a file
+  that is not UTF-8 text, and a document nested too deeply. `load_project`
+  and `project_from_json` raise `ValueError` naming the file for every
+  malformed file; `{"project": []}` used to escape as `AttributeError`.
+- **GUI number fields rounded the project's value to 4 decimals** when
+  they lost focus, and wrote the rounded value back: tabbing through an
+  open pit's emission rate of 1.5e-6 g/s/m² set it to 0.0. They now show
+  and keep the exact value.
+- GUI: a pollutant that AERMOD accepts but the Pollutant list does not
+  name (TSP, PB, NOX ... from a saved file) is shown and kept; it used to
+  stop the Project step from being built.
+- GUI: a part of a page that cannot show the project now says so in
+  place, and the rest of the page is built; one failing section used to
+  leave every later step and the footer empty.
+- GUI: Save reports a file that cannot be written ("Save failed: ...").
+- **Saving no longer writes a project file that cannot be opened again.**
+  `project_to_json` (and so `save_project` and every GUI Save) checks the
+  project with the loader first and raises `ValueError` naming the field,
+  such as "cannot save the project:
+  project.sources.sources[0].emission_rate must be a number, not null"
+  after a number box was emptied. The GUI reports "Save failed: ...",
+  delivers no file and keeps the project marked modified; it used to say
+  "Saved" and hand over a file that "Load failed" refused.
+- **Numbers that are NaN or infinite are refused** when a project file is
+  read or written. Python's `json` accepts `NaN` and `Infinity`; such a
+  file loaded, the source editor could not open, and the deck AERMOD ran
+  said `LOCATION PIT1 OPENPIT nan ...`.
+- GUI: Open accepts a file whatever its name ends in. The file chooser
+  filtered on `.json`, and a file it filtered out was dropped without a
+  message; a project whose name lost its extension would not open.
+- GUI: a Save As name with characters a browser rewrites (`"*:<>?|`) is
+  cleaned the same way, so the header names the file the browser saved.
+- GUI: a run whose runner raises an unexpected exception logs the
+  traceback; a missing AERMOD binary is logged as a warning.
+- **Integer fields reach the deck as integers.** The GUI's number boxes
+  store `2020.0`; STARTEND dates typed on the Meteorology step made Run fail
+  with "Unknown format code 'd' for object of type 'float'", and SURFDATA
+  was written `14735.0  1988.0`. The deck is now written from the project
+  as its file reads back (`project_io.check_project`), which turns whole
+  floats in integer fields into integers and refuses a fraction by field
+  name ("start_year must be a whole number, not 12.5"). Saved files get
+  the integers too.
+- **Whole numbers beyond `2**53` in size are refused** when a project file is read
+  or written. A file with a coordinate of `2**64` loaded, then froze the tab:
+  NiceGUI could not send the value to the browser, and every reload of the
+  tab came back blank.
+- Project files: a list used as the key of an integer-keyed dict (OZONEVAL
+  sector values) is refused naming the field; it used to load and then
+  break the deck writer. `save_project` creates no directory for a
+  refused project and replaces an existing file atomically.
+- GUI: cancelling Open while the file is still being sent no longer puts a
+  `ClientDisconnect` traceback in the server log. Errors in the deck writer
+  and in the project-file reader are logged with their traceback.
 - **`AERSCREENRunResult` named files in a spelling AERSCREEN had not
   written, on macOS and Windows.** The runner found the log by checking
   `<stem>.log` before `aerscreen.log`; a case-insensitive filesystem
@@ -82,6 +235,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+
+### Removed
+- `pyaermod.gui_v2.state.AppState`, replaced by
+  `pyaermod.gui_v2.session.Session`: `reset()` is now `new()`,
+  `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
+  `mark_clean()` are replaced by the operations that change or save the
+  project. `pyaermod.gui_v2.state._empty_project()` is still importable.
 
 ## [2.2.0] - YYYY-MM-DD
 

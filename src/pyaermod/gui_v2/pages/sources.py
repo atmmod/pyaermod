@@ -29,8 +29,9 @@ opens cleanly; the user must override them before save.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 from ...input_generator import (
     AreaCircSource,
@@ -49,7 +50,8 @@ from ...input_generator import (
     VolumeSource,
 )
 from .._form import emit_field, is_numeric, is_optional_numeric  # noqa: F401
-from ..state import AppState
+from .._live import live
+from ..session import Session, SessionEvent
 
 # ---------------------------------------------------------------------
 # Source-type registry
@@ -166,17 +168,25 @@ def _summary_row(src: Any) -> Dict[str, Any]:
 # Page render
 # ---------------------------------------------------------------------
 
-def render(state: AppState) -> None:
-    """Render the Sources tab."""
+_COLUMNS = [
+    {"name": "id", "label": "ID", "field": "id", "align": "left"},
+    {"name": "type", "label": "Type", "field": "type", "align": "left"},
+    {"name": "x", "label": "X", "field": "x", "align": "right"},
+    {"name": "y", "label": "Y", "field": "y", "align": "right"},
+    {"name": "Q (g/s)", "label": "Q (g/s)", "field": "Q (g/s)",
+     "align": "right"},
+]
+
+
+def render(session: Session, *, dialogs: Any) -> None:
+    """Render the Sources tab.
+
+    The table and its empty-state message are a live section rebuilt when
+    the sources change. Rows carry the session's key for each source; the
+    editor works on a draft (a copy, or a new source for Add) that only
+    Save hands to the session.
+    """
     from nicegui import ui
-
-    table_ref = {"obj": None}
-
-    def _refresh_table():
-        rows = [_summary_row(s) for s in state.project.sources.sources]
-        if table_ref["obj"] is not None:
-            table_ref["obj"].rows[:] = rows
-            table_ref["obj"].update()
 
     # ----- header -----------------------------------------------------
     with ui.row().classes("items-center q-gutter-md"):
@@ -187,86 +197,75 @@ def render(state: AppState) -> None:
             value="PointSource",
         ).classes("w-48")
 
-        def _on_add():
-            new_src = _new_source(type_select.value)
-            state.project.sources.sources.append(new_src)
-            state.mark_dirty()
-            _refresh_table()
-            _open_editor(new_src)
+        def _on_add() -> None:
+            _open_editor(None, _new_source(type_select.value))
 
         ui.button("Add", on_click=_on_add).props("color=primary")
 
     ui.separator().classes("q-my-md")
 
-    # ----- table ------------------------------------------------------
-    columns = [
-        {"name": "id", "label": "ID", "field": "id", "align": "left"},
-        {"name": "type", "label": "Type", "field": "type", "align": "left"},
-        {"name": "x", "label": "X", "field": "x", "align": "right"},
-        {"name": "y", "label": "Y", "field": "y", "align": "right"},
-        {"name": "Q (g/s)", "label": "Q (g/s)", "field": "Q (g/s)",
-         "align": "right"},
-    ]
-    rows = [_summary_row(s) for s in state.project.sources.sources]
-    table = ui.table(columns=columns, rows=rows, row_key="id").classes(
-        "w-full"
-    )
-    table_ref["obj"] = table
-
-    # Add edit / delete column via slot
-    table.add_slot(
-        "body-cell-id",
-        '''
-        <q-td :props="props">
-          <q-btn dense flat icon="edit"
-                 @click="$parent.$emit(`edit`, props.row.id)" />
-          <q-btn dense flat icon="delete" color="negative"
-                 @click="$parent.$emit(`delete`, props.row.id)" />
-          {{ props.row.id }}
-        </q-td>
-        ''',
-    )
-
-    def _open_editor(src: Any) -> None:
-        with ui.dialog() as dialog, ui.card().classes("min-w-[600px]"):
-            ui.label(f"Edit {type(src).__name__} — {src.source_id}").classes(
+    def _open_editor(key: Optional[str], draft: Any) -> None:
+        with dialogs, ui.dialog().mark("editor-dialog") as dialog, \
+                ui.card().classes("min-w-[600px]"):
+            ui.label(f"Edit {type(draft).__name__} — {draft.source_id}").classes(
                 "text-h6"
             )
             with ui.column().classes("w-full q-gutter-sm"):
-                for fmeta in dataclasses.fields(src):
-                    emit_field(ui.row().classes("w-full"), src, fmeta)
+                for fmeta in dataclasses.fields(draft):
+                    emit_field(ui.row().classes("w-full"), draft, fmeta)
             with ui.row().classes("justify-end q-gutter-sm q-mt-md"):
                 ui.button("Close", on_click=dialog.close).props("flat")
-                def _on_save():
-                    state.mark_dirty()
-                    _refresh_table()
+
+                def _on_save() -> None:
+                    if key is None:
+                        session.add_source(draft)
+                    elif not session.update_source(key, draft):
+                        dialog.close()
+                        ui.notify("That source was removed", color="warning")
+                        return
                     dialog.close()
+
                 ui.button("Save", on_click=_on_save).props("color=primary")
+        # A closed editor is gone for good; the next one is built afresh.
+        dialog.on_value_change(lambda e: None if e.value else dialog.delete())
         dialog.open()
 
-    def _find_by_id(sid: str):
-        for s in state.project.sources.sources:
-            if s.source_id == sid:
-                return s
-        return None
+    def _on_edit(e) -> None:
+        for key, src in session.source_entries():
+            if key == e.args:
+                _open_editor(key, copy.deepcopy(src))
+                return
 
-    table.on("edit", lambda e: _open_editor(_find_by_id(e.args)))
+    def _on_delete(e) -> None:
+        removed = session.delete_source(e.args)
+        if removed is not None:      # None: an event from a row already gone
+            ui.notify(f"Deleted {removed.source_id}", color="warning")
 
-    def _on_delete(e):
-        sid = e.args
-        state.project.sources.sources[:] = [
-            s for s in state.project.sources.sources if s.source_id != sid
-        ]
-        state.mark_dirty()
-        _refresh_table()
-        ui.notify(f"Deleted {sid}", color="warning")
-
-    table.on("delete", _on_delete)
-
-    if not rows:
-        ui.label("No sources yet. Add one above.").classes(
-            "text-grey q-mt-sm"
+    @live(session, SessionEvent.PROJECT_CHANGED, parts={"sources"})
+    def _table() -> None:
+        rows = [{**_summary_row(s), "key": key} for key, s in session.source_entries()]
+        table = ui.table(columns=_COLUMNS, rows=rows, row_key="key").classes(
+            "w-full"
+        ).mark("sources-table")
+        # Edit / delete buttons in the ID cell
+        table.add_slot(
+            "body-cell-id",
+            '''
+            <q-td :props="props">
+              <q-btn dense flat icon="edit"
+                     @click="$parent.$emit(`edit`, props.row.key)" />
+              <q-btn dense flat icon="delete" color="negative"
+                     @click="$parent.$emit(`delete`, props.row.key)" />
+              {{ props.row.id }}
+            </q-td>
+            ''',
         )
+        table.on("edit", _on_edit)
+        table.on("delete", _on_delete)
+        if not rows:
+            ui.label("No sources yet. Add one above.").classes(
+                "text-grey q-mt-sm"
+            )
 
 
 __all__ = ["render"]
