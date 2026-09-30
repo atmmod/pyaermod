@@ -1,16 +1,16 @@
 """
-Receptors tab.
+Receptors step.
 
-Three receptor types are supported, each rendered via the shared
-generic form helper:
+Three receptor types, each edited through the shared form helper:
 
 - :class:`pyaermod.input_generator.CartesianGrid`
 - :class:`pyaermod.input_generator.PolarGrid`
 - :class:`pyaermod.input_generator.DiscreteReceptor`
 
-The page mirrors the Sources tab pattern: a table of existing
-receptors with edit / delete actions, plus an "Add" dropdown for
-the three types.
+The step mirrors Sources: a table of the receptors with Edit and Delete
+on every row, shown one page at a time, the plan view, and an Add button
+for the chosen type. A project with ten thousand discrete receptors sends
+the browser one page of rows, not ten thousand.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ...input_generator import (
     PolarGrid,
     ReceptorPathway,
 )
-from .._form import emit_field
+from .._layout import Goto, Pager, plan_view, section, step_page
 from .._live import live
 from ..session import Session, SessionEvent
 
@@ -115,43 +115,29 @@ def _all_rows(entries: Iterable[Tuple[str, str, Any]]) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------
 
 _COLUMNS = [
-    {"name": "key",     "label": "",        "field": "key",
-     "align": "left", "classes": "hidden", "headerClasses": "hidden"},
-    {"name": "label",   "label": "Name",    "field": "label",
-     "align": "left"},
-    {"name": "kind",    "label": "Type",    "field": "kind",
-     "align": "left"},
-    {"name": "summary", "label": "Summary", "field": "summary",
-     "align": "left"},
+    {"name": "label",   "label": "Name",    "field": "label",   "align": "left"},
+    {"name": "kind",    "label": "Type",    "field": "kind",    "align": "left"},
+    {"name": "summary", "label": "Summary", "field": "summary", "align": "left"},
+    {"name": "actions", "label": "Actions", "field": "key",     "align": "right"},
 ]
 
 
-def render(session: Session, *, dialogs: Any) -> None:
-    """Render the Receptors tab (the same pattern as the Sources tab)."""
+def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> None:
+    """Render the Receptors step (the same pattern as the Sources step)."""
     from nicegui import ui
 
-    with ui.row().classes("items-center q-gutter-md"):
-        ui.label("Receptors").classes("text-h6")
-        type_select = ui.select(
-            options=list(_RECEPTOR_TYPES.keys()),
-            value="CartesianGrid", label="Type",
-        ).classes("w-48")
+    from .sources import ROW_ACTIONS_SLOT, editor_body
 
-        def _on_add() -> None:
-            _open_editor(None, _new_receptor(type_select.value))
-
-        ui.button("Add", on_click=_on_add).props("color=primary")
-
-    ui.separator().classes("q-my-md")
+    del goto
+    pager = Pager()
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
         with dialogs, ui.dialog().mark("editor-dialog") as dialog, \
-                ui.card().classes("min-w-[600px]"):
+                ui.card().classes("w-full max-w-4xl"):
             ui.label(f"Edit {type(draft).__name__}").classes("text-h6")
-            with ui.column().classes("w-full q-gutter-sm"):
-                for fmeta in dataclasses.fields(draft):
-                    emit_field(ui.row().classes("w-full"), draft, fmeta)
-            with ui.row().classes("justify-end q-gutter-sm q-mt-md"):
+            with ui.column().classes("w-full gap-2"):
+                editor_body(draft)
+            with ui.row().classes("justify-end w-full q-gutter-sm q-mt-md"):
                 ui.button("Close", on_click=dialog.close).props("flat")
 
                 def _on_save() -> None:
@@ -163,9 +149,7 @@ def render(session: Session, *, dialogs: Any) -> None:
                         return
                     dialog.close()
 
-                ui.button(
-                    "Save", on_click=_on_save,
-                ).props("color=primary")
+                ui.button("Save", on_click=_on_save).props("color=primary")
         dialog.on_value_change(lambda e: None if e.value else dialog.delete())
         dialog.open()
 
@@ -186,30 +170,35 @@ def render(session: Session, *, dialogs: Any) -> None:
         if removed is not None:      # None: an event from a row already gone
             ui.notify(f"Deleted {positions[e.args]}", color="warning")
 
-    @live(session, SessionEvent.PROJECT_CHANGED, parts={"receptors"})
-    def _table() -> None:
-        rows = _all_rows(session.receptor_entries())
-        table = ui.table(
-            columns=_COLUMNS, rows=rows, row_key="key",
-        ).classes("w-full").mark("receptors-table")
-        table.add_slot(
-            "body-cell-label",
-            '''
-            <q-td :props="props">
-              <q-btn dense flat icon="edit"
-                     @click="$parent.$emit(`edit`, props.row.key)" />
-              <q-btn dense flat icon="delete" color="negative"
-                     @click="$parent.$emit(`delete`, props.row.key)" />
-              {{ props.row.label }}
-            </q-td>
-            ''',
-        )
-        table.on("edit", _on_edit)
-        table.on("delete", _on_delete)
-        if not rows:
-            ui.label("No receptors yet. Add one above.").classes(
-                "text-grey q-mt-sm",
-            )
+    with step_page("Receptors", "Add the receptor networks and discrete receptors "
+                   "AERMOD computes concentrations at."):
+        with ui.row().classes("items-end gap-3 w-full flex-wrap"):
+            type_select = ui.select(
+                options=list(_RECEPTOR_TYPES.keys()), value="CartesianGrid", label="Type",
+            ).classes("w-full sm:w-64")
+            ui.button("Add", icon="add",
+                      on_click=lambda: _open_editor(None, _new_receptor(type_select.value)),
+                      ).props("color=primary")
+
+        with ui.element("div").classes("grid grid-cols-1 lg:grid-cols-5 gap-4 w-full items-start"):
+            with ui.column().classes("lg:col-span-3 min-w-0 w-full gap-2"):
+                @live(session, SessionEvent.PROJECT_CHANGED, parts={"receptors"})
+                def _table() -> None:
+                    rows = _all_rows(session.receptor_entries())
+                    shown = [{**row, "name": row["label"]} for row in pager.window(rows)]
+                    table = ui.table(columns=_COLUMNS, rows=shown, row_key="key").classes(
+                        "w-full").props('flat bordered hide-bottom aria-label="Receptors"').mark(
+                        "receptors-table")
+                    table.add_slot("body-cell-actions", ROW_ACTIONS_SLOT)
+                    table.on("edit", _on_edit)
+                    table.on("delete", _on_delete)
+                    pager.controls(len(rows), noun="Receptors", refresh=lambda: _table.refresh())
+                    if not rows:
+                        ui.label("No receptors yet. Choose a type and click Add.").classes(
+                            "text-grey-8")
+            with ui.column().classes("lg:col-span-2 min-w-0 w-full"), \
+                    section("Plan view"):
+                plan_view(session)
 
 
 __all__ = ["render"]

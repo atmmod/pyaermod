@@ -8,9 +8,8 @@ process without leaving an orphaned ``aermod``, and the status reads
 The long run is a recording replayed with a pause between stdout lines,
 so these tests belong to tier T2 only: the real binary finishes the
 reference scenario in about 0.1 s. The recording is ``albany_e480``, the
-reference scenario with the GUI's default averaging periods, because the
-current GUI cannot enter the ``albany_success`` periods (WP-G3); a
-cancelled run never reaches the E480 check, so its outcome is irrelevant.
+reference scenario with the GUI's default averaging periods; a cancelled
+run never reaches the E480 check, so its outcome is irrelevant.
 
 Today the run blocks the server's event loop, so nothing on the page
 responds until AERMOD exits.

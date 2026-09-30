@@ -5,13 +5,19 @@ Journeys call methods that say what the user does or expects
 a layout change edits this file, not the journeys (PLAN-gui.md, WP-G3
 owns it). Elements are located by role and accessible name. Where the
 current GUI gives an element no accessible name, the fallback is marked
-``# A11Y-GAP (WP-G3): ...`` (or the package that will fix it) so the
+``# A11Y-GAP (WP-Gn): ...`` naming the package that will fix it, so the
 work that adds the name can re-point it.
 
+The layout (WP-G3): a step list on the left whose tabs are named for the
+step and its badge ("Sources, complete"), one panel per step named for
+the step, and a header (the banner) with the project's name, the
+unsaved-changes marker, a readiness line and Save. Form labels carry
+units ("Stack height (m)"), so fields are found by the words of the
+label with the units optional (:func:`_label`).
+
 Methods that look for controls the current GUI does not have yet (the
-averaging-period editor, the readiness checklist, the progress bar) are
-written against the planned design. Today they time out, which journeys
-wrap in ``known_gap``.
+readiness checklist, the progress bar) are written against the planned
+design. Today they time out, which journeys wrap in ``known_gap``.
 """
 
 from __future__ import annotations
@@ -43,6 +49,15 @@ def _fill(field: Locator, value) -> None:
     """Type a value and leave the field, which is when NiceGUI commits it."""
     field.fill(_text(value))
     field.press("Tab")
+
+
+def _label(words: str) -> re.Pattern[str]:
+    """A form label: ``words`` (any case), optionally followed by its units in brackets.
+
+    ``_label("stack height")`` matches "Stack height (m)"; ``_label("source
+    id")`` matches "Source ID".
+    """
+    return re.compile(rf"^{re.escape(words)}(\s*\([^()]*\))?$", re.I)
 
 
 def _choose(page: Page, combobox: Locator, option: str) -> None:
@@ -97,34 +112,38 @@ class App:
         self._wait_ready()
 
     def _wait_ready(self) -> None:
-        expect(self.page.get_by_role("tab", name="Project", exact=True)).to_be_visible()
+        expect(self.header).to_be_visible()
         expect(self._panels()).to_have_count(1)
         # Events sent before NiceGUI's websocket handshake are not delivered.
         self.page.wait_for_function("() => window.did_handshake === true")
 
     def step_tab(self, name: str) -> Locator:
-        return self.page.get_by_role("tab", name=name, exact=True)
+        """A step in the step list, whose accessible name is "<step>, <badge>"."""
+        return self.page.get_by_role("tab", name=re.compile(rf"^{re.escape(name)}(,|$)"))
 
     def open_step(self, name: str) -> Locator:
         """Show a step and return its panel."""
         tab = self.step_tab(name)
         if tab.get_attribute("aria-selected") != "true":
+            if not tab.is_visible():
+                # A narrow window folds the step list into a drawer.
+                self.header.get_by_role("button", name="Steps").click()
             tab.click()
             expect(tab).to_have_attribute("aria-selected", "true")
             # During the switch the old and new panels are both present.
             expect(self._panels()).to_have_count(1)
-        return self._panels()
+        return self.page.get_by_role("tabpanel", name=name, exact=True)
 
     def _panels(self) -> Locator:
-        # A11Y-GAP (WP-G3): tab panels have no accessible name
-        # (aria-labelledby); the shown step is the one nested tabpanel left.
+        # The step panels sit inside the tab-panels container, itself a
+        # tabpanel; during a switch the old and new step are both there.
         return self.page.get_by_role("tabpanel").get_by_role("tabpanel")
 
     def expect_current_step(self, name: str) -> None:
         expect(self.step_tab(name)).to_have_attribute("aria-selected", "true")
 
     def expect_step_status(self, step: str, status: str) -> None:
-        """A step's badge, read from its accessible name (planned, WP-G3)."""
+        """A step's badge, read from its accessible name ("Sources, complete")."""
         expect(self.step_tab(step)).to_have_accessible_name(
             re.compile(rf"\b{re.escape(status)}\b", re.I))
 
@@ -144,8 +163,11 @@ class App:
         expect(self.header).to_contain_text(file_name)
 
     # -- notifications and dialogs ---------------------------------------
+    def notification(self, text) -> Locator:
+        return self.page.get_by_role("alert").filter(has_text=text)
+
     def expect_notification(self, text) -> None:
-        expect(self.page.get_by_role("alert").filter(has_text=text).first).to_be_visible()
+        expect(self.notification(text).first).to_be_visible()
 
     def dialog(self) -> Locator:
         return self.page.get_by_role("dialog")
@@ -173,7 +195,7 @@ class _Step:
         return self.app.open_step(self.NAME)
 
     def field(self, label: str) -> Locator:
-        return self.panel.get_by_label(label, exact=True)
+        return self.panel.get_by_label(_label(label))
 
     def set_field(self, label: str, value) -> None:
         _fill(self.field(label), value)
@@ -208,28 +230,43 @@ class ProjectPage(_Step):
         return self.panel.get_by_role("combobox", name="Averaging periods")
 
     def set_averaging_periods(self, *periods: str) -> None:
-        """Choose the averaging periods (planned multi-select, WP-G3).
+        """Choose exactly these averaging periods in the multi-select.
 
-        The current GUI has no such control and always writes its default,
-        ``1 ANNUAL``. Asking for exactly that default is therefore already
-        satisfied (the fake AERMOD's deck check confirms it whenever the
-        journey runs); asking for anything else waits for the control and
-        times out, which journeys wrap in ``known_gap("WP-G3", ...)``.
+        Each option is a toggle; the ones not wanted are switched off. The
+        select lists the choice in AVERTIME's order, as the deck does.
         """
         control = self.averaging_periods_control()
-        if control.count() == 0 and list(periods) == ["1", "ANNUAL"]:
-            return
         expect(control).to_be_visible()
         control.click()
-        for period in periods:
-            self.page.get_by_role("option", name=period, exact=True).click()
+        listbox = self.page.get_by_role("listbox")
+        expect(listbox).to_be_visible()
+        for option in listbox.get_by_role("option").all():
+            wanted = option.inner_text().strip() in periods
+            if (option.get_attribute("aria-selected") == "true") != wanted:
+                option.click()
+                expect(option).to_have_attribute("aria-selected", str(wanted).lower())
         self.page.keyboard.press("Escape")
-        for period in periods:
-            expect(control).to_contain_text(period)
+        expect(listbox).to_be_hidden()
+        shown = [p.strip() for p in control.input_value().split(",")]
+        assert sorted(shown) == sorted(periods), f"averaging periods read {shown}"
+
+    def _discard_changes_if_asked(self, done: Locator) -> None:
+        """Answer New's and Open's question about unsaved changes, if it is asked.
+
+        The page asks only when the project has unsaved changes. Either the
+        question or ``done`` (the notification the operation ends with)
+        appears; the question is answered "Discard changes".
+        """
+        question = self.app.dialog().filter(has_text="Discard unsaved changes?")
+        expect(question.or_(done).first).to_be_visible()
+        if question.is_visible():
+            question.get_by_role("button", name="Discard changes").click()
+            expect(question).to_be_hidden()
+        expect(done.first).to_be_visible()
 
     def new(self) -> None:
         self.panel.get_by_role("button", name="New", exact=True).click()
-        self.app.expect_notification("New project")
+        self._discard_changes_if_asked(self.app.notification("New project"))
 
     def save(self) -> None:
         self.panel.get_by_role("button", name="Save", exact=True).click()
@@ -250,13 +287,14 @@ class ProjectPage(_Step):
     def open_file(self, path: Path) -> None:
         """Open a saved project through the upload control."""
         self.panel.get_by_role("button", name="Open...").click()
-        dialog = self.app.dialog()
+        dialog = self.app.dialog().filter(has_text="Open a project file")
         with self.page.expect_file_chooser() as chooser:
             dialog.get_by_role("button", name="Choose File").first.click()
-        # The uploader sends the file as soon as it is chosen (auto_upload).
+        # The uploader sends the file as soon as it is chosen (auto_upload);
+        # with unsaved changes, the page then asks before replacing them.
         chooser.value.set_files(str(path))
         expect(dialog).to_be_hidden()
-        self.app.expect_notification(path.name)
+        self._discard_changes_if_asked(self.app.notification(f"Loaded {path.name}"))
 
     def import_deck(self, path: Path) -> None:
         """Import an AERMOD .inp deck (planned, WP-G6)."""
@@ -287,7 +325,7 @@ class _TableStep(_Step):
         expect(dialog).to_contain_text(self.ADD_DIALOG.format(kind=kind))
         for label, value in fields.items():
             if value is not None:
-                _fill(dialog.get_by_label(label, exact=True), value)
+                _fill(dialog.get_by_label(_label(label)), value)
         dialog.get_by_role("button", name="Save", exact=True).click()
         expect(dialog).to_be_hidden()
 
@@ -296,17 +334,13 @@ class _TableStep(_Step):
         return self.panel.get_by_role("row").filter(has=self.page.get_by_role("cell"))
 
     def row(self, name: str) -> Locator:
-        # A11Y-GAP (WP-G3): rows are found through the first cell, whose
-        # accessible name is the item's name only because its buttons are
-        # unnamed.
+        """The row whose name cell (the first) reads ``name``."""
         return self.rows().filter(
             has=self.page.get_by_role("cell", name=name, exact=True))
 
     def table(self) -> List[List[str]]:
-        # A11Y-GAP (WP-G3): the name cell also renders the "edit" and
-        # "delete" icon ligatures as text; the item's name is its last line.
-        return [[(c.strip().splitlines() or [""])[-1].strip()
-                 for c in row.get_by_role("cell").all_inner_texts()]
+        """The shown rows' cells as text, without the last (Actions) column."""
+        return [[c.strip() for c in row.get_by_role("cell").all_inner_texts()[:-1]]
                 for row in self.rows().all()]
 
     def names(self) -> List[str]:
@@ -316,11 +350,10 @@ class _TableStep(_Step):
         expect(self.rows()).to_have_count(len(names))
         assert self.names() == list(names), f"{self.NAME} table: {self.table()}"
 
-    def _row_button(self, name: str, icon: str) -> Locator:
-        # A11Y-GAP (WP-G3): the row's edit and delete buttons have no
-        # accessible name; they are found by their Material icon ligature.
-        return self.row(name).get_by_role("button").filter(
-            has_text=re.compile(rf"^\s*{icon}\s*$"))
+    def _row_button(self, name: str, action: str) -> Locator:
+        """A row's "Edit <name>" or "Delete <name>" button."""
+        return self.row(name).get_by_role(
+            "button", name=f"{action.capitalize()} {name}", exact=True)
 
     def _open_editor(self, name: str) -> Locator:
         self._row_button(name, "edit").click()
@@ -335,7 +368,7 @@ class _TableStep(_Step):
     def editor_value(self, name: str, label: str) -> str:
         """Open the editor for ``name``, read one field and close it."""
         dialog = self._open_editor(name)
-        value = dialog.get_by_label(label, exact=True).input_value()
+        value = dialog.get_by_label(_label(label)).input_value()
         dialog.get_by_role("button", name="Close", exact=True).click()
         expect(dialog).to_be_hidden()
         return value
@@ -353,7 +386,7 @@ class _TableStep(_Step):
             expect(message).to_have_count(0)
 
     def expect_plan_view_shows(self, *names: str) -> None:
-        """The plan-view plot names every item (planned, WP-G3)."""
+        """The plan-view plot names every item (in its labels or tooltips)."""
         plot = self.panel.get_by_role("img", name=re.compile("plan view", re.I))
         expect(plot).to_be_visible()
         for name in names:
@@ -439,14 +472,14 @@ class ReceptorsPage(_TableStep):
         expect(self.rows()).to_have_count(count)
 
     def _expect_row(self, name: str, kind: str, counts: Tuple[int, int]) -> None:
-        # The current table summarises a grid as "10 dist x 36 dir" or
-        # "11 x 11"; counts typed into it read "11.0" (the integer-field
-        # gap, pinned by J7's own test), so they are compared as numbers.
+        # The table summarises a grid as "10 dist x 36 dir" or "11 x 11"
+        # (columns Name, Type, Summary, Actions). Counts are compared as
+        # numbers, so "11.0" would pass too; J7's own test pins integers.
         cells = self.row(name).get_by_role("cell")
-        expect(cells.nth(-2)).to_have_text(kind)
+        expect(cells.nth(1)).to_have_text(kind)
         number = r"(\d+(?:\.0+)?)"
         pattern = rf"^\s*{number}\D+{number}\D*$"
-        summary = cells.nth(-1)
+        summary = cells.nth(2)
         expect(summary).to_have_text(re.compile(pattern))
         shown = re.match(pattern, summary.inner_text())
         assert shown and tuple(float(g) for g in shown.groups()) == counts, (
@@ -463,11 +496,7 @@ class ReceptorsPage(_TableStep):
         # labels them DISC<n> and summarises their coordinates.
         row = self.rows().filter(has_text=f"({x:.1f}, {y:.1f})")
         expect(row).to_have_count(1)
-        expect(row.get_by_role("cell").nth(-2)).to_have_text("DiscreteReceptor")
-
-    def table(self) -> List[List[str]]:
-        # Drop the hidden key column the current table carries.
-        return [cells[-3:] for cells in super().table()]
+        expect(row.get_by_role("cell").nth(1)).to_have_text("DiscreteReceptor")
 
 
 class MeteorologyPage(_Step):
@@ -491,29 +520,27 @@ class MeteorologyPage(_Step):
 
     def set_stations(self, *, surface_station_id, upper_air_station_id,
                      data_start_year) -> None:
-        panel = self.show_advanced()
-        _fill(panel.get_by_label("surface station id", exact=True), surface_station_id)
-        _fill(panel.get_by_label("upper air station id", exact=True),
-              upper_air_station_id)
-        _fill(panel.get_by_label("data start year", exact=True), data_start_year)
+        self.set_field("surface station id", surface_station_id)
+        self.set_field("upper air station id", upper_air_station_id)
+        self.set_field("data start year", data_start_year)
 
     def expect_station_ids(self, surface: str, upper_air: str, year: str) -> None:
-        panel = self.show_advanced()
-        expect(panel.get_by_label("surface station id", exact=True)).to_have_value(surface)
-        expect(panel.get_by_label("upper air station id", exact=True)).to_have_value(
-            upper_air)
-        expect(panel.get_by_label("data start year", exact=True)).to_have_value(year)
+        self.expect_field("surface station id", surface)
+        self.expect_field("upper air station id", upper_air)
+        self.expect_field("data start year", year)
 
 
 class OutputPage(_Step):
     NAME = "Output"
 
     def expect_output_type(self, output_type: str) -> None:
-        self.expect_field("output type", output_type)
+        """What AERMOD computes (MODELOPT), as the Output step shows it."""
+        expect(self.field("output quantities")).to_have_value(
+            re.compile(rf"\b{re.escape(output_type)}\b"))
 
 
 class RunPage(_Step):
-    NAME = "Run"
+    NAME = "Review & Run"
 
     def set_working_directory(self, path) -> None:
         self.set_field("Working directory (blank = temp)", path)
