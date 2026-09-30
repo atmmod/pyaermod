@@ -8,8 +8,8 @@ two delivery modes:
 - ``pyaermod-app``     — browser tab (opens default browser)
 - ``pyaermod-desktop`` — native OS window (this module)
 
-The desktop entry is the path PyInstaller bundles for distribution
-(see ``packaging/pyinstaller.spec`` once v1.9-E lands).
+PyInstaller bundles this entry through ``packaging/desktop_entry.py``
+(see ``packaging/pyaermod_desktop.spec``).
 
 Requires the ``[gui-desktop]`` extra (pywebview).
 """
@@ -55,7 +55,7 @@ def main(*, title: str = "PyAERMOD",
             "`pip install pyaermod[gui-desktop]`."
         ) from e
 
-    from . import main as _server_main
+    from . import _native
     from .app import build_and_run
 
     chosen_port = port if port is not None else _free_port()
@@ -74,13 +74,15 @@ def main(*, title: str = "PyAERMOD",
             f"within 15 seconds."
         )
 
-    webview.create_window(
+    # The pages use this window for native save dialogs (_native.py).
+    # Downloads stay enabled for whatever the pages still deliver that way.
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    _native.set_window(webview.create_window(
         title=title,
         url=f"http://127.0.0.1:{chosen_port}",
         width=width, height=height,
-    )
+    ))
     webview.start()  # blocks until window is closed
-    _ = _server_main  # keep import for entry-point resolution
 
 
 __all__ = ["main"]
