@@ -187,6 +187,7 @@ def journey(request, browser, tmp_path, tmp_path_factory):
     context.add_init_script(NO_ANIMATIONS)
     journey = Journey(name=request.node.name, server=server,
                       page=context.new_page(), root=tmp_path)
+    context.on("page", journey.watch)       # any further tab the journey opens
     try:
         yield journey
     finally:

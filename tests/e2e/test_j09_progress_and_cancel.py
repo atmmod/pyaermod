@@ -85,13 +85,16 @@ def test_j09_a_double_click_starts_one_aermod(gui, step, run_dir, journey):
 def test_j09_another_tab_stays_usable_during_a_run(gui, step, run_dir, journey):
     _start_long_run(gui, run_dir)
     gui.run.expect_progress_day(61)
+    begun = time.monotonic()               # loading the tab counts too
     other = App(journey.page.context.new_page(), gui.url, journey=journey).open()
-    begun = time.monotonic()
     for name in ("Sources", "Receptors", "Meteorology", "Project"):
         other.open_step(name)
     took = time.monotonic() - begun
+    step("other_tab", page=other.page)
     step("running")
-    assert took < 5, f"switching four steps in another tab took {took:.1f} s during a run"
+    assert took < 5, f"opening another tab and four of its steps took {took:.1f} s during a run"
+    # ... and all of it while the run was still going.
+    expect(gui.run.status()).to_have_count(0)
     gui.run.expect_progress_day(64)
     gui.run.wait_until_finished()
 
