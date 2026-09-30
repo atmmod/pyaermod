@@ -982,15 +982,15 @@ At this point you should understand:
 
 ## 8. Tutorial 5 — Processing Meteorological Data with AERMET
 
-**Goal:** Use the GUI's AERMET configuration page to generate the three-stage
-AERMET input files needed to process raw weather station data into AERMOD-ready
-meteorological files.
+**Goal:** Use the GUI's AERMET configuration page to generate the two AERMET
+input files (Stage 1 and METPREP) needed to process raw weather station data
+into AERMOD-ready meteorological files.
 
 **Time:** 30--40 minutes
 
 **What you'll learn:**
 - What AERMET does and why AERMOD needs it
-- How the three AERMET stages work
+- How AERMET's two stages, Stage 1 and METPREP, work
 - How to configure each stage in the GUI
 - What the monthly surface parameters mean and how to choose values
 
@@ -1337,12 +1337,13 @@ length, low mixing height) trapped the plume near the ground.
 At this point you should understand:
 
 - [x] Why AERMOD needs preprocessed meteorological data (not raw observations)
-- [x] The three AERMET stages: Extract, Merge, Boundary Layer
+- [x] The two AERMET stages: Stage 1 (extract and QA) and METPREP (merge and
+  boundary layer)
 - [x] That surface characteristics (albedo, Bowen ratio, roughness) vary by
   land use and season
-- [x] How to generate the three AERMET input files using the GUI
-- [x] That AERMET must be run in order (Stage 1 → 2 → 3) to produce `.sfc`
-  and `.pfl` files
+- [x] How to generate the two AERMET input files using the GUI
+- [x] That AERMET must be run in order (Stage 1, then METPREP, which the GUI
+  calls Stage 3) to produce `.sfc` and `.pfl` files
 
 ---
 
