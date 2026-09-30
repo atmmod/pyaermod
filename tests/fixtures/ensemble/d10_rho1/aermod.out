@@ -1,0 +1,617 @@
+CO STARTING
+   TITLEONE  run_design test d10_rho1
+   MODELOPT  CONC DDEP FLAT
+   AVERTIME  1 PERIOD
+   POLLUTID  OTHER
+   RUNORNOT  RUN
+CO FINISHED
+
+SO STARTING
+   LOCATION  PIT      OPENPIT    -300.0000    -200.0000     0.00
+   SRCPARAM  PIT        0.000010     0.00   600.00   400.00  24000000.00
+   PARTDIAM  PIT      10
+   MASSFRAX  PIT      1.000000
+   PARTDENS  PIT      1
+   SRCGROUP  ALL
+SO FINISHED
+
+RE STARTING
+   GRIDPOLR  POL      STA
+   GRIDPOLR  POL      ORIG        0.00       0.00
+   GRIDPOLR  POL      DIST  1000  2000
+   GRIDPOLR  POL      GDIR  36  10  10
+   GRIDPOLR  POL      END
+RE FINISHED
+
+ME STARTING
+   SURFFILE  AERMET2.SFC
+   PROFFILE  AERMET2.PFL
+   SURFDATA  14735  1988
+   UAIRDATA  14735  1988
+   PROFBASE  0.0  METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE  ALLAVE  FIRST
+   PLOTFILE  PERIOD  ALL  pit.plt
+   PLOTFILE  1  ALL  FIRST  pit_1h.plt
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      32       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Allows User-Specified Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * Model Is Setup For Calculation of Dry DEPosition Values.
+      * NO GAS DEPOSITION Data Provided.
+      * PARTICLE DEPOSITION Data Provided.
+      * Model Uses DRY DEPLETION. DDPLETE  =  T
+      * Model Uses WET DEPLETION. WETDPLT  =  T
+      * Stack-tip Downwash.
+      * Model Assumes Receptors on FLAT Terrain.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: OTHER   
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+     and Calculates PERIOD Averages
+  
+ **This Run Includes:      1 Source(s);       1 Source Group(s); and      72 Receptor(s)
+
+                with:      0 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      1 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of PERIOD Averages by Receptor
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+          Model Outputs External File(s) of High Values for Plotting (PLOTFILE Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =     0.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+  Concentration:  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+     Deposition:  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =    3600.0    
+                  Output Units   = GRAMS/M**2                              
+  
+ **Approximate Storage Requirements of Model =      3.5 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+
+                                                  *** OPENPIT SOURCE DATA ***
+
+               NUMBER EMISSION RATE  COORD (SW CORNER)  BASE     RELEASE  X-DIM     Y-DIM    ORIENT.    VOLUME   URBAN  EMISSION RATE
+   SOURCE       PART.  (GRAMS/SEC       X        Y      ELEV.    HEIGHT  OF PIT    OF PIT    OF PIT     OF PIT   SOURCE  SCALAR VARY
+     ID         CATS.   /METER**2)   (METERS) (METERS) (METERS) (METERS) (METERS)  (METERS)   (DEG.)    (M**3)               BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ PIT              1   0.10000E-04    -300.0    -200.0     0.0     0.00    600.00    400.00      0.00   .24000E+08  NO           
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        PIT         ,
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                                *** SOURCE PARTICULATE/GAS DATA ***
+
+
+
+
+        *** SOURCE ID = PIT         ; SOURCE TYPE = OPENPIT  ***
+
+        MASS FRACTION =
+            1.00000, 
+
+        PARTICLE DIAMETER (MICRONS) =
+           10.00000, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            1.00000, 
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                        *** GRIDDED RECEPTOR NETWORK SUMMARY ***
+
+                                  *** NETWORK ID: POL      ;  NETWORK TYPE: GRIDPOLR ***
+
+                                          *** ORIGIN FOR POLAR NETWORK ***
+                                X-ORIG =      0.00 ;   Y-ORIG =       0.00  (METERS)
+
+                                          *** DISTANCE RANGES OF NETWORK ***
+                                                    (METERS)
+
+         1000.0,    2000.0,
+
+                                          *** DIRECTION RADIALS OF NETWORK *** 
+                                                    (DEGREES)
+
+           10.0,      20.0,      30.0,      40.0,      50.0,      60.0,      70.0,      80.0,      90.0,     100.0,
+          110.0,     120.0,     130.0,     140.0,     150.0,     160.0,     170.0,     180.0,     190.0,     200.0,
+          210.0,     220.0,     230.0,     240.0,     250.0,     260.0,     270.0,     280.0,     290.0,     300.0,
+          310.0,     320.0,     330.0,     340.0,     350.0,     360.0,
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   AERMET2.SFC                                                                        Met Version:  26135
+   Profile file:   AERMET2.PFL                                                                     
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    14735                  Upper air station no.:    14735
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1988                                     Year:   1988
+
+ First 24 hours of scalar data
+ YR MO DY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN  Z0 BOWEN  ALB  REF WS   WD   HT  REF TA  HT IPCOD PRATE  RH SFCP CCVR
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ ** 03 01 01   -2.7  0.062 -9.000 -9.000 -999.   37.      7.9 0.75 1.50 1.00    0.80  318.  10.  273.8  10.  0  -9.00  999. 1003.  4
+ 88 03 01 02   -3.5  0.069 -9.000 -9.000 -999.   44.      8.5 0.75 1.50 1.00    0.90  273.  10.  273.5  10.  0  -9.00  999. 1003.  1
+ 88 03 01 03   -1.6  0.046 -9.000 -9.000 -999.   24.      5.7 0.75 1.50 1.00    0.60  276.  10.  272.4  10.  0  -9.00  999. 1003.  1
+ 88 03 01 04   -1.0  0.034 -9.000 -9.000 -999.   15.      3.6 0.30 0.80 1.00    0.60  200.  10.  271.5  10.  0  -9.00  999. 1003.  1
+ 88 03 01 05   -6.3  0.093 -9.000 -9.000 -999.   68.     11.3 0.75 1.50 1.00    1.20  289.  10.  271.8  10.  0  -9.00  999. 1003.  0
+ 88 03 01 06   -2.8  0.062 -9.000 -9.000 -999.   37.      7.5 0.75 1.50 1.00    0.80  254.  10.  271.0  10.  0  -9.00  999. 1004.  0
+ 88 03 01 07   -3.6  0.069 -9.000 -9.000 -999.   44.      8.5 0.75 1.50 1.00    0.90  264.  10.  270.9  10.  0  -9.00  999. 1004.  0
+ 88 03 01 08   -5.4  0.148 -9.000 -9.000 -999.  137.     54.2 0.75 1.50 0.67    1.30  315.  10.  271.8  10.  0  -9.00  999. 1005.  6
+ 88 03 01 09   25.1  0.321  0.558  0.007  248.  437.   -118.3 0.75 1.50 0.56    1.90  310.  10.  272.3  10.  0  -9.00  999. 1005.  7
+ 88 03 01 10   60.6  0.396  0.949  0.008  506.  599.    -92.0 0.75 1.50 0.52    2.30  315.  10.  273.0  10.  0  -9.00  999. 1005.  6
+ 88 03 01 11   88.3  1.474  1.182  0.005  671. 4000.  -3249.5 0.75 1.50 0.51    7.70  297.   6.  268.8   2.  0  -9.00  999. 1005.  2
+ 88 03 01 12   97.8  0.438  1.247  0.005  711. 2198.    -76.9 0.75 1.50 0.51    2.50  309.  10.  274.7  10.  0  -9.00  999. 1004.  0
+ 88 03 01 13   99.6  0.535  1.277  0.005  749. 1158.   -137.9 0.75 1.50 0.51    3.20  316.  10.  274.9  10.  0  -9.00  999. 1003.  0
+ 88 03 01 14   88.9  0.533  1.248  0.006  781.  941.   -151.8 0.75 1.50 0.51    3.20  290.  10.  275.3  10.  0  -9.00  999. 1002.  0
+ 88 03 01 15   65.9  0.483  1.147  0.007  818.  808.   -152.3 0.75 1.50 0.52    2.90  300.  10.  275.5  10.  0  -9.00  999. 1002.  0
+ 88 03 01 16   31.5  0.453  0.905  0.007  841.  733.   -263.9 0.75 1.50 0.55    2.80  315.  10.  275.0  10.  0  -9.00  999. 1001.  0
+ 88 03 01 17  -15.1  0.430 -9.000 -9.000 -999.  678.    469.5 0.75 1.50 0.62    2.90  308.  10.  274.3  10.  0  -9.00  999. 1001.  0
+ 88 03 01 18  -15.6  0.147 -9.000 -9.000 -999.  249.     18.1 0.75 1.50 0.86    1.90  311.  10.  273.3  10.  0  -9.00  999. 1001.  0
+ 88 03 01 19  -11.2  0.124 -9.000 -9.000 -999.  108.     15.1 0.75 1.50 1.00    1.60  313.  10.  272.2  10.  0  -9.00  999. 1001.  0
+ 88 03 01 20   -7.4  0.100 -9.000 -9.000 -999.   76.     12.2 0.75 1.50 1.00    1.30  326.  10.  271.3  10.  0  -9.00  999. 1002.  0
+ 88 03 01 21  -17.5  0.154 -9.000 -9.000 -999.  146.     18.8 0.75 1.50 1.00    2.00  327.  10.  270.5  10.  0  -9.00  999. 1001.  0
+ 88 03 01 22  -15.8  0.147 -9.000 -9.000 -999.  135.     17.8 0.75 1.50 1.00    1.90  320.  10.  269.8  10.  0  -9.00  999. 1001.  0
+ 88 03 01 23   -2.8  0.062 -9.000 -9.000 -999.   40.      7.5 0.75 1.50 1.00    0.80  284.  10.  268.7  10.  0  -9.00  999. 1001.  0
+ 88 03 01 24  -11.2  0.124 -9.000 -9.000 -999.  104.     15.0 0.75 1.50 1.00    1.60  298.  10.  268.3  10.  0  -9.00  999. 1001.  0
+
+
+ First hour of profile data
+ YR MO DY HR HEIGHT F  WDIR    WSPD AMB_TMP sigmaA  sigmaW  sigmaV
+ ** 03 01 01   10.0 0  318.    0.80   273.8   48.7    0.11    0.48
+ ** 03 01 01   50.0 0  323.    2.00   275.0   14.7  -99.00    0.50
+ ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
+
+ F indicates top of profile (=1) or below (=0)
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE PERIOD (    96 HRS) AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                   *** NETWORK ID: POL      ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |       1000.00      2000.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+       10.00 |       1.15673      0.25030
+       20.00 |       1.52222      0.77887
+       30.00 |       1.63039      0.19137
+       40.00 |       6.45097      1.41677
+       50.00 |      10.92606      3.55219
+       60.00 |       7.81035      2.71467
+       70.00 |       6.79198      1.64115
+       80.00 |       9.99160      3.42774
+       90.00 |      13.86424      5.01284
+      100.00 |      18.02540      6.57699
+      110.00 |      19.42678      6.47425
+      120.00 |      16.01964      4.58716
+      130.00 |      12.62201      3.77821
+      140.00 |      11.83963      4.04415
+      150.00 |      12.06192      4.07525
+      160.00 |       8.52589      2.06452
+      170.00 |       5.29134      1.66034
+      180.00 |       5.31965      1.34776
+      190.00 |       6.26919      2.22569
+      200.00 |       8.16584      2.77455
+      210.00 |       9.10884      3.30353
+      220.00 |       4.98369      1.36970
+      230.00 |       2.65818      0.42465
+      240.00 |       3.63709      1.33564
+      250.00 |       2.16344      0.79109
+      260.00 |       0.73448      0.07775
+      270.00 |       1.22191      0.47370
+      280.00 |       1.74531      0.78645
+      290.00 |       2.68828      0.85941
+      300.00 |       3.18413      0.87664
+      310.00 |       1.53596      0.41845
+      320.00 |       0.49127      0.04985
+      330.00 |       0.39012      0.08049
+      340.00 |       0.60935      0.26608
+      350.00 |       0.55852      0.19613
+      360.00 |       0.52591      0.07214
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE PERIOD (    96 HRS)     DRY DEPOSITION      VALUES FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                   *** NETWORK ID: POL      ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** DEPO OF OTHER    IN GRAMS/M**2                               **
+
+   DIRECTION |                                                DISTANCE (METERS)
+   (DEGREES) |       1000.00      2000.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+       10.00 |       0.00156      0.00031
+       20.00 |       0.00173      0.00085
+       30.00 |       0.00178      0.00021
+       40.00 |       0.00703      0.00154
+       50.00 |       0.01192      0.00387
+       60.00 |       0.00853      0.00296
+       70.00 |       0.00742      0.00179
+       80.00 |       0.01096      0.00374
+       90.00 |       0.01564      0.00549
+      100.00 |       0.02199      0.00763
+      110.00 |       0.02666      0.00897
+      120.00 |       0.02569      0.00749
+      130.00 |       0.02317      0.00690
+      140.00 |       0.02025      0.00631
+      150.00 |       0.01696      0.00499
+      160.00 |       0.01136      0.00255
+      170.00 |       0.00758      0.00217
+      180.00 |       0.00793      0.00217
+      190.00 |       0.00933      0.00328
+      200.00 |       0.01121      0.00389
+      210.00 |       0.01170      0.00418
+      220.00 |       0.00648      0.00172
+      230.00 |       0.00334      0.00051
+      240.00 |       0.00409      0.00146
+      250.00 |       0.00238      0.00086
+      260.00 |       0.00080      0.00008
+      270.00 |       0.00133      0.00052
+      280.00 |       0.00191      0.00086
+      290.00 |       0.00297      0.00095
+      300.00 |       0.00356      0.00099
+      310.00 |       0.00176      0.00048
+      320.00 |       0.00056      0.00006
+      330.00 |       0.00049      0.00009
+      340.00 |       0.00100      0.00031
+      350.00 |       0.00108      0.00040
+      360.00 |       0.00105      0.00026
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE   1ST HIGHEST  1-HR AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                   *** NETWORK ID: POL      ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+ DIRECTION |                                                  DISTANCE (METERS)
+ (DEGREES) |         1000.00                 2000.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      10.0 |     99.02547 (88030104)     22.28596 (88030104)
+      20.0 |    141.10398 (88030104)     74.72221 (88030104)
+      30.0 |     91.45109 (88030104)     16.16498 (88030104)
+      40.0 |    214.81432 (88030223)     59.64662 (88030317)
+      50.0 |    248.28031 (88030222)    106.83187 (88030224)
+      60.0 |    218.74767 (88030319)     98.89282 (88030319)
+      70.0 |    145.68358 (88030106)     63.73548 (88030106)
+      80.0 |    166.05289 (88030303)     81.28633 (88030303)
+      90.0 |    167.82343 (88030302)     87.40076 (88030302)
+     100.0 |    181.55810 (88030204)     96.00072 (88030204)
+     110.0 |    205.02804 (88030207)    109.26695 (88030207)
+     120.0 |    211.76760 (88030305)    103.81300 (88030305)
+     130.0 |    179.94110 (88030203)     78.18887 (88030203)
+     140.0 |    162.56738 (88030101)     69.96610 (88030101)
+     150.0 |    213.52621 (88030219)    106.70240 (88030219)
+     160.0 |    140.45727 (88030219)     40.35325 (88030218)
+     170.0 |    131.61857 (88030218)     73.14583 (88030218)
+     180.0 |     92.32694 (88030218)     28.33428 (88030321)
+     190.0 |     96.42680 (88030321)     47.46666 (88030321)
+     200.0 |     97.91044 (88030402)     40.29982 (88030402)
+     210.0 |    229.34262 (88030208)     97.04864 (88030208)
+     220.0 |    117.99663 (88030407)     50.06854 (88030407)
+     230.0 |    139.79555 (88030401)     29.76822 (88030401)
+     240.0 |    192.61115 (88030401)     90.43650 (88030401)
+     250.0 |    133.83772 (88030324)     60.27435 (88030324)
+     260.0 |     45.77121 (88030323)      6.33624 (88030323)
+     270.0 |    112.26613 (88030323)     45.29020 (88030323)
+     280.0 |    130.48569 (88030323)     57.50912 (88030323)
+     290.0 |     93.85285 (88030318)     34.76133 (88030318)
+     300.0 |    116.23203 (88030318)     38.85313 (88030210)
+     310.0 |     45.19462 (88030212)     21.92453 (88030212)
+     320.0 |     23.53987 (88030212)      3.77531 (88030212)
+     330.0 |     32.92652 (88030217)      7.70223 (88030217)
+     340.0 |     50.48569 (88030217)     25.15799 (88030217)
+     350.0 |     40.23473 (88030217)     14.45869 (88030217)
+     360.0 |     20.80268 (88030104)      2.06610 (88030216)
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                              *** THE   1ST HIGHEST  1-HR     DRY DEPOSITION      VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                   *** NETWORK ID: POL      ;  NETWORK TYPE: GRIDPOLR ***
+
+                                        ** DEPO OF OTHER    IN GRAMS/M**2                               **
+
+ DIRECTION |                                                  DISTANCE (METERS)
+ (DEGREES) |         1000.00                 2000.00
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      10.0 |      0.00112 (88030104)      0.00025 (88030104)
+      20.0 |      0.00160 (88030104)      0.00085 (88030104)
+      30.0 |      0.00104 (88030104)      0.00018 (88030104)
+      40.0 |      0.00244 (88030223)      0.00068 (88030317)
+      50.0 |      0.00282 (88030222)      0.00121 (88030224)
+      60.0 |      0.00248 (88030319)      0.00112 (88030319)
+      70.0 |      0.00165 (88030106)      0.00072 (88030106)
+      80.0 |      0.00189 (88030303)      0.00092 (88030303)
+      90.0 |      0.00191 (88030302)      0.00099 (88030302)
+     100.0 |      0.00206 (88030204)      0.00109 (88030204)
+     110.0 |      0.00233 (88030207)      0.00124 (88030207)
+     120.0 |      0.00240 (88030305)      0.00118 (88030305)
+     130.0 |      0.00204 (88030203)      0.00089 (88030203)
+     140.0 |      0.00185 (88030101)      0.00079 (88030101)
+     150.0 |      0.00242 (88030219)      0.00121 (88030219)
+     160.0 |      0.00159 (88030219)      0.00046 (88030218)
+     170.0 |      0.00149 (88030218)      0.00083 (88030218)
+     180.0 |      0.00105 (88030218)      0.00033 (88030419)
+     190.0 |      0.00111 (88030419)      0.00054 (88030321)
+     200.0 |      0.00111 (88030402)      0.00046 (88030402)
+     210.0 |      0.00260 (88030208)      0.00110 (88030208)
+     220.0 |      0.00134 (88030407)      0.00057 (88030407)
+     230.0 |      0.00159 (88030401)      0.00034 (88030401)
+     240.0 |      0.00219 (88030401)      0.00103 (88030401)
+     250.0 |      0.00152 (88030324)      0.00068 (88030324)
+     260.0 |      0.00052 (88030323)      0.00007 (88030323)
+     270.0 |      0.00127 (88030323)      0.00051 (88030323)
+     280.0 |      0.00148 (88030323)      0.00065 (88030323)
+     290.0 |      0.00106 (88030318)      0.00039 (88030318)
+     300.0 |      0.00132 (88030318)      0.00045 (88030210)
+     310.0 |      0.00053 (88030212)      0.00026 (88030212)
+     320.0 |      0.00028 (88030212)      0.00004 (88030212)
+     330.0 |      0.00037 (88030217)      0.00009 (88030217)
+     340.0 |      0.00057 (88030217)      0.00029 (88030217)
+     350.0 |      0.00046 (88030217)      0.00016 (88030217)
+     360.0 |      0.00029 (88030215)      0.00010 (88030215)
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  12
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                        *** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***
+
+
+                                    ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS      19.42678 AT (     939.69,     -342.02,     0.00,     0.00,    0.00)  GP  POL     
+          2ND HIGHEST VALUE IS      18.02540 AT (     984.81,     -173.65,     0.00,     0.00,    0.00)  GP  POL     
+          3RD HIGHEST VALUE IS      16.01964 AT (     866.03,     -500.00,     0.00,     0.00,    0.00)  GP  POL     
+          4TH HIGHEST VALUE IS      13.86424 AT (    1000.00,        0.00,     0.00,     0.00,    0.00)  GP  POL     
+          5TH HIGHEST VALUE IS      12.62201 AT (     766.04,     -642.79,     0.00,     0.00,    0.00)  GP  POL     
+          6TH HIGHEST VALUE IS      12.06192 AT (     500.00,     -866.03,     0.00,     0.00,    0.00)  GP  POL     
+          7TH HIGHEST VALUE IS      11.83963 AT (     642.79,     -766.04,     0.00,     0.00,    0.00)  GP  POL     
+          8TH HIGHEST VALUE IS      10.92606 AT (     766.04,      642.79,     0.00,     0.00,    0.00)  GP  POL     
+          9TH HIGHEST VALUE IS       9.99160 AT (     984.81,      173.65,     0.00,     0.00,    0.00)  GP  POL     
+         10TH HIGHEST VALUE IS       9.10884 AT (    -500.00,     -866.03,     0.00,     0.00,    0.00)  GP  POL     
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  13
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                          AVERAGE CONC     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS     248.28031  ON 88030222: AT (     766.04,      642.79,     0.00,     0.00,    0.00)  GP  POL     
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  14
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                        *** THE SUMMARY OF MAXIMUM PERIOD (    96 HRS) RESULTS ***
+
+
+                                    ** DEPO OF OTHER    IN GRAMS/M**2                               **
+
+                                                                                                             NETWORK
+GROUP ID                           DRY DEPO                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS       0.02666 AT (     939.69,     -342.02,     0.00,     0.00,    0.00)  GP  POL     
+          2ND HIGHEST VALUE IS       0.02569 AT (     866.03,     -500.00,     0.00,     0.00,    0.00)  GP  POL     
+          3RD HIGHEST VALUE IS       0.02317 AT (     766.04,     -642.79,     0.00,     0.00,    0.00)  GP  POL     
+          4TH HIGHEST VALUE IS       0.02199 AT (     984.81,     -173.65,     0.00,     0.00,    0.00)  GP  POL     
+          5TH HIGHEST VALUE IS       0.02025 AT (     642.79,     -766.04,     0.00,     0.00,    0.00)  GP  POL     
+          6TH HIGHEST VALUE IS       0.01696 AT (     500.00,     -866.03,     0.00,     0.00,    0.00)  GP  POL     
+          7TH HIGHEST VALUE IS       0.01564 AT (    1000.00,        0.00,     0.00,     0.00,    0.00)  GP  POL     
+          8TH HIGHEST VALUE IS       0.01192 AT (     766.04,      642.79,     0.00,     0.00,    0.00)  GP  POL     
+          9TH HIGHEST VALUE IS       0.01170 AT (    -500.00,     -866.03,     0.00,     0.00,    0.00)  GP  POL     
+         10TH HIGHEST VALUE IS       0.01136 AT (     342.02,     -939.69,     0.00,     0.00,    0.00)  GP  POL     
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  15
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** DEPO OF OTHER    IN GRAMS/M**2                               **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                              DRY DEPO     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS       0.00282  ON 88030222: AT (     766.04,      642.79,     0.00,     0.00,    0.00)  GP  POL     
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  run_design test d10_rho1                                            ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:45:54
+                                                                                                                       PAGE  16
+ *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  WETDPLT  RURAL  SigA&SigW
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            2 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of           96 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+
+ Met Data File Includes       0.00 Millimeters (     0.000 Inches) of Precipitation
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      32       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+ MX W496      97         MAIN: Total precipitation in SURFFILE is zero (0.0) with     WetDepos
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+

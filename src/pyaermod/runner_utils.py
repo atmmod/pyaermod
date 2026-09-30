@@ -20,9 +20,9 @@ import json
 import logging
 import os
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Union
+from typing import Any, ClassVar, Dict, List, NamedTuple, Optional, Protocol, Sequence, Type, TypeVar, Union
 
 from ._optional import optional_import, require
 from .runner import _read_message_summary, _severity_count
@@ -340,6 +340,9 @@ class RunManifestEntry:
     error_message: Optional[str] = None
 
 
+_Manifest = TypeVar("_Manifest", bound="RunManifest")
+
+
 @dataclass
 class RunManifest:
     """Tracks a batch's per-run state in a JSON file.
@@ -347,30 +350,46 @@ class RunManifest:
     Use-cases:
     - Persist partial batch progress across restarts
     - Post-hoc inspection of which inputs succeeded / failed
+
+    A subclass can store richer entries by setting ``entry_type`` to a
+    subclass of :class:`RunManifestEntry`, as
+    :class:`pyaermod.ensemble.EnsembleManifest` does. ``load`` builds
+    entries of that type and ignores keys it does not know, so a file
+    written with more fields still loads. ``save`` replaces the file in
+    one step, so a process killed while saving leaves the previous file
+    whole.
     """
     path: Path
     entries: Dict[str, RunManifestEntry] = field(default_factory=dict)
 
+    entry_type: ClassVar[Type[RunManifestEntry]] = RunManifestEntry
+
     @classmethod
-    def load(cls, path: Union[str, Path]) -> RunManifest:
+    def load(cls: Type[_Manifest], path: Union[str, Path]) -> _Manifest:
         p = Path(path)
         if not p.exists():
             return cls(path=p)
         data = json.loads(p.read_text(encoding="utf-8"))
+        known = {f.name for f in fields(cls.entry_type)}
         return cls(
             path=p,
-            entries={k: RunManifestEntry(**v) for k, v in data.items()},
+            entries={
+                k: cls.entry_type(**{n: x for n, x in v.items() if n in known})
+                for k, v in data.items()
+            },
         )
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(
             json.dumps({k: asdict(v) for k, v in self.entries.items()}, indent=2),
             encoding="utf-8",
         )
+        os.replace(tmp, self.path)
 
     def mark(self, input_file: str, status: str, **kw: Any) -> None:
-        e = self.entries.get(input_file) or RunManifestEntry(input_file=input_file)
+        e = self.entries.get(input_file) or self.entry_type(input_file=input_file)
         e.status = status
         for k, v in kw.items():
             setattr(e, k, v)

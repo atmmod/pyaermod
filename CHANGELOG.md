@@ -221,6 +221,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table's own heading) and `.max_row`. Rows read from AERMOD's summary
   tables now also carry `rank`, `group`, `date`, `flag`, `value_text`,
   `zelev`, `zhill`, `zflag`, `receptor_type` and `grid_id`.
+- `pyaermod.ensemble` (`docs/ensemble.md`): `run_design(rows,
+  build_fn, root, n_workers)` runs one AERMOD run per design row, each in
+  its own directory `root/runs/<run ID>`, `n_workers` at a time. It
+  rewrites every output file name in the deck to a bare name in that
+  directory (`rewrite_output_names`), including those in the lines
+  `input_reader` keeps verbatim (a PLOTFILE ranked below FIRST or with a
+  unit, a second POSTFILE, ERRORFIL) and the debug files of
+  `ControlPathway.debug_options` (CO DEBUGOPT), so two runs on two
+  workers write their own debug files. It links every file the
+  deck reads in beside the deck: the met files, `INITFILE`, the
+  `MULTYEAR` initial file, `OZONEFIL`, `NOX_FILE`, the `HOUREMIS` files
+  of `SourcePathway.hourly_emissions`, and, from the lines kept
+  verbatim, `HOUREMIS`, hourly `BACKGRND` and `INCLUDED` files. The run ID is the SHA-256 of
+  the canonical JSON (`canonical_json`) of the row's factors, the
+  binary's SHA-256, the SHA-256 of the met files and of the other input
+  files, and `SCHEMA_VERSION` (2), so an edited emission file makes a new
+  run. The manifest `root/manifest.json` (`EnsembleManifest`, a
+  `RunManifest` of `EnsembleManifestEntry`) is saved as each run
+  finishes. Each entry records:
+  - the factors;
+  - the deck's, the binary's, the met files' and the other input files'
+    SHA-256;
+  - AERMOD's version banner;
+  - pyaermod's git commit;
+  - the status, the warnings and the wall time.
+
+  Running the same design again skips the runs that finished for the
+  same deck and input files and makes the rest, so an interrupted design
+  resumes where it stopped. `collect_plotfiles(root)` reads the PLOTFILEs
+  of the successful runs of the latest `run_design` call on the root
+  (listed in `root/design.json`; `DesignResult.collect_plotfiles()` for
+  one result's runs) into one table, one row per receptor, keyed by run
+  ID, and writes it as CSV and NumPy `.npz`. No new dependency is added.
+  `DesignResult` reports `elapsed_seconds`, the runs' own `run_seconds`
+  and their ratio, `concurrency`. On 2026-09-30 a four-run design of
+  60-second runs took 240.9 s on one worker and 64.6 s on
+  four, a speed-up of 3.7. `tests/test_ensemble.py` replays real
+  v26135 runs recorded in `tests/fixtures/ensemble/`, and
+  `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
 - **`DepositionMethod` and the per-source `deposition_method` field are
@@ -284,6 +323,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A zero OPENPIT length or width is a warning, not an error.** AERMOD
   raises it to 1e-5 m with W320 and runs the deck; the validator now
   says so. A negative one is still an error (E209).
+- `runner_utils.RunManifest.save` now writes the file in one step (a
+  temporary file, then `os.replace`), so a process killed while saving
+  leaves the previous manifest whole. `RunManifest.load` builds entries
+  of the class attribute `entry_type`, so a subclass can store richer
+  entries, and it ignores keys the entry type does not have.
+- `BatchRunner.parameter_sweep` makes these changes:
+  - **Return value (breaking).** It returns a `SweepResults`, a
+    read-only mapping from each sweep value, in sweep order, to its
+    result, instead of a `dict`. Looking a value up compares by `==`, so
+    the values need not be hashable, and `keys()`, `items()` and
+    `values()` are mapping views in sweep order. What worked on the dict
+    and no longer does: `isinstance(results, dict)` is False,
+    `results[value] = ...` raises `TypeError`, and `json.dumps(results)`
+    raises `TypeError`. `dict(results)` gives the old dict back when the
+    values are hashable.
+  - **Deck names.** A value that is not a short plain number, string or
+    boolean now names its deck by its position and a hash, as in
+    `run_particle_deposition_001_3fa9c0d27e41.inp`. Two values whose
+    text would give the same name are named the same way. Plain values
+    keep names such as `run_emission_rate_0.5.inp`.
+  - **Output names.** Each output file a deck names is renamed
+    `<deck stem>_<file name>`, in the sweep's directory. Files AERMOD
+    names itself (a debug option or ERRORFIL given without a name,
+    DEPOS's `GDEP.DAT`, `PDEP.DAT` and `DEPOS.DBG`, PVMRM's
+    `RelDisp.dbg`) are still shared by the runs, and the last run's copy
+    is kept; `run_design` keeps them per run.
+  - **Equal values** are refused with `ValueError`.
+  - **Outputs that would become one file** are refused with
+    `ValueError` before any deck is written: two output files with the
+    same file name in different directories (`annual/result.plt` and
+    `hourly/result.plt`, compared ignoring case), which the sweep ran
+    before. So is a renamed file name longer than AERMOD's 200
+    characters (E291).
 
 ### Fixed
 - **Receptor elevations were not written under elevated terrain, so
@@ -907,6 +979,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   significant figures and `MASSFRAX` to 6 decimals, so a 1000.4 µm
   diameter, written as 1000, is accepted as AERMOD accepts it, and a
   0.10004 g/cm³ density, written as 0.1, draws W334.
+- **`BatchRunner.parameter_sweep` crashed on a size-distribution
+  sweep, and its runs overwrote each other's results.** Over
+  `particle_deposition` values it ran every deck, then stopped with
+  `TypeError: unhashable type: 'ParticleDepositionParams'` while keying
+  the results by value. It named each deck after the value's `str()`,
+  which gave 124-character names full of brackets and commas. And every
+  deck named the same PLOTFILE in the same directory, so only the last
+  run's `pit.plt` was left: the 2026-09-29 audit's two-distribution
+  sweep ended with one PLOTFILE for two runs. The fix is described under
+  Changed. The sweep's decks still share one directory, whose lock lets
+  one AERMOD run there at a time; `pyaermod.ensemble.run_design` runs
+  them in parallel.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by
