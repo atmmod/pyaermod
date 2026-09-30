@@ -52,6 +52,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+- **AERMAP rejected every deck `AERMAPProject.to_aermap_input` wrote.**
+  Run through EPA's AERMAP 24142 (the current release; AERMAP has no
+  26135), the deck for one receptor, a grid and a source stopped at
+  setup with 11 fatal errors: `TERRHGTS ELEVATED` (E203; AERMAP takes
+  `EXTRACT` or `PROVIDED`), a four-field `DOMAINXY` that put the datum
+  where the second corner goes (E200), no `ANCHORXY` and no `RUNORNOT`
+  (E130, both mandatory), a receptor ID in the x field of `DISCCART`
+  (E208), `GRIDCART` without its `STA`/`END` lines (E200), the `SO`
+  pathway after `RE` (E120), and `RECOUTPUT`, `SRCOUTPUT` and
+  `MSGOUTPUT`, which are not AERMAP keywords (E105; the files are
+  `OU RECEPTOR` and `OU SOURCLOC`, and the messages always go to
+  `<input stem>.out`). The writer now writes AERMAP's syntax, read from
+  `aermap.f`: pathways in the order CO, SO, RE, OU; a six-field
+  `ANCHORXY` (user x y, UTM x y, zone, datum code); `RUNORNOT RUN`; a
+  six-field `DOMAINXY` only when a domain is set; `DISCCART x y [zelev]`;
+  a `GRIDCART ... STA`/`XYINC`/`END` block; and `OU RECEPTOR` and
+  `SOURCLOC`. The deck it writes for that case runs clean (0 fatal
+  errors, 0 warnings) and gives back the analytic elevations of the
+  planar test DEM; `tests/fixtures/aermap_runner/` records both runs.
+  `TerrainProcessor.create_aermap_project_from_aermod` now calls
+  `AERMAPProject.from_aermod_project` instead of keeping its own copy.
+  **Changes to `AERMAPProject`:** `terrain_type` defaults to `"EXTRACT"`
+  (was `"FLAT"`, which AERMAP also rejects) and `"ELEVATED"` is read as
+  `"EXTRACT"`; under `"PROVIDED"` every receptor and source must carry
+  its elevation, and `SOURCLOC` is left out because AERMAP writes no
+  source elevations then. `datum` becomes AERMAP's code (`"NAD27"` 1,
+  `"WGS72"` 2, `"WGS84"` 3, `"NAD83"` 4, or an integer 0 to 7). New
+  fields `anchor_utm_x`/`anchor_utm_y` (the UTM point the anchor is tied
+  to; default the anchor itself, i.e. user coordinates are UTM),
+  `domain_x_min`/`domain_y_min`/`domain_x_max`/`domain_y_max` (the
+  `DOMAINXY` corners, which `from_aermod_project` sets to the project
+  extent plus `buffer`) and `grid_y_spacing` (default `grid_spacing`;
+  `from_aermod_project` now takes the grid's own `y_delta`), and a
+  `dem_format` argument to `from_aermod_project` (default `"DEM"` when
+  every file ends in `.dem`, else `"NED"`). `dem_format` must be `"NED"`
+  or `"DEM"`, the formats AERMAP reads. `receptor_id` and `message_file`
+  are kept but not written, since AERMAP has no receptor IDs and no
+  message-file keyword. `to_aermap_input` raises `ValueError` for decks
+  AERMAP would reject or misread: no anchor, no DEM file, no receptor
+  and no source, a partial or inverted domain, an unknown datum or
+  format, and a `PROVIDED` project with a missing elevation, a grid or
+  no discrete receptor. A path with a space is quoted, as AERMAP's
+  parser allows, and one over AERMAP's 200-character field raises.
 
 ## [2.2.0] - YYYY-MM-DD
 

@@ -48,6 +48,8 @@ coverage.xml
 !tests/fixtures/epa_aerscreen/**/*.OUT
 !tests/fixtures/runner/**/*.inp
 !tests/fixtures/runner/**/*.out
+!tests/fixtures/aermap_runner/**/*.inp
+!tests/fixtures/aermap_runner/**/*.out
 # Recordings of a real AERMOD run that the GUI journeys replay
 # (scripts/record_aermod_fixtures.py); every file is part of the fixture.
 !tests/fixtures/gui/aermod_recordings/**

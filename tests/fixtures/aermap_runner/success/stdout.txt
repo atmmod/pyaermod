@@ -1,0 +1,52 @@
+ usage: 0, 1, or 2 args
+ 
+ Usage: AERMAP 24142 takes either no or one or two parameters.
+        Either
+              AERMAP
+        Or
+              AERMAP plumetest.inp
+        Or
+              AERMAP plumetest.inp plumetest.out
+ 
+        The first parameter  is the .INP file name,
+        The second parameter is the .OUT file name,
+
++Now Processing SETUP Information
++Processing Setup... 
+
+***********************
+ OPENING FILE: 
+
+   DEM File #:         1
+   DEM File Name: synth.dem
+
+   Partial analysis of file structure using first    10240 characters.
+
+     Number of bytes read:         1025
+     File Type:            Delimited File - DOS or UNIX      
+ 
+ CLOSING THE FILE.
+
+ Exiting DEMCHK
+ Exiting CHKADJ
+ Exiting DOMCNV
+ Exiting RECCNV
+ Exiting SRCCNV
+ Exiting CHKEXT
+ Exiting DEMREC
+ Exiting DEMSRC
+
++Initializing Terrain Data...
+ This may take few a minutes...
+
+ Exiting INITER_DEM
+
++Now Processing Source         1 of       1
+
++Now Processing Receptor       1 of       7
++Now Processing Receptor       2 of       7
++Now Processing Receptor       3 of       7
++Now Processing Receptor       4 of       7
++Now Processing Receptor       5 of       7
++Now Processing Receptor       6 of       7
++Now Processing Receptor       7 of       7
