@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Units and help text on the fields of every source type, the receptor
   types and the meteorology and output pathways, as dataclass field
   metadata (`pyaermod._fields.described`, `units_of`, `help_of`).
+- `Validator` reports as errors what AERMOD refuses in the model options:
+  DEPOS, DDEP or WDEP with a source that has no gas or particle deposition
+  parameters (E242; `GASDEPVD` exempts it), an urban roughness without an
+  urban area name, and an urban name or roughness without a population
+  (which the deck writer used to fill in as 1,000,000).
 
 ### Changed
 - GUI: in the source and receptor editors, Close now discards changes,

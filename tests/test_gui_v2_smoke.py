@@ -570,6 +570,36 @@ class TestProjectOptions:
         assert "URBANOPT  250000.0" in gui.session.project.to_aermod_input(validate=False)
 
 
+    @pytest.mark.asyncio
+    async def test_deposition_without_source_parameters_is_not_ready(self, gui):
+        """DEPOS with a source that has no deposition inputs is AERMOD's E242:
+        the Sources badge and the readiness line say so before any run."""
+        await gui.open()
+        await _add_point_source(gui, "STACK1")
+        await _badge_reads(gui, "Sources", "complete")
+        await gui.user.should_see("which the GUI cannot enter yet")
+        _one(gui, kind=ui.checkbox, content="Total deposition (DEPOS)").value = True
+        await _badge_reads(gui, "Sources", "error")
+        await gui.user.should_see("Not ready to run: 4 problems in Sources, Receptors, Meteorology")
+
+    @pytest.mark.asyncio
+    async def test_urban_roughness_needs_a_name_and_a_population(self, gui):
+        await gui.open()
+        roughness = lambda: _one(gui, kind=ui.number, content="Urban roughness")  # noqa: E731
+        assert not roughness().enabled
+        _interact(gui, _one(gui, kind=ui.input, content="Urban area name")).type("ALB")
+        await _value_becomes(lambda: roughness().enabled, True)
+        await _badge_reads(gui, "Project", "error")          # a name, but no population
+        _one(gui, kind=ui.number, content="Urban population").value = 50000
+        await _badge_reads(gui, "Project", "complete")
+        roughness().value = 1.0
+        await _value_becomes(lambda: gui.session.project.control.urban_roughness, 1.0)
+        assert "URBANOPT  50000.0  ALB  1.00" in gui.session.project.to_aermod_input(validate=False)
+        _interact(gui, _one(gui, kind=ui.input, content="Urban area name")).clear()
+        await _badge_reads(gui, "Project", "error")          # the roughness needs the name
+        assert roughness().enabled                           # still there to be cleared
+
+
 class TestOutputDefaults:
     @pytest.mark.asyncio
     async def test_plot_files_and_postfiles_are_on_and_follow_the_periods(self, gui):

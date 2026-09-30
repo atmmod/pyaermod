@@ -47,6 +47,10 @@ OUTPUT_OPTIONS = (
     ("calculate_wet_deposition", "Wet deposition (WDEP)"),
 )
 
+#: Beside the deposition check boxes, until a step edits deposition parameters.
+DEPOSITION_NOTE = ("Deposition also needs each source's deposition parameters, which the "
+                   "GUI cannot enter yet: they come only from an opened or imported project.")
+
 #: What a save can raise: the disk (OSError), or a project holding a value
 #: its file could not be reopened with (ValueError, TypeError).
 _SAVE_ERRORS = (OSError, ValueError, TypeError)
@@ -205,12 +209,12 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
 
     ``actions`` are the page's file operations (the shell builds them once
     and shares them with the header); without them the step builds its own.
-    ``goto`` is accepted for the common page signature; this step sends the
-    user nowhere.
+    ``goto`` is the shell's navigation. This step does not use it yet: it is
+    kept for WP-G6's deck-import controls, whose notice links to the
+    Meteorology step (see the placeholder below).
     """
     from nicegui import ui
 
-    del goto
     if actions is None:
         actions = FileActions(session, dialogs=dialogs)
 
@@ -221,11 +225,13 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
                 "project-new")
             ui.button("Open...", icon="folder_open", on_click=actions.open).props(
                 "outline").mark("project-open")
-            # WP-G6: the deck-import controls (gui_v2/files.py) go here.
             ui.button("Save", icon="save", on_click=actions.save).props("outline").mark(
                 "project-save")
             ui.button("Save as...", on_click=actions.save_as).props("outline").mark(
                 "project-save-as")
+        # WP-G6: the deck-import controls go here, below the file buttons and
+        # outside any live section:
+        #     files.import_controls(session, dialogs=dialogs, goto=goto)
 
         @live(session)
         def _settings() -> None:
@@ -270,13 +276,26 @@ def _titles_and_pollutant(session: Session) -> List[Any]:
     return listeners
 
 
+#: The periods AERMOD averages over whole years of met data, by pollutant:
+#: ANNUAL for every pollutant, and the NAAQS design values AERMOD computes
+#: itself (``coset.f``: SO2AVE and NO2AVE for the 1-hour period, PM25AVE for
+#: the 24-hour one). On less than a year of met data each ends the run (E480).
+_WHOLE_YEAR_PERIODS = {
+    "SO2": "The 1-hour period and ANNUAL need",
+    "NO2": "The 1-hour period and ANNUAL need",
+    "PM25": "The 24-hour period and ANNUAL need",
+}
+
+
 def _naaqs_hint(pollutant: Any) -> str:
     name = _pollutant_name(pollutant)
     periods = naaqs_averaging_periods(name)
+    whole_years = _WHOLE_YEAR_PERIODS.get(name.upper().replace(".", "").replace("-", ""),
+                                          "ANNUAL needs")
+    rule = f"{whole_years} complete years of met data; PERIOD averages the whole met file."
     if not periods:
-        return f"{name} has no NAAQS in pyaermod's table; choose the periods you need."
-    return (f"NAAQS periods for {name}: {', '.join(periods)}. "
-            "ANNUAL needs whole years of met data; PERIOD averages the whole met file.")
+        return f"{name} has no NAAQS in pyaermod's table; choose the periods you need. {rule}"
+    return f"NAAQS periods for {name}: {', '.join(periods)}. {rule}"
 
 
 def _averaging_periods(session: Session) -> Any:
@@ -328,6 +347,9 @@ def _model_options(session: Session) -> None:
                 for attr, label in OUTPUT_OPTIONS:
                     ui.checkbox(label, value=bool(getattr(control, attr)),
                                 on_change=lambda e, a=attr: session.set_control(**{a: e.value}))
+                # No step edits a source's deposition parameters yet; the
+                # validator reports a source without them (AERMOD E242).
+                ui.label(DEPOSITION_NOTE).classes("text-caption text-grey-8")
             with ui.column().classes("gap-2 w-full"):
                 terrain = _terrain_name(control.terrain_type)
                 choices = dict(TERRAIN_CHOICES)
@@ -348,12 +370,27 @@ def _model_options(session: Session) -> None:
                 ui.number("Urban population", value=control.urban_population, min=0,
                           on_change=lambda e: session.set_control(urban_population=e.value),
                           ).props("clearable").classes("w-full")
+                def roughness_allowed() -> None:
+                    # URBANOPT's third field needs the name before it; a
+                    # roughness already set stays editable, so it can be cleared.
+                    c = session.project.control
+                    roughness.set_enabled(bool(c.urban_option) or c.urban_roughness is not None)
+
+                def name_changed(e) -> None:
+                    session.set_control(urban_option=e.value or None)
+                    roughness_allowed()
+
+                def roughness_changed(e) -> None:
+                    session.set_control(urban_roughness=e.value)
+                    roughness_allowed()
+
                 ui.input("Urban area name", value=control.urban_option or "",
-                         on_change=lambda e: session.set_control(urban_option=e.value or None),
-                         ).classes("w-full")
-                ui.number("Urban roughness (m)", value=control.urban_roughness, min=0,
-                          on_change=lambda e: session.set_control(urban_roughness=e.value),
-                          ).props("clearable").classes("w-full")
+                         on_change=name_changed).classes("w-full")
+                roughness = ui.number(
+                    "Urban roughness (m)", value=control.urban_roughness, min=0,
+                    on_change=roughness_changed,
+                ).props('clearable hint="Needs the urban area name"').classes("w-full")
+                roughness_allowed()
 
 
 def _pollutant_name(pollutant: Any) -> str:
