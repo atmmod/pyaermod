@@ -57,6 +57,7 @@ from .test_gui_v2_smoke import (
 
 # The smoke module's fixtures and skip marker, used here by name.
 gui = smoke.gui
+fake_aermod_on_path = smoke.fake_aermod_on_path
 _cheap_garbage_collection = smoke._cheap_garbage_collection
 pytestmark = smoke.pytestmark
 
@@ -366,7 +367,11 @@ class TestImportedOutputFolders:
     """EPA's aertest.inp writes into ../Outputs, ../plotfiles and ../postfiles."""
 
     @pytest.mark.asyncio
-    async def test_a_deck_imported_from_its_path_needs_its_output_folders(self, gui, tmp_path):
+    async def test_a_deck_imported_from_its_path_needs_its_output_folders(
+            self, gui, tmp_path, fake_aermod_on_path):
+        # Run is enabled only when an aermod is on PATH (pages/run.py), and
+        # CI's test job has none: without the fake, Run stays disabled for
+        # that reason and the last check below can never pass.
         deck = epa_layout(tmp_path / "aermod_test_cases")
         inputs = deck.parent
         await gui.open()
