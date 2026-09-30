@@ -19,7 +19,12 @@ binary. Hand-written `.out` text is not allowed in new GUI tests
   2026-09-29 (WP-G3), when the GUI's default deck gained a plot file and a
   POSTFILE for every averaging period. Apart from those files and the
   lines that list them, the new `.out` files equal the first recordings
-  line for line, dates aside, and so do the maxima.
+  line for line, dates aside, and so do the maxima. `albany_success` once
+  more on 2026-09-30, when WP-G3, WP-G4, WP-G5 and WP-G6 were integrated,
+  so that its manifest's `maxima` are the fixed output parser's (they had
+  been edited by hand in #32); its deck, stdout and outputs are the
+  2026-09-29 ones line for line, dates aside. No deck changed in the
+  integration, so the other scenarios stand.
 
 ## Scenarios
 

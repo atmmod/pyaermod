@@ -9,7 +9,7 @@
   "exit_code": 0,
   "build": "EPA AERMOD v26135 source compiled with gfortran 15.2 -O2 by scripts/build_aermod.sh (FFLAGS -O2 -fbounds-check -Wuninitialized), macOS arm64",
   "aermod_sha256": "10e2746af42a3da0fa196a6c2f3a8f8f18ad6cd51260f033f500761856eeabd1",
-  "recorded": "2026-09-29",
+  "recorded": "2026-09-30",
   "command": "aermod",
   "working_directory": "a fresh temporary directory holding aermod.inp and the met files it names",
   "recorder": "python scripts/record_aermod_fixtures.py",
