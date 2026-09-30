@@ -32,6 +32,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files are written only with a receptor table, since AERMOD refuses a
   FIRST-highest plot file without one (E203).
 
+- GUI Results step (WP-G5): it names the run it shows and whether AERMOD
+  completed it, and a failed run shows its fatal errors and no values.
+  A successful run shows a card and a table row with the maximum of each
+  averaging period and its location, exactly as AERMOD printed them
+  (with the `c`/`m`/`b` calm and missing-hour flags explained), every
+  rank of every summary table, deposition tables as deposition, a
+  concentration map drawn from the run's plot files, a comparison with
+  the NAAQS for the pollutant (AERMOD's own design-value table where it
+  prints one, a design value from a 1-hour or 24-hour POSTFILE through
+  `design_values`, otherwise a screen against the period's maximum), and
+  downloads of the deck, the `.out` file, the plot files, the POSTFILEs
+  and a KMZ. A run history reopens earlier runs; a run whose files a
+  later run overwrote keeps the values read when it finished, and its
+  files are no longer offered. The view of a run is built by the UI-free
+  `pyaermod.gui_v2.run_results`, the map by `gui_v2.results_map`.
+
 ### Changed
 - GUI: a new project asks AERMOD for a plot file for each averaging
   period (`pyaermod_gui_01H.PLT`, ...), which the Results step draws its

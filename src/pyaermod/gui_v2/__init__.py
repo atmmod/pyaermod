@@ -29,6 +29,8 @@ Module layout::
       _live.py           -- live(): page sections rebuilt from the session
       _form.py           -- dataclass field -> widget helper
       _native.py         -- the desktop window, for native dialogs
+      run_results.py     -- what Results shows about a run, from its files (no UI)
+      results_map.py     -- the Results step's concentration map (matplotlib Agg)
       desktop.py         -- pywebview wrapper (``pyaermod-desktop``)
       pages/
         project.py       -- file menu + project metadata
@@ -37,7 +39,7 @@ Module layout::
         meteorology.py   -- AERMET / met-file pathway
         output.py        -- output pathway + chemistry
         run.py           -- AERMOD invocation and the last run's status
-        results.py       -- the latest run's outputs
+        results.py       -- a run's results, downloads and the run history
 
 The shell resolves each browser tab's
 :class:`~pyaermod.gui_v2.session.Session` and passes it to every page;

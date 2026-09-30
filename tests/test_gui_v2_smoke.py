@@ -494,7 +494,7 @@ class TestSessionPerTab:
         await gui.user.should_see("Run reported FATAL or non-zero exit")
         await gui.open()                                   # reload
         await gui.user.should_see("Run reported FATAL or non-zero exit")
-        await gui.user.should_see(f"Last run directory: {tmp_path / 'run'}")
+        await gui.user.should_see(f"Working directory: {tmp_path / 'run'}")
         assert _one(gui, kind=ui.input, content="Working directory").value == str(tmp_path / "run")
 
     @pytest.mark.asyncio
@@ -1492,8 +1492,10 @@ class TestEndToEnd:
         assert deck.exists() and "STK1" in deck.read_text()
         # Results follows the run by itself (defect D2).
         gui.user.find(kind=ui.tab, content="Results").click()
-        await gui.user.should_see(f"Last run directory: {workdir}")
-        await gui.user.should_see("(no .OUT file found in working directory)")
+        await gui.user.should_see("Run 1 failed")
+        await gui.user.should_see(f"Working directory: {workdir}")
+        await gui.user.should_see("AERMOD exited with code 0 but wrote no pyaermod_gui.out")
+        await gui.user.should_see("No results are shown for a failed run")
         await gui.user.should_not_see("No run yet")
 
     @pytest.mark.asyncio
@@ -1511,10 +1513,10 @@ class TestEndToEnd:
         # would show here as a failure.
         await gui.user.should_see("Run succeeded")
         await gui.user.should_see("Output file: pyaermod_gui.out")
-        await gui.user.should_see("Max concentrations")
+        await gui.user.should_see("Maximum for each averaging period")
         tables = gui.user.find(kind=ui.table).elements
         maxima = next(t for t in tables if any(c["label"] == "Max" for c in t.columns))
-        shown = {r["period"]: r for r in maxima.rows}
+        shown = {r["period"].replace("-", ""): r for r in maxima.rows}
         for period, value in MAXIMA.items():
             row = shown[period]
             assert _agrees(row["value"], value), (period, row)
@@ -1620,27 +1622,6 @@ class TestRunPageFailurePaths:
 
 class TestResultsPageMore:
     @pytest.mark.asyncio
-    async def test_postfiles_listed(self, gui, recorded_aermod, tmp_path):
-        recorded_aermod("albany_success")
-        path = save_project(_albany_project(["1", "3", "24", "PERIOD"], "AERMET2.SFC"),
-                            tmp_path / "albany.json")
-        wd = tmp_path / "run"
-        (wd / "postfiles").mkdir(parents=True)
-        # Input fixtures already in the working directory, not fake output.
-        (wd / "RUN1.PST").write_text("x" * 2048)
-        (wd / "postfiles" / "RUN2.PST").write_text("y")
-        session = await gui.open()
-        session.open_json(path)
-        await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
-        gui.user.find(kind=ui.input, content="Working directory").type(str(wd))
-        gui.user.find(kind=ui.button, content="Run AERMOD").click()
-        await gui.user.should_see("Run succeeded")
-        await gui.user.should_see("Output file: pyaermod_gui.out")
-        await gui.user.should_see("POSTFILE outputs")
-        await gui.user.should_see("RUN1.PST  (2.0 KiB)")
-        await gui.user.should_see("RUN2.PST")
-
-    @pytest.mark.asyncio
     async def test_parse_failure_is_reported(self, gui, recorded_aermod, tmp_path, monkeypatch):
         import pyaermod.output_parser as op
 
@@ -1659,8 +1640,3 @@ class TestResultsPageMore:
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("Run succeeded")
         await gui.user.should_see("Could not parse pyaermod_gui.out: boom")
-
-    def test_ensure_path_helper(self):
-        assert results_page._ensure_path("a/b") == Path("a/b")
-        p = Path("c")
-        assert results_page._ensure_path(p) is p

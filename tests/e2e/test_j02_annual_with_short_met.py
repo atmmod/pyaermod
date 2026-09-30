@@ -53,8 +53,7 @@ def test_j02_run_anyway_reports_failure(gui, step, known_gap, run_dir):
 
     gui.results.open()
     step("results")
-    with known_gap("WP-G5", "Results does not say the run failed"):
-        gui.results.expect_failed_run_without_valid_results()
+    gui.results.expect_failed_run_without_valid_results()
 
 
 @pytest.mark.aermod_recording("missing_met")
