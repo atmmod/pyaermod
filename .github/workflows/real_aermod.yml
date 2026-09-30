@@ -20,7 +20,10 @@ on:
       - "src/pyaermod/input_generator.py"
       - "src/pyaermod/input_reader.py"
       - "src/pyaermod/aermod_outputs.py"
+      - "src/pyaermod/ensemble.py"
       - "tests/test_real_aermod.py"
+      - "tests/test_real_ensemble.py"
+      - "tests/fixtures/ensemble/**"
       - "tests/fixtures/epa_official/AERTEST_01H.PLT"
       - ".github/workflows/real_aermod.yml"
       - "aermod/*.f"
@@ -94,4 +97,4 @@ jobs:
           aermod --help || true
 
       - name: Run real-AERMOD smoke test
-        run: pytest tests/test_real_aermod.py -v
+        run: pytest tests/test_real_aermod.py tests/test_real_ensemble.py -v

@@ -221,6 +221,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table's own heading) and `.max_row`. Rows read from AERMOD's summary
   tables now also carry `rank`, `group`, `date`, `flag`, `value_text`,
   `zelev`, `zhill`, `zflag`, `receptor_type` and `grid_id`.
+- `pyaermod.ensemble` (`docs/ensemble.md`): `run_design(rows,
+  build_fn, root, n_workers)` runs one AERMOD run per design row, each in
+  its own directory `root/runs/<run ID>`, `n_workers` at a time. It
+  rewrites every output file name in the deck to a bare name in that
+  directory (`rewrite_output_names`), and links the met files in beside
+  the deck. The run ID is the SHA-256 of the canonical JSON
+  (`canonical_json`) of the row's factors, the binary's SHA-256, the met
+  files' SHA-256 and `SCHEMA_VERSION`. The manifest `root/manifest.json`
+  (`EnsembleManifest`, a `RunManifest` of `EnsembleManifestEntry`) is
+  saved as each run finishes. Each entry records:
+  - the factors;
+  - the deck's, the binary's and the met files' SHA-256;
+  - AERMOD's version banner;
+  - pyaermod's git commit;
+  - the status, the warnings and the wall time.
+
+  Running the same design again skips the runs that finished for the
+  same deck and makes the rest, so an interrupted design resumes where
+  it stopped. `collect_plotfiles(root)` reads every successful run's
+  PLOTFILEs into one table, one row per receptor, keyed by run ID, and
+  writes it as CSV and NumPy `.npz`. No new dependency is added.
+  `DesignResult` reports `elapsed_seconds`, the runs' own `run_seconds`
+  and their ratio, `concurrency`. On 2026-09-30 a four-run design of
+  60-second runs took 240.9 s on one worker and 64.6 s on
+  four, a speed-up of 3.7. `tests/test_ensemble.py` replays real
+  v26135 runs recorded in `tests/fixtures/ensemble/`, and
+  `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
 - **`DepositionMethod` and the per-source `deposition_method` field are
@@ -284,6 +311,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A zero OPENPIT length or width is a warning, not an error.** AERMOD
   raises it to 1e-5 m with W320 and runs the deck; the validator now
   says so. A negative one is still an error (E209).
+- `runner_utils.RunManifest.save` now writes the file in one step (a
+  temporary file, then `os.replace`), so a process killed while saving
+  leaves the previous manifest whole. `RunManifest.load` builds entries
+  of the class attribute `entry_type`, so a subclass can store richer
+  entries, and it ignores keys the entry type does not have.
 
 ### Fixed
 - **Receptor elevations were not written under elevated terrain, so

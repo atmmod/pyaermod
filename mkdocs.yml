@@ -37,6 +37,7 @@ nav:
       - AERMET Tuning: aermet-tuning-guide.md
       - AERMAP Troubleshooting: aermap-troubleshooting.md
       - Common Errors: common-errors.md
+      - Ensembles: ensemble.md
       - Regulatory Matrix: regulatory-matrix.md
       - Particle Size Distributions: psd.md
   - Validation: validation.md
@@ -70,6 +71,7 @@ nav:
       - Execution:
           - runner: api/runner.md
           - runner_utils: api/runner_utils.md
+          - ensemble: api/ensemble.md
           - cli: api/cli.md
       - Outputs:
           - output_parser: api/output_parser.md

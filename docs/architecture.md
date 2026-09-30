@@ -448,6 +448,7 @@ pyaermod/
 │   ├── chemistry_presets.py   # OLM/PVMRM/GRSM factories, deposition defaults
 │   ├── runner.py              # AERMODRunner, BatchRunner, run_aermod()
 │   ├── runner_utils.py        # Progress, failure diagnostics, resume, SLURM
+│   ├── ensemble.py            # run_design(): designed run sets, run IDs, manifest, collect_plotfiles()
 │   ├── output_parser.py       # .out file parsing to DataFrames
 │   ├── aermod_outputs.py      # PLOTFILE/MAXIFILE/RANKFILE/SEASONHR/deposition readers
 │   ├── postfile.py            # POSTFILE parser (text PLOT + binary UNFORM)

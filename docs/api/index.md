@@ -34,6 +34,7 @@ Build, read, write, and validate AERMOD input files.
 |---|---|
 | [runner](runner.md) | `AERMODRunner`, `BatchRunner`, `run_aermod()` subprocess wrappers |
 | [runner_utils](runner_utils.md) | Progress, failure diagnostics, batch resume, SLURM templates |
+| [ensemble](ensemble.md) | `run_design()`: one directory per run, run IDs, a manifest, resume, `collect_plotfiles()` |
 | [cli](cli.md) | `pyaermod` command-line interface (`validate`, `run`, `parse`, `plotfile`, `profile`) |
 
 ## Outputs

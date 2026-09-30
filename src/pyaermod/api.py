@@ -120,6 +120,17 @@ from .design_values import (
     read_mxdybyyr,
     so2_1hr_design_value,
 )
+from .ensemble import (
+    DesignResult,
+    DesignRun,
+    EnsembleManifest,
+    EnsembleManifestEntry,
+    canonical_json,
+    collect_plotfiles,
+    rewrite_output_names,
+    run_design,
+    run_id,
+)
 from .hourly_emissions import WindEmissionProfile, ap42_wind_profile, write_hourly_emissions
 from .input_generator import (
     AERMODProject,
@@ -365,6 +376,9 @@ __all__ = [
     "ERRMSGInfo", "RunManifestEntry",
     "extract_errmsg", "tail_output", "summarize_failure",
     "resume_batch", "RunManifest", "generate_slurm_script",
+    "run_design", "collect_plotfiles", "run_id", "canonical_json",
+    "rewrite_output_names", "DesignResult", "DesignRun",
+    "EnsembleManifest", "EnsembleManifestEntry",
     # outputs
     "AERMODResults", "ModelRunInfo", "ConcentrationResult", "AERMODOutputParser",
     "ReceptorInfo", "SourceSummary", "parse_aermod_output", "quick_summary",
