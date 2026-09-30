@@ -1,0 +1,108 @@
+ AERMET_SETUP
+ SUCCESSFUL
+
+ AERMET VERSION  26135
+
+ START PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:53 PM
+
+ RUNSTREAM CONTROL FILE: deck.inp
+
+
+ ****************************  INPUT SUMMARY **************************** 
+
+ PROCESSING STAGES 1
+
+
+
+ 1.  JOB FILE NAMES
+
+ MESSAGES   OPEN     stage1.msg
+ REPORT     OPEN     stage1.out
+ DEBUG      NO FILE
+
+
+
+ 2. UPPERAIR DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:         00014735        42.75       -73.80             5              83.80
+
+ DATA FILE:      OPEN      14735-88.UA
+ EXTRACT FILE:   OPEN      stage1_ua.ext
+ QAOUT FILE:     OPEN      stage1_ua.qa
+
+ UPPER AIR DATA ABOVE 5000 NOT EXTRACTED
+
+ UPPER AIR AUTOMATIC DATA CHECKS ARE: OFF
+
+
+
+ 3. SURFACE DATA
+
+ PROCESSING DATES: 03/01/1988 - 03/10/1988
+
+                    SITE ID     LATITUDE    LONGITUDE     TIME ADJUSTMENT    ELEVATION
+                   --------     --------    ---------     ---------------    ---------
+ LOCATION:            14735        42.75       -73.80             0              83.80
+
+ DATA FILE:      OPEN      S1473588.144
+ EXTRACT FILE:   OPEN      stage1.ext
+ QAOUT FILE:     OPEN      stage1.qa
+
+
+
+ 4. ONSITE DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 5. PROG DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+
+ 6. METPREP DATA
+
+ NO PROCESSING REQUESTED
+
+
+
+ ****************************  MESSAGE SUMMARY **************************** 
+
+
+
+ ERROR MESSAGES        2 MESSAGES
+
+ E30:        1
+ E39:        1
+
+
+ WARNING MESSAGES        0 MESSAGES
+
+
+
+ INFORMATION MESSAGES        8 MESSAGES
+
+ I01:        1
+ I20:        2
+ I23:        1
+ I24:        1
+ I25:        1
+ I26:        1
+ I59:        1
+
+
+ QA MESSAGES        0 MESSAGES
+
+
+
+ AERMET FINISHED UN-SUCCESSFULLY
+
+ END PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:54 PM

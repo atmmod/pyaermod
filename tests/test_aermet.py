@@ -9,6 +9,7 @@ from pyaermod.aermet import (
     AERMETStage2,
     AERMETStage3,
     AERMETStation,
+    OnsiteData,
     ProfileFileHeader,
     SurfaceFileHeader,
     UpperAirStation,
@@ -68,233 +69,370 @@ class TestUpperAirStation:
         assert ua.station_name == "Dodge City"
 
 
+def _chicago(**kw):
+    return AERMETStation(station_id="KORD", station_name="Chicago", latitude=41.98,
+                         longitude=-87.90, time_zone=-6, **kw)
+
+
+def _dodge_city(**kw):
+    return UpperAirStation("72451", "Dodge City", 37.77, -99.97, **kw)
+
+
+def _lines(deck):
+    return [line.strip() for line in deck.splitlines()]
+
+
 class TestAERMETStage1:
-    """Test AERMET Stage 1 input generation"""
+    """Stage 1 decks in the syntax of AERMET 24142 and 26135.
+
+    tests/test_aermet_status.py pins the EX01 deck against a real AERMET
+    run; these tests pin each rule the writer follows.
+    """
 
     def test_basic_stage1_structure(self):
-        """Test basic Stage 1 output structure"""
-        stage1 = AERMETStage1()
-        output = stage1.to_aermet_input()
-
+        output = AERMETStage1().to_aermet_input()
         assert "** AERMET Stage 1 Input" in output
-        assert "JOB" in output
-        assert "REPORT" in output
-        assert "MESSAGES" in output
+        assert "JOB" in _lines(output)
+        assert "REPORT     stage1.out" in output
+        assert "MESSAGES   stage1.msg" in output
 
     def test_stage1_with_surface_station(self):
-        """Test Stage 1 with surface data"""
-        station = AERMETStation(
-            station_id="KORD",
-            station_name="Chicago",
-            latitude=41.98,
-            longitude=-87.90,
-            time_zone=-6,
-            elevation=200.0
-        )
         stage1 = AERMETStage1(
-            surface_station=station,
-            surface_data_file="kord_2020.ish",
-            surface_format="ISHD",
-            start_date="2020/01/01",
-            end_date="2020/12/31",
+            surface_station=_chicago(elevation=200.0),
+            surface_data_file="kord_2020.ish", surface_format="ISHD",
+            start_date="2020/01/01", end_date="2020/12/31",
         )
-        output = stage1.to_aermet_input()
-
-        assert "SURFACE" in output
-        assert "DATA       kord_2020.ish ISHD" in output
-        assert "EXTRACT" in output
-        assert "XDATES     2020/01/01 TO 2020/12/31" in output
-        assert "ANEMHGT    10.0" in output
-        assert "LOCATION   KORD 41.9800 -87.9000 -6" in output
-        assert "ELEVATION  200.0" in output
+        lines = _lines(stage1.to_aermet_input())
+        surface = lines[lines.index("SURFACE"):]
+        assert surface[1:6] == [
+            "DATA       kord_2020.ish ISHD",
+            "EXTRACT    stage1.ext",
+            "QAOUT      stage1.qa",
+            "XDATES     2020/01/01 TO 2020/12/31",
+            # ISHD is in GMT: adjustment 6 for UTC-6; the elevation is field 5.
+            "LOCATION   KORD 41.98N 87.9W 6 200",
+        ]
+        # AERMET rejects these keywords on SURFACE (E01) and has no QA pathway.
+        for rejected in ("ANEMHGT", "ELEVATION", "QA"):
+            assert rejected not in lines
 
     def test_stage1_with_upper_air(self):
-        """Test Stage 1 with upper air data"""
-        ua = UpperAirStation("72451", "Dodge City", 37.77, -99.97)
         stage1 = AERMETStage1(
-            upper_air_station=ua,
+            surface_station=_chicago(),
+            upper_air_station=_dodge_city(elevation=790.0),
             upper_air_data_file="ua_2020.fsl",
+            upper_air_audit=["UATT", "UAWS"],
+            upper_air_extra=["MODIFY"],
         )
-        output = stage1.to_aermet_input()
+        lines = _lines(stage1.to_aermet_input())
+        ua = lines[lines.index("UPPERAIR"):]
+        assert ua[1:8] == [
+            "DATA       ua_2020.fsl FSL",
+            "EXTRACT    stage1_ua.ext",
+            "QAOUT      stage1_ua.qa",
+            "XDATES     2020/01/01 TO 2020/12/31",
+            # Upper air is in GMT; the zone falls back to the surface station's.
+            "LOCATION   72451 37.77N 99.97W 6 790",
+            "AUDIT      UATT UAWS",
+            "MODIFY",
+        ]
 
-        assert "UPPERAIR" in output
-        assert "DATA       ua_2020.fsl FSL" in output
-        assert "_ua.ext" in output  # Upper air extract file
+    @pytest.mark.parametrize("fmt", ["IGRA", "6201FB", "6201VB", "fsl"])
+    def test_upper_air_formats(self, fmt):
+        stage1 = AERMETStage1(
+            upper_air_station=_dodge_city(elevation=790.0, time_zone=-6),
+            upper_air_data_file="ua.dat", upper_air_format=fmt,
+        )
+        assert f"DATA       ua.dat {fmt.upper()}" in stage1.to_aermet_input()
+
+    def test_upper_air_needs_an_elevation(self):
+        stage1 = AERMETStage1(upper_air_station=_dodge_city(time_zone=-6),
+                              upper_air_data_file="ua.fsl")
+        with pytest.raises(ValueError, match="E05"):
+            stage1.to_aermet_input()
+
+    def test_upper_air_needs_a_time_zone(self):
+        stage1 = AERMETStage1(upper_air_station=_dodge_city(elevation=790.0),
+                              upper_air_data_file="ua.fsl")
+        with pytest.raises(ValueError, match="time_zone"):
+            stage1.to_aermet_input()
+        stage1.upper_air_time_adjustment = 5
+        assert "LOCATION   72451 37.77N 99.97W 5 790" in stage1.to_aermet_input()
+
+    def test_unknown_formats_are_rejected(self):
+        with pytest.raises(ValueError, match="Upper-air format 'TD6201'"):
+            AERMETStage1(upper_air_station=_dodge_city(elevation=1.0, time_zone=0),
+                         upper_air_data_file="u", upper_air_format="TD6201").to_aermet_input()
+        with pytest.raises(ValueError, match="Surface format '3280VB'"):
+            AERMETStage1(surface_station=_chicago(), surface_data_file="s",
+                         surface_format="3280VB").to_aermet_input()
+
+    @pytest.mark.parametrize(("fmt", "adjustment"), [
+        ("ISHD", "6"), ("CD144", "0"), ("CD144FB", "0"), ("SAMSON", "0"), ("HUSWO", "0"),
+    ])
+    def test_surface_time_adjustment_follows_the_format(self, fmt, adjustment):
+        stage1 = AERMETStage1(surface_station=_chicago(), surface_data_file="s.dat",
+                              surface_format=fmt)
+        assert f"LOCATION   KORD 41.98N 87.9W {adjustment}\n" in stage1.to_aermet_input()
+
+    @pytest.mark.parametrize("fmt", ["SCRAM", "GHCN"])
+    def test_surface_time_adjustment_is_asked_for_when_unknown(self, fmt):
+        stage1 = AERMETStage1(surface_station=_chicago(), surface_data_file="s.dat",
+                              surface_format=fmt)
+        with pytest.raises(ValueError, match="surface_time_adjustment"):
+            stage1.to_aermet_input()
+        stage1.surface_time_adjustment = 0
+        assert "LOCATION   KORD 41.98N 87.9W 0" in stage1.to_aermet_input()
 
     def test_stage1_no_data_no_sections(self):
-        """Test that SURFACE/UPPERAIR sections omitted without data"""
-        stage1 = AERMETStage1()
-        output = stage1.to_aermet_input()
-
-        assert "SURFACE" not in output.split("JOB")[0]  # Not in header
-        # The word SURFACE should not appear as a section header
-        lines = output.strip().split("\n")
-        section_lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith("**")]
-        # JOB, REPORT, MESSAGES should be the only non-comment content
-        assert "UPPERAIR" not in output
+        lines = _lines(AERMETStage1().to_aermet_input())
+        assert "UPPERAIR" not in lines
+        assert "SURFACE" not in lines
+        assert "ONSITE" not in lines
 
     def test_stage1_custom_output_files(self):
-        """Test custom output file names"""
         stage1 = AERMETStage1(
-            output_file="custom_s1.out",
-            extract_file="custom_s1.ext",
+            surface_station=_chicago(), surface_data_file="my data.ish",
+            output_file="custom_s1.out", extract_file="custom_s1.ext",
+            qa_file="custom_s1.qa", message_file="custom_s1.msg",
         )
         output = stage1.to_aermet_input()
         assert "REPORT     custom_s1.out" in output
+        assert "MESSAGES   custom_s1.msg" in output
+        assert "EXTRACT    custom_s1.ext" in output
+        assert "QAOUT      custom_s1.qa" in output
+        # A file name with a blank is quoted.
+        assert 'DATA       "my data.ish" ISHD' in output
+        assert stage1.upper_air_extract == "custom_s1_ua.ext"
+        assert stage1.upper_air_qaout == "custom_s1_ua.qa"
 
-    def test_stage1_messages_level(self):
-        """Test messages level setting"""
-        stage1 = AERMETStage1(messages=3)
-        output = stage1.to_aermet_input()
-        assert "MESSAGES   3" in output
+    def test_messages_level_is_ignored_with_a_warning(self):
+        """MESSAGES names a file; the old level 3 would open a file named 3."""
+        with pytest.warns(DeprecationWarning, match="MESSAGES keyword names a file"):
+            output = AERMETStage1(messages=3).to_aermet_input()
+        assert "MESSAGES   stage1.msg" in output
+        assert "MESSAGES   s.msg" in AERMETStage1(messages="s.msg").to_aermet_input()
+
+    def test_station_id_must_be_one_word(self):
+        stage1 = AERMETStage1(
+            surface_station=AERMETStation("KO RD", "x", 41.98, -87.9, -6),
+            surface_data_file="s.ish",
+        )
+        with pytest.raises(ValueError, match="one word"):
+            stage1.to_aermet_input()
+
+    def test_southern_and_eastern_coordinates(self):
+        stage1 = AERMETStage1(
+            surface_station=AERMETStation("SYD", "Sydney", -33.95, 151.18, 10),
+            surface_data_file="s.ish",
+        )
+        assert "LOCATION   SYD 33.95S 151.18E -10" in stage1.to_aermet_input()
+
+    def test_onsite_pathway(self):
+        onsite = OnsiteData(
+            "CORDERO", 44.2, -105.5, "imldata3.met",
+            read_records=[["OSYR", "OSMO", "OSDY", "OSHR", "WS01"], ["TT01"]],
+            format_records=["(4i2,f6.2)", "(f6.1)"],
+            threshold=0.5, heights=[10.0, 60.0], delta_temp=[(1, 2.0, 10.0)],
+            obs_per_hour=4, audit=["WS01"], elevation=1500.0,
+            extra_keywords=["RANGE TT01 -30 < 40 -99"],
+        )
+        stage1 = AERMETStage1(onsite=onsite, start_date="1993/5/19", end_date="1993/7/18")
+        lines = _lines(stage1.to_aermet_input())
+        assert lines[lines.index("ONSITE"):][1:] == [
+            "DATA       imldata3.met",
+            "QAOUT      stage1_os.qa",
+            "XDATES     1993/5/19 TO 1993/7/18",
+            "LOCATION   CORDERO 44.2N 105.5W 0 1500",
+            "READ 1     OSYR OSMO OSDY OSHR WS01",
+            "FORMAT 1   (4i2,f6.2)",
+            "READ 2     TT01",
+            "FORMAT 2   (f6.1)",
+            "THRESHOLD  0.5",
+            "OSHEIGHTS  10 60",
+            "DELTA_TEMP 1 2 10",
+            "OBS/HOUR   4",
+            "AUDIT      WS01",
+            "RANGE TT01 -30 < 40 -99",
+        ]
+
+    def test_onsite_validation(self):
+        with pytest.raises(ValueError, match="pair up"):
+            OnsiteData("OS", 0, 0, "f", read_records=[["OSYR"]], format_records=[])
+        with pytest.raises(ValueError, match="at least one"):
+            OnsiteData("OS", 0, 0, "f", read_records=[], format_records=[])
+        with pytest.raises(ValueError, match="latitude"):
+            OnsiteData("OS", 95, 0, "f", read_records=[["A"]], format_records=["(a)"])
+        with pytest.raises(ValueError, match="longitude"):
+            OnsiteData("OS", 0, 195, "f", read_records=[["A"]], format_records=["(a)"])
+
+    def test_location_elevation_needs_the_adjustment(self):
+        from pyaermod.aermet import _location
+
+        with pytest.raises(ValueError, match="after the time adjustment"):
+            _location("ID", 1.0, 1.0, None, 10.0)
+        assert _location("ID", 1.0, -1.0) == "ID 1N 1W"
 
 
 class TestAERMETStage2:
-    """Test AERMET Stage 2 input generation"""
+    """The merge stage does not exist in AERMET 11 and later."""
 
-    def test_basic_stage2(self):
-        """Test basic Stage 2 output"""
-        stage2 = AERMETStage2()
-        output = stage2.to_aermet_input()
+    def test_stage2_is_deprecated(self):
+        with pytest.warns(DeprecationWarning, match="no merge stage"):
+            stage2 = AERMETStage2(surface_extract="s1_surface.ext", merge_file="m.mrg")
+        # Its fields stay so old code keeps constructing it.
+        assert stage2.surface_extract == "s1_surface.ext"
+        assert stage2.merge_file == "m.mrg"
 
-        assert "** AERMET Stage 2 Input" in output
-        assert "JOB" in output
-        assert "SURFACE" in output
-        assert "MERGE" in output
-        assert "OUTPUT" in output
-
-    def test_stage2_with_upper_air(self):
-        """Test Stage 2 with upper air extract"""
-        stage2 = AERMETStage2(
-            surface_extract="s1_surface.ext",
-            upper_air_extract="s1_ua.ext",
-        )
-        output = stage2.to_aermet_input()
-
-        assert "UPPERAIR" in output
-        assert "INPUT      s1_ua.ext" in output
-        assert "INPUT      s1_surface.ext" in output
-
-    def test_stage2_without_upper_air(self):
-        """Test Stage 2 without upper air"""
-        stage2 = AERMETStage2(
-            surface_extract="s1_surface.ext",
-        )
-        output = stage2.to_aermet_input()
-
-        assert "UPPERAIR" not in output
-
-    def test_stage2_merge_output(self):
-        """Test merge file output"""
-        stage2 = AERMETStage2(merge_file="custom_merge.mrg")
-        output = stage2.to_aermet_input()
-        assert "OUTPUT     custom_merge.mrg" in output
-
-    def test_stage2_date_range(self):
-        """Test date range in merge section"""
-        stage2 = AERMETStage2(
-            start_date="2021/06/01",
-            end_date="2021/08/31",
-        )
-        output = stage2.to_aermet_input()
-        assert "XDATES     2021/06/01 TO 2021/08/31" in output
+    def test_stage2_writes_no_deck(self):
+        with pytest.warns(DeprecationWarning):
+            stage2 = AERMETStage2()
+        with pytest.raises(NotImplementedError, match="AERMETStage3"):
+            stage2.to_aermet_input()
 
 
 class TestAERMETStage3:
-    """Test AERMET Stage 3 input generation"""
+    """METPREP (AERMET's stage 2) decks."""
 
     def test_basic_stage3(self):
-        """Test basic Stage 3 output"""
-        stage3 = AERMETStage3()
-        output = stage3.to_aermet_input()
-
-        assert "** AERMET Stage 3 Input" in output
-        assert "JOB" in output
-        assert "METPREP" in output
-        assert "DATA" in output
-        assert "OUTPUT" in output
-        assert "PROFILE" in output
-        assert "FREQ_SECT  ANNUAL" in output
+        lines = _lines(AERMETStage3().to_aermet_input())
+        assert lines[:3] == ["** AERMET Stage 3 Input (AERMET stage 2, METPREP)",
+                             "** Job: STAGE3", "**"]
+        # With no input names it reads Stage 1's default QAOUT files.
+        assert lines[lines.index("UPPERAIR") + 1] == "QAOUT      stage1_ua.qa"
+        assert lines[lines.index("SURFACE") + 1] == "QAOUT      stage1.qa"
+        metprep = lines[lines.index("METPREP"):]
+        assert metprep[1:] == [
+            "XDATES     2020/01/01 TO 2020/12/31",
+            "OUTPUT     aermod.sfc",
+            "PROFILE    aermod.pfl",
+            "FREQ_SECT  ANNUAL 1",
+            "SECTOR     1 0 360",
+            "SITE_CHAR  1 1 0.15 1 0.1",
+        ]
+        # METPREP's DATA keyword is obsolete, and AERMET has no ALBEDO,
+        # BOWEN or ROUGHNESS keywords.
+        for rejected in ("DATA", "ALBEDO", "BOWEN", "ROUGHNESS"):
+            assert not any(line.startswith(rejected) for line in metprep)
 
     def test_stage3_with_station(self):
-        """Test Stage 3 with station location"""
-        station = AERMETStation(
-            station_id="KORD",
-            station_name="Chicago",
-            latitude=41.98,
-            longitude=-87.90,
-            time_zone=-6,
-        )
-        stage3 = AERMETStage3(station=station)
+        stage3 = AERMETStage3(station=_chicago(anemometer_height=6.1))
         output = stage3.to_aermet_input()
-
-        assert "LOCATION   KORD 41.9800 -87.9000 -6" in output
+        assert "LOCATION   KORD 41.98N 87.9W 6" in output
+        assert "NWS_HGT    WIND 6.1" in output
 
     def test_stage3_with_manual_location(self):
-        """Test Stage 3 with manual lat/lon"""
-        stage3 = AERMETStage3(
-            latitude=33.64,
-            longitude=-84.43,
-            time_zone=-5,
-        )
+        stage3 = AERMETStage3(latitude=33.64, longitude=-84.43, time_zone=-5, nws_height=10)
         output = stage3.to_aermet_input()
-        assert "LOCATION   SITE 33.6400 -84.4300 -5" in output
+        assert "LOCATION   SITE 33.64N 84.43W 5" in output
+        assert "NWS_HGT    WIND 10" in output
 
-    def test_stage3_surface_characteristics(self):
-        """Test monthly surface characteristics"""
+    def test_monthly_lists_become_monthly_site_char(self):
         stage3 = AERMETStage3(
             albedo=[0.50, 0.50, 0.40, 0.20, 0.15, 0.15, 0.15, 0.15, 0.20, 0.30, 0.40, 0.50],
             bowen=[1.50, 1.50, 1.00, 0.80, 0.70, 0.70, 0.70, 0.70, 0.80, 1.00, 1.50, 1.50],
             roughness=[0.50, 0.50, 0.50, 0.40, 0.30, 0.25, 0.25, 0.25, 0.30, 0.40, 0.50, 0.50],
         )
-        output = stage3.to_aermet_input()
+        lines = _lines(stage3.to_aermet_input())
+        assert "FREQ_SECT  MONTHLY 1" in lines
+        site = [line for line in lines if line.startswith("SITE_CHAR")]
+        assert len(site) == 12
+        assert site[0] == "SITE_CHAR  1 1 0.5 1.5 0.5"
+        assert site[4] == "SITE_CHAR  5 1 0.15 0.7 0.3"
 
-        assert "ALBEDO" in output
-        assert "BOWEN" in output
-        assert "ROUGHNESS" in output
-        # Spot-check a value
-        assert "0.50" in output
+    def test_site_char_records_and_sectors(self):
+        stage3 = AERMETStage3(
+            frequency="seasonal", num_sectors=2, sectors=[(0, 180), (180, 360)],
+            site_char=[(s, k, 0.15, 2.0, 0.1 * k) for s in range(1, 5) for k in (1, 2)]
+            + ["4 2 0.2 1.0 0.25"],
+        )
+        lines = _lines(stage3.to_aermet_input())
+        assert "FREQ_SECT  SEASONAL 2" in lines
+        assert "SECTOR     1 0 180" in lines
+        assert "SECTOR     2 180 360" in lines
+        assert "SITE_CHAR  1 2 0.15 2 0.2" in lines
+        assert lines[lines.index("SITE_CHAR  4 2 0.15 2 0.2") + 1] == "SITE_CHAR  4 2 0.2 1.0 0.25"
 
-    def test_stage3_freq_sect(self):
-        """Test frequency sector — uses ANNUAL + num_sectors format"""
-        stage3 = AERMETStage3(num_sectors=4)
-        output = stage3.to_aermet_input()
-        assert "FREQ_SECT  ANNUAL  4" in output
+    def test_sector_count_must_match(self):
+        stage3 = AERMETStage3(num_sectors=2, site_char=[(1, 1, 0.1, 1, 0.1)])
+        with pytest.raises(ValueError, match="num_sectors=2 needs 2"):
+            stage3.to_aermet_input()
+
+    def test_monthly_lists_describe_one_sector(self):
+        with pytest.raises(ValueError, match="one 0-360 sector"):
+            AERMETStage3(num_sectors=4).to_aermet_input()
+
+    def test_frequency_is_validated(self):
+        with pytest.raises(ValueError, match="frequency must be one of"):
+            AERMETStage3(frequency="WEEKLY")
+        with pytest.raises(ValueError, match="secondary_frequency"):
+            AERMETStage3(secondary_frequency="DAILY")
+
+    def test_aersurf_and_secondary_site(self):
+        stage3 = AERMETStage3(
+            aersurf_file="aersurface.out", secondary_aersurf_file="nws.out",
+            asos_1min_file="aerminute.dat", surface_qaout="sf.qa", onsite_qaout="os.qa",
+            methods=[("reflevel", "subnws")], extra_lines=["UAWINDOW -1 1"],
+        )
+        lines = _lines(stage3.to_aermet_input())
+        assert "UPPERAIR" not in lines
+        assert lines[lines.index("SURFACE"):][1:3] == [
+            "QAOUT      sf.qa", "ASOS1MIN   aerminute.dat"]
+        assert lines[lines.index("ONSITE") + 1] == "QAOUT      os.qa"
+        assert "AERSURF    aersurface.out" in lines
+        assert "AERSURF2   nws.out" in lines
+        assert "METHOD     REFLEVEL SUBNWS" in lines
+        assert lines[-1] == "UAWINDOW -1 1"
+        assert not any(line.startswith("SITE_CHAR") for line in lines)
+
+    def test_secondary_site_char(self):
+        stage3 = AERMETStage3(site_char=[(1, 1, 0.2, 3.0, 0.1)],
+                              secondary_site_char=[(1, 1, 0.2, 3.0, 0.1)])
+        lines = _lines(stage3.to_aermet_input())
+        assert lines[-3:] == ["FREQ_SECT2 ANNUAL 1", "SECTOR2    1 0 360",
+                              "SITE_CHAR2 1 1 0.2 3 0.1"]
 
     def test_stage3_output_files(self):
-        """Test output file names"""
-        stage3 = AERMETStage3(
-            surface_file="custom.sfc",
-            profile_file="custom.pfl",
-        )
+        stage3 = AERMETStage3(surface_file="custom.sfc", profile_file="custom.pfl",
+                              message_file="m.msg")
         output = stage3.to_aermet_input()
         assert "OUTPUT     custom.sfc" in output
         assert "PROFILE    custom.pfl" in output
+        assert "MESSAGES   m.msg" in output
 
-    def test_stage3_merge_input(self):
-        """Test merge file input — Stage 3 uses DATA keyword under METPREP"""
-        stage3 = AERMETStage3(merge_file="custom_merge.mrg")
-        output = stage3.to_aermet_input()
-        assert "DATA       custom_merge.mrg" in output
+    def test_merge_file_is_ignored(self):
+        """METPREP's DATA keyword is obsolete: AERMET merges the QAOUT files itself."""
+        output = AERMETStage3(merge_file="custom_merge.mrg").to_aermet_input()
+        assert "custom_merge.mrg" not in output
+
+    def test_messages_level_is_ignored_with_a_warning(self):
+        with pytest.warns(DeprecationWarning, match="AERMETStage3.messages=2"):
+            output = AERMETStage3(messages=2).to_aermet_input()
+        assert "MESSAGES   stage3.msg" in output
 
     def test_stage3_date_range(self):
-        """Test date range"""
-        stage3 = AERMETStage3(
-            start_date="2022/01/01",
-            end_date="2022/12/31",
-        )
-        output = stage3.to_aermet_input()
-        assert "XDATES     2022/01/01 TO 2022/12/31" in output
+        stage3 = AERMETStage3(start_date="2022/01/01", end_date="2022/12/31")
+        assert "XDATES     2022/01/01 TO 2022/12/31" in stage3.to_aermet_input()
 
     def test_stage3_default_surface_params(self):
-        """Test default surface parameter arrays"""
         stage3 = AERMETStage3()
-        assert len(stage3.albedo) == 12
-        assert len(stage3.bowen) == 12
-        assert len(stage3.roughness) == 12
-        assert all(a == 0.15 for a in stage3.albedo)
-        assert all(b == 1.0 for b in stage3.bowen)
-        assert all(r == 0.1 for r in stage3.roughness)
+        assert stage3.albedo == [0.15] * 12
+        assert stage3.bowen == [1.0] * 12
+        assert stage3.roughness == [0.1] * 12
+
+    def test_with_inputs_from_names_only_the_pathways_stage1_runs(self):
+        stage1 = AERMETStage1(surface_station=_chicago(), surface_data_file="s.ish",
+                              qa_file="sf.qa")
+        stage3 = AERMETStage3().with_inputs_from(stage1)
+        assert (stage3.upper_air_qaout, stage3.surface_qaout, stage3.onsite_qaout) == (
+            None, "sf.qa", None)
+        lines = _lines(stage3.to_aermet_input())
+        assert "UPPERAIR" not in lines
+        assert lines[lines.index("SURFACE") + 1] == "QAOUT      sf.qa"
+
+    def test_with_inputs_from_keeps_names_given(self):
+        stage3 = AERMETStage3(surface_qaout="mine.qa")
+        assert stage3.with_inputs_from(AERMETStage1()) is stage3
 
 
 class TestWriteAERMETRunfile:
@@ -323,6 +461,16 @@ class TestWriteAERMETRunfile:
             assert "Stage 2" in content
         finally:
             os.chdir(original_cwd)
+
+    def test_script_passes_the_runstream_and_checks_the_banner(self, tmp_path, monkeypatch):
+        """AERMET reads the runstream named as its argument, not stdin, and exits 0 on failure."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "stage1.inp").write_text("JOB\n")
+        content = (tmp_path / write_aermet_runfile(1, "stage1.inp", "out")).read_text()
+        assert f'INPUT_FILE="{(tmp_path / "stage1.inp").resolve()}"' in content
+        assert '"$AERMET_EXE" "$INPUT_FILE"' in content
+        assert "< " not in content
+        assert 'grep -q "AERMET FINISHED SUCCESSFULLY"' in content
 
     def test_file_is_executable(self, tmp_path):
         """Test that the created script file is executable"""
@@ -386,14 +534,9 @@ class TestAERMETEdgeCases:
             )
 
     def test_stage3_falsy_time_zone(self):
-        """Test that time_zone=0 (UTC) generates LOCATION line"""
-        stage3 = AERMETStage3(
-            latitude=51.5,
-            longitude=0.0,
-            time_zone=0,
-        )
-        output = stage3.to_aermet_input()
-        assert "LOCATION   SITE 51.5000 0.0000 0" in output
+        """time_zone=0 (UTC) still writes the LOCATION line, with adjustment 0."""
+        stage3 = AERMETStage3(latitude=51.5, longitude=0.0, time_zone=0)
+        assert "LOCATION   SITE 51.5N 0E 0" in stage3.to_aermet_input()
 
     def test_stage3_partial_location(self):
         """Test that partial location parameters raise ValueError"""
@@ -417,39 +560,11 @@ class TestAERMETEdgeCases:
         with pytest.raises(ValueError, match="roughness"):
             AERMETStage3(roughness=[0.1])
 
-    def test_stage1_qa_pathway(self):
-        """Test that QA section appears in Stage 1 output"""
-        station = AERMETStation(
-            station_id="KORD",
-            station_name="Chicago",
-            latitude=41.98,
-            longitude=-87.90,
-            time_zone=-6,
-        )
-        stage1 = AERMETStage1(
-            surface_station=station,
-            surface_data_file="kord_2020.ish",
-        )
-        output = stage1.to_aermet_input()
-        assert "QA" in output
-        assert "EXTRACT    stage1.qa" in output
-
     def test_stage1_zero_elevation(self):
-        """Test that elevation=0.0 still generates ELEVATION line"""
-        station = AERMETStation(
-            station_id="KORD",
-            station_name="Chicago",
-            latitude=41.98,
-            longitude=-87.90,
-            time_zone=-6,
-            elevation=0.0,
-        )
-        stage1 = AERMETStage1(
-            surface_station=station,
-            surface_data_file="kord_2020.ish",
-        )
-        output = stage1.to_aermet_input()
-        assert "ELEVATION  0.0" in output
+        """elevation=0.0 (sea level) is still written, as LOCATION's fifth field."""
+        stage1 = AERMETStage1(surface_station=_chicago(elevation=0.0),
+                              surface_data_file="kord_2020.ish")
+        assert "LOCATION   KORD 41.98N 87.9W 6 0" in stage1.to_aermet_input()
 
 
 # ============================================================================

@@ -1,0 +1,22 @@
+ START PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:50 PM
+ Stage 2: Extracting upper air data for month/day/year 03/01/1988 LST
+ Stage 2: Extracting upper air data for month/day/year 03/02/1988 LST
+ Stage 2: Extracting upper air data for month/day/year 03/03/1988 LST
+ Stage 2: Extracting upper air data for month/day/year 03/04/1988 LST
+ Stage 2: Extracting surface data for month/day/year 03/01/1988 LST
+ Stage 2: Extracting surface data for month/day/year 03/02/1988 LST
+ Stage 2: Extracting surface data for month/day/year 03/03/1988 LST
+ Stage 2: Extracting surface data for month/day/year 03/04/1988 LST
+ Stage 2: Initial data assignments for month/day/year 03/01/1988 LST
+ Stage 2: Initial data assignments for month/day/year 03/02/1988 LST
+ Stage 2: Initial data assignments for month/day/year 03/03/1988 LST
+ Stage 2: Initial data assignments for month/day/year 03/04/1988 LST
+ Stage 2: PBL calculations for month/day/year 03/01/1988 LST
+ Stage 2: PBL calculations for month/day/year 03/02/1988 LST
+ Stage 2: PBL calculations for month/day/year 03/03/1988 LST
+ Stage 2: PBL calculations for month/day/year 03/04/1988 LST
+
+
+ AERMET FINISHED SUCCESSFULLY
+
+ END PROCESSING DATE/TIME: SEPTEMBER 29, 2026  21:00:50 PM

@@ -60,6 +60,11 @@ aermod/
 aermap/
 aermet/
 aermod_results/
+# ...but not the recorded AERMET runs the runner tests replay
+# (tests/fixtures/aermet/regenerate.sh); every file there is fixture.
+!tests/fixtures/aermet/
+!tests/fixtures/aermet/**
+tests/fixtures/aermet/**/__pycache__/
 
 # Compiled binaries (build with scripts/build_aermod.sh)
 bin/

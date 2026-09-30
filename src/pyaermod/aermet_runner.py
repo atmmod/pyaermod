@@ -1,49 +1,157 @@
 """
-AERMET binary runner + three-stage pipeline.
+AERMET binary runner + pipeline.
 
-Parallel to :class:`pyaermod.runner.AERMODRunner` but for AERMET. The
-EPA AERMET workflow is three sequential passes — Stage 1 ingests raw
-obs, Stage 2 merges, Stage 3 computes boundary-layer parameters — and
-each stage takes an input deck as its stdin or first argument.
+Parallel to :class:`pyaermod.runner.AERMODRunner` but for AERMET. AERMET
+11 and later run in two stages: Stage 1 extracts and quality-assures the
+raw observations (:class:`~pyaermod.aermet.AERMETStage1`), and the
+METPREP stage merges them and computes the boundary-layer parameters
+(:class:`~pyaermod.aermet.AERMETStage3`, AERMET's "stage 2"). Each run
+takes a runstream file named on the command line.
 
-    from pyaermod import AERMETStage1, AERMETStage2, AERMETStage3
+    from pyaermod import AERMETStage1, AERMETStage3
     from pyaermod.aermet_runner import AERMETRunner, run_aermet_pipeline
 
     runner = AERMETRunner()
     result1 = runner.run_stage(1, stage1_inp_path, working_dir=tmp)
     ...
 
-Or, for a full pipeline:
+Or, for the whole pipeline:
 
-    results = run_aermet_pipeline(
-        stage1, stage2, stage3, working_dir=tmp,
-    )
-    # results is a list of 3 AERMETRunResult; check all `.success`.
+    results = run_aermet_pipeline(stage1, None, stage3, working_dir=tmp)
+    # one AERMETRunResult per AERMET run; check all `.success`.
 
-The module handles:
-- Writing each stage's deck to disk via `.to_aermet_input()`
-- Finding / validating the AERMET binary
-- Capturing stdout, stderr, and the `<stage>.msg` log file
-- Surfacing failure diagnostics via :func:`runner_utils.summarize_failure`
+How success is decided
+----------------------
+AERMET exits with code 0 whether or not it succeeds, so the exit code
+says nothing. At the end of every run the main program (``aermet.f90``)
+prints one of two banners to the screen and to the REPORT file:
+
+    AERMET FINISHED SUCCESSFULLY
+    AERMET FINISHED UN-SUCCESSFULLY
+
+and ``write_msg`` (``mod_reports.f90``) writes a MESSAGE SUMMARY to the
+REPORT file with the number of ERROR, WARNING, INFORMATION and QA
+messages. A run succeeds here only when the exit code is 0, the screen
+output carries the "FINISHED SUCCESSFULLY" banner and no error is
+counted. The individual messages come from the MESSAGES file, one per
+line in the layout ``(1x,a10,1x,a3,5x,a10,1x,...)``: pathway, code
+(``E01``), routine and text. A few errors found before the MESSAGES file
+is open go to the screen in the same layout, so the screen is read too.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, NamedTuple, Optional, Union
 
 from .aermet import AERMETStage1, AERMETStage2, AERMETStage3
 from .runner import _read_capped
 
+_FINISHED_SUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED SUCCESSFULLY[ \t]*$", re.MULTILINE)
+_FINISHED_UNSUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED UN-SUCCESSFULLY[ \t]*$", re.MULTILINE)
+# write_msg: write(rpt_unit,'(//2(1x,a),1x,i8,1x,a/)') type,'MESSAGES',n,'MESSAGES'
+_SUMMARY_COUNT = re.compile(
+    r"^[ \t]*(ERROR|WARNING|INFORMATION|QA) MESSAGES[ \t]+(\d+)[ \t]+MESSAGES[ \t]*$",
+    re.MULTILINE,
+)
+_SUMMARY_SEVERITY = {"ERROR": "E", "WARNING": "W", "INFORMATION": "I", "QA": "Q"}
+# msg_form in mod_main1.f90: '(1x,a10,1x,a3,5x,a10,1x,' followed by the text.
+_MESSAGE_LINE = re.compile(r"^ (?P<pathway>.{10}) (?P<code>[EWIQ]\d\d) {5}(?P<rest>.*)$")
+# AERMET reads file names of up to 300 characters (flength in mod_file_units.f90).
+_MAX_FILENAME = 300
+
+
+@dataclass(frozen=True)
+class AERMETMessage:
+    """One line of an AERMET MESSAGES file (or of its screen output).
+
+    Attributes:
+        pathway: The pathway that raised it (``UPPERAIR``, ``SURFACE``,
+            ``ONSITE``, ``METPREP``, ``JOB``), or empty when AERMET leaves
+            it blank.
+        severity: ``'E'`` (error), ``'W'`` (warning), ``'I'``
+            (information) or ``'Q'`` (QA).
+        code: The severity and number together, such as ``'E01'``.
+        module: The AERMET routine, such as ``'CHECK_LINE'``.
+        text: The message text.
+    """
+    pathway: str
+    severity: str
+    code: str
+    module: str
+    text: str = ""
+
+    def __str__(self) -> str:
+        where = f"{self.pathway} " if self.pathway else ""
+        return f"{where}{self.code} {self.module}: {self.text}".rstrip()
+
+
+def parse_aermet_messages(text: str) -> List[AERMETMessage]:
+    """Parse the messages in the text of an AERMET MESSAGES file."""
+    messages = []
+    for raw in text.replace("\r\n", "\n").splitlines():
+        m = _MESSAGE_LINE.match(raw)
+        if m is None:
+            continue
+        code = m.group("code")
+        messages.append(AERMETMessage(
+            pathway=m.group("pathway").strip(),
+            severity=code[0],
+            code=code,
+            # a10 routine name, one blank, then the text
+            module=m.group("rest")[:10].strip(),
+            text=m.group("rest")[11:].strip(),
+        ))
+    return messages
+
+
+def read_aermet_messages(message_file: Union[str, Path]) -> List[AERMETMessage]:
+    """Read the messages of an AERMET MESSAGES file."""
+    return parse_aermet_messages(Path(message_file).read_text(encoding="latin-1"))
+
+
+def _summary_counts(report_text: str) -> Dict[str, int]:
+    """The ERROR/WARNING/INFORMATION/QA counts of a REPORT file's MESSAGE SUMMARY."""
+    return {_SUMMARY_SEVERITY[m.group(1)]: int(m.group(2))
+            for m in _SUMMARY_COUNT.finditer(report_text)}
+
+
+class _JobFiles(NamedTuple):
+    report: Optional[str]
+    messages: Optional[str]
+
+
+def _job_files(deck_text: str) -> _JobFiles:
+    """The REPORT and MESSAGES file names a runstream names (JOB pathway)."""
+    found: Dict[str, str] = {}
+    for raw in deck_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("**"):
+            continue
+        parts = line.split(None, 1)
+        keyword = parts[0].upper()
+        if keyword in ("REPORT", "MESSAGES") and keyword not in found and len(parts) == 2:
+            found[keyword] = parts[1].strip().strip("'\"")
+    return _JobFiles(found.get("REPORT"), found.get("MESSAGES"))
+
 
 @dataclass
 class AERMETRunResult:
-    """Outcome of a single AERMET stage execution."""
+    """Outcome of a single AERMET run.
+
+    ``success`` is AERMET's own verdict (see the module docstring).
+    ``messages`` are the messages AERMET listed (its MESSAGES file and any
+    it printed to the screen), and ``message_counts`` the counts from the
+    REPORT file's MESSAGE SUMMARY, keyed ``'E'``, ``'W'``, ``'I'`` and
+    ``'Q'``.
+    """
     success: bool
     stage: int
     input_file: str
@@ -55,14 +163,29 @@ class AERMETRunResult:
     error_message: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    messages: List[AERMETMessage] = field(default_factory=list)
+    message_counts: Dict[str, int] = field(default_factory=dict)
+    finished_successfully: bool = False
+    report_file: Optional[str] = None
+    message_file: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.output_files is None:
             self.output_files = []
 
+    @property
+    def errors(self) -> List[AERMETMessage]:
+        """The error (``E``) messages AERMET listed."""
+        return [m for m in self.messages if m.severity == "E"]
+
+    @property
+    def error_count(self) -> int:
+        """AERMET's count of error messages (its summary's, else the number listed)."""
+        return self.message_counts.get("E", len(self.errors))
+
 
 class AERMETRunner:
-    """Execute AERMET stages from Python.
+    """Execute AERMET runs from Python.
 
     Parameters
     ----------
@@ -96,6 +219,27 @@ class AERMETRunner:
             "No AERMET executable found on PATH. Pass executable_path explicitly."
         )
 
+    @staticmethod
+    def _deck_argument(inp_path: Path, work: Path) -> str:
+        """The runstream name to pass AERMET, copying the deck into ``work`` if needed.
+
+        AERMET reads the runstream named by its first command-line
+        argument (readinp in mod_read_input.f90) and opens every file the
+        deck names relative to its working directory. A deck outside the
+        working directory is copied in under its own name, which also
+        keeps the argument within AERMET's 300-character file names.
+        """
+        try:
+            rel = inp_path.relative_to(work)
+        except ValueError:
+            target = work / inp_path.name
+            shutil.copy2(inp_path, target)
+            rel = Path(inp_path.name)
+        arg = rel.as_posix()
+        if len(arg) > _MAX_FILENAME:
+            raise ValueError(f"AERMET reads file names of up to {_MAX_FILENAME} characters: {arg}")
+        return arg
+
     def run_stage(
         self,
         stage: int,
@@ -104,24 +248,20 @@ class AERMETRunner:
         working_dir: Union[str, Path],
         timeout: int = 600,
     ) -> AERMETRunResult:
-        """Run a single AERMET stage.
+        """Run AERMET on one runstream file in ``working_dir``.
 
-        AERMET v23+ reads from a fixed file ``aermet.inp`` in the
-        current working directory (the same convention as AERMOD
-        with ``aermod.inp``). We copy the user's deck to that path
-        before invoking the binary.
+        ``stage`` labels the run (the result's ``stage`` and the captured
+        ``stage{N}.subproc.stdout``/``.stderr`` files); AERMET itself
+        decides which stages to run from the pathways in the deck.
         """
         inp_path = Path(input_file).resolve()
         work = Path(working_dir).resolve()
         work.mkdir(parents=True, exist_ok=True)
-
-        # Stage AERMET's expected input file name in the working dir.
-        aermet_inp = work / "aermet.inp"
-        if aermet_inp.resolve() != inp_path:
-            import shutil
-            if aermet_inp.exists() or aermet_inp.is_symlink():
-                aermet_inp.unlink()
-            shutil.copy2(inp_path, aermet_inp)
+        deck_text = inp_path.read_text(encoding="latin-1")
+        job = _job_files(deck_text)
+        report_path = work / job.report if job.report else None
+        message_path = work / job.messages if job.messages else None
+        deck_arg = self._deck_argument(inp_path, work)
 
         self.logger.info(
             f"Running AERMET stage {stage}: {inp_path} (workdir={work})"
@@ -137,7 +277,7 @@ class AERMETRunner:
         try:
             try:
                 proc = subprocess.run(
-                    [str(self.executable)],
+                    [str(self.executable), deck_arg],
                     cwd=str(work),
                     text=True,
                     stdout=stdout_fh, stderr=stderr_fh,
@@ -162,31 +302,71 @@ class AERMETRunner:
         out = _read_capped(stdout_path, 1_000_000)
         err = _read_capped(stderr_path, 1_000_000)
 
-        # Success if return code 0 AND the stdout/log doesn't scream
-        # "FATAL ERROR". AERMET sometimes exits 0 even on fatal errors.
-        success = proc.returncode == 0 and "FATAL" not in out.upper()
-        # Collect any files AERMET may have produced in the working dir.
-        outputs = [str(p) for p in sorted(work.glob("*"))
-                   if p.is_file() and p.stat().st_mtime >= start.timestamp()]
+        messages = parse_aermet_messages(out)
+        if message_path is not None and message_path.is_file():
+            messages += read_aermet_messages(message_path)
+        counts: Dict[str, int] = {}
+        if report_path is not None and report_path.is_file():
+            counts = _summary_counts(_read_capped(report_path, 1_000_000))
+        finished = (_FINISHED_SUCCESSFULLY.search(out) is not None
+                    and _FINISHED_UNSUCCESSFULLY.search(out) is None)
 
-        return AERMETRunResult(
-            success=success,
+        result = AERMETRunResult(
+            success=False,
             stage=stage,
             input_file=str(inp_path),
             return_code=proc.returncode,
             runtime_seconds=(end - start).total_seconds(),
             stdout=out,
             stderr=err,
-            output_files=outputs,
-            error_message=None if success else "AERMET reported FATAL or non-zero exit",
+            output_files=[str(p) for p in sorted(work.glob("*"))
+                          if p.is_file() and p.stat().st_mtime >= start.timestamp()],
             start_time=start,
             end_time=end,
+            messages=messages,
+            message_counts=counts,
+            finished_successfully=finished,
+            report_file=str(report_path) if report_path is not None and report_path.is_file() else None,
+            message_file=str(message_path) if message_path is not None and message_path.is_file() else None,
         )
+        result.success = proc.returncode == 0 and finished and result.error_count == 0
+        if not result.success:
+            result.error_message = self._failure_reason(result, out, err)
+            self.logger.error(f"AERMET stage {stage} failed: {result.error_message}")
+        return result
+
+    @staticmethod
+    def _failure_reason(result: AERMETRunResult, out: str, err: str) -> str:
+        parts = []
+        errors = result.errors
+        if errors:
+            first = str(errors[0])
+            if len(errors) > 1:
+                first += f" (and {len(errors) - 1} more error(s))"
+            parts.append(first)
+        elif result.error_count:
+            parts.append(f"AERMET counted {result.error_count} error message(s)")
+        if result.return_code not in (0, None):
+            parts.append(f"AERMET exited with code {result.return_code}")
+        if not result.finished_successfully:
+            if _FINISHED_UNSUCCESSFULLY.search(out):
+                parts.append("AERMET printed 'AERMET FINISHED UN-SUCCESSFULLY'")
+            else:
+                tail = " | ".join(line.strip() for line in out.splitlines()[-3:] if line.strip())
+                parts.append("AERMET did not print 'AERMET FINISHED SUCCESSFULLY'"
+                             + (f" (last output: {tail})" if tail else ""))
+        err_lines = [line.strip() for line in err.splitlines() if line.strip()]
+        if err_lines:
+            # A crashed AERMET ends stderr with a backtrace; gfortran's
+            # "Fortran runtime error: ..." line above it says what happened.
+            runtime = [line for line in err_lines if "runtime error" in line.lower()]
+            parts.append(f"stderr: {(runtime or err_lines)[-1]}")
+        return "; ".join(parts)
 
 
 def run_aermet_pipeline(
     stage1: AERMETStage1,
-    stage2: AERMETStage2,
+    stage2: Optional[AERMETStage2],
     stage3: AERMETStage3,
     *,
     working_dir: Union[str, Path],
@@ -194,23 +374,31 @@ def run_aermet_pipeline(
     stop_on_failure: bool = True,
     timeout: int = 600,
 ) -> List[AERMETRunResult]:
-    """Run all three AERMET stages in sequence in `working_dir`.
+    """Run AERMET's Stage 1 and then its METPREP stage in ``working_dir``.
 
-    Writes each stage's deck to ``{working_dir}/stage{N}.inp`` before
-    dispatching to AERMET. If a stage fails and `stop_on_failure` is
-    True (default), the remaining stages are skipped.
+    Writes ``stage1.inp`` and ``stage3.inp`` into ``working_dir`` and runs
+    them in turn. The METPREP deck reads Stage 1's QAOUT files
+    (:meth:`AERMETStage3.with_inputs_from`) unless ``stage3`` names its
+    own. ``stage2`` is ignored: AERMET 11 and later have no merge stage;
+    pass None. If Stage 1 fails and ``stop_on_failure`` is True (default),
+    METPREP is not run.
 
-    Returns a list of AERMETRunResult (one per attempted stage).
+    Returns one :class:`AERMETRunResult` per AERMET run made, with
+    ``stage`` 1 and 3 (two results, not three).
     """
+    if stage2 is not None:
+        warnings.warn(
+            "run_aermet_pipeline ignores stage2: AERMET 11 and later have no merge stage; pass None",
+            DeprecationWarning, stacklevel=2,
+        )
     work = Path(working_dir).resolve()
     work.mkdir(parents=True, exist_ok=True)
     runner = AERMETRunner(executable_path=executable_path)
 
     results: List[AERMETRunResult] = []
-    for n, cfg in enumerate([stage1, stage2, stage3], start=1):
-        deck_text = cfg.to_aermet_input()
+    for n, cfg in ((1, stage1), (3, stage3.with_inputs_from(stage1))):
         deck_path = work / f"stage{n}.inp"
-        deck_path.write_text(deck_text, encoding="utf-8")
+        deck_path.write_text(cfg.to_aermet_input(), encoding="utf-8")
         res = runner.run_stage(n, deck_path, working_dir=work, timeout=timeout)
         results.append(res)
         if not res.success and stop_on_failure:
@@ -219,7 +407,10 @@ def run_aermet_pipeline(
 
 
 __all__ = [
+    "AERMETMessage",
     "AERMETRunResult",
     "AERMETRunner",
+    "parse_aermet_messages",
+    "read_aermet_messages",
     "run_aermet_pipeline",
 ]

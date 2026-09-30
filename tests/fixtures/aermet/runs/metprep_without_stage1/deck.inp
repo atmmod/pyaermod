@@ -1,0 +1,24 @@
+** AERMET Stage 3 Input (AERMET stage 2, METPREP)
+** Job: STAGE3
+**
+JOB
+   REPORT     stage3.out
+   MESSAGES   stage3.msg
+
+UPPERAIR
+   QAOUT      stage1_ua.qa
+
+SURFACE
+   QAOUT      stage1.qa
+
+METPREP
+   XDATES     1988/03/01 TO 1988/03/4
+   LOCATION   14735 42.75N 73.8W 5
+   METHOD     REFLEVEL SUBNWS
+   METHOD     WIND_DIR RANDOM
+   NWS_HGT    WIND 6.1
+   OUTPUT     EX01_MP.SFC
+   PROFILE    EX01_MP.PFL
+   FREQ_SECT  ANNUAL 1
+   SECTOR     1 0 360
+   SITE_CHAR  1 1 0.15 2 0.12
