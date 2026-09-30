@@ -161,6 +161,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the GUI's event loop; `cancel_run()`; the `run_progress` event; and
   `RunInProgressError` for a second `start_run` during a run.
 - `docs/common-errors.md` has entries for E480 and E500.
+- `NAAQSStandard.level_ugm3` and `pyaermod.naaqs.ppb_to_ugm3`: a
+  standard's level in µg/m³, the unit AERMOD reports, converting ppb at
+  the 25 °C and 760 mm Hg of 40 CFR 50.3 (75 ppb of SO2 is 196.4 µg/m³).
+- GUI Results step (WP-G5): it names the run it shows and whether AERMOD
+  completed it, and a failed run shows its fatal errors and no values.
+  A successful run shows a card and a table row with the maximum of each
+  averaging period and its location, exactly as AERMOD printed them
+  (with the `c`/`m`/`b` calm and missing-hour flags explained), every
+  rank of every summary table, deposition tables as deposition, a
+  concentration map drawn from the run's plot files, a comparison with
+  the NAAQS for the pollutant (AERMOD's own design-value table where it
+  prints one, a design value from a 1-hour or 24-hour POSTFILE through
+  `design_values`, otherwise a screen against the period's maximum; a
+  period with only a design-value table at another rank is not
+  compared), and
+  downloads of the deck, the `.out` file, the plot files, the POSTFILEs
+  and a KMZ. A run history reopens earlier runs; a run whose files a
+  later run overwrote keeps the values read when it finished, and its
+  files are no longer offered. A run AERMOD could not be started for is
+  listed too, as failed, with the reason. A period whose only summary
+  table is one of AERMOD's design-value tables (`RECTABLE ALLAVE
+  eighth`, say) is labelled with its rank ("8th-highest, averaged over 5
+  years") rather than presented as the maximum. A deposition-only run's
+  plot files are mapped as deposition, in AERMOD's units. The view of a
+  run is built by the UI-free `pyaermod.gui_v2.run_results`, the map by
+  `gui_v2.results_map`.
 
 ### Changed
 - GUI: `Session.last_completed_run` skips cancelled runs, so Results does
@@ -242,7 +268,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     both, the concentration tables are the ones in `concentrations`;
   - a summary table that continues on later pages (more source groups
     than fit a page) is read to its end; ALLSRCS's PERIOD maximum is
-    88881.24949 (group RLINEB2), not the 11819.89828 of the first page.
+    88881.24949 (group RLINEB2), not the 11819.89828 of the first page;
+  - a period's entry in `concentrations` (and `deposition`) is its table
+    of highest values when the file has one; one of AERMOD's
+    design-value tables (an Nth-highest value, or a multi-year average of
+    ranked values) fills it only when it is the period's only table, and
+    its `title` says so.
   `tests/test_output_parser_real_runs.py` pins each case against runs of
   the real binary recorded in `tests/fixtures/output_parser/`.
 - `AERMODRunner` no longer reports a run with an earlier run's `.out`

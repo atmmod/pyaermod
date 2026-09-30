@@ -48,11 +48,9 @@ def test_j01_build_run_and_read_results(gui, step, known_gap, run_dir):
     step("results")
     with known_gap("D2", "Results tab never refreshes after a run"):
         gui.results.expect_maxima(MAXIMA, MAX_LOCATION)
-    with known_gap("WP-G5", "no concentration map on Results"):
-        gui.results.expect_map()
-    with known_gap("WP-G5", "no deck download on Results"):
-        downloaded = gui.results.download_deck()
-        assert downloaded.read_bytes() == deck_written_to(run_dir).read_bytes()
+    gui.results.expect_map()
+    downloaded = gui.results.download_deck()
+    assert downloaded.read_bytes() == deck_written_to(run_dir).read_bytes()
 
 
 @pytest.mark.aermod_recording("albany_e480")

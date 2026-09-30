@@ -88,3 +88,29 @@ class TestAveragingPeriods:
         from pyaermod.naaqs import NAAQS_TABLE, naaqs_averaging_periods
         for key, rows in NAAQS_TABLE.items():
             assert len(naaqs_averaging_periods(key)) == len({r.averaging_period for r in rows})
+
+
+class TestUnits:
+    """Levels in µg/m³, the unit AERMOD reports concentrations in."""
+
+    @pytest.mark.parametrize(("pollutant", "period", "ugm3"), [
+        # EPA's own round figures: 75 ppb SO2 = 196.4 µg/m³ (the 2010 SO2
+        # NAAQS rule), 100 ppb NO2 = 188 µg/m³, 35 ppm CO = 40 mg/m³,
+        # 70 ppb O3 = 137 µg/m³.
+        ("SO2", "1-hour", 196.4),
+        ("NO2", "1-hour", 188.0),
+        ("CO", "1-hour", 40071.5),
+        ("O3", "8-hour", 137.3),
+    ])
+    def test_ppb_standards_convert_at_25_c(self, pollutant, period, ugm3):
+        assert get_naaqs(pollutant, period).level_ugm3 == pytest.approx(ugm3, abs=0.05)
+
+    def test_ug_standards_are_unchanged(self):
+        assert get_naaqs("PM2.5", "24-hour").level_ugm3 == 35.0
+        assert get_naaqs("Pb", "rolling 3-month").level_ugm3 == 0.15
+
+    def test_ppb_to_ugm3(self):
+        from pyaermod.naaqs import ppb_to_ugm3
+        assert ppb_to_ugm3("so2", 1.0) == pytest.approx(64.064 / 24.465)
+        with pytest.raises(KeyError, match="no molecular weight"):
+            ppb_to_ugm3("PM10", 1.0)

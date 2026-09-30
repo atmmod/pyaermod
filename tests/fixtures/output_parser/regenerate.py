@@ -3,11 +3,13 @@
 
 Usage::
 
-    python tests/fixtures/output_parser/regenerate.py [path/to/aermod]
+    python tests/fixtures/output_parser/regenerate.py [path/to/aermod] [case ...]
 
 Each case directory holds its deck, ``aermod.inp``. The script runs the
 deck in a scratch directory with the met files the case names, then copies
-back the ``aermod.out`` and stdout (``stdout.txt``) AERMOD produced.
+back the ``aermod.out``, the stdout (``stdout.txt``) and any plot files
+(``*.plt``) AERMOD produced. Name cases after the binary to re-record only
+those.
 
 The met files are the Albany data of ``tests/fixtures/epa_official/``
 (1 to 4 March 1988), except for two cases that need met data those four
@@ -23,7 +25,8 @@ days do not have:
     day of 1988 (:func:`full_year_met`). They are not real weather, only a
     complete year AERMOD accepts, so the deck can ask for ANNUAL averages
     and the 1-hour SO2 design value. At 1.5 MB each they are not kept;
-    this script writes them into the scratch directory.
+    this script writes them into the scratch directory. ``so2_8th_only``
+    runs over the same year.
 """
 
 from __future__ import annotations
@@ -46,7 +49,11 @@ CASES = {
     "full_year": (),
     "conc_ddep": ALBANY,
     "ddep_only": ALBANY,
+    "so2_8th_only": (),
 }
+
+#: cases run over the repeated year of met data (:func:`full_year_met`).
+FULL_YEAR = ("full_year", "so2_8th_only")
 
 # Surface-file columns (0-based) of the reference wind speed and direction.
 _WS, _WD = 15, 16
@@ -107,23 +114,31 @@ def full_year_met(target: Path) -> None:
 
 def main(argv: list) -> int:
     exe = argv[1] if len(argv) > 1 else shutil.which("aermod")
+    only = argv[2:] or list(CASES)
+    unknown = sorted(set(only) - set(CASES))
+    if unknown:
+        print(f"unknown case(s) {unknown}; the cases are {sorted(CASES)}", file=sys.stderr)
+        return 1
     if not exe or not Path(exe).exists():
         print("aermod not found: pass its path or put it on PATH "
               "(build it with scripts/build_aermod.sh)", file=sys.stderr)
         return 1
     exe = str(Path(exe).resolve())
     (HERE / "calm_missing" / "CALM.SFC").write_text(calm_missing_sfc())
-    for case, met in CASES.items():
+    for case in only:
+        met = CASES[case]
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             shutil.copy(HERE / case / "aermod.inp", work)
             for name in met:
                 source = HERE / case / name
                 shutil.copy(source if source.exists() else EPA / name, work)
-            if case == "full_year":
+            if case in FULL_YEAR:
                 full_year_met(work)
             proc = subprocess.run([exe], cwd=work, capture_output=True, check=False)
             shutil.copy(work / "aermod.out", HERE / case)
+            for plot in sorted(work.glob("*.plt")):
+                shutil.copy(plot, HERE / case)
             (HERE / case / "stdout.txt").write_bytes(proc.stdout)
             if proc.stderr:
                 print(f"{case}: AERMOD wrote to stderr:\n{proc.stderr.decode()}",

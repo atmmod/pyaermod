@@ -131,6 +131,22 @@ _UNITS_LINE = re.compile(
 
 # FORMATs 9020-9031 and 9091/99091 of output.f: every summary table AERMOD
 # prints starts with one of these headings.
+_RANKED_HEADING = re.compile(r"\b(\d+)(?:ST|ND|RD|TH)-HIGHEST\b", re.IGNORECASE)
+_YEARS_HEADING = re.compile(r"AVERAGED\s+OVER\s+(\d+)\s+YEARS", re.IGNORECASE)
+
+
+def _is_maximum_table(title: Optional[str]) -> bool:
+    """Whether a summary table's heading is that of the highest values:
+    ``HIGHEST 1-HR``, ``MAXIMUM PERIOD``, ``MAXIMUM ANNUAL``, or a
+    1ST-highest design-value table of one year; not an Nth-highest one or
+    a multi-year average of ranked values."""
+    rank = _RANKED_HEADING.search(title or "")
+    if rank is None:
+        return True
+    years = _YEARS_HEADING.search(title or "")
+    return int(rank.group(1)) == 1 and (years is None or int(years.group(1)) == 1)
+
+
 _SUMMARY_HEADING = re.compile(
     r"\*\*\*\s*(THE\s+SUMMARY\s+OF\s+(?:HIGHEST|MAXIMUM)\b.*?\bRESULTS\b.*?)\s*\*\*\*",
     re.IGNORECASE)
@@ -703,10 +719,16 @@ class AERMODOutputParser:
                 continue
             result = self._summary_result(sec["rows"], period, kind, title, sec["units"])
             self.summaries.append(result)
-            if kind == "CONC":
-                self.concentrations.setdefault(period, result)
-            else:
-                self.deposition.setdefault(kind, {}).setdefault(period, result)
+            by_period = (self.concentrations if kind == "CONC"
+                         else self.deposition.setdefault(kind, {}))
+            # A period's entry is its table of highest values. AERMOD's
+            # design-value tables (the 8TH-HIGHEST 24-HR PM2.5 average over
+            # N years, say) are used only for a period that has no other
+            # table, when RECTABLE asked for that rank alone.
+            kept = by_period.get(period)
+            if kept is None or (not _is_maximum_table(kept.title)
+                                and _is_maximum_table(title)):
+                by_period[period] = result
         return True
 
     @staticmethod
