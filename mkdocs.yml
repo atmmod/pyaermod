@@ -55,6 +55,7 @@ nav:
       - Project building:
           - input_generator (facade): api/input_generator.md
           - sources: api/sources.md
+          - hourly_emissions: api/hourly_emissions.md
           - receptors: api/receptors.md
           - pathways: api/pathways.md
           - input_reader: api/input_reader.md

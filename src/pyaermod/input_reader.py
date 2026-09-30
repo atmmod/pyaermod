@@ -1546,6 +1546,10 @@ def _parse_sources(block: _PathwayBlock,
         solid_barriers=solid_barriers,
         aircraft_sources=aircraft_sources,
         hbp_sources=hbp_sources,
+        # A deck's HOUREMIS card stays verbatim in unparsed_lines, so the
+        # writer puts it back where the deck had it (named here so that
+        # ``**units`` cannot be taken for it).
+        hourly_emissions=[],
         **units,
     )
     # OLMGROUP lives on ChemistryOptions.olm_groups; parse_aermod_input

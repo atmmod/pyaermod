@@ -111,6 +111,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   positional construction of the older fields is unchanged. An AREA deck
   with Szinit 23.26 m runs clean on v26135 and lowers the peak near the
   area as it should (`tests/test_real_aermod_source_writers.py`).
+- **Hourly emission files (`SO HOUREMIS`) for AREA, AREACIRC, AREAPOLY
+  and OPENPIT sources.** The new `pyaermod.hourly_emissions` module
+  writes the records in the layout of EPA's `pset2pa.emi`
+  (`SO HOUREMIS yy mm dd hh srcid qemis`; `write_hourly_emissions`,
+  `hourly_emission_record`), one per source per met hour, hour by hour in
+  the order the deck defines the sources, as aermod.f HRLOOP reads them
+  (E342 otherwise); a missing rate writes the seven-field record AERMOD
+  reads as zero emission (W344). `HourlyEmissionFile` is the
+  `HOUREMIS file srcid ...` card, held in the new
+  `SourcePathway.hourly_emissions` and written after every source card
+  (HREMIS flags only sources already defined); a read deck's own card is
+  still kept verbatim and written before it.
+  `SourcePathway.add_hourly_emissions(path, hours, rates)` writes a file
+  and adds its card, refusing POINT, VOLUME, LINE-type and BUOYLINE
+  sources (their records need more fields each hour) and a source already
+  on a card (E834). `ap42_wind_profile(sfc_file)` builds the hourly
+  factor of AP-42 13.2.4 Eq. 1 ("profile W" of the demonstration study):
+  `(clip(U, 0.6, 6.7)/2.2)**1.3` from the SFC reference wind, divided by
+  its mean over the hours with valid wind, with 1 for hours AERMOD treats
+  as missing; `WindEmissionProfile` keeps the hours, speeds, raw and
+  normalized factors, and counts of missing, calm and clipped hours for
+  a run manifest. On the v26135 binary, a file whose every rate equals the
+  SRCPARAM rate reproduces the constant-rate plot file exactly for an
+  OPENPIT and an AREA source, and the wind-profile file runs clean
+  (`tests/test_real_aermod_source_writers.py`). `HourlyEmissionFile`,
+  `WindEmissionProfile`, `ap42_wind_profile` and `write_hourly_emissions`
+  are exported from `pyaermod.api`.
+
 
 ## [2.2.0] - YYYY-MM-DD
 

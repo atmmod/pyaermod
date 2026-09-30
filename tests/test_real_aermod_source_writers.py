@@ -8,7 +8,10 @@ Each case is an acceptance check of the demonstration study's WP-D3:
   stopped setup with ``SO E140`` (invalid order of keyword), and one
   naming group ``ALL`` wrote ``SRCGROUP ALL srcid``, ``SO E203``;
 * an AREA source with ``initial_sigma_z``: runs clean, and the value
-  reaches AERMOD (the field is Szinit, so the result changes).
+  reaches AERMOD (the field is Szinit, so the result changes);
+* a HOUREMIS file whose every rate equals the SRCPARAM rate reproduces
+  the constant-rate run to the plot file's print precision, for an
+  OPENPIT and an AREA source; the AP-42 wind profile's file runs clean.
 
 The met data are EPA's AERMET2 files in tests/fixtures/epa_official/.
 """
@@ -21,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from pyaermod import AERMODRunner
+from pyaermod.hourly_emissions import ap42_wind_profile
 from pyaermod.input_generator import (
     AERMODProject,
     AreaSource,
@@ -108,3 +112,26 @@ def test_area_szinit_runs_and_takes_effect(tmp_path):
     peak = max(float(r[2]) for r in _plot_rows(plt))
     assert peak < 0.5 * peak0  # a 23 m initial spread lowers the peak near the area
 
+
+def test_houremis_at_the_srcparam_rate_reproduces_the_constant_run(tmp_path):
+    const, plt_const = _run(tmp_path, "const",
+                            SourcePathway(sources=[_pit(), _area(initial_sigma_z=23.26)]))
+    w = ap42_wind_profile(FIXT / "AERMET2.SFC")
+    so = SourcePathway(sources=[_pit(), _area(initial_sigma_z=23.26)])
+    n = len(w.hours)
+    so.add_hourly_emissions(tmp_path / "ones.emi", w.hours, {"A1": [2e-6] * n, "PIT": [1e-5] * n},
+                            filename="ones.emi")
+    hourly, plt_hourly = _run(tmp_path, "ones", so)
+    assert const.success and hourly.success, (const.error_message, hourly.error_message)
+    assert _plot_rows(plt_hourly) == _plot_rows(plt_const)
+
+
+def test_houremis_wind_profile_runs(tmp_path):
+    w = ap42_wind_profile(FIXT / "AERMET2.SFC")
+    so = SourcePathway(sources=[_pit(), _area()])
+    so.add_hourly_emissions(tmp_path / "w.emi", w.hours,
+                            {"PIT": w.rates(1e-5), "A1": w.rates(2e-6)}, filename="w.emi")
+    result, plt = _run(tmp_path, "w", so)
+    assert result.success, result.error_message
+    assert not {c for c in _codes(result) if c.startswith("E")}
+    assert len(_plot_rows(plt)) == 256
