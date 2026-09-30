@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- `OutputPathway.period_plot_files` and `period_postfiles`: a file-name
+  stem each; the pathway then writes a PLOTFILE and a POSTFILE for every
+  averaging period of the run, named as EPA's decks name them
+  (`<stem>_01H.plt`), and `period_plot_file_names()` /
+  `period_postfile_names()` say where they are.
+- Units and help text on the fields of every source type, the receptor
+  types and the meteorology and output pathways, as dataclass field
+  metadata (`pyaermod._fields.described`, `units_of`, `help_of`).
 - `AERMODResults.summaries` (every summary table of the `.out` file, in
   order) and `AERMODResults.deposition` (deposition tables by output type
   and averaging period); `ConcentrationResult.output_type`, `.title` (the
@@ -25,7 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `NAAQSStandard.level_ugm3` and `pyaermod.naaqs.ppb_to_ugm3`: a
   standard's level in µg/m³, the unit AERMOD reports, converting ppb at
   the 25 °C and 760 mm Hg of 40 CFR 50.3 (75 ppb of SO2 is 196.4 µg/m³).
-
 - GUI Results step (WP-G5): it names the run it shows and whether AERMOD
   completed it, and a failed run shows its fatal errors and no values.
   A successful run shows a card and a table row with the maximum of each
@@ -35,7 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concentration map drawn from the run's plot files, a comparison with
   the NAAQS for the pollutant (AERMOD's own design-value table where it
   prints one, a design value from a 1-hour or 24-hour POSTFILE through
-  `design_values`, otherwise a screen against the period's maximum), and
+  `design_values`, otherwise a screen against the period's maximum; a
+  period with only a design-value table at another rank is not
+  compared), and
   downloads of the deck, the `.out` file, the plot files, the POSTFILEs
   and a KMZ. A run history reopens earlier runs; a run whose files a
   later run overwrote keeps the values read when it finished, and its
@@ -59,6 +68,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dict whose keys are not all strings (background `sector_values`) as
   `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
   files written before this change still open.
+- GUI: the Output step turns on, by default, a plot file and a POSTFILE
+  for every averaging period (`pyaermod_01H.plt`, `pyaermod_01H.pst`,
+  ...), which the Results step reads. The GUI's default deck changes
+  accordingly; the `albany_success`, `albany_e480` and `missing_met`
+  recordings were made again with the real binary.
 
 ### Fixed
 - **The output parser dropped short-term values that AERMOD flags for
