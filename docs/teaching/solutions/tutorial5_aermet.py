@@ -2,8 +2,9 @@
 Tutorial 5 Solution — Processing Meteorological Data with AERMET
 =================================================================
 
-This script generates the three AERMET stage input files using the Atlanta,
-GA example from the student guide: KATL surface station with Peachtree City
+This script generates the two AERMET input files (Stage 1, then the
+METPREP stage that merges the data and computes the boundary layer) using
+the Atlanta, GA example from the student guide: KATL surface station with Peachtree City
 (72215) upper air data, suburban default surface parameters.
 
 Usage:
@@ -11,8 +12,7 @@ Usage:
 
 Outputs:
     aermet_stage1.inp  — Stage 1: Extract & QA/QC
-    aermet_stage2.inp  — Stage 2: Merge
-    aermet_stage3.inp  — Stage 3: Boundary layer parameters
+    aermet_stage3.inp  — METPREP (pyaermod's Stage 3): merge and boundary layer
 """
 
 import argparse
@@ -21,7 +21,6 @@ from pathlib import Path
 from pyaermod.aermet import (
     AERMETStation,
     AERMETStage1,
-    AERMETStage2,
     AERMETStage3,
     UpperAirStation,
 )
@@ -47,6 +46,9 @@ def create_peachtree_upper_air() -> UpperAirStation:
         station_name="Peachtree City",
         latitude=33.3600,
         longitude=-84.5700,
+        # AERMET needs the upper-air station's elevation (m); check it
+        # against the station list of your data source (IGRA: USM00072215).
+        elevation=245.0,
     )
 
 
@@ -80,22 +82,10 @@ def build_stage1(station: AERMETStation,
     )
 
 
-def build_stage2() -> AERMETStage2:
-    """Stage 2: Merge surface and upper air extracted data."""
-    return AERMETStage2(
-        surface_extract="stage1.ext",
-        upper_air_extract="stage1_ua.ext",
-        start_date="2020/01/01",
-        end_date="2020/12/31",
-        merge_file="stage2.mrg",
-        output_file="aermet_s2.out",
-    )
-
-
 def build_stage3(station: AERMETStation) -> AERMETStage3:
-    """Stage 3: Compute boundary layer parameters with suburban defaults."""
+    """METPREP: merge Stage 1's data and compute the boundary layer
+    parameters with suburban defaults."""
     return AERMETStage3(
-        merge_file="stage2.mrg",
         station=station,
         albedo=SUBURBAN_ALBEDO,
         bowen=SUBURBAN_BOWEN,
@@ -122,15 +112,9 @@ def main(output_dir: str = ".") -> None:
     s1_path.write_text(s1_text)
     print(f"  Stage 1 written to {s1_path}")
 
-    # --- Stage 2 ---
-    stage2 = build_stage2()
-    s2_text = stage2.to_aermet_input()
-    s2_path = out / "aermet_stage2.inp"
-    s2_path.write_text(s2_text)
-    print(f"  Stage 2 written to {s2_path}")
-
     # --- Stage 3 ---
-    stage3 = build_stage3(station)
+    # METPREP reads the QAOUT files Stage 1 writes.
+    stage3 = build_stage3(station).with_inputs_from(stage1)
     s3_text = stage3.to_aermet_input()
     s3_path = out / "aermet_stage3.inp"
     s3_path.write_text(s3_text)
@@ -152,14 +136,8 @@ def main(output_dir: str = ".") -> None:
     print("    Upper Air: 72215 (Peachtree City, 33.36N 84.57W)")
     print("    Period: 2020/01/01 - 2020/12/31, Format: ISHD")
 
-    # Stage 2 checks
-    assert "stage1.ext" in s2_text, "Surface extract file missing"
-    assert "stage2.mrg" in s2_text, "Merge output file missing"
-    print("  Stage 2: all checks passed")
-    print("    Merge: stage1.ext + stage1_ua.ext -> stage2.mrg")
-
     # Stage 3 checks
-    assert "stage2.mrg" in s3_text, "Merge file reference missing"
+    assert "QAOUT      stage1_qa.out" in s3_text, "Stage 1 QAOUT input missing"
     assert "aermod.sfc" in s3_text, "SFC output file missing"
     assert "aermod.pfl" in s3_text, "PFL output file missing"
     # Verify suburban surface parameters

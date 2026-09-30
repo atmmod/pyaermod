@@ -14,7 +14,7 @@ DataFrames, and exports results to geospatial formats.
 - **Parse output** to pandas DataFrames with `parse_aermod_output()`
 - **POSTFILE support**: formatted (PLOT) and binary (UNFORM) with timestep-level data
 - **Visualization**: contour plots, interactive Folium maps, 3D surfaces, wind roses, animations
-- **Preprocessors**: AERMET (3-stage meteorology), AERMAP (terrain), BPIP (building downwash)
+- **Preprocessors**: AERMET (Stage 1 and METPREP runstreams), AERMAP (terrain), BPIP (building downwash)
 - **Geospatial export**: GeoTIFF, GeoPackage, Shapefile, GeoJSON
 - **Interactive GUI**: 7-page Streamlit web interface
 

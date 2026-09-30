@@ -2,16 +2,16 @@
 Tutorial 6 Solution — AERMET for Houston, Texas
 =================================================
 
-This script generates the three AERMET stage input files for the Houston
-Ship Channel area, as described in Tutorial 6 of the refinery assignments.
+This script generates the two AERMET input files (Stage 1, then the
+METPREP stage that merges the data and computes the boundary layer) for the
+Houston Ship Channel area, as described in Tutorial 6 of the refinery assignments.
 
 Usage:
     python tutorial6_aermet_houston.py [--output-dir DIR]
 
 Outputs:
     aermet_houston_s1.inp  — Stage 1: Extract & QA/QC
-    aermet_houston_s2.inp  — Stage 2: Merge
-    aermet_houston_s3.inp  — Stage 3: Boundary layer parameters
+    aermet_houston_s3.inp  — METPREP (pyaermod's Stage 3): merge and boundary layer
 
 No external data files are needed to generate the input files.
 Running AERMET itself requires the raw surface/upper-air data files.
@@ -23,7 +23,6 @@ from pathlib import Path
 from pyaermod.aermet import (
     AERMETStation,
     AERMETStage1,
-    AERMETStage2,
     AERMETStage3,
     UpperAirStation,
 )
@@ -49,6 +48,9 @@ def create_lake_charles_upper_air() -> UpperAirStation:
         station_name="Lake Charles LA",
         latitude=30.1200,
         longitude=-93.2200,
+        # AERMET needs the upper-air station's elevation (m); 4.6 m is
+        # what EPA's AERMET test case EX04 gives for Lake Charles.
+        elevation=4.6,
     )
 
 
@@ -82,23 +84,10 @@ def build_stage1(station: AERMETStation,
     )
 
 
-def build_stage2() -> AERMETStage2:
-    """Stage 2: Merge surface and upper air extracted data."""
-    return AERMETStage2(
-        surface_extract="khou_extract.sfc",
-        upper_air_extract="lch_extract.ua",
-        start_date="2023/01/01",
-        end_date="2023/12/31",
-        merge_file="houston_merged.mrg",
-        output_file="aermet_s2.out",
-    )
-
-
 def build_stage3(station: AERMETStation) -> AERMETStage3:
-    """Stage 3: Compute boundary layer parameters with Houston-specific
-    surface characteristics."""
+    """METPREP: merge Stage 1's data and compute the boundary layer
+    parameters with Houston-specific surface characteristics."""
     return AERMETStage3(
-        merge_file="houston_merged.mrg",
         station=station,
         albedo=HOUSTON_ALBEDO,
         bowen=HOUSTON_BOWEN,
@@ -125,15 +114,9 @@ def main(output_dir: str = ".") -> None:
     s1_path.write_text(s1_text)
     print(f"  Stage 1 written to {s1_path}")
 
-    # --- Stage 2 ---
-    stage2 = build_stage2()
-    s2_text = stage2.to_aermet_input()
-    s2_path = out / "aermet_houston_s2.inp"
-    s2_path.write_text(s2_text)
-    print(f"  Stage 2 written to {s2_path}")
-
     # --- Stage 3 ---
-    stage3 = build_stage3(station)
+    # METPREP reads the QAOUT files Stage 1 writes.
+    stage3 = build_stage3(station).with_inputs_from(stage1)
     s3_text = stage3.to_aermet_input()
     s3_path = out / "aermet_houston_s3.inp"
     s3_path.write_text(s3_text)
@@ -151,13 +134,8 @@ def main(output_dir: str = ".") -> None:
     assert "khou_2023.dat" in s1_text, "Surface data file missing"
     print("  Stage 1: all checks passed")
 
-    # Stage 2 checks
-    assert "khou_extract.sfc" in s2_text, "Surface extract file missing"
-    assert "houston_merged.mrg" in s2_text, "Merge output file missing"
-    print("  Stage 2: all checks passed")
-
     # Stage 3 checks
-    assert "houston_merged.mrg" in s3_text, "Merge file missing"
+    assert "QAOUT      khou_qa.out" in s3_text, "Stage 1 QAOUT input missing"
     assert "houston_2023.sfc" in s3_text, "SFC output missing"
     assert "houston_2023.pfl" in s3_text, "PFL output missing"
     # Verify Houston-specific surface parameters appear in the output

@@ -195,15 +195,16 @@ defaults in the GUI.
 
 ### Step 5: Run AERMET
 
-In a terminal, run the three stages in order:
+In a terminal, run Stage 1 and then METPREP (current AERMET has no separate
+merge stage, so there is no `s2` file to run):
 
 ```bash
-aermet < aermet_houston_s1.inp
-aermet < aermet_houston_s2.inp
-aermet < aermet_houston_s3.inp
+aermet aermet_houston_s1.inp
+aermet aermet_houston_s3.inp
 ```
 
-When Stage 3 completes, you should have `houston_2023.sfc` and
+AERMET exits without an error code even when it fails: check that each run
+ends with `AERMET FINISHED SUCCESSFULLY`. When METPREP completes, you should have `houston_2023.sfc` and
 `houston_2023.pfl` in your working directory.
 
 ### Step 6: Verify the Output
@@ -1090,7 +1091,7 @@ sections:
 Submit the following files and documents:
 
 ### From Tutorial 6 (AERMET)
-- [ ] Three AERMET input files (`aermet_houston_s1.inp`, `s2.inp`, `s3.inp`)
+- [ ] Two AERMET input files (`aermet_houston_s1.inp`, `aermet_houston_s3.inp`)
 - [ ] Written answers to the three Discussion Questions
 - [ ] Brief description of the monthly surface parameter choices and
   rationale

@@ -1021,23 +1021,25 @@ contain:
   direction, and temperature at multiple heights above ground.
 
 **AERMET** is the preprocessor that transforms raw weather station observations
-into these two files. It runs in three stages:
+into these two files. Current AERMET (versions 24142 and 26135) runs in two
+stages, each from its own input file:
 
 ```
 Raw weather data (NOAA archives)
           |
    Stage 1: Extract & QA/QC
           |
-   Extracted hourly data
+   Quality-assured hourly data (QAOUT files)
           |
-   Stage 2: Merge surface + upper air
-          |
-   Merged dataset
-          |
-   Stage 3: Compute boundary-layer parameters
+   METPREP: merge surface + upper air, compute boundary-layer parameters
           |
    aermod.sfc  +  aermod.pfl   (ready for AERMOD)
 ```
+
+Older AERMET versions had a separate merge stage between the two; current
+AERMET merges the data inside METPREP. pyaermod calls the METPREP deck
+"Stage 3" (`AERMETStage3`, `aermet_stage3.inp`) so older projects keep their
+file names.
 
 ### What Data Does AERMET Need?
 
@@ -1237,10 +1239,10 @@ You now have three AERMET input files:
 | File | Stage | What It Does |
 |---|---|---|
 | `aermet_stage1.inp` | Extract & QA/QC | Reads raw data, checks quality |
-| `aermet_stage2.inp` | Merge | Combines surface + upper air |
-| `aermet_stage3.inp` | Boundary Layer | Computes AERMOD-ready parameters |
+| `aermet_stage2.inp` | Merge | Not used: current AERMET merges inside METPREP |
+| `aermet_stage3.inp` | METPREP | Merges surface + upper air, computes AERMOD-ready parameters |
 
-Download all three from their respective preview sections.
+Download the Stage 1 and Stage 3 files from their preview sections.
 
 ### Step 6: Run AERMET (Outside the GUI)
 
@@ -1261,18 +1263,22 @@ input files and run each stage:
 
 ```bash
 # Stage 1
-aermet < aermet_stage1.inp
+aermet aermet_stage1.inp
 
-# Stage 2
-aermet < aermet_stage2.inp
-
-# Stage 3
-aermet < aermet_stage3.inp
+# METPREP (merge + boundary layer)
+aermet aermet_stage3.inp
 ```
 
-Each stage reads the output of the previous stage, so they must be run **in
-order**. When Stage 3 completes, you'll have your `aermod.sfc` and
-`aermod.pfl` files — the meteorological inputs AERMOD needs.
+AERMET reads the input file named after the command (not from `<`
+redirection). METPREP reads the QAOUT files Stage 1 writes, so the two must
+be run **in order**. When METPREP completes, you'll have your `aermod.sfc`
+and `aermod.pfl` files — the meteorological inputs AERMOD needs.
+
+AERMET exits without an error code even when it fails. Check that the
+screen output ends with `AERMET FINISHED SUCCESSFULLY` and read the messages
+file each deck names (`MESSAGES`) for lines with an `E` code such as `E05`.
+From Python, `pyaermod.aermet_runner.run_aermet_pipeline` runs both decks
+and reports each run's `success` and first error for you.
 
 > **Troubleshooting common errors:**
 >

@@ -104,7 +104,7 @@ POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 - **EVENT processing** — date/receptor-specific analysis
 
 ### Preprocessors
-- **AERMET** — meteorological data preprocessing (Stages 1-3)
+- **AERMET** — meteorological data preprocessing (Stage 1 and METPREP runstreams in AERMET 24142/26135 syntax)
 - **AERMAP** — terrain elevation extraction with DEM download pipeline
 
 ### Analysis & Visualization

@@ -37,6 +37,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file's success check also looked for any `FINISHES SUCCESSFULLY`, which
   the `*** SETUP Finishes Successfully ***` line of a failed run
   satisfies; it now requires `AERMOD FINISHES SUCCESSFULLY`.
+- **The AERMET deck writers produced decks AERMET 24142 and 26135 reject,
+  and the AERMET runner reported those runs as successful.** For EPA's
+  EX01 case the old `AERMETStage1` deck stops with six errors (`E01
+  INVALID KEYWORD: ANEMHGT` and `ELEVATION`, two `E05 INVALID FORMAT FOR
+  STATION COORDINATE` for the signed decimal LOCATION, `E05 -5 GMT TO LST`
+  for the UTC offset, `E01 INVALID PATH QA`); `MESSAGES 2` opened a file
+  named `2`; `AERMETStage2` wrote a MERGE stage AERMET 11+ no longer has;
+  and `AERMETStage3` read no Stage 1 output and wrote `ALBEDO`, `BOWEN`
+  and `ROUGHNESS`, which are not AERMET keywords. `AERMETRunner` called a
+  run successful when AERMET exited 0 and printed no "FATAL", which AERMET
+  never prints, so every one of those runs came back `success=True`. The
+  writers now follow AERMET's Fortran: `LOCATION id 42.75N 73.8W adj elev`
+  with the GMT-to-LST adjustment derived from the data format; DATA,
+  EXTRACT, QAOUT and XDATES on each Stage 1 pathway; METPREP reading the
+  Stage 1 QAOUT files and writing FREQ_SECT, SECTOR and SITE_CHAR (or
+  AERSURF), METHOD and NWS_HGT. The runner passes the deck as AERMET's
+  argument and reports success only when AERMET prints `AERMET FINISHED
+  SUCCESSFULLY` and neither its MESSAGES file nor its REPORT summary lists
+  an error; `error_message` names the first error, such as `UPPERAIR E30
+  READ_FSL: SOUNDING IS NOT FSL FORMAT ...`. `run_aermet_pipeline`
+  inherits the rule. pyaermod's decks for EPA's AERMET test cases EX01,
+  EX04 (Houston) and Cordero reproduce EPA's 24142 `.SFC` and `.PFL` line
+  for line on AERMET 24142, and the output of EPA's own decks on AERMET
+  26135. `tests/test_aermet_status.py` pins the writers and the rule
+  against five runs of the real AERMET 26135 recorded in
+  `tests/fixtures/aermet/runs/`, and `tests/test_real_aermet_binary.py`
+  repeats them, and the Cordero comparison, against the binary itself.
+  `write_aermet_runfile` scripts pass the deck as an argument (AERMET
+  never read standard input) and fail unless AERMET prints its success
+  banner.
 - **`AERSCREENRunResult` named files in a spelling AERSCREEN had not
   written, on macOS and Windows.** The runner found the log by checking
   `<stem>.log` before `aerscreen.log`; a case-insensitive filesystem
@@ -52,6 +82,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+
+### Added
+- **AERMET runstream options** the current AERMET reads:
+  `AERMETStage1.upper_air_format` (`FSL`, `IGRA`, `6201FB`, `6201VB`),
+  `upper_air_qa_file`, `upper_air_extract_file`, `message_file`,
+  `surface_time_adjustment` and `upper_air_time_adjustment`, `*_audit`
+  and `*_extra` keyword lists, and `onsite` (the new `OnsiteData`: READ
+  and FORMAT records, THRESHOLD, OSHEIGHTS, DELTA_TEMP, OBS/HOUR);
+  `AERMETStage3.site_char` records (`"f s albedo bowen z0"` or tuples)
+  with `frequency` and `sectors`, `aersurf_file`, the secondary-site
+  `secondary_*` fields, `asos_1min_file`, `methods`, `nws_height`,
+  `extra_lines`, the input names `upper_air_qaout`, `surface_qaout` and
+  `onsite_qaout`, and `with_inputs_from(stage1)`.
+  `UpperAirStation.elevation` and `time_zone`. `AERMETRunResult` carries
+  AERMET's parsed messages (`messages`, `errors`, a list of the new
+  `AERMETMessage`), the REPORT summary counts (`message_counts`,
+  `error_count`), `finished_successfully`, `report_file` and
+  `message_file`; `parse_aermet_messages()` and `read_aermet_messages()`
+  read a MESSAGES file.
+
+### Changed
+- **AERMET runs in two stages, and the pipeline returns two results.**
+  AERMET 11 and later merge the data inside METPREP, so
+  `run_aermet_pipeline(stage1, stage2, stage3)` ignores `stage2` (pass
+  `None`; anything else warns) and returns the Stage 1 and METPREP
+  results, with `stage` 1 and 3. `AERMETStage2` still constructs but is
+  deprecated, and its `to_aermet_input()` raises `NotImplementedError`.
+- **Breaking, for decks that AERMET rejected anyway:** a Stage 1 deck
+  with upper air now needs `UpperAirStation.elevation` (AERMET stops with
+  E05 without it) and a time zone (the surface station's is used when the
+  upper-air one is unset); SCRAM and GHCN surface data need
+  `surface_time_adjustment`, since no EPA deck shows which time basis
+  AERMET reads them in; an unknown data format or a station ID with a
+  blank raises `ValueError`. The integer `messages` level is ignored with a
+  `DeprecationWarning` (`message_file` names the MESSAGES file), and
+  `AERMETStage3.merge_file` is ignored (METPREP's DATA keyword is
+  obsolete). `AERMETStage3.num_sectors` other than 1 needs `site_char`
+  records and `sectors`; the monthly `albedo`, `bowen` and `roughness`
+  lists become one sector's FREQ_SECT ANNUAL or MONTHLY SITE_CHAR records.
+  `AERMETRunner.run_stage` names the deck on AERMET's command line (a deck
+  outside `working_dir` is copied in under its own name) instead of
+  copying it to `aermet.inp`.
 
 ## [2.2.0] - YYYY-MM-DD
 
