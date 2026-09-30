@@ -635,8 +635,8 @@ class TestBinaryDepositionPostfile:
         assert result.data.iloc[1]["dry_depo"] == pytest.approx(1.0)
         assert result.data.iloc[1]["wet_depo"] == pytest.approx(3.0)
 
-    def test_auto_detect_deposition(self, tmp_path):
-        """Auto-detect deposition when num_receptors given and 3N floats."""
+    def test_three_blocks_are_not_guessed(self, tmp_path):
+        """3N floats could be four sets of output types, so they are not guessed."""
         filepath = tmp_path / "auto_dep.bin"
         data = _build_binary_deposition_record(
             26010101, 1, "ALL",
@@ -646,9 +646,16 @@ class TestBinaryDepositionPostfile:
         )
         filepath.write_bytes(data)
 
-        # 9 floats with num_receptors=3 → auto-detect deposition
+        # 9 floats with num_receptors=3: CONC DDEP WDEP, CONC DEPOS DDEP,
+        # CONC DEPOS WDEP or DEPOS DDEP WDEP
         parser = UnformattedPostfileParser(
             filepath, num_receptors=3, has_deposition=None
+        )
+        with pytest.raises(ValueError, match="pass output_types"):
+            parser.parse()
+
+        parser = UnformattedPostfileParser(
+            filepath, num_receptors=3, has_deposition=True
         )
         result = parser.parse()
 

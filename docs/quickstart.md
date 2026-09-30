@@ -266,11 +266,19 @@ g/m², totalled over each averaging period (g/m²/yr for ANNUAL), not as a
 flux per second. `OutputPathway.output_type` selects nothing: a deck that
 sets only it calculates concentration alone.
 
+A source's `deposition_method` (and the `DepositionMethod` enum) writes
+nothing: AERMOD has no METHOD keyword. Plume depletion is set on the
+run with `ControlPathway(dry_depletion=..., wet_depletion=...)`
+(MODELOPT DRYDPLT / NODRYDPLT / WETDPLT / NOWETDPLT; `None` leaves
+AERMOD's default, depletion on), and a user-specified gas deposition
+velocity with `ControlPathway.gas_deposition_velocity` (CO GASDEPVD).
+
 Once any source has deposition inputs, AERMOD turns on dry and wet
 plume depletion by default, even in a run with CONC alone, and then
 every source needs particle or gas deposition inputs (E242). A source
 without them goes in a run with no deposition sources, or in a
-CONC-only run with `extra_model_options=["NODRYDPLT", "NOWETDPLT"]`.
+CONC-only run with `ControlPathway(dry_depletion=False, wet_depletion=False)`
+(NODRYDPLT NOWETDPLT).
 DFAULT forces elevated terrain: with `regulatory_default=True`, a
 `terrain_type` of FLAT is overridden (W206) and the run is modelled as
 ELEV, so a flat-terrain deposition run also sets
@@ -322,6 +330,35 @@ sources.group_definitions = [
     ),
 ]
 ```
+
+A source can also name its groups itself, `source_groups=["BOILERS"]`.
+Those cards are written with the definitions above, after every source
+(AERMOD stops with `SO E140` on a group card among the source cards).
+Naming `ALL` adds nothing, since every source is in it.
+
+### Hourly Emissions (HOUREMIS)
+
+AREA, AREACIRC, AREAPOLY, OPENPIT, VOLUME, LINE, RLINE and RLINEXT
+sources can take an emission rate for every met hour from a file in the
+layout of EPA's `pset2pa.emi` (`SO HOUREMIS yy mm dd hh srcid qemis`). `ap42_wind_profile()` builds the
+wind factor of AP-42 13.2.4 Eq. 1, `(U/2.2)**1.3` with U clipped to
+0.6-6.7 m/s, for every hour of an SFC file, normalized to a mean of 1:
+
+```python
+from pyaermod.hourly_emissions import ap42_wind_profile
+
+w = ap42_wind_profile("site.sfc")
+print(w.summary())            # hours, missing (as AERMOD counts them), calm, clipped
+sources.add_hourly_emissions(
+    "pit.emi", w.hours,
+    {"PIT": w.rates(1.0e-5)},  # g/(s m^2), period mean 1.0e-5
+)
+```
+
+The file needs a record for every hour of the SFC file, in the order the
+deck defines the sources; `add_hourly_emissions()` writes them so and adds
+the `HOUREMIS pit.emi PIT` card. With every factor 1 the run reproduces the
+constant-rate run to the plot file's print precision.
 
 ### EVENT Processing
 
@@ -388,23 +425,48 @@ for date in result.data["date"].unique():
     print(f"{date}: max={ts['concentration'].max():.4g}")
 ```
 
-### Binary POSTFILE with Deposition
+### POSTFILEs with several output types
 
-Binary (UNFORM) POSTFILEs from deposition runs store concentration, dry deposition,
-and wet deposition as contiguous blocks of `N` floats each (3N total per record).
+A run writes one value per receptor for each output type on its MODELOPT
+line (CONC, DEPOS, DDEP, WDEP), always in that order. With one type the
+values are in `concentration`, whatever the type; with more, each type
+has its own column: `concentration` (CONC), `total_depo` (DEPOS),
+`dry_depo` (DDEP) and `wet_depo` (WDEP). `result.output_types` lists the
+file's types and `result.column_for("DDEP")` names the column of one.
+
+A text POSTFILE or PLOTFILE names its columns in its header, so it needs
+nothing more:
 
 ```python
 from pyaermod.postfile import read_postfile
 
-# Explicit deposition flag
-result = read_postfile("depo_post.pst", has_deposition=True)
-df = result.to_dataframe()
-print(df[["x", "y", "concentration", "dry_depo", "wet_depo"]])
-
-# Auto-detect: provide num_receptors, parser checks if 3N floats
-result = read_postfile("post.pst", num_receptors=50)
-# If 150 floats found, deposition is auto-detected
+result = read_postfile("depo_post.pst")
+print(result.output_types)          # e.g. ('CONC', 'DEPOS', 'DDEP', 'WDEP')
+print(result.data[["x", "y", "total_depo", "dry_depo", "wet_depo"]])
 ```
+
+A binary (UNFORM) POSTFILE stores each record as one block of `N` values
+per output type and does not say which types they are. Pass the run's
+MODELOPT line, or the type names:
+
+```python
+result = read_postfile("depo_post.bin", output_types="DFAULT CONC DDEP WDEP")
+result = read_postfile("depo_post.bin", output_types=["DEPOS", "WDEP"])
+```
+
+Without `output_types`, a receptor count (`num_receptors`, or the length
+of `receptor_coords`) settles the cases where the record size allows one
+reading: N values are one type, read into `concentration`, and 4N are all
+four types. 2N or 3N values could be several sets of types and raise
+`ValueError` asking for `output_types`; `has_deposition=True` still reads
+3N values as CONC DDEP WDEP. With neither a receptor count nor
+`output_types`, every value is read as a concentration at its own
+receptor, which is right only for a run with one output type.
+
+A text file written with `OU NOHEADER` has no header to name its columns.
+`read_postfile` reads the number of value columns from the first row; one
+value column needs nothing more, and two or three need `output_types`
+(AERMOD still writes the header of a PERIOD or ANNUAL POSTFILE).
 
 ## Validation
 
@@ -459,8 +521,9 @@ RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND,
 EVENTFIL (file and SOCONT/DETAIL option), NO2STACK, OZONEVAL, OZONEFIL,
 O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT,
 NOXSECTR, ARMRATIO, GASDEPDF, GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE,
-INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT. (DEBUGOPT, ERRORFIL and
-NO2EQUIL have no field and travel in `unparsed_lines`.)
+INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT, DEBUGOPT
+(`ControlPathway.debug_options`). (ERRORFIL and NO2EQUIL have no field
+and travel in `unparsed_lines`.)
 
 ### Source Pathway (SO)
 
@@ -471,7 +534,8 @@ SRCGROUP, OLMGROUP, PSDGROUP, URBANSRC, AREAVERT, BLPINPUT, BLPGROUP,
 RBARRIER, RDEPRESS, VBARRIER, SBARRIER, RLEMCONV, BACKGRND, BGSECTOR,
 GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, METHOD_2, PLATFORM, NO2RATIO,
 EMISUNIT, CONCUNIT, DEPOUNIT, ARCFTSRC, HBPSRCID. (EMISFACT, HOUREMIS,
-INCLUDED, BACKUNIT and SO ELEVUNIT travel in `unparsed_lines`.)
+INCLUDED, BACKUNIT and SO ELEVUNIT travel in `unparsed_lines`; a HOUREMIS
+card can also be written from `SourcePathway.hourly_emissions`.)
 
 ### Receptor Pathway (RE)
 

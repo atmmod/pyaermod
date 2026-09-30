@@ -120,6 +120,7 @@ from .design_values import (
     read_mxdybyyr,
     so2_1hr_design_value,
 )
+from .hourly_emissions import WindEmissionProfile, ap42_wind_profile, write_hourly_emissions
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -143,6 +144,7 @@ from .input_generator import (
     EventPeriod,
     GasDepositionDefaults,
     GasDepositionParams,
+    HourlyEmissionFile,
     InitFile,
     LineSource,
     MaxDailyContribution,
@@ -353,6 +355,7 @@ __all__ = [
     "MaxDailyFile", "MaxDailyContribution", "MaxiFile", "UrbanArea", "UnparsedLine",
     "EmissionUnits", "SolidBarrier", "SolidBarrierSegment", "VegetativeBarrier",
     "ScimOptions", "RankFile", "SeasonHourFile", "EvalFile", "ToxxFile",
+    "HourlyEmissionFile", "WindEmissionProfile", "ap42_wind_profile", "write_hourly_emissions",
     # validation
     "Validator", "ValidationResult", "ValidationError", "advanced_validate",
     # execution

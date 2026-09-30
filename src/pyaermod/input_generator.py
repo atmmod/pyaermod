@@ -76,6 +76,7 @@ from .sources import (  # noqa: F401  -- re-exports
     DepositionMethod,
     EmissionUnits,
     GasDepositionParams,
+    HourlyEmissionFile,
     LineSource,
     Method2Params,
     OpenPitSource,
@@ -111,7 +112,9 @@ from .unparsed import UnparsedLine, preserved_block
 # come before the groups the writer generates.
 # ARCFTSRC and HBPSRCID are listed too: soset.f AIRCRAFT needs the HOUREMIS
 # card (kept verbatim) to have been read before the ARCFTSRC card (E823).
-_PRESERVE_BEFORE = {"SO": ("ARCFTSRC", "HBPSRCID", "SRCGROUP", "OLMGROUP", "PSDGROUP")}
+# HOUREMIS is listed because a card the writer generates flags only the
+# sources defined before it (soset.f HREMIS), which may be kept verbatim.
+_PRESERVE_BEFORE = {"SO": ("HOUREMIS", "ARCFTSRC", "HBPSRCID", "SRCGROUP", "OLMGROUP", "PSDGROUP")}
 
 # Keywords AERMOD requires as the first card of their pathway (soset.f /
 # reset.f, E152); a preserved one goes straight after ``<code> STARTING``.
@@ -227,7 +230,10 @@ class AERMODProject:
             )),
         ]
         if not event:
-            pathways.append(("RE", self.receptors.to_aermod_input()))
+            pathways.append(("RE", self.receptors.to_aermod_input(
+                elevated=self.control.elevated_terrain,
+                flagpole=self.control.flag_pole_height,
+            )))
         pathways.append(("ME", self.meteorology.to_aermod_input(event_processing=event)))
         if event:
             events = self.events if self.events is not None else EventPathway()

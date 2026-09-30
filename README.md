@@ -86,9 +86,11 @@ from pyaermod.postfile import read_postfile
 post = read_postfile("postfile.out")
 df = post.to_dataframe()
 
-# Binary postfile with deposition data
-dep = read_postfile("depo_post.out", has_deposition=True)
-print(dep.to_dataframe()[["concentration", "dry_depo", "wet_depo"]])
+# A run with several output types: a text file names its columns in its
+# header; a binary file needs the run's MODELOPT line (or type names)
+dep = read_postfile("depo_post.bin", output_types="CONC DDEP WDEP")
+print(dep.output_types)                     # ('CONC', 'DDEP', 'WDEP')
+print(dep.data[dep.column_for("WDEP")].max())  # the wet_depo column
 ```
 
 ## Features
