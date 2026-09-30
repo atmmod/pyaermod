@@ -51,6 +51,8 @@ coverage.xml
 # Recordings of a real AERMOD run that the GUI journeys replay
 # (scripts/record_aermod_fixtures.py); every file is part of the fixture.
 !tests/fixtures/gui/aermod_recordings/**
+# Real AERMOD runs the output parser's tests read
+!tests/fixtures/output_parser/**
 
 # Screenshots the GUI journeys save at every step (tests/e2e)
 test-artifacts/
