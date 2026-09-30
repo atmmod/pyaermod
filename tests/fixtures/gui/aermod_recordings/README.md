@@ -10,10 +10,16 @@ binary. Hand-written `.out` text is not allowed in new GUI tests
 ## Where they came from
 
 - **AERMOD version:** 26135 (EPA's v26135 source, as printed in every `.out`).
-- **Build:** gfortran 13.3 at `-O2` via `scripts/build_aermod.sh aermod`
-  (its default flags, `-O2 -fbounds-check -Wuninitialized`), on Linux x86_64.
-  Each `manifest.json` also records the binary's SHA-256.
-- **Recorded:** 2026-09-28, with `scripts/record_aermod_fixtures.py`.
+- **Build:** `scripts/build_aermod.sh aermod` with its default flags
+  (`-O2 -fbounds-check -Wuninitialized`): gfortran 13.3 on Linux x86_64
+  for `aertest`, and gfortran 15.2 on macOS arm64 for the three Albany
+  scenarios. Each `manifest.json` records the build and the binary's
+  SHA-256.
+- **Recorded:** `aertest` on 2026-09-28; the Albany scenarios again on
+  2026-09-29 (WP-G3), when the GUI's default deck gained a plot file and a
+  POSTFILE for every averaging period. Apart from those files and the
+  lines that list them, the new `.out` files equal the first recordings
+  line for line, dates aside, and so do the maxima.
 
 ## Scenarios
 
@@ -23,6 +29,13 @@ binary. Hand-written `.out` text is not allowed in new GUI tests
 | `albany_e480` | The same scenario with the GUI's default averaging periods, 1 and ANNUAL | Processed all 96 hours, then stopped with fatal error E480 (less than a year of data for ANNUAL). Exit code 0. |
 | `missing_met` | The same scenario with the default periods and a surface file, `MISSING.SFC`, that does not exist | Stopped during setup with fatal error E500. Exit code 0. |
 | `aertest` | EPA's `tests/fixtures/epa_official/aertest.inp` with its paths flattened as `tests/test_real_aermod.py` does (`aertest.inp` here), imported with `read_aermod_input` and written back (`aermod.inp`) | Finished successfully. Its `AERTEST_01H.PLT` equals EPA's published reference for all 144 receptors. |
+
+The Albany decks ask for `PLOTFILE` and `POSTFILE` output for every
+averaging period (`pyaermod_01H.plt`, `pyaermod_01H.pst`, ...), which the
+GUI turns on by default for its Results step; those files are in
+`outputs/`. AERMOD writes the plot files only at the end of a run, so the
+two failed runs leave them empty, and the E480 run keeps the 1-hour
+POSTFILE it wrote while it processed the hours.
 
 Every scenario's deck is built with the library exactly as the GUI writes
 it: start from `pyaermod.gui_v2.state._empty_project()`, add the objects,
@@ -51,7 +64,8 @@ replays a recording with `PYAERMOD_E2E_DELAY` seconds between stdout lines.
 A file larger than 500 KB, the limit of the repository's pre-commit
 `check-added-large-files` hook, is stored as `<name>.gz` and listed under
 `gzipped_outputs` in the manifest; the fake decompresses it when it
-replays the run. Only AERTEST's 1.5 MB POSTFILE is stored that way.
+replays the run. AERTEST's 1.5 MB POSTFILE and the Albany 1-hour and
+3-hour POSTFILEs are stored that way.
 
 The fake compares decks after ignoring `TITLEONE` and `TITLETWO`, comments
 and blank lines; it compares met file paths by base name and numbers by

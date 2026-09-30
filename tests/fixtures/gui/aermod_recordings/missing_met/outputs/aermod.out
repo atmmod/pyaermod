@@ -31,6 +31,10 @@ ME FINISHED
 OU STARTING
    RECTABLE  ALLAVE  1-10
    MAXTABLE  ALLAVE  10
+   PLOTFILE  1  ALL  FIRST  pyaermod_01H.plt
+   PLOTFILE  ANNUAL  ALL  pyaermod_ANNUAL.plt
+   POSTFILE  1  ALL  PLOT  pyaermod_01H.pst
+   POSTFILE  ANNUAL  ALL  PLOT  pyaermod_ANNUAL.pst
 OU FINISHED
 
 
@@ -56,8 +60,8 @@ OU FINISHED
     *** SETUP Finishes UN-successfully ***
     **************************************
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION        ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/29/26
+ *** AERMET - VERSION        ***   ***                                                                      ***        19:12:09
                                                                                                                        PAGE   1
  *** MODELOPTs:  
 
