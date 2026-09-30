@@ -315,9 +315,9 @@ Naming `ALL` adds nothing, since every source is in it.
 
 ### Hourly Emissions (HOUREMIS)
 
-AREA, AREACIRC, AREAPOLY and OPENPIT sources can take an emission rate
-for every met hour from a file in the layout of EPA's `pset2pa.emi`
-(`SO HOUREMIS yy mm dd hh srcid qemis`). `ap42_wind_profile()` builds the
+AREA, AREACIRC, AREAPOLY, OPENPIT, VOLUME, LINE, RLINE and RLINEXT
+sources can take an emission rate for every met hour from a file in the
+layout of EPA's `pset2pa.emi` (`SO HOUREMIS yy mm dd hh srcid qemis`). `ap42_wind_profile()` builds the
 wind factor of AP-42 13.2.4 Eq. 1, `(U/2.2)**1.3` with U clipped to
 0.6-6.7 m/s, for every hour of an SFC file, normalized to a mean of 1:
 
@@ -325,7 +325,7 @@ wind factor of AP-42 13.2.4 Eq. 1, `(U/2.2)**1.3` with U clipped to
 from pyaermod.hourly_emissions import ap42_wind_profile
 
 w = ap42_wind_profile("site.sfc")
-print(w.summary())            # hours, missing, calm and clipped counts
+print(w.summary())            # hours, missing (as AERMOD counts them), calm, clipped
 sources.add_hourly_emissions(
     "pit.emi", w.hours,
     {"PIT": w.rates(1.0e-5)},  # g/(s m^2), period mean 1.0e-5

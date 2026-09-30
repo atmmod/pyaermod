@@ -4,7 +4,8 @@ The layouts are AERMOD v26135's: soset.f HREMIS reads the card
 (``HOUREMIS file srcid|range|ALL ...``, one file per card, a source on
 one card only: E834/E835) and aermod.f HRQREAD reads each record as
 ``SO HOUREMIS yy mm dd hh srcid qemis`` (eight fields for AREA, AREACIRC,
-AREAPOLY and OPENPIT; seven, no rate, is a zero-emission hour with W344).
+AREAPOLY, OPENPIT, VOLUME, LINE, RLINE and RLINEXT; seven, no rate, is a
+zero-emission hour with W344).
 HRLOOP reads, for every met hour, one record per hourly source in the
 order the deck defines the sources (E342 on a mismatch, E455 on a date
 that is not the met hour). tests/test_real_aermod_source_writers.py runs
@@ -13,6 +14,7 @@ the decks these writers produce through the binary.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import shutil
 from pathlib import Path
@@ -30,8 +32,12 @@ from pyaermod.input_generator import (
     AreaPolySource,
     AreaSource,
     HourlyEmissionFile,
+    LineSource,
     OpenPitSource,
     PointSource,
+    RLineExtSource,
+    RLineSource,
+    SidewashPointSource,
     SourceGroupDefinition,
     SourcePathway,
     VolumeSource,
@@ -164,10 +170,27 @@ class TestCard:
             so.add_hourly_emissions(tmp_path / "q.emi", [(88, 3, 1, 1)], {"STK": [1.0]})
         assert not (tmp_path / "q.emi").exists()
 
-    def test_volume_source_is_refused(self, tmp_path):
-        so = SourcePathway(sources=[VolumeSource("V1", 0.0, 0.0)])
-        with pytest.raises(TypeError, match="AREA, AREACIRC, AREAPOLY and OPENPIT"):
-            so.add_hourly_emissions(tmp_path / "q.emi", [(88, 3, 1, 1)], {"V1": [1.0]})
+    @pytest.mark.parametrize("source", [
+        VolumeSource("V1", 0.0, 0.0),
+        LineSource("V1", 0.0, 0.0, 100.0, 0.0),
+        RLineSource("V1", 0.0, 0.0, 100.0, 0.0),
+        RLineExtSource("V1", 0.0, 0.0, 1.0, 100.0, 0.0, 1.0),
+    ], ids=["VOLUME", "LINE", "RLINE", "RLINEXT"])
+    def test_other_rate_only_sources_are_written(self, tmp_path, source):
+        """HRQREAD reads an eight-field record for VOLUME and the LINE
+        types as for AREA (the real-binary run reproduces the constant
+        run for all four)."""
+        so = SourcePathway(sources=[source])
+        card = so.add_hourly_emissions(tmp_path / "q.emi", [(88, 3, 1, 1)], {"V1": [1.0]})
+        assert card.source_ids == ["V1"]
+        assert (tmp_path / "q.emi").read_text().split()[2:] == ["88", "3", "1", "1", "V1",
+                                                                "1.000000E+00"]
+
+    def test_sidewash_point_is_refused(self, tmp_path):
+        so = SourcePathway(sources=[SidewashPointSource("SW1", 0.0, 0.0)])
+        with pytest.raises(TypeError, match="SW1 is a SidewashPointSource"):
+            so.add_hourly_emissions(tmp_path / "q.emi", [(88, 3, 1, 1)], {"SW1": [1.0]})
+        assert not (tmp_path / "q.emi").exists()
 
     def test_unknown_source_is_refused(self, tmp_path):
         so = SourcePathway(sources=_sources())
@@ -181,6 +204,13 @@ class TestCard:
         with pytest.raises(ValueError, match="already on a HOUREMIS card: PIT"):
             so.add_hourly_emissions(tmp_path / "c.emi", [(88, 3, 1, 1)], {"PIT": [1.0], "AC1": [1.0]})
         assert [c.source_ids for c in so.hourly_emissions] == [["PIT"], ["A1"]]
+
+    def test_field_is_declared_last(self):
+        """Declared after include_all_group, so a positional SourcePathway
+        of the older fields binds them as before."""
+        names = [f.name for f in dataclasses.fields(SourcePathway)]
+        assert names[-2:] == ["include_all_group", "hourly_emissions"]
+        assert SourcePathway(*([None] * 11 + [False])).include_all_group is False
 
     def test_no_card_by_default(self):
         text = SourcePathway(sources=_sources(),
@@ -258,9 +288,60 @@ class TestWindProfile:
         # The valid hours average to 1, so the missing hours' 1 keeps it.
         assert math.isclose(sum(w.factors) / 96, 1.0, rel_tol=1e-12)
 
+    def test_calm_hours_are_counted_as_clipped_low(self, tmp_path):
+        base = ap42_wind_profile(FIXT / "AERMET2.SFC").counts
+        w = ap42_wind_profile(self._edited(tmp_path, {1: "0.00", 2: "5.00"}))
+        # Line 1 was 0.80 (clipped low already), line 2 0.90: the calm
+        # adds one to clipped_low as well as to calm.
+        assert w.counts["calm"] == 1
+        assert w.counts["clipped_low"] == base["clipped_low"] + 1
+
+    def test_wind_speed_boundaries(self, tmp_path):
+        # CHKMSG: UREF .GE. 90 is missing, so 90.0 is, and 89.99 is not.
+        w = ap42_wind_profile(self._edited(tmp_path, {1: "90.0", 2: "89.99"}))
+        assert w.raw_factors[0] is None
+        assert w.raw_factors[1] == pytest.approx((6.7 / 2.2) ** 1.3)
+        assert w.counts["missing"] == 1 and w.counts["clipped_high"] == 2
+
+    def _fields(self, tmp_path, edits):
+        """AERMET2.SFC with ``edits`` {line: {0-based field: value}}."""
+        lines = (FIXT / "AERMET2.SFC").read_text().splitlines()
+        for i, fields in edits.items():
+            toks = lines[i].split()
+            for k, v in fields.items():
+                toks[k] = v
+            lines[i] = " ".join(toks)
+        path = tmp_path / "fields.sfc"
+        path.write_text("\n".join(lines) + "\n")
+        return ap42_wind_profile(path)
+
+    # Line 1 is a stable hour (L = 7.9 m, no convective height or w*),
+    # line 9 a convective one (L = -118.3 m).
+    @pytest.mark.parametrize(("line", "fields", "missing"), [
+        (1, {16: "999.0"}, True),                  # wind direction > 900
+        (1, {16: "-9.0"}, True),                   # wind direction <= -9
+        (1, {18: "999.0"}, True),                  # temperature > 900
+        (1, {18: "0.0"}, True),                    # temperature <= 0
+        (1, {11: "-99999.0"}, True),               # Monin-Obukhov length
+        (1, {10: "-999."}, True),                  # mechanical mixing height
+        (1, {10: "99999."}, True),
+        (1, {6: "-9.000"}, True),                  # u*
+        (1, {6: "9.000"}, True),                   # u* >= 9
+        (9, {9: "-999."}, True),                   # convective height, convective hour
+        (9, {7: "-9.000"}, True),                  # w*, convective hour
+        (1, {9: "-999.", 7: "-9.000"}, False),     # both, stable hour: as written by AERMET
+        (1, {16: "999.0", 15: "0.00"}, False),     # a calm is never checked (CHKCLM first)
+    ])
+    def test_hours_aermod_skips_as_missing(self, tmp_path, line, fields, missing):
+        """metext.f METCHK: CHKCLM, then CHKMSG's missing-data checks."""
+        w = self._fields(tmp_path, {line: fields})
+        assert (w.raw_factors[line - 1] is None) is missing
+        assert w.counts["missing"] == int(missing)
+        assert w.counts["valid"] == 96 - int(missing)
+
     def test_no_valid_hour_is_refused(self, tmp_path):
         path = self._edited(tmp_path, dict.fromkeys(range(1, 97), "999.0"))
-        with pytest.raises(ValueError, match="no hour with a valid wind speed"):
+        with pytest.raises(ValueError, match="no hour AERMOD would not skip as missing"):
             ap42_wind_profile(path)
 
     def test_a_malformed_line_is_an_error_not_a_skip(self, tmp_path):

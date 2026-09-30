@@ -1709,6 +1709,14 @@ class HourlyEmissionFile:
         return f"   HOUREMIS  {self.filename}  {' '.join(self.source_ids)}"
 
 
+#: Source classes whose HOUREMIS record may carry the rate alone: aermod.f
+#: HRQREAD has an eight-field branch for VOLUME, AREA*, LINE, RLINE,
+#: RLINEXT and OPENPIT (hourly sigmas, for VOLUME/AREA/LINE-type, are
+#: optional extra fields). POINT needs ten fields and BUOYLINE nine.
+_RATE_ONLY_HOURLY_SOURCES = (AreaSource, AreaCircSource, AreaPolySource, OpenPitSource,
+                             VolumeSource, LineSource, RLineSource, RLineExtSource)
+
+
 @dataclass
 class SourcePathway:
     """Collection of sources"""
@@ -1751,16 +1759,18 @@ class SourcePathway:
     #: ``ALL``). Needs ``MODELOPT HBP`` (E130) with ALPHA (E198).
     hbp_sources: List[str] = field(default_factory=list)
 
-    #: HOUREMIS cards (see :class:`HourlyEmissionFile` and
-    #: :meth:`add_hourly_emissions`), written after every source card.
-    hourly_emissions: List[HourlyEmissionFile] = field(default_factory=list)
-
     #: The bare ``SRCGROUP ALL`` line: None writes it whenever the pathway
     #: has sources (the default for a project built in Python), True
     #: always (a deck that had the line, even with its sources brought in
     #: by INCLUDED), False never (a deck that grouped its sources without
     #: it). The reader sets it from the deck.
     include_all_group: Optional[bool] = None
+
+    #: HOUREMIS cards (see :class:`HourlyEmissionFile` and
+    #: :meth:`add_hourly_emissions`), written after every source card.
+    #: Declared last so that positional construction of the older fields
+    #: is unchanged.
+    hourly_emissions: List[HourlyEmissionFile] = field(default_factory=list)
 
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
@@ -1823,8 +1833,9 @@ class SourcePathway:
             Every hour of the surface met file, in order (see
             :func:`pyaermod.hourly_emissions.write_hourly_emissions`).
         rates : mapping of source ID to hourly rates
-            AREA, AREACIRC, AREAPOLY or OPENPIT sources of this pathway,
-            in any order: the records are written in the order the
+            AREA, AREACIRC, AREAPOLY, OPENPIT, VOLUME, LINE, RLINE or
+            RLINEXT sources of this pathway (those whose HOUREMIS record
+            may carry the rate alone, aermod.f HRQREAD), in any order: the records are written in the order the
             pathway defines the sources, as AERMOD reads them (E342).
         filename : str, optional
             The name the card gives AERMOD, if it differs from ``path``
@@ -1840,13 +1851,14 @@ class SourcePathway:
             source = by_id.get(source_id)
             if source is None:
                 raise KeyError(f"no source {source_id!r} in this pathway")
-            if not isinstance(source, (AreaSource, AreaCircSource, AreaPolySource, OpenPitSource)):
+            if not isinstance(source, _RATE_ONLY_HOURLY_SOURCES):
                 # POINT records need temperature and velocity each hour,
-                # BUOYLINE records its buoyancy (aermod.f HRQREAD, E384).
+                # BUOYLINE records its buoyancy (aermod.f HRQREAD, E384);
+                # a sidewash point has no HRQREAD branch at all.
                 raise TypeError(
                     f"{source_id} is a {type(source).__name__}; the rate-only "
-                    "HOUREMIS record is written for AREA, AREACIRC, AREAPOLY and "
-                    "OPENPIT sources")
+                    "HOUREMIS record is written for AREA, AREACIRC, AREAPOLY, "
+                    "OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources")
         already = {i for card in self.hourly_emissions for i in card.source_ids}
         repeated = sorted(already.intersection(rates))
         if repeated:

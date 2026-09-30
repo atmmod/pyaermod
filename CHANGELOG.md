@@ -120,8 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   positional construction of the older fields is unchanged. An AREA deck
   with Szinit 23.26 m runs clean on v26135 and lowers the peak near the
   area as it should (`tests/test_real_aermod_source_writers.py`).
-- **Hourly emission files (`SO HOUREMIS`) for AREA, AREACIRC, AREAPOLY
-  and OPENPIT sources.** The new `pyaermod.hourly_emissions` module
+- **Hourly emission files (`SO HOUREMIS`) for AREA, AREACIRC, AREAPOLY,
+  OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources.** The new `pyaermod.hourly_emissions` module
   writes the records in the layout of EPA's `pset2pa.emi`
   (`SO HOUREMIS yy mm dd hh srcid qemis`; `write_hourly_emissions`,
   `hourly_emission_record`), one per source per met hour, hour by hour in
@@ -131,19 +131,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HOUREMIS file srcid ...` card, held in the new
   `SourcePathway.hourly_emissions` and written after every source card
   (HREMIS flags only sources already defined); a read deck's own card is
-  still kept verbatim and written before it.
-  `SourcePathway.add_hourly_emissions(path, hours, rates)` writes a file
-  and adds its card, refusing POINT, VOLUME, LINE-type and BUOYLINE
-  sources (their records need more fields each hour) and a source already
-  on a card (E834). `ap42_wind_profile(sfc_file)` builds the hourly
+  still kept verbatim and written before it. The field is declared after
+  `include_all_group`, so positional construction of `SourcePathway` is
+  unchanged. `SourcePathway.add_hourly_emissions(path, hours, rates)`
+  writes a file and adds its card for the source types whose record
+  aermod.f HRQREAD reads with the rate alone, refusing POINT and BUOYLINE
+  sources (their records need more fields each hour), SWPOINT (HRQREAD
+  has no branch for it) and a source already on a card (E834). `ap42_wind_profile(sfc_file)` builds the hourly
   factor of AP-42 13.2.4 Eq. 1 ("profile W" of the demonstration study):
   `(clip(U, 0.6, 6.7)/2.2)**1.3` from the SFC reference wind, divided by
-  its mean over the hours with valid wind, with 1 for hours AERMOD treats
-  as missing; `WindEmissionProfile` keeps the hours, speeds, raw and
-  normalized factors, and counts of missing, calm and clipped hours for
-  a run manifest. On the v26135 binary, a file whose every rate equals the
-  SRCPARAM rate reproduces the constant-rate plot file exactly for an
-  OPENPIT and an AREA source, and the wind-profile file runs clean
+  its mean over the hours AERMOD models, with 1 for the hours it skips as
+  missing: any hour metext.f CHKMSG flags (a missing wind speed or
+  direction, temperature, Monin-Obukhov length, mixing height, u* or w*),
+  not only a missing wind, and never a calm; `WindEmissionProfile` keeps
+  the hours, speeds, raw and normalized factors, and counts of missing,
+  calm and clipped hours for a run manifest. On the v26135 binary, a file
+  whose every rate equals the SRCPARAM rate reproduces the constant-rate
+  plot file exactly for OPENPIT, AREA, VOLUME, LINE, RLINE and RLINEXT
+  sources, which AERMOD's source table lists as HOURLY; the wind-profile
+  file runs clean and changes the result; and the profile's missing count
+  equals the "Missing Hours Identified" AERMOD reports for an SFC file
+  with a missing direction, temperature, mixing height and wind
   (`tests/test_real_aermod_source_writers.py`). `HourlyEmissionFile`,
   `WindEmissionProfile`, `ap42_wind_profile` and `write_hourly_emissions`
   are exported from `pyaermod.api`.

@@ -381,8 +381,9 @@ O3VALUES, `TEMPORAL_FLAG_COUNTS`) and HOUREMIS names a file whose record
 layout varies by source type; both are pure data the model would only
 copy, and EPA's hrdow (33 EMISFACT lines) and mcr (HOUREMIS) decks reach
 parity with the lines carried verbatim. The writer can also generate a
-HOUREMIS card and its rate-only file for AREA, AREACIRC, AREAPOLY and
-OPENPIT sources (`SourcePathway.hourly_emissions`,
+HOUREMIS card and its rate-only file for AREA, AREACIRC, AREAPOLY,
+OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources
+(`SourcePathway.hourly_emissions`,
 `pyaermod.hourly_emissions`); a deck that is read keeps its card verbatim.
 `INCLUDED` (SO, RE, EV): a file of more cards. Reading it would mean
 resolving a path at parse time; the writer keeps the card and AERMOD
