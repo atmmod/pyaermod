@@ -77,6 +77,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for observers.
 - `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
   the project file format as text.
+- **`AreaSource.initial_sigma_z`**, AERMOD's Szinit for an AREA source
+  (m, default 0, AERMOD's own default). A nonzero value is written as the
+  sixth SRCPARAM value, after an Angle of 0 when the source is not turned,
+  because the fields are positional (`SRCPARAM id Aremis Relhgt Xinit
+  Yinit Angle Szinit`, soset.f APARM). It lets an AREA source carry an
+  initial vertical spread, as EPA's surfcoal roads do (3 m) or as an
+  area standing in for an open pit needs (d_eff/4.3, the spread the
+  OPENPIT algorithm itself starts from). The field comes last, so
+  positional construction of the older fields is unchanged. An AREA deck
+  with Szinit 23.26 m runs clean on v26135 and lowers the peak near the
+  area as it should (`tests/test_real_aermod_source_writers.py`).
+- **Hourly emission files (`SO HOUREMIS`) for AREA, AREACIRC, AREAPOLY,
+  OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources.** The new `pyaermod.hourly_emissions` module
+  writes the records in the layout of EPA's `pset2pa.emi`
+  (`SO HOUREMIS yy mm dd hh srcid qemis`; `write_hourly_emissions`,
+  `hourly_emission_record`), one per source per met hour, hour by hour in
+  the order the deck defines the sources, as aermod.f HRLOOP reads them
+  (E342 otherwise); a missing rate writes the seven-field record AERMOD
+  reads as zero emission (W344). `HourlyEmissionFile` is the
+  `HOUREMIS file srcid ...` card, held in the new
+  `SourcePathway.hourly_emissions` and written after every source card
+  (HREMIS flags only sources already defined); a read deck's own card is
+  still kept verbatim and written before it. The field is declared after
+  `include_all_group`, so positional construction of `SourcePathway` is
+  unchanged. `SourcePathway.add_hourly_emissions(path, hours, rates)`
+  writes a file and adds its card for the source types whose record
+  aermod.f HRQREAD reads with the rate alone, refusing POINT and BUOYLINE
+  sources (their records need more fields each hour), SWPOINT (HRQREAD
+  has no branch for it) and a source already on a card (E834). `ap42_wind_profile(sfc_file)` builds the hourly
+  factor of AP-42 13.2.4 Eq. 1 ("profile W" of the demonstration study):
+  `(clip(U, 0.6, 6.7)/2.2)**1.3` from the SFC reference wind, divided by
+  its mean over the hours AERMOD models, with 1 for the hours it skips as
+  missing: any hour metext.f CHKMSG flags (a missing wind speed or
+  direction, temperature, Monin-Obukhov length, mixing height, u* or w*),
+  not only a missing wind, and never a calm; `WindEmissionProfile` keeps
+  the hours, speeds, raw and normalized factors, and counts of missing,
+  calm and clipped hours for a run manifest. On the v26135 binary, a file
+  whose every rate equals the SRCPARAM rate reproduces the constant-rate
+  plot file exactly for OPENPIT, AREA, VOLUME, LINE, RLINE and RLINEXT
+  sources, which AERMOD's source table lists as HOURLY; the wind-profile
+  file runs clean and changes the result; and the profile's missing count
+  equals the "Missing Hours Identified" AERMOD reports for an SFC file
+  with a missing direction, temperature, mixing height and wind
+  (`tests/test_real_aermod_source_writers.py`). `HourlyEmissionFile`,
+  `WindEmissionProfile`, `ap42_wind_profile` and `write_hourly_emissions`
+  are exported from `pyaermod.api`.
 - **`output_types` for `read_postfile`, `PostfileParser` and
   `UnformattedPostfileParser`.** A binary POSTFILE does not say which
   output types its values are, so a file from a multi-type run needs the
@@ -421,6 +467,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+- **A source's `source_groups` wrote `SRCGROUP` among the source cards,
+  which AERMOD rejects.** Every source writer put
+  `SRCGROUP grp srcid` right after its own cards, so the next source's
+  `LOCATION` and `SRCPARAM` came after a group card: two OPENPIT sources
+  in one group through `source_groups=["PITS"]` stopped v26135's setup
+  with `SO E140 ... Invalid Order of Keyword` (soset.f SOCARD admits no
+  source card once a group is defined). A source naming group `ALL`, as
+  `create_example_project()` and the examples do, wrote
+  `SRCGROUP ALL srcid`, which is `SO E203` (SOGRP reads only
+  BACKGROUND/NOBACKGROUND after ALL), so that deck failed setup even with
+  one source. `SourcePathway.to_aermod_input()` now gathers every
+  source's `source_groups` into the group block after all the sources:
+  a group that also has a `SourceGroupDefinition` gets the members the
+  definition does not already list on continuation cards written with
+  it (AERMOD files a continuation under the last group defined, so the
+  cards of one group stay together); other groups follow, ten IDs to a
+  card; `ALL` adds nothing, because every source is in it; a BUOYLINE
+  source contributes its segment IDs; and PSDCREDIT decks still write no
+  SRCGROUP (E105). Group names and member IDs are matched in upper
+  case, as AERMOD reads every card (aermod.f LWRUPR): `Pit` on one
+  source and `PIT` on another are one group, written as one block
+  (written apart with `ROAD` between them, AERMOD filed the second
+  card's source under ROAD, with no message). The field and its meaning
+  are unchanged, for all thirteen source classes, but a source's own
+  `to_aermod_input()` no longer contains any SRCGROUP line. The
+  two-OPENPIT deck, a one-source `ALL` deck and a mixed deck now run to
+  completion on the v26135 binary, and the mixed-case deck gives the
+  group table intended (`tests/test_real_aermod_source_writers.py` when
+  `aermod` is on PATH).
+- **`AreaSource` called Xinit and Yinit half-widths, and so did the
+  teaching material.** AERMOD places an AREA source by its southwest
+  corner and takes Xinit and Yinit as full side lengths, turning the
+  rectangle clockwise about that corner (soset.f APARM builds the
+  vertices that way). The field comments said "half-width", and the
+  student guide (its walkthrough and its glossary), the refinery
+  assignments' TANKS and LOADRK tables, the solutions to tutorials 4 and
+  8, `examples/area_sources.py` and three cells of notebook 03 told users
+  to enter half the real dimension, which gives a source a quarter of the
+  intended area; tutorial 8's solution also put the north-south side in
+  Xinit, and the notebook divided one emission by four times the area it
+  modelled. The comments, docstring and material now describe full side
+  lengths from the southwest corner, and the examples enter the
+  dimensions they meant (the refinery's tank farm is 200 m east-west by
+  150 m north-south, the 30,000 m2 its emission box already assumed). The written deck of
+  any given `AreaSource` is unchanged. (`geospatial.sources_to_geodataframe`
+  still draws an AREA as centred half-dimensions; that is left to a
+  separate fix.)
+- **`read_aermod_input` dropped an AREA source's Szinit and misread a
+  square.** The reader stopped at the fifth SRCPARAM value, so EPA's
+  surface coal mine roads (`... 73.2 3.0`) lost their Szinit of 3 m when
+  a deck was read and written back; it now reads the sixth value into
+  the new `initial_sigma_z`. A card with Xinit alone got a Yinit of
+  10 m, where AERMOD makes the area square (APARM: Yinit = Xinit); it
+  now does the same.
 - **`read_postfile` mislabelled the columns of a POSTFILE from a run with
   more than one output type.** AERMOD writes one value per receptor for
   each output type on MODELOPT, in the order CONC, DEPOS, DDEP, WDEP

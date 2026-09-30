@@ -323,6 +323,35 @@ sources.group_definitions = [
 ]
 ```
 
+A source can also name its groups itself, `source_groups=["BOILERS"]`.
+Those cards are written with the definitions above, after every source
+(AERMOD stops with `SO E140` on a group card among the source cards).
+Naming `ALL` adds nothing, since every source is in it.
+
+### Hourly Emissions (HOUREMIS)
+
+AREA, AREACIRC, AREAPOLY, OPENPIT, VOLUME, LINE, RLINE and RLINEXT
+sources can take an emission rate for every met hour from a file in the
+layout of EPA's `pset2pa.emi` (`SO HOUREMIS yy mm dd hh srcid qemis`). `ap42_wind_profile()` builds the
+wind factor of AP-42 13.2.4 Eq. 1, `(U/2.2)**1.3` with U clipped to
+0.6-6.7 m/s, for every hour of an SFC file, normalized to a mean of 1:
+
+```python
+from pyaermod.hourly_emissions import ap42_wind_profile
+
+w = ap42_wind_profile("site.sfc")
+print(w.summary())            # hours, missing (as AERMOD counts them), calm, clipped
+sources.add_hourly_emissions(
+    "pit.emi", w.hours,
+    {"PIT": w.rates(1.0e-5)},  # g/(s m^2), period mean 1.0e-5
+)
+```
+
+The file needs a record for every hour of the SFC file, in the order the
+deck defines the sources; `add_hourly_emissions()` writes them so and adds
+the `HOUREMIS pit.emi PIT` card. With every factor 1 the run reproduces the
+constant-rate run to the plot file's print precision.
+
 ### EVENT Processing
 
 Run AERMOD in event mode for specific date/receptor combinations:
@@ -496,7 +525,8 @@ SRCGROUP, OLMGROUP, PSDGROUP, URBANSRC, AREAVERT, BLPINPUT, BLPGROUP,
 RBARRIER, RDEPRESS, VBARRIER, SBARRIER, RLEMCONV, BACKGRND, BGSECTOR,
 GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, METHOD_2, PLATFORM, NO2RATIO,
 EMISUNIT, CONCUNIT, DEPOUNIT, ARCFTSRC, HBPSRCID. (EMISFACT, HOUREMIS,
-INCLUDED, BACKUNIT and SO ELEVUNIT travel in `unparsed_lines`.)
+INCLUDED, BACKUNIT and SO ELEVUNIT travel in `unparsed_lines`; a HOUREMIS
+card can also be written from `SourcePathway.hourly_emissions`.)
 
 ### Receptor Pathway (RE)
 

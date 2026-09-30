@@ -149,8 +149,9 @@ def _area_sources() -> list:
             y_coord=3_291_300.0,
             base_elevation=BASE_ELEV,
             release_height=15.0,
-            initial_lateral_dimension=75.0,   # 150 m N-S
-            initial_vertical_dimension=100.0,  # 200 m E-W
+            # Xinit and Yinit are full sides from the SW corner (soset.f APARM).
+            initial_lateral_dimension=200.0,   # Xinit: 200 m E-W
+            initial_vertical_dimension=150.0,  # Yinit: 150 m N-S
             emission_rate=0.000_010,
             angle=0.0,
             source_groups=["FUGITIV", "ALL"],
@@ -162,8 +163,8 @@ def _area_sources() -> list:
             y_coord=3_291_400.0,
             base_elevation=BASE_ELEV,
             release_height=4.0,
-            initial_lateral_dimension=15.0,   # 30 m N-S
-            initial_vertical_dimension=40.0,   # 80 m E-W
+            initial_lateral_dimension=80.0,   # Xinit: 80 m E-W
+            initial_vertical_dimension=30.0,  # Yinit: 30 m N-S
             emission_rate=0.000_005,
             angle=0.0,
             source_groups=["FUGITIV", "ALL"],

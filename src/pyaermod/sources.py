@@ -15,8 +15,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, ClassVar, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
+from .hourly_emissions import write_hourly_emissions
 from .pathways import ChemistryOptions
 
 # ============================================================================
@@ -383,7 +385,8 @@ class PointSource:
     building_x_offset: Optional[Union[float, List[float]]] = None
     building_y_offset: Optional[Union[float, List[float]]] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -463,11 +466,6 @@ class PointSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -525,6 +523,7 @@ class SidewashPointSource:
     building_height: float = 1.0  # m
     building_angle: float = 0.0  # degrees
 
+    # Written by SourcePathway after every source (E140).
     source_groups: List[str] = field(default_factory=list)
     is_urban: bool = False
     urban_area_name: Optional[str] = None
@@ -542,8 +541,6 @@ class SidewashPointSource:
         ]
         if self.no2_ratio is not None:
             lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
-        for group in self.source_groups:
-            lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
         return "\n".join(lines)
@@ -554,11 +551,19 @@ class AreaSource:
     """
     AERMOD area source (rectangular)
 
-    Represents a rectangular area source with uniform emissions.
+    Represents a rectangular area source with uniform emissions:
+    ``SRCPARAM srcid Aremis Relhgt Xinit [Yinit [Angle [Szinit]]]``
+    (soset.f APARM). ``x_coord``/``y_coord`` are the source's southwest
+    vertex, not its centre; the rectangle is ``initial_lateral_dimension``
+    (Xinit) long in x and ``initial_vertical_dimension`` (Yinit) long in
+    y, both full side lengths, turned clockwise about that vertex by
+    ``angle``. The two field names are historical: neither is a
+    half-width, and ``initial_vertical_dimension`` is the y side, not a
+    vertical spread; the vertical spread is ``initial_sigma_z``.
     """
     source_id: str
-    x_coord: float
-    y_coord: float
+    x_coord: float  # southwest vertex x (m)
+    y_coord: float  # southwest vertex y (m)
     base_elevation: float = 0.0
     # LOCATION's elevation field written as the literal FLAT: the source
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
@@ -566,14 +571,14 @@ class AreaSource:
 
     # Area parameters
     release_height: float = 0.0  # meters above ground
-    initial_lateral_dimension: float = 10.0  # meters (half-width in y-direction)
-    initial_vertical_dimension: float = 10.0  # meters (half-width in x-direction)
+    initial_lateral_dimension: float = 10.0  # Xinit: full length of the x side (m)
+    initial_vertical_dimension: float = 10.0  # Yinit: full length of the y side (m)
 
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m^2
 
     # Orientation
-    angle: float = 0.0  # degrees from north (optional)
+    angle: float = 0.0  # degrees clockwise from north, about the SW vertex (optional)
 
     # Building downwash (optional)
     building_height: Optional[Union[float, List[float]]] = None
@@ -582,7 +587,8 @@ class AreaSource:
     building_x_offset: Optional[Union[float, List[float]]] = None
     building_y_offset: Optional[Union[float, List[float]]] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -598,6 +604,15 @@ class AreaSource:
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
     method_2: Optional[Method2Params] = None
 
+    # Szinit, the initial vertical dispersion of the plume (m): the sixth
+    # SRCPARAM value, so a nonzero one is written after Angle even when
+    # Angle is 0. Zero is AERMOD's default when the field is absent
+    # (APARM stores 1e-5 m in both cases). EPA's surface coal mine roads
+    # use 3.0; an area standing in for an open pit uses d_eff/4.3 as the
+    # OPENPIT algorithm does. Kept last so positional construction of the
+    # older fields is unchanged.
+    initial_sigma_z: float = 0.0
+
     def set_building_from_bpip(self, building) -> None:
         """Populate building downwash fields from a Building object."""
         _set_building_from_bpip(self, self.x_coord, self.y_coord, building)
@@ -612,14 +627,17 @@ class AreaSource:
             f"{_f12_4(self.x_coord)} {_f12_4(self.y_coord)} {('    FLAT' if self.flat_source else _f8_2(self.base_elevation))}"
         )
 
-        # SRCPARAM keyword -- angle is optional 5th parameter for AREA sources
+        # SRCPARAM: Aremis Relhgt Xinit Yinit [Angle [Szinit]] -- the
+        # fields are positional, so Szinit needs Angle written before it.
         srcparam = (
             f"   SRCPARAM  {self.source_id:<8} "
             f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
             f"{_f8_2(self.initial_lateral_dimension)} {_f8_2(self.initial_vertical_dimension)}"
         )
-        if self.angle != 0.0:
+        if self.angle != 0.0 or self.initial_sigma_z != 0.0:
             srcparam += f" {_f8_2(self.angle)}"
+        if self.initial_sigma_z != 0.0:
+            srcparam += f" {_f8_2(self.initial_sigma_z)}"
         lines.append(srcparam)
 
         # Building downwash parameters
@@ -634,11 +652,6 @@ class AreaSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -672,7 +685,8 @@ class AreaCircSource:
     # Discretization
     num_vertices: int = 20  # Number of vertices for approximation
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -715,11 +729,6 @@ class AreaCircSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -750,7 +759,8 @@ class AreaPolySource:
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m^2
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -810,11 +820,6 @@ class AreaPolySource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -854,7 +859,8 @@ class VolumeSource:
     building_x_offset: Optional[Union[float, List[float]]] = None
     building_y_offset: Optional[Union[float, List[float]]] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -904,11 +910,6 @@ class VolumeSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -945,7 +946,8 @@ class LineSource:
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m (per unit length)
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -991,11 +993,6 @@ class LineSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -1094,7 +1091,8 @@ class RLineSource:
     # Street canyon (optional)
     street_canyon: Optional[StreetCanyon] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1144,11 +1142,6 @@ class RLineSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -1203,7 +1196,8 @@ class RLineExtSource:
     # Street canyon (optional)
     street_canyon: Optional[StreetCanyon] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1291,11 +1285,6 @@ class RLineExtSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -1345,7 +1334,8 @@ class BuoyLineSource:
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
     flat_source: bool = False
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1422,12 +1412,6 @@ class BuoyLineSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                for seg in self.line_segments:
-                    lines.append(f"   SRCGROUP  {group:<8} {seg.source_id}")
-
         # Urban source
         if self.is_urban:
             for seg in self.line_segments:
@@ -1461,7 +1445,8 @@ class OpenPitSource:
     pit_volume: float = 100000.0     # m^3 (must be > 0)
     angle: float = 0.0               # rotation angle from north (degrees)
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1519,11 +1504,6 @@ class OpenPitSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -1684,6 +1664,13 @@ class SourceGroupDefinition:
     description: str = ""
 
 
+#: Source IDs per SRCGROUP card for the groups gathered from the sources'
+#: ``source_groups``: consecutive cards of one group are continuations
+#: (soset.f SOGRP), and ten 12-character IDs stay well inside AERMOD's
+#: 512-character input line (ISTRG, modules.f).
+_GROUP_IDS_PER_CARD = 10
+
+
 def _group_lines(keyword: str, group: SourceGroupDefinition,
                  allow_bare_all: bool = False) -> List[str]:
     """One ``<keyword> grpid members...`` line, or the bare ``ALL`` form.
@@ -1697,6 +1684,37 @@ def _group_lines(keyword: str, group: SourceGroupDefinition,
     if allow_bare_all and group.group_name.upper() == "ALL":
         return [f"   {keyword}  ALL"]
     return []
+
+
+@dataclass
+class HourlyEmissionFile:
+    """``HOUREMIS  filename  srcid|range|ALL ...``: sources whose emission
+    rate AERMOD reads hour by hour from ``filename`` (soset.f HREMIS).
+
+    ``filename`` is written as given, so it must be the path AERMOD
+    resolves from its working directory. ``source_ids`` are the member
+    tokens of the card (IDs, ``LOW-HIGH`` ranges or ``ALL``). v26135
+    accepts one card per file, so sources may be split across files, but
+    a source may be named in only one of them (E834/E835). The file
+    itself is written by :func:`pyaermod.hourly_emissions.write_hourly_emissions`
+    or, together with this card, by :meth:`SourcePathway.add_hourly_emissions`.
+    """
+    filename: str
+    source_ids: List[str] = field(default_factory=list)
+
+    def to_aermod_input(self) -> str:
+        if not self.source_ids:
+            # HREMIS needs a file name and at least one source (E201).
+            raise ValueError(f"HOUREMIS {self.filename} names no source")
+        return f"   HOUREMIS  {self.filename}  {' '.join(self.source_ids)}"
+
+
+#: Source classes whose HOUREMIS record may carry the rate alone: aermod.f
+#: HRQREAD has an eight-field branch for VOLUME, AREA*, LINE, RLINE,
+#: RLINEXT and OPENPIT (hourly sigmas, for VOLUME/AREA/LINE-type, are
+#: optional extra fields). POINT needs ten fields and BUOYLINE nine.
+_RATE_ONLY_HOURLY_SOURCES = (AreaSource, AreaCircSource, AreaPolySource, OpenPitSource,
+                             VolumeSource, LineSource, RLineSource, RLineExtSource)
 
 
 @dataclass
@@ -1748,6 +1766,12 @@ class SourcePathway:
     #: it). The reader sets it from the deck.
     include_all_group: Optional[bool] = None
 
+    #: HOUREMIS cards (see :class:`HourlyEmissionFile` and
+    #: :meth:`add_hourly_emissions`), written after every source card.
+    #: Declared last so that positional construction of the older fields
+    #: is unchanged.
+    hourly_emissions: List[HourlyEmissionFile] = field(default_factory=list)
+
     def add_source(self, source: Union[PointSource, AreaSource, AreaCircSource, AreaPolySource,
                                        VolumeSource, LineSource, RLineSource,
                                        RLineExtSource, BuoyLineSource, OpenPitSource,
@@ -1769,6 +1793,84 @@ class SourcePathway:
             else:
                 ids.append(source.source_id)
         return ids
+
+    def _per_source_groups(self) -> Dict[str, List[str]]:
+        """Each group named in a source's ``source_groups``, keyed by its
+        upper-case name, with the IDs that name it, in the order the
+        sources are defined (a BUOYLINE source contributes its segment
+        IDs).
+
+        AERMOD upper-cases every card before reading it (aermod.f
+        LWRUPR), so ``Pit`` and ``PIT`` are one group and ``a1`` and
+        ``A1`` one source; an ID is listed once however it is spelled.
+        """
+        members: Dict[str, List[str]] = {}
+        for source in self.sources:
+            if isinstance(source, BuoyLineSource):
+                ids = [seg.source_id for seg in source.line_segments]
+            else:
+                ids = [source.source_id]
+            for name in source.source_groups:
+                bucket = members.setdefault(name.upper(), [])
+                seen = {m.upper() for m in bucket}
+                for i in ids:
+                    if i.upper() not in seen:
+                        bucket.append(i)
+                        seen.add(i.upper())
+        return members
+
+    def add_hourly_emissions(self, path: Union[str, Path],
+                             hours: Sequence[Sequence[int]],
+                             rates: Mapping[str, Sequence[Optional[float]]],
+                             filename: Optional[str] = None) -> HourlyEmissionFile:
+        """Write an hourly emission file and add its ``HOUREMIS`` card.
+
+        Parameters
+        ----------
+        path : str or Path
+            Where to write the file.
+        hours : sequence of (year, month, day, hour)
+            Every hour of the surface met file, in order (see
+            :func:`pyaermod.hourly_emissions.write_hourly_emissions`).
+        rates : mapping of source ID to hourly rates
+            AREA, AREACIRC, AREAPOLY, OPENPIT, VOLUME, LINE, RLINE or
+            RLINEXT sources of this pathway (those whose HOUREMIS record
+            may carry the rate alone, aermod.f HRQREAD), in any order: the records are written in the order the
+            pathway defines the sources, as AERMOD reads them (E342).
+        filename : str, optional
+            The name the card gives AERMOD, if it differs from ``path``
+            (a run directory other than the one ``path`` is relative to).
+
+        Returns
+        -------
+        HourlyEmissionFile
+            The card added to :attr:`hourly_emissions`.
+        """
+        by_id = {s.source_id: s for s in self.sources if not isinstance(s, BuoyLineSource)}
+        for source_id in rates:
+            source = by_id.get(source_id)
+            if source is None:
+                raise KeyError(f"no source {source_id!r} in this pathway")
+            if not isinstance(source, _RATE_ONLY_HOURLY_SOURCES):
+                # POINT records need temperature and velocity each hour,
+                # BUOYLINE records its buoyancy (aermod.f HRQREAD, E384);
+                # a sidewash point has no HRQREAD branch at all.
+                raise TypeError(
+                    f"{source_id} is a {type(source).__name__}; the rate-only "
+                    "HOUREMIS record is written for AREA, AREACIRC, AREAPOLY, "
+                    "OPENPIT, VOLUME, LINE, RLINE and RLINEXT sources")
+        already = {i for card in self.hourly_emissions for i in card.source_ids}
+        repeated = sorted(already.intersection(rates))
+        if repeated:
+            # A source read from two files is E834 (soset.f HREMIS).
+            raise ValueError(f"already on a HOUREMIS card: {', '.join(repeated)}")
+        ordered = {s.source_id: rates[s.source_id] for s in self.sources
+                   if s.source_id in rates and not isinstance(s, BuoyLineSource)}
+        write_hourly_emissions(path, hours, ordered)
+        card = HourlyEmissionFile(filename=filename if filename is not None else str(path),
+                                  source_ids=list(ordered))
+        self.hourly_emissions.append(card)
+        return card
 
     def to_aermod_input(self, chemistry: Optional[ChemistryOptions] = None,
                         psd_credit: bool = False) -> str:
@@ -1792,6 +1894,12 @@ class SourcePathway:
 
         for source in self.sources:
             lines.append(source.to_aermod_input())
+
+        # HOUREMIS flags only sources already defined (soset.f HREMIS
+        # loops over the sources read so far), and ARCFTSRC needs the
+        # card read before it (E823).
+        for card in self.hourly_emissions:
+            lines.append(card.to_aermod_input())
 
         # Per-source flags whose card names several sources; both must
         # come before the group keywords (E140).
@@ -1830,22 +1938,45 @@ class SourcePathway:
             # continuation under the *last* group defined, whichever ID
             # it names. So a definition named ALL is written on the ALL
             # card, and every group's lines are written together.
+            #
+            # A source's own ``source_groups`` join the same block: a
+            # SRCGROUP card among the source cards makes the next
+            # LOCATION or SRCPARAM fatal (soset.f SOCARD, E140). Their
+            # members are written after the group's definitions, on
+            # continuation cards of that group. Naming ALL adds nothing:
+            # every source is in ALL, and a source ID on the ALL card is
+            # E203.
+            #
+            # Groups are matched by their upper-case name, as AERMOD
+            # reads them (aermod.f LWRUPR): SOGRP takes a card naming an
+            # existing group as a continuation of the group defined
+            # *last*, so ``Pit`` written apart from ``PIT`` would put its
+            # members in whatever group came between, with no message.
             all_ids = self._collect_all_source_ids()
             by_name: Dict[str, List[SourceGroupDefinition]] = {}
             for group in self.group_definitions:
-                by_name.setdefault(group.group_name, []).append(group)
-            write_all = (bool(all_ids) or any(n.upper() == "ALL" for n in by_name)
+                by_name.setdefault(group.group_name.upper(), []).append(group)
+            hoisted = self._per_source_groups()
+            for name in hoisted:
+                by_name.setdefault(name, [])
+            write_all = (bool(all_ids) or "ALL" in by_name
                          if self.include_all_group is None else self.include_all_group)
             if write_all:
-                all_members = [m for n, defs in by_name.items() if n.upper() == "ALL"
-                               for g in defs for m in g.member_source_ids]
+                all_members = [m for g in by_name.get("ALL", []) for m in g.member_source_ids]
                 lines.append("   SRCGROUP  ALL" + ("  " + " ".join(all_members)
                                                    if all_members else ""))
             for name, defs in by_name.items():
-                if name.upper() == "ALL":
+                if name == "ALL":
                     continue
                 for group in defs:
                     lines.extend(_group_lines("SRCGROUP", group))
+                defined = {m.upper() for g in defs for m in g.member_source_ids}
+                extra = [m for m in hoisted.get(name, []) if m.upper() not in defined]
+                # Continuations carry the definition's spelling, if any.
+                label = defs[0].group_name if defs else name
+                for start in range(0, len(extra), _GROUP_IDS_PER_CARD):
+                    lines.extend(_group_lines("SRCGROUP", SourceGroupDefinition(
+                        label, extra[start:start + _GROUP_IDS_PER_CARD])))
 
         lines.append("SO FINISHED")
         return "\n".join(lines)
