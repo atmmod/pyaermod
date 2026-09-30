@@ -6,6 +6,7 @@ and batch processing capabilities.
 """
 
 import contextlib
+import hashlib
 import logging
 import os
 import platform
@@ -71,6 +72,12 @@ _SUMMARY_TAIL_BYTES = 1_000_000
 # The files AERMOD writes as aermod.out, aermod.err and aermod.sum, which
 # the runner renames after the deck: <stem>.out, <stem>.err, <stem>.sum.
 _OUTPUT_SUFFIXES = {"output": ".out", "error": ".err", "summary": ".sum"}
+
+# Where symbolic links fail (Windows without the privilege), the runner
+# copies the deck to aermod.inp instead. This file, beside the copy,
+# holds the copy's SHA-256, so that a copy left behind when the Python
+# process was killed is known as the runner's, not taken for a deck.
+_COPY_MARKER = ".pyaermod-aermod-inp.sha256"
 
 
 @dataclass(frozen=True)
@@ -362,6 +369,9 @@ class AERMODRunner:
         ``aermod.inp``, or that ``aermod.inp`` links to, runs in place.
         When ``aermod.inp`` is another deck, the run fails without
         starting AERMOD, so that deck and its ``aermod.out`` are kept.
+        Where links cannot be made, the deck is copied to ``aermod.inp``
+        instead; a copy the runner left behind (its process killed
+        mid-run) is replaced, not taken for another deck.
         """
         input_path = Path(input_file).resolve()
 
@@ -411,10 +421,13 @@ class AERMODRunner:
         # be replaced, and the aermod.out this run would write, then
         # rename, may be that deck's results. Refuse before touching
         # anything. A link to another file is one this runner left or
-        # one it can re-create, so it is replaced.
+        # one it can re-create, so it is replaced, and so is a copy this
+        # runner made (see _is_runner_copy).
         aermod_inp = work_dir / "aermod.inp"
+        copy_marker = work_dir / _COPY_MARKER
         in_place = aermod_inp.exists() and aermod_inp.samefile(input_path)
-        if not in_place and aermod_inp.exists() and not aermod_inp.is_symlink():
+        if (not in_place and aermod_inp.exists() and not aermod_inp.is_symlink()
+                and not _is_runner_copy(aermod_inp, copy_marker)):
             _release_dir_lock(lock_fh)
             return AERMODRunResult(
                 success=False,
@@ -447,7 +460,9 @@ class AERMODRunner:
                 aermod_inp.symlink_to(os.path.relpath(input_path, work_dir))
             except (OSError, ValueError):
                 # Fallback: copy the file (ValueError: relpath across
-                # Windows drives)
+                # Windows drives). Mark the copy first, so that one left
+                # by a killed process is still known as the runner's.
+                copy_marker.write_text(_sha256(input_path) + "\n")
                 shutil.copy2(str(input_path), str(aermod_inp))
 
         start_time = datetime.now()
@@ -609,9 +624,11 @@ class AERMODRunner:
                     with contextlib.suppress(Exception):
                         fh.close()
             # Clean up the aermod.inp symlink/copy, never the user's own deck
-            if not in_place and (aermod_inp.exists() or aermod_inp.is_symlink()):
-                with contextlib.suppress(OSError):
-                    aermod_inp.unlink()
+            if not in_place:
+                for made in (aermod_inp, copy_marker):
+                    if made.exists() or made.is_symlink():
+                        with contextlib.suppress(OSError):
+                            made.unlink()
             # Release the working-dir lock
             _release_dir_lock(lock_fh)
 
@@ -945,6 +962,26 @@ def _rename_aermod_outputs(work_dir: Path, input_name: str) -> None:
         target_file = work_dir / f"{input_name}{suffix}"
         if aermod_file.exists() and aermod_file != target_file:
             aermod_file.replace(target_file)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _is_runner_copy(aermod_inp: Path, marker: Path) -> bool:
+    """Whether a regular ``aermod.inp`` is a copy this runner left behind.
+
+    The copy fallback removes its copy after the run, but not when the
+    Python process is killed first. The copy is the runner's when its
+    SHA-256 is the one in ``marker``, written before the copy was made.
+    Matching bytes alone do not make it the runner's: a base deck kept as
+    ``aermod.inp`` beside a variant not yet edited has the variant's
+    bytes, and replacing it would delete it and its ``aermod.out``.
+    """
+    try:
+        return marker.read_text().strip() == _sha256(aermod_inp)
+    except OSError:
+        return False
 
 
 def _describe_signal(signum: int) -> str:

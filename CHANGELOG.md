@@ -91,7 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overwrote its `aermod.out`**; such a run now fails before it starts,
   with "The working directory ... already holds another deck named
   aermod.inp", and leaves both files alone. Give it its own
-  `working_dir`, or rename the base deck. With a `working_dir` apart from
+  `working_dir`, or rename the base deck. Where links cannot be made
+  (Windows without the privilege), the copy the runner makes instead is
+  marked by a `.pyaermod-aermod-inp.sha256` file beside it, so that a
+  copy left behind when Python is killed mid-run is replaced by the next
+  run rather than taken for a deck. With a `working_dir` apart from
   the deck, the link named only the deck's file, so it pointed to a file
   that did not exist there; it now holds the deck's path relative to the
   working directory.

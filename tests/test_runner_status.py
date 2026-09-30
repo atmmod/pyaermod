@@ -541,6 +541,90 @@ class TestRunnerVerdict:
         assert not (work / "aermod.inp").exists()
         assert other.read_bytes() == (E480 / "aermod.inp").read_bytes()
 
+    @staticmethod
+    def _no_links(monkeypatch):
+        """Make symbolic links fail, as on Windows without the privilege."""
+        def _refuse(self, *args, **kwargs):
+            raise OSError("symbolic link privilege not held")
+        monkeypatch.setattr(Path, "symlink_to", _refuse)
+
+    def test_the_copy_fallback_cleans_up(self, replay_bin, tmp_path, monkeypatch):
+        self._no_links(monkeypatch)
+        work = tmp_path / "w"
+        result = _run(SUCCESS, replay_bin, work)
+        assert result.success is True, result.error_message
+        assert not (work / "aermod.inp").exists()
+        assert not (work / ".pyaermod-aermod-inp.sha256").exists()
+
+    @pytest.mark.parametrize("next_deck", ["same", "other"])
+    def test_a_copy_left_by_a_killed_runner_is_replaced(self, replay_bin, tmp_path,
+                                                        monkeypatch, next_deck):
+        """The copy fallback's aermod.inp, left when Python is killed mid-run.
+
+        The runner took that copy for another deck named aermod.inp and
+        refused every later run in the directory, this deck's included.
+        Here the fake AERMOD SIGKILLs the Python process that started it,
+        so the runner's cleanup never runs.
+        """
+        work = tmp_path / "w"
+        # The killed run's deck: this one, or another deck (other bytes).
+        first = _stage(SUCCESS if next_deck == "same" else E480, work, "case1")
+        killer = tmp_path / "kill_parent"
+        killer.write_text("#!/bin/bash\nkill -9 $PPID\n")
+        killer.chmod(0o755)
+        child = (
+            "from pathlib import Path\n"
+            "def _refuse(self, *a, **k):\n"
+            "    raise OSError('symbolic link privilege not held')\n"
+            "Path.symlink_to = _refuse\n"
+            "from pyaermod.runner import AERMODRunner\n"
+            f"AERMODRunner(executable_path={str(killer)!r}, log_level='CRITICAL')"
+            f".run({str(first)!r})\n"
+        )
+        env = {**os.environ, "PYTHONPATH": str(Path(pyaermod.__file__).parents[1])}
+        killed = subprocess.run([sys.executable, "-c", child], env=env, timeout=60)
+        assert killed.returncode == -9
+        left = work / "aermod.inp"
+        assert left.is_file() and not left.is_symlink()
+        assert left.read_bytes() == first.read_bytes()
+
+        self._no_links(monkeypatch)
+        deck = first if next_deck == "same" else _stage(SUCCESS, work, "case2")
+        assert (deck.read_bytes() == left.read_bytes()) == (next_deck == "same")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(deck)
+        assert result.success is True, result.error_message
+        assert result.output_file == str(work / f"{deck.stem}.out")
+        assert not left.exists()
+        assert not (work / ".pyaermod-aermod-inp.sha256").exists()
+
+    def test_an_unmarked_copy_of_the_deck_is_kept(self, replay_bin, tmp_path, monkeypatch):
+        """Matching bytes alone do not make aermod.inp the runner's copy.
+
+        A variant copied from a base deck kept as aermod.inp, and not yet
+        edited, has the base deck's bytes; the base deck is still a deck.
+        """
+        self._no_links(monkeypatch)
+        work = tmp_path / "w"
+        inp = _stage(SUCCESS, work)
+        shutil.copy2(inp, work / "aermod.inp")
+        result = _run(SUCCESS, replay_bin, work)
+        assert result.success is False
+        assert "already holds another deck named aermod.inp" in result.error_message
+        assert (work / "aermod.inp").read_bytes() == inp.read_bytes()
+
+    def test_a_marker_does_not_cover_a_deck_put_in_the_copys_place(self, replay_bin, tmp_path):
+        """The marker names the copy's bytes, so a deck written over it is kept."""
+        work = tmp_path / "w"
+        base = _stage(E480, work, "aermod")
+        (work / ".pyaermod-aermod-inp.sha256").write_text("0" * 64 + "\n")
+        variant = _stage(SUCCESS, work, "case2")
+        runner = AERMODRunner(executable_path=replay_bin / "aermod", log_level="WARNING")
+        result = runner.run(variant)
+        assert result.success is False
+        assert "already holds another deck named aermod.inp" in result.error_message
+        assert base.read_bytes() == (E480 / "aermod.inp").read_bytes()
+
     @pytest.mark.parametrize("name", ["run", "aermod"])
     def test_working_dir_apart_from_the_deck(self, replay_bin, tmp_path, name):
         """The aermod.inp link reaches a deck in another directory."""

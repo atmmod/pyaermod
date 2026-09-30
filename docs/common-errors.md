@@ -49,6 +49,16 @@ them, and which pyaermod helper catches them earlier.
   as it is; its outputs are named after the file the link points to. A
   link named `aermod.inp` that points to some other file is replaced for
   the run and removed after it; the file it pointed to is not touched.
+- **Where links cannot be made** (Windows without the symbolic-link
+  privilege), the runner copies the deck to `aermod.inp` for the run and
+  writes `.pyaermod-aermod-inp.sha256` beside it; both are removed after
+  the run. If the Python process is killed mid-run (a closed terminal,
+  Task Manager, a restarted GUI server), they stay behind, and the next
+  run in that directory knows the copy as its own, by the SHA-256 in
+  that file, and replaces it. Any other `aermod.inp` is a deck and is
+  kept, even one with the same bytes as the deck being run (a variant
+  copied from the base deck and not yet edited); a stray copy made by
+  hand, or by a runner older than this marker, has to be deleted by hand.
 
 ### "ANNUAL average requested, ran for single day"
 
