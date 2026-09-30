@@ -12,7 +12,7 @@ is edited.
 (`AERMETStage1` and `AERMETStage3`), using EPA's station metadata,
 dates, options and surface characteristics.
 
-`runs/` holds five real AERMET runs. `tests/test_aermet_status.py` reads
+`runs/` holds six real AERMET runs. `tests/test_aermet_status.py` reads
 them to pin the deck writers and how `AERMETRunner` decides whether a run
 succeeded, and its fake `aermet` replays them. None of the files is
 hand-edited.
@@ -25,7 +25,8 @@ hand-edited.
 
 Every case directory holds the deck (`deck.inp`), AERMET's stdout
 (`stdout.txt`), its exit code (`exit_code.txt`) and the REPORT and
-MESSAGES files the deck names. AERMET wrote nothing to stderr in any case.
+MESSAGES files the deck names (`deck_not_found/` has neither). AERMET wrote
+nothing to stderr in any case.
 
 | Case | Deck | Exit code | What AERMET reports |
 |---|---|---|---|
@@ -34,6 +35,7 @@ MESSAGES files the deck names. AERMET wrote nothing to stderr in any case.
 | `metprep_without_stage1/` | The same METPREP deck with no Stage 1 files present | 0 | Error `METPREP E70 PBL_TEST NO DATA PERIODS DATES OVERLAP`; `AERMET FINISHED UN-SUCCESSFULLY` |
 | `stage1_wrong_format/` | The Stage 1 deck with the TD-6201 file declared `FSL` | 0 | Errors `UPPERAIR E30 READ_FSL SOUNDING IS NOT FSL FORMAT` and `E39 NO SOUNDINGS RETRIEVED`; `AERMET FINISHED UN-SUCCESSFULLY` |
 | `legacy_stage1/` | The Stage 1 deck pyaermod wrote for EX01 before the writer was rewritten (its MESSAGES file is named `2`) | 0 | 6 errors: `E01 INVALID KEYWORD: ANEMHGT`, two `E05 INVALID FORMAT FOR STATION COORDINATE`, `E05 -5 GMT TO LST IS MORE THAN THREE HOURS`, `E01 INVALID KEYWORD: ELEVATION`, `E01 INVALID PATH QA`; `AERMET FINISHED UN-SUCCESSFULLY` |
+| `deck_not_found/` | A deck named `deck.inp ` (a trailing blank, which AERMET's `trim` drops), so AERMET looks for `deck.inp` and does not find it | 0 | `Input file deck.inp not found`; no banner, no REPORT and no MESSAGES file (`readinp` in `mod_read_input.f90` stops) |
 
 Things these recordings show, and that the writers and the runner rely on:
 
@@ -41,7 +43,9 @@ Things these recordings show, and that the writers and the runner rely on:
   about success. The old runner called every one of these runs a
   success, since none prints "FATAL".
 - Only a completed run prints `AERMET FINISHED SUCCESSFULLY`; a failed
-  one prints `AERMET FINISHED UN-SUCCESSFULLY` (`aermet.f90`).
+  one prints `AERMET FINISHED UN-SUCCESSFULLY` (`aermet.f90`). A run that
+  cannot open its runstream prints neither, counts no error and still
+  exits 0 (`deck_not_found/`): only the banner tells it failed.
 - The REPORT file's MESSAGE SUMMARY counts the messages by severity, in
   the layout `(//2(1x,a),1x,i8,1x,a/)` of `write_msg` in
   `mod_reports.f90` (`ERROR MESSAGES        6 MESSAGES`).

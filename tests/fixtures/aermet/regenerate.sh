@@ -62,6 +62,7 @@ record() {
 
 rm -rf "$HERE/runs/stage1_success" "$HERE/runs/metprep_success" \
     "$HERE/runs/metprep_without_stage1" "$HERE/runs/stage1_wrong_format"
+rm -f "$HERE/runs/deck_not_found/stdout.txt" "$HERE/runs/deck_not_found/exit_code.txt"
 find "$HERE/runs/legacy_stage1" -type f ! -name deck.inp -delete
 
 record stage1_success "$decks/stage1.inp" stage1.out stage1.msg
@@ -71,3 +72,15 @@ record stage1_wrong_format "$decks/wrong_format.inp" stage1.out stage1.msg
 # The deck pyaermod's AERMETStage1 wrote for EX01 before the writer was
 # rewritten for AERMET 11+ syntax (kept as recorded, not regenerated).
 record legacy_stage1 "$HERE/runs/legacy_stage1/deck.inp" stage1.out 2
+
+# A runstream AERMET cannot find: its name ends in a blank, which AERMET's
+# trim drops (readinp in mod_read_input.f90). AERMET prints "Input file
+# ... not found", stops with exit code 0 and writes no REPORT or MESSAGES.
+work="$(mktemp -d)"
+cp "$HERE/runs/deck_not_found/deck.inp" "$work/deck.inp "
+status=0
+(cd "$work" && "$EXE" "deck.inp " > stdout.txt 2> stderr.txt) || status=$?
+cp "$work/stdout.txt" "$HERE/runs/deck_not_found/"
+echo "$status" > "$HERE/runs/deck_not_found/exit_code.txt"
+echo "deck_not_found: exit code $status, $(tail -n 1 "$work/stdout.txt" | xargs)"
+rm -rf "$work"

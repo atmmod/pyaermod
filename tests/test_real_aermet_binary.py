@@ -114,6 +114,15 @@ def test_recorded_runs_repeat_on_this_binary(tmp_path, case):
     for data in ("14735-88.UA", "S1473588.144"):
         shutil.copy(FIXTURES / "ex01" / data, tmp_path / data)
     runner = AERMETRunner(log_level="WARNING")
+    if case == "deck_not_found":
+        # "deck.inp " (trailing blank): AERMET trims the name, finds no
+        # deck.inp, prints no banner and exits 0.
+        shutil.copy(recording / "deck.inp", tmp_path / "deck.inp ")
+        result = runner.run_stage(1, tmp_path / "deck.inp ", working_dir=tmp_path, timeout=60)
+        assert "Input file deck.inp not found" in result.stdout
+        assert (result.return_code, result.error_count, result.finished_successfully) == (0, 0, False)
+        assert result.success is False
+        return
     if case == "metprep_success":
         stage1, _ = _ex01_stages()
         (tmp_path / "pre.inp").write_text(stage1.to_aermet_input())

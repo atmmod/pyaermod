@@ -10,6 +10,8 @@ Both are pinned against real AERMET v26135 runs recorded in
 * ``stage1_wrong_format/``: errors E30 and E39, TD-6201 data declared FSL;
 * ``legacy_stage1/``: the deck the writer produced before this rewrite,
   which AERMET rejects with six errors.
+* ``deck_not_found/``: a runstream AERMET cannot open. It prints no
+  banner, writes no REPORT or MESSAGES and counts no error.
 
 AERMET exits with code 0 in every one of these runs. The fake ``aermet``
 below replays them: it finds the recording whose deck matches the deck it
@@ -46,6 +48,9 @@ NO_STAGE1 = RUNS / "metprep_without_stage1"
 WRONG_FORMAT = RUNS / "stage1_wrong_format"
 LEGACY = RUNS / "legacy_stage1"
 ALL_RUNS = [STAGE1_OK, METPREP_OK, NO_STAGE1, WRONG_FORMAT, LEGACY]
+# Run as "deck.inp " (see the fixture README), so it is kept out of the
+# replayer that matches ALL_RUNS by deck.
+NOT_FOUND = RUNS / "deck_not_found"
 
 posix_only = pytest.mark.skipif(
     platform.system() == "Windows", reason="the replaying fake aermet is a bash script",
@@ -78,7 +83,7 @@ def _data_rows(path: Path):
 
 class TestRecordings:
 
-    @pytest.mark.parametrize("case", ALL_RUNS, ids=lambda p: p.name)
+    @pytest.mark.parametrize("case", [*ALL_RUNS, NOT_FOUND], ids=lambda p: p.name)
     def test_aermet_exits_zero_in_every_case(self, case):
         assert (case / "exit_code.txt").read_text().strip() == "0"
 
@@ -88,6 +93,12 @@ class TestRecordings:
         out = (case / "stdout.txt").read_text()
         assert "AERMET FINISHED UN-SUCCESSFULLY" in out
         assert "FATAL" not in out.upper()
+
+    def test_a_deck_aermet_cannot_open_prints_no_banner_and_no_error(self):
+        out = (NOT_FOUND / "stdout.txt").read_text()
+        assert "Input file deck.inp not found" in out
+        assert "AERMET FINISHED" not in out
+        assert parse_aermet_messages(out) == []
 
     def test_metprep_output_matches_epa_ex01(self):
         """pyaermod's EX01 decks reproduce EPA's EX01_MP.SFC and .PFL, value for value."""
@@ -254,6 +265,44 @@ class TestRunStage:
         assert result.error_count >= 1
         assert result.error_message.startswith(first)
         assert "AERMET printed 'AERMET FINISHED UN-SUCCESSFULLY'" in result.error_message
+
+    def test_no_banner_is_a_failure_even_with_exit_zero_and_no_errors(self, tmp_path):
+        """AERMET 26135 on a runstream it cannot open: only the missing banner shows it failed."""
+        work = tmp_path / "w"
+        work.mkdir()
+        deck = work / "deck.inp "
+        deck.write_text((NOT_FOUND / "deck.inp").read_text())
+        result = AERMETRunner(executable_path=_replayer(tmp_path / "bin", [NOT_FOUND])).run_stage(
+            1, deck, working_dir=work)
+        assert result.return_code == 0
+        assert result.error_count == 0 and result.errors == []
+        assert result.report_file is None and result.message_file is None
+        assert result.finished_successfully is False
+        assert result.success is False
+        assert result.error_message == (
+            "AERMET did not print 'AERMET FINISHED SUCCESSFULLY' (last output: "
+            "START PROCESSING DATE/TIME: SEPTEMBER 30, 2026   1:46:31 AM | "
+            "Input file deck.inp not found)"
+        )
+
+    def test_banner_with_a_nonzero_exit_is_a_failure(self, tmp_path):
+        """The banner and no errors are not enough if AERMET's process then fails."""
+        exe = tmp_path / "aermet"
+        exe.write_text(
+            "#!/bin/bash\n"
+            "printf '\\n\\n ERROR MESSAGES        0 MESSAGES\\n\\n' > r.out\n"
+            "echo ' AERMET FINISHED SUCCESSFULLY'\n"
+            "exit 3\n"
+        )
+        exe.chmod(0o755)
+        deck = tmp_path / "deck.inp"
+        deck.write_text("JOB\n   REPORT     r.out\n")
+        result = AERMETRunner(executable_path=exe).run_stage(1, deck, working_dir=tmp_path)
+        assert result.finished_successfully is True
+        assert result.error_count == 0
+        assert result.return_code == 3
+        assert result.success is False
+        assert result.error_message == "AERMET exited with code 3"
 
     def test_errors_listed_without_the_banner_fail(self, tmp_path):
         """An error in the MESSAGES file fails the run even if the banner says otherwise."""
