@@ -152,6 +152,38 @@ def test_example_states_deposition_units():
     assert "g/m**2/yr" in text
 
 
+# Output types of each example deck -> fixture directory holding a real
+# AERMOD v26135 run with those output types (tests/fixtures/postfile_types)
+POSTFILE_FIXTURES = REPO / "tests" / "fixtures" / "postfile_types"
+EXAMPLE_POSTFILE_RUNS = {
+    ("CONC", "DDEP"): "conc_ddep",  # Examples 1 and 3
+    ("CONC", "DEPOS", "DDEP", "WDEP"): "conc_depos_ddep_wdep",  # Example 2
+}
+
+
+def _stated_postfile_columns() -> list[list[str]]:
+    """The POSTFILE column lists that Example 4's text prints, in order."""
+    lists = re.findall(r"^\s*(\['x', 'y', [^\]]*\])\s*$", EXAMPLE.read_text(), flags=re.MULTILINE)
+    return [re.findall(r"'([^']+)'", found) for found in lists]
+
+
+def test_example_postfile_columns_match_the_reader():
+    # Example 4 says which columns read_postfile gives for the POSTFILEs
+    # of Examples 1-3; check that against real AERMOD POSTFILEs with the
+    # same output types, so the text cannot drift from the reader again.
+    from pyaermod.postfile import read_postfile
+
+    deck_types = {frozenset(must & {"CONC", "DEPOS", "DDEP", "WDEP"}) for _, must, _ in DECKS.values()}
+    assert deck_types == {frozenset(types) for types in EXAMPLE_POSTFILE_RUNS}
+
+    stated = _stated_postfile_columns()
+    assert len(stated) == len(EXAMPLE_POSTFILE_RUNS)
+    for columns, (types, run) in zip(stated, EXAMPLE_POSTFILE_RUNS.items()):
+        result = read_postfile(POSTFILE_FIXTURES / run / "post_1h.pst")
+        assert result.output_types == types
+        assert list(result.data.columns) == columns
+
+
 def _warnings(out: str) -> set[str]:
     """Codes of the warnings in AERMOD's message summaries."""
     return set(re.findall(r"^ [A-Z]{2} (W\d{3}) ", out, flags=re.MULTILINE))
