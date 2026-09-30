@@ -2190,10 +2190,11 @@ def read_aermod_input(
         message names the first and its ``violations`` list every one.
         Use this when ingesting untrusted .inp files (third-party
         permits, forwarded drafts) before passing the project to AERMOD.
-        Only paths stored on the project's fields are checked: a line
-        kept verbatim in ``unparsed_lines`` (``ERRORFIL``, ``INCLUDED``,
-        ``HOUREMIS`` ...) is written back as it stands, so show those
-        lines to whoever runs the deck.
+        Lines kept verbatim in ``unparsed_lines`` are checked too, field
+        by field as AERMOD splits them: several of them name files AERMOD
+        opens (``ERRORFIL``, ``INCLUDED``, ``HOUREMIS``, a ``BACKGRND``
+        hourly file, a second ``POSTFILE``, ``DEBUGOPT`` files), and they
+        are written back as they stand.
 
         The default (False) preserves prior behavior: paths are stored
         as-is and AERMOD itself decides what to open at run time.
@@ -2205,13 +2206,44 @@ def read_aermod_input(
     return project
 
 
+def runstream_fields(text: str) -> List[str]:
+    """Split the data part of a runstream line into fields as AERMOD does.
+
+    ``setup.f`` (subroutine DEFINE) separates fields by blanks; a field
+    that starts with a double quote runs to the next double quote (or the
+    end of the line) and may hold blanks, and the quotes are not part of
+    it. A quote inside an unquoted field is an ordinary character.
+
+    >>> runstream_fields('ERRS.OUT  "My Files/b.dat"  x"y')
+    ['ERRS.OUT', 'My Files/b.dat', 'x"y']
+    """
+    fields: List[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+        elif text[i] == '"':
+            end = text.find('"', i + 1)
+            end = n if end < 0 else end
+            fields.append(text[i + 1:end])
+            i = end + 1
+        else:
+            end = i
+            while end < n and not text[end].isspace():
+                end += 1
+            fields.append(text[i:end])
+            i = end
+    return fields
+
+
 @dataclass(frozen=True)
 class SandboxViolation:
     """One path of a sandboxed deck that resolves outside the sandbox root.
 
-    ``field`` names the project field (``meteorology.surface_file``),
-    ``path`` is the path as the deck wrote it and ``resolved`` where it
-    would lead.
+    ``field`` names the project field (``meteorology.surface_file``) or,
+    for a line kept verbatim, its pathway, keyword and line number
+    (``CO ERRORFIL at line 14``); ``path`` is the path as the deck wrote
+    it and ``resolved`` where it would lead.
     """
 
     field: str
@@ -2244,6 +2276,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     - control.chemistry.nox_file
     - output.summary_file / plot_file / postfile / maxi_files
     - output.plot_file_groups (per-group filenames)
+    - every field of every line kept in ``unparsed_lines``
     """
     base = base.resolve()
     violations: List[SandboxViolation] = []
@@ -2252,10 +2285,13 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         if not raw:
             return
         candidate = Path(raw)
-        full = (candidate if candidate.is_absolute() else base / candidate).resolve()
+        full = candidate if candidate.is_absolute() else base / candidate
         try:
+            full = full.resolve()
             full.relative_to(base)
-        except ValueError:
+        except (ValueError, OSError):
+            # Outside the root, or a name the file system cannot resolve
+            # (a NUL byte, a symlink loop): refused either way.
             violations.append(SandboxViolation(field=label, path=raw, resolved=full))
 
     met = project.meteorology
@@ -2312,6 +2348,19 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         for entry in entries:
             _check(f"output.{label}[{entry.source_group}]", entry.filename)
 
+    # A line the reader keeps verbatim goes back into the deck as it
+    # stands, and several such lines name files AERMOD opens, at positions
+    # that depend on the keyword and its options (ERRORFIL, INCLUDED,
+    # HOUREMIS, BACKGRND HOURLY, DEBUGOPT, a second POSTFILE ...). Every
+    # field is checked, split as AERMOD splits the line it will read: a
+    # field that is not a file name (a number, a source ID, an option
+    # word) stays inside the root, so only a field naming a place outside
+    # it is refused.
+    for line in project.unparsed_lines:
+        where = f"{line.pathway} {line.keyword} at line {line.lineno}"
+        for token in runstream_fields("  ".join(line.fields)):
+            _check(where, token)
+
     if violations:
         first = violations[0]
         raise PathTraversalError(
@@ -2326,4 +2375,5 @@ __all__ = [
     "SandboxViolation",
     "parse_aermod_input",
     "read_aermod_input",
+    "runstream_fields",
 ]
