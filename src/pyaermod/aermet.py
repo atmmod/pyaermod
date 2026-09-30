@@ -542,6 +542,13 @@ class AERMETStage3:
     ``methods`` are METHOD records such as ``("REFLEVEL", "SUBNWS")`` or
     ``("WIND_DIR", "RANDOM")``. ``nws_height`` is the NWS anemometer
     height (NWS_HGT WIND); it defaults to ``station.anemometer_height``.
+
+    A deck with NWS surface data and no on-site data always gets
+    ``METHOD REFLEVEL SUBNWS`` (added when ``methods`` has no REFLEVEL
+    record): AERMET 26135 stops with E87 without it (mod_pbl.f90,
+    A097_SUBNWS), as the AERMET user's guide says it should. SUBNWS with
+    SURFACE data needs NWS_HGT (E72 otherwise), so such a deck raises
+    ValueError when neither ``nws_height`` nor ``station`` is set.
     ``extra_lines`` are written verbatim at the end of METPREP.
 
     ``merge_file`` is kept for compatibility and ignored: METPREP's DATA
@@ -710,11 +717,21 @@ class AERMETStage3:
         elif self.latitude is not None and self.longitude is not None and self.time_zone is not None:
             lines.append("   LOCATION   " + _location(
                 "SITE", self.latitude, self.longitude, -int(self.time_zone)))
-        for item, action in self.methods:
-            lines.append(f"   METHOD     {str(item).upper()} {str(action).upper()}")
+        methods = [(str(item).upper(), str(action).upper()) for item, action in self.methods]
+        has_surface = bool(sf_qa or self.asos_1min_file)
+        if has_surface and not os_qa and not any(item == "REFLEVEL" for item, _ in methods):
+            # NWS data only: AERMET 26135 requires SUBNWS (E87, A097_SUBNWS).
+            methods.insert(0, ("REFLEVEL", "SUBNWS"))
+        for item, action in methods:
+            lines.append(f"   METHOD     {item} {action}")
         nws = self.nws_height
         if nws is None and self.station is not None:
             nws = self.station.anemometer_height
+        if nws is None and has_surface and ("REFLEVEL", "SUBNWS") in methods:
+            raise ValueError(
+                "METHOD REFLEVEL SUBNWS with SURFACE data needs the NWS anemometer height "
+                "(AERMET error E72, NWS_HGT KEYWORD MISSING): set nws_height or station"
+            )
         if nws is not None:
             lines.append(f"   NWS_HGT    WIND {_num(nws)}")
         lines.append(f"   OUTPUT     {_filename(self.surface_file)}")
@@ -731,7 +748,9 @@ def write_aermet_runfile(stage: int, input_file: str, output_path: str = "."):
     Create a shell script that runs AERMET on one runstream file.
 
     AERMET reads the runstream named on its command line (or ``aermet.inp``
-    in the working directory); it does not read standard input.
+    in the working directory); it does not read standard input. The script
+    names the deck by its absolute path, resolved when the script is
+    written, so it runs from any directory but only in this checkout.
 
     Args:
         stage: Stage label for the script's name and messages.

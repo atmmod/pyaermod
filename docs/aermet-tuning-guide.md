@@ -50,14 +50,15 @@ What the writers take care of, following AERMET's Fortran:
 | upper-air formats | `FSL`, `IGRA`, `6201FB`, `6201VB` (`upper_air_format`) |
 | `ONSITE` | `OnsiteData`: `READ`/`FORMAT` records, `THRESHOLD`, `OSHEIGHTS`, `DELTA_TEMP`, `OBS/HOUR` |
 | surface characteristics | `FREQ_SECT`, `SECTOR`, `SITE_CHAR` (from `site_char` records, or from the 12 monthly `albedo`/`bowen`/`roughness` values), or an AERSURFACE file (`AERSURF`); `SITE_CHAR2` etc. for a secondary site |
-| `METHOD`, `NWS_HGT` | `methods=[("REFLEVEL", "SUBNWS")]`; `NWS_HGT WIND` from the station's anemometer height |
+| `METHOD`, `NWS_HGT` | `methods`, e.g. `[("WIND_DIR", "RANDOM")]`; `METHOD REFLEVEL SUBNWS` is added to every deck with NWS surface data and no on-site data (AERMET 26135 stops with E87 without it); `NWS_HGT WIND` from `nws_height` or the station's anemometer height, required with SUBNWS (E72 otherwise) |
 
 `run_aermet_pipeline(stage1, None, stage3, working_dir=...)` writes and
 runs both decks; the METPREP deck reads the `QAOUT` files the Stage 1
 deck names (`AERMETStage3.with_inputs_from`). pyaermod's decks for EPA's
 AERMET test cases EX01, EX04 (Houston) and Cordero reproduce EPA's
 `.SFC` and `.PFL` files line for line
-(`tests/test_real_aermet_binary.py`).
+(`tests/test_real_aermet_binary.py`; EX04 and Cordero need EPA's test
+cases in `aermet_test_cases/`).
 
 ### Did the run succeed?
 
@@ -83,12 +84,19 @@ resulting `.SFC` output:
 ```python
 from pyaermod import read_surface_file, run_all_qaqc
 
-records = read_surface_file("stn.sfc")["records"]
+records = read_surface_file("stn.sfc")["data"].to_dict("records")
 report = run_all_qaqc(records)
 print(report.summary())
 if report.n_errors:
     print(report.dump(limit=10))
 ```
+
+`read_surface_file` returns the hours as a DataFrame under `"data"`,
+with the `.SFC` column names (`wind_speed`, `L`, `Zic`, ...).
+`run_all_qaqc` looks up the field names of `met_ingest`'s hourly records
+(`wind_speed_ms`, `monin_obukhov_m`, ...), so on `.SFC` records it
+currently reports every field as missing; until the two agree, rename
+the columns before the check.
 
 `run_all_qaqc` runs five checks:
 
@@ -151,7 +159,7 @@ if not all(r.success for r in results):
     raise SystemExit("; ".join(r.error_message for r in results if not r.success))
 
 # 4. QA the METPREP output before feeding AERMOD
-records = read_surface_file("stn.sfc")["records"]
+records = read_surface_file("stn.sfc")["data"].to_dict("records")
 report = run_all_qaqc(records)
 if report.n_errors:
     raise SystemExit(report.dump())

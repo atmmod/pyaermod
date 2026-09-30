@@ -1068,7 +1068,9 @@ AERMET requires two types of weather observations:
 3. Click **Meteorology** in the sidebar.
 4. Select the **Configure AERMET** radio button (not "Use existing files").
 
-You'll see three tabs: **Stage 1**, **Stage 2**, and **Stage 3**.
+You'll see three tabs: **Stage 1**, **Stage 2**, and **Stage 3**. Current
+AERMET (11 and later) runs only two of them, Stage 1 and Stage 3; Stage 2
+is skipped (see Step 3).
 
 ### Step 2: Configure Stage 1 — Extract & QA/QC
 
@@ -1142,6 +1144,11 @@ Click **Download Stage 1 Input File** to save it as `aermet_stage1.inp`.
 
 ### Step 3: Configure Stage 2 — Merge
 
+> **Skip this step.** Current AERMET has no separate merge stage: METPREP
+> (Stage 3) reads Stage 1's output and merges it itself, and pyaermod no
+> longer writes a Stage 2 file. Go on to Step 4. The description below is
+> kept for readers of older AERMET material.
+
 Click the **Stage 2: Merge** tab.
 
 **Purpose:** Stage 2 takes the extracted surface and upper air data from
@@ -1162,8 +1169,8 @@ Click **Save Stage 2 Configuration**, then preview and download.
 
 Click the **Stage 3: Boundary Layer** tab.
 
-**Purpose:** This is the most important stage. Stage 3 reads the merged data
-and computes the **planetary boundary layer parameters** that AERMOD needs:
+**Purpose:** This is the most important stage. Stage 3 (AERMET's METPREP)
+reads Stage 1's quality-assured files, merges them, and computes the **planetary boundary layer parameters** that AERMOD needs:
 friction velocity, Monin-Obukhov length, convective velocity scale, mixing
 height, and more. These parameters depend on both the meteorological data and
 the **surface characteristics** around the station.
@@ -1172,7 +1179,6 @@ the **surface characteristics** around the station.
 
 | Parameter | Example Value |
 |---|---|
-| Merge File | `stage2.mrg` |
 | Start Date | `2020/01/01` |
 | End Date | `2020/12/31` |
 | Surface Output (.sfc) | `aermod.sfc` |
@@ -1232,9 +1238,10 @@ Setup page.
 
 Click **Save Stage 3 Configuration**.
 
-### Step 5: Download All Three Input Files
+### Step 5: Download the Two Input Files
 
-You now have three AERMET input files:
+You now have two AERMET input files to run (the GUI may still offer a
+third, for Stage 2, which current AERMET does not use):
 
 | File | Stage | What It Does |
 |---|---|---|

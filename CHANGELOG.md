@@ -52,7 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the GMT-to-LST adjustment derived from the data format; DATA,
   EXTRACT, QAOUT and XDATES on each Stage 1 pathway; METPREP reading the
   Stage 1 QAOUT files and writing FREQ_SECT, SECTOR and SITE_CHAR (or
-  AERSURF), METHOD and NWS_HGT. The runner passes the deck as AERMET's
+  AERSURF), METHOD and NWS_HGT. A METPREP deck with NWS surface data and
+  no on-site data gets `METHOD REFLEVEL SUBNWS` unless `methods` already
+  has a REFLEVEL record: AERMET 26135 stops with `E87 NWS DATA ONLY AND
+  SUBNWS ACTION NOT INVOKED` without it (24142 did not check). The runner passes the deck as AERMET's
   argument and reports success only when AERMET prints `AERMET FINISHED
   SUCCESSFULLY` and neither its MESSAGES file nor its REPORT summary lists
   an error; `error_message` names the first error, such as `UPPERAIR E30
@@ -61,12 +64,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   EX04 (Houston) and Cordero reproduce EPA's 24142 `.SFC` and `.PFL` line
   for line on AERMET 24142, and the output of EPA's own decks on AERMET
   26135. `tests/test_aermet_status.py` pins the writers and the rule
-  against five runs of the real AERMET 26135 recorded in
-  `tests/fixtures/aermet/runs/`, and `tests/test_real_aermet_binary.py`
-  repeats them, and the Cordero comparison, against the binary itself.
-  `write_aermet_runfile` scripts pass the deck as an argument (AERMET
-  never read standard input) and fail unless AERMET prints its success
-  banner.
+  against six runs of the real AERMET 26135 recorded in
+  `tests/fixtures/aermet/runs/`, among them a runstream AERMET cannot
+  open, where it prints no banner, lists no error and exits 0; and
+  `tests/test_real_aermet_binary.py` repeats them, and the EX04 and
+  Cordero comparisons, against the binary itself (the Real AERMET
+  workflow now runs it). `write_aermet_runfile` scripts pass the deck as
+  an argument (AERMET never read standard input) and fail unless AERMET
+  prints its success banner; the script now names the deck by its
+  absolute path, resolved when the script is written, so it runs from
+  any directory but only on the machine and checkout that wrote it.
 - **`AERSCREENRunResult` named files in a spelling AERSCREEN had not
   written, on macOS and Windows.** The runner found the log by checking
   `<stem>.log` before `aerscreen.log`; a case-insensitive filesystem
@@ -100,7 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AERMETMessage`), the REPORT summary counts (`message_counts`,
   `error_count`), `finished_successfully`, `report_file` and
   `message_file`; `parse_aermet_messages()` and `read_aermet_messages()`
-  read a MESSAGES file.
+  read a MESSAGES file. `OnsiteData`, `AERMETMessage`,
+  `parse_aermet_messages` and `read_aermet_messages` are exported from
+  `pyaermod` and `pyaermod.api`.
 
 ### Changed
 - **AERMET runs in two stages, and the pipeline returns two results.**
@@ -121,6 +130,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   obsolete). `AERMETStage3.num_sectors` other than 1 needs `site_char`
   records and `sectors`; the monthly `albedo`, `bowen` and `roughness`
   lists become one sector's FREQ_SECT ANNUAL or MONTHLY SITE_CHAR records.
+  A METPREP deck using SUBNWS with SURFACE data (every NWS-only deck, by
+  the default above) raises `ValueError` when neither `nws_height` nor
+  `station` gives the anemometer height, since AERMET stops with `E72
+  NWS_HGT KEYWORD MISSING`.
   `AERMETRunner.run_stage` names the deck on AERMET's command line (a deck
   outside `working_dir` is copied in under its own name) instead of
   copying it to `aermet.inp`.

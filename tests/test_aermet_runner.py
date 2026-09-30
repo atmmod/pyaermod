@@ -168,7 +168,7 @@ class TestRunStage:
 class TestPipeline:
     def test_pipeline_runs_stage1_then_metprep(self, fake_aermet_exe, tmp_path):
         s1 = _stage1_config(tmp_path)
-        s3 = AERMETStage3(start_date="2020/01/01", end_date="2020/12/31")
+        s3 = AERMETStage3(nws_height=10, start_date="2020/01/01", end_date="2020/12/31")
         results = run_aermet_pipeline(
             s1, None, s3,
             working_dir=tmp_path,
@@ -186,7 +186,7 @@ class TestPipeline:
 
     def test_stop_on_failure_skips_remaining(self, fake_failing_aermet, tmp_path):
         results = run_aermet_pipeline(
-            _stage1_config(tmp_path), None, AERMETStage3(),
+            _stage1_config(tmp_path), None, AERMETStage3(nws_height=10),
             working_dir=tmp_path,
             executable_path=fake_failing_aermet,
             stop_on_failure=True,
@@ -196,7 +196,7 @@ class TestPipeline:
 
     def test_continue_on_failure_runs_all(self, fake_failing_aermet, tmp_path):
         results = run_aermet_pipeline(
-            _stage1_config(tmp_path), None, AERMETStage3(),
+            _stage1_config(tmp_path), None, AERMETStage3(nws_height=10),
             working_dir=tmp_path,
             executable_path=fake_failing_aermet,
             stop_on_failure=False,

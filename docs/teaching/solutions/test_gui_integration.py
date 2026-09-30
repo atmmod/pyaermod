@@ -336,11 +336,14 @@ def test_tutorial5():
     stage3 = AERMETStage3(
         station=station,
         albedo=suburban_albedo, bowen=suburban_bowen, roughness=suburban_roughness,
+        methods=[("REFLEVEL", "SUBNWS")],
         start_date="2020/01/01", end_date="2020/12/31",
         surface_file="aermod.sfc", profile_file="aermod.pfl",
     ).with_inputs_from(stage1)
     s3 = stage3.to_aermet_input()
     check("QAOUT      stage1.qa" in s3, "Stage 1 QAOUT input")
+    check("METHOD     REFLEVEL SUBNWS" in s3, "SUBNWS for NWS-only data (AERMET 26135 E87)")
+    check("NWS_HGT    WIND 10" in s3, "NWS anemometer height")
     check("aermod.sfc" in s3, "SFC output file")
     check("aermod.pfl" in s3, "PFL output file")
     check("FREQ_SECT  MONTHLY 1" in s3, "Monthly surface characteristics")
@@ -383,11 +386,13 @@ def test_tutorial6():
     stage3 = AERMETStage3(
         station=station,
         albedo=houston_albedo, bowen=houston_bowen, roughness=houston_roughness,
+        methods=[("REFLEVEL", "SUBNWS")],
         start_date="2019/01/01", end_date="2023/12/31",
         surface_file="houston.sfc", profile_file="houston.pfl",
     )
     s3 = stage3.to_aermet_input()
     check("houston.sfc" in s3, "Houston SFC output")
+    check("METHOD     REFLEVEL SUBNWS" in s3, "SUBNWS for NWS-only data (AERMET 26135 E87)")
     check("0.18" in s3, "Houston winter albedo (0.18)")
     check("SITE_CHAR  6 1 0.14 0.3 0.6" in s3, "Houston June SITE_CHAR")
 

@@ -295,7 +295,7 @@ class TestAERMETStage3:
     """METPREP (AERMET's stage 2) decks."""
 
     def test_basic_stage3(self):
-        lines = _lines(AERMETStage3().to_aermet_input())
+        lines = _lines(AERMETStage3(nws_height=10).to_aermet_input())
         assert lines[:3] == ["** AERMET Stage 3 Input (AERMET stage 2, METPREP)",
                              "** Job: STAGE3", "**"]
         # With no input names it reads Stage 1's default QAOUT files.
@@ -304,6 +304,8 @@ class TestAERMETStage3:
         metprep = lines[lines.index("METPREP"):]
         assert metprep[1:] == [
             "XDATES     2020/01/01 TO 2020/12/31",
+            "METHOD     REFLEVEL SUBNWS",
+            "NWS_HGT    WIND 10",
             "OUTPUT     aermod.sfc",
             "PROFILE    aermod.pfl",
             "FREQ_SECT  ANNUAL 1",
@@ -314,6 +316,32 @@ class TestAERMETStage3:
         # BOWEN or ROUGHNESS keywords.
         for rejected in ("DATA", "ALBEDO", "BOWEN", "ROUGHNESS"):
             assert not any(line.startswith(rejected) for line in metprep)
+
+    def test_nws_only_deck_gets_subnws(self):
+        """AERMET 26135 stops with E87 on NWS-only data without METHOD REFLEVEL SUBNWS."""
+        lines = _lines(AERMETStage3(station=_chicago()).to_aermet_input())
+        assert lines.count("METHOD     REFLEVEL SUBNWS") == 1
+        assert "NWS_HGT    WIND 10" in lines
+
+    def test_subnws_given_is_not_repeated(self):
+        stage3 = AERMETStage3(station=_chicago(),
+                              methods=[("WIND_DIR", "RANDOM"), ("reflevel", "subnws")])
+        methods = [line for line in _lines(stage3.to_aermet_input()) if line.startswith("METHOD")]
+        assert methods == ["METHOD     WIND_DIR RANDOM", "METHOD     REFLEVEL SUBNWS"]
+
+    def test_onsite_deck_gets_no_default_subnws(self):
+        stage3 = AERMETStage3(surface_qaout="sf.qa", onsite_qaout="os.qa")
+        assert "SUBNWS" not in stage3.to_aermet_input()
+        stage3 = AERMETStage3(upper_air_qaout="ua.qa", onsite_qaout="os.qa")
+        assert "SUBNWS" not in stage3.to_aermet_input()
+
+    def test_subnws_needs_the_nws_height(self):
+        """SUBNWS without NWS_HGT is AERMET error E72."""
+        with pytest.raises(ValueError, match="E72"):
+            AERMETStage3().to_aermet_input()
+        with pytest.raises(ValueError, match="E72"):
+            AERMETStage3(surface_qaout="sf.qa", onsite_qaout="os.qa",
+                         methods=[("REFLEVEL", "SUBNWS")]).to_aermet_input()
 
     def test_stage3_with_station(self):
         stage3 = AERMETStage3(station=_chicago(anemometer_height=6.1))
@@ -329,6 +357,7 @@ class TestAERMETStage3:
 
     def test_monthly_lists_become_monthly_site_char(self):
         stage3 = AERMETStage3(
+            nws_height=10,
             albedo=[0.50, 0.50, 0.40, 0.20, 0.15, 0.15, 0.15, 0.15, 0.20, 0.30, 0.40, 0.50],
             bowen=[1.50, 1.50, 1.00, 0.80, 0.70, 0.70, 0.70, 0.70, 0.80, 1.00, 1.50, 1.50],
             roughness=[0.50, 0.50, 0.50, 0.40, 0.30, 0.25, 0.25, 0.25, 0.30, 0.40, 0.50, 0.50],
@@ -342,6 +371,7 @@ class TestAERMETStage3:
 
     def test_site_char_records_and_sectors(self):
         stage3 = AERMETStage3(
+            nws_height=10,
             frequency="seasonal", num_sectors=2, sectors=[(0, 180), (180, 360)],
             site_char=[(s, k, 0.15, 2.0, 0.1 * k) for s in range(1, 5) for k in (1, 2)]
             + ["4 2 0.2 1.0 0.25"],
@@ -354,13 +384,13 @@ class TestAERMETStage3:
         assert lines[lines.index("SITE_CHAR  4 2 0.15 2 0.2") + 1] == "SITE_CHAR  4 2 0.2 1.0 0.25"
 
     def test_sector_count_must_match(self):
-        stage3 = AERMETStage3(num_sectors=2, site_char=[(1, 1, 0.1, 1, 0.1)])
+        stage3 = AERMETStage3(nws_height=10, num_sectors=2, site_char=[(1, 1, 0.1, 1, 0.1)])
         with pytest.raises(ValueError, match="num_sectors=2 needs 2"):
             stage3.to_aermet_input()
 
     def test_monthly_lists_describe_one_sector(self):
         with pytest.raises(ValueError, match="one 0-360 sector"):
-            AERMETStage3(num_sectors=4).to_aermet_input()
+            AERMETStage3(nws_height=10, num_sectors=4).to_aermet_input()
 
     def test_frequency_is_validated(self):
         with pytest.raises(ValueError, match="frequency must be one of"):
@@ -370,6 +400,7 @@ class TestAERMETStage3:
 
     def test_aersurf_and_secondary_site(self):
         stage3 = AERMETStage3(
+            nws_height=10,
             aersurf_file="aersurface.out", secondary_aersurf_file="nws.out",
             asos_1min_file="aerminute.dat", surface_qaout="sf.qa", onsite_qaout="os.qa",
             methods=[("reflevel", "subnws")], extra_lines=["UAWINDOW -1 1"],
@@ -386,14 +417,14 @@ class TestAERMETStage3:
         assert not any(line.startswith("SITE_CHAR") for line in lines)
 
     def test_secondary_site_char(self):
-        stage3 = AERMETStage3(site_char=[(1, 1, 0.2, 3.0, 0.1)],
+        stage3 = AERMETStage3(nws_height=10, site_char=[(1, 1, 0.2, 3.0, 0.1)],
                               secondary_site_char=[(1, 1, 0.2, 3.0, 0.1)])
         lines = _lines(stage3.to_aermet_input())
         assert lines[-3:] == ["FREQ_SECT2 ANNUAL 1", "SECTOR2    1 0 360",
                               "SITE_CHAR2 1 1 0.2 3 0.1"]
 
     def test_stage3_output_files(self):
-        stage3 = AERMETStage3(surface_file="custom.sfc", profile_file="custom.pfl",
+        stage3 = AERMETStage3(nws_height=10, surface_file="custom.sfc", profile_file="custom.pfl",
                               message_file="m.msg")
         output = stage3.to_aermet_input()
         assert "OUTPUT     custom.sfc" in output
@@ -402,16 +433,16 @@ class TestAERMETStage3:
 
     def test_merge_file_is_ignored(self):
         """METPREP's DATA keyword is obsolete: AERMET merges the QAOUT files itself."""
-        output = AERMETStage3(merge_file="custom_merge.mrg").to_aermet_input()
+        output = AERMETStage3(nws_height=10, merge_file="custom_merge.mrg").to_aermet_input()
         assert "custom_merge.mrg" not in output
 
     def test_messages_level_is_ignored_with_a_warning(self):
         with pytest.warns(DeprecationWarning, match="AERMETStage3.messages=2"):
-            output = AERMETStage3(messages=2).to_aermet_input()
+            output = AERMETStage3(nws_height=10, messages=2).to_aermet_input()
         assert "MESSAGES   stage3.msg" in output
 
     def test_stage3_date_range(self):
-        stage3 = AERMETStage3(start_date="2022/01/01", end_date="2022/12/31")
+        stage3 = AERMETStage3(nws_height=10, start_date="2022/01/01", end_date="2022/12/31")
         assert "XDATES     2022/01/01 TO 2022/12/31" in stage3.to_aermet_input()
 
     def test_stage3_default_surface_params(self):
@@ -423,7 +454,7 @@ class TestAERMETStage3:
     def test_with_inputs_from_names_only_the_pathways_stage1_runs(self):
         stage1 = AERMETStage1(surface_station=_chicago(), surface_data_file="s.ish",
                               qa_file="sf.qa")
-        stage3 = AERMETStage3().with_inputs_from(stage1)
+        stage3 = AERMETStage3(nws_height=10).with_inputs_from(stage1)
         assert (stage3.upper_air_qaout, stage3.surface_qaout, stage3.onsite_qaout) == (
             None, "sf.qa", None)
         lines = _lines(stage3.to_aermet_input())
@@ -535,7 +566,7 @@ class TestAERMETEdgeCases:
 
     def test_stage3_falsy_time_zone(self):
         """time_zone=0 (UTC) still writes the LOCATION line, with adjustment 0."""
-        stage3 = AERMETStage3(latitude=51.5, longitude=0.0, time_zone=0)
+        stage3 = AERMETStage3(nws_height=10, latitude=51.5, longitude=0.0, time_zone=0)
         assert "LOCATION   SITE 51.5N 0E 0" in stage3.to_aermet_input()
 
     def test_stage3_partial_location(self):

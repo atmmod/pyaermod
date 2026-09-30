@@ -90,6 +90,9 @@ def build_stage3(station: AERMETStation) -> AERMETStage3:
         albedo=SUBURBAN_ALBEDO,
         bowen=SUBURBAN_BOWEN,
         roughness=SUBURBAN_ROUGHNESS,
+        # NWS surface data only: AERMET 26135 requires SUBNWS (error E87
+        # otherwise). pyaermod would add it, but a deck should say so.
+        methods=[("REFLEVEL", "SUBNWS")],
         start_date="2020/01/01",
         end_date="2020/12/31",
         surface_file="aermod.sfc",

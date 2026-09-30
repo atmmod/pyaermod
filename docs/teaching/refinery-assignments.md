@@ -31,7 +31,7 @@ data and site-appropriate surface parameters.
 - How to identify surface and upper air stations for a specific location
 - How Gulf Coast meteorology differs from inland sites
 - How to select monthly surface parameters for an industrial/coastal setting
-- How to run all three AERMET stages and verify the output
+- How to run AERMET's two stages (Stage 1 and METPREP) and verify the output
 
 ### Background: Why Houston?
 
@@ -127,6 +127,11 @@ NOAA's NCEI archive.
 
 ### Step 3: Configure Stage 2
 
+> **Skip this step.** Current AERMET has no separate merge stage: METPREP
+> (Stage 3) reads Stage 1's output and merges it itself, and there is no
+> `s2` file to run. Go on to Step 4. The steps below are kept for readers
+> of older AERMET material.
+
 1. Click the **Stage 2** tab.
 2. Enter the filenames that Stage 1 will produce:
 
@@ -152,7 +157,6 @@ defaults in the GUI.
 
    | Parameter | Value |
    |---|---|
-   | Merge File | `houston_merged.mrg` |
    | Start Date | `2023/01/01` |
    | End Date | `2023/12/31` |
    | Surface Output | `houston_2023.sfc` |

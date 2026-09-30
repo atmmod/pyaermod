@@ -8,13 +8,18 @@ test_real_aermod.py and test_real_aermap.py.
 * The recorded runs in ``tests/fixtures/aermet/runs/`` (the offline
   counterpart, ``tests/test_aermet_status.py``) are repeated on this
   binary: the same verdict and the same error codes.
+* A METPREP deck with NWS surface data only and the default ``methods``
+  runs: the writer adds ``METHOD REFLEVEL SUBNWS``, without which AERMET
+  26135 stops with E87.
 * Check V12 of the demonstration study: pyaermod's decks for EPA's
   Cordero test case (upper air, ISHD surface and on-site data) reproduce
-  EPA's ``CORDERO_FULL.SFC`` and ``.PFL`` field by field. The reference
-  files are AERMET 24142's, so the comparison with them runs on a 24142
-  binary; on any version the output is compared with what EPA's own
-  Cordero decks produce on the same binary. Needs EPA's AERMET test cases
-  (``aermet_test_cases/``, not committed).
+  EPA's ``CORDERO_FULL.SFC`` and ``.PFL`` field by field, and its decks
+  for EX04 (Houston: FSL upper air, ISHD surface, a full year) reproduce
+  ``HOUSTON.SFC`` and ``.PFL``. The reference files are AERMET 24142's,
+  so the comparison with them runs on a 24142 binary; on any version the
+  output is compared with what EPA's own decks produce on the same
+  binary. Needs EPA's AERMET test cases (``aermet_test_cases/``, not
+  committed).
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -49,6 +55,11 @@ CORDERO = TEST_CASES / "cordero"
 needs_cordero = pytest.mark.skipif(
     not (CORDERO / "CORD_ST1.INP").exists(),
     reason=f"EPA's Cordero AERMET test case not found: {CORDERO}",
+)
+HOUSTON = TEST_CASES / "EX04 (Houston)"
+needs_houston = pytest.mark.skipif(
+    not (HOUSTON / "EX04_S1.INP").exists(),
+    reason=f"EPA's EX04 (Houston) AERMET test case not found: {HOUSTON}",
 )
 
 
@@ -158,6 +169,24 @@ def test_ex01_pipeline(tmp_path):
     assert ours == epa
 
 
+@pytest.mark.parametrize("methods", [[("WIND_DIR", "RANDOM")], []], ids=["wind_dir_only", "none"])
+def test_nws_only_metprep_with_default_methods_runs(tmp_path, methods):
+    """No REFLEVEL method given: the writer adds SUBNWS, so AERMET 26135 does not stop with E87."""
+    for data in ("14735-88.UA", "S1473588.144"):
+        shutil.copy(FIXTURES / "ex01" / data, tmp_path / data)
+    stage1, stage3 = _ex01_stages()
+    stage3 = replace(stage3, methods=methods)
+    results = run_aermet_pipeline(stage1, None, stage3, working_dir=tmp_path, timeout=120)
+    assert "METHOD     REFLEVEL SUBNWS" in (tmp_path / "stage3.inp").read_text()
+    assert [(r.stage, r.success) for r in results] == [(1, True), (3, True)], [
+        r.error_message for r in results]
+    if methods:
+        # With EPA's WIND_DIR RANDOM this is EPA's EX01 deck again.
+        ours = [line.split()[1:] for line in _normalized(tmp_path / "EX01_MP.SFC")[1:]]
+        epa = [line.split()[1:] for line in _normalized(FIXTURES / "ex01" / "EX01_MP.SFC")[1:]]
+        assert ours == epa
+
+
 def cordero_stages():
     """EPA's Cordero decks (CORD_ST1.INP, CORD_ST2.INP) written with pyaermod."""
     # SURFACE LOCATION 24090 44.050N 103.07W 7 965. (ISHD, GMT) and
@@ -223,3 +252,59 @@ def test_v12_cordero_reproduces_epa_output(tmp_path):
         assert _normalized(ours / name) == _normalized(epa / name), name
         if "VERSION: 24142" in header:
             assert _normalized(ours / name) == _normalized(CORDERO / name), name
+
+
+def houston_stages():
+    """EPA's EX04 decks (EX04_S1.INP, EX04_S2.INP) written with pyaermod."""
+    # SURFACE LOCATION 12960 29.967N 95.350W 6 29.0 (ISHD, GMT) and
+    # UPPERAIR LOCATION 3937 30.12N 93.22W 6 4.6 (FSL, GMT); NWS_HGT WIND 6.1.
+    surface = AERMETStation("12960", "HOUSTON", 29.967, -95.350, time_zone=-6,
+                            elevation=29.0, anemometer_height=6.1)
+    upper_air = UpperAirStation("3937", "LAKE_CHARLES", 30.12, -93.22, elevation=4.6)
+    stage1 = AERMETStage1(
+        surface_station=surface, surface_data_file="722430~1.DAT", surface_format="ISHD",
+        upper_air_station=upper_air, upper_air_data_file="03937-96.FSL", upper_air_format="FSL",
+        start_date="1996/01/01", end_date="1996/12/31",
+        surface_audit=["SLVP", "PRES", "CLHT", "TSKC", "PWTH", "ASKY", "HZVS", "DPTP", "RHUM"],
+    )
+    stage3 = AERMETStage3(
+        station=surface, start_date="1996/01/01", end_date="1996/12/31",
+        methods=[("REFLEVEL", "SUBNWS"), ("WIND_DIR", "RANDOM")],
+        site_char=[(1, 1, 0.25, 0.7, 0.15)],
+        surface_file="HOUSTON.SFC", profile_file="HOUSTON.PFL",
+    )
+    return stage1, stage3
+
+
+_HOUSTON_DATA = ("03937-96.FSL", "722430~1.DAT", "ISHD_discard.txt", "ISHD_replace.txt")
+
+
+@needs_houston
+def test_ex04_houston_reproduces_epa_output(tmp_path):
+    """pyaermod's EX04 decks give EPA's HOUSTON.SFC and .PFL, field by field."""
+    def work_dir(name):
+        work = tmp_path / name
+        work.mkdir()
+        for data in _HOUSTON_DATA:
+            shutil.copy(HOUSTON / data, work / data)
+        return work
+
+    ours = work_dir("pyaermod")
+    stage1, stage3 = houston_stages()
+    results = run_aermet_pipeline(stage1, None, stage3, working_dir=ours, timeout=1200)
+    assert [(r.stage, r.success) for r in results] == [(1, True), (3, True)], [
+        r.error_message for r in results]
+
+    epa = work_dir("epa")
+    # EX04_S1.INP names the surface file in lower case.
+    shutil.copy(HOUSTON / "722430~1.DAT", epa / "722430~1.dat")
+    runner = AERMETRunner(log_level="WARNING")
+    for deck in ("EX04_S1.INP", "EX04_S2.INP"):
+        shutil.copy(HOUSTON / deck, epa / deck)
+        assert runner.run_stage(1, epa / deck, working_dir=epa, timeout=1200).success, deck
+
+    header = _normalized(ours / "HOUSTON.SFC")[0]
+    for name in ("HOUSTON.SFC", "HOUSTON.PFL"):
+        assert _normalized(ours / name) == _normalized(epa / name), name
+        if "VERSION: 24142" in header:
+            assert _normalized(ours / name) == _normalized(TEST_CASES / "output_files" / name), name
