@@ -123,9 +123,11 @@ point.
 
 `bins_from_lognormal(mmd, gsd, edges, anchor=None)` bins a lognormal mass
 distribution with mass median diameter `mmd` and geometric standard
-deviation `gsd`, truncated to the edges. The dropped mass is reported as
-`truncated_below` and `truncated_above`, fractions of the whole
-distribution, and the rest is renormalised to sum to 1.
+deviation `gsd`, truncated to the edges. The mass left out of the bins
+is reported as `truncated_below` and `truncated_above`, fractions of the
+whole distribution, and the rest is renormalised to sum to 1. How an
+emission rate treats the mass below the first edge is set by the anchor,
+below.
 
 ### From any cumulative distribution
 
@@ -140,9 +142,28 @@ that does not decrease with `d`, plus `lower_limit` and `upper_limit`
 a stated size, such as PM30. When the bins reach beyond that size (a
 tail from 30 to 50 microns, say), or stop short of it, the modelled mass
 differs from the emission factor's. `anchor` names the size the emission
-rate refers to, and `anchor_ratio` is the modelled mass per unit of
-anchor mass: **multiply the anchor emission rate by `anchor_ratio`** to
-get the emission rate that goes with the fractions.
+rate refers to, and **multiplying the anchor emission rate by
+`anchor_ratio`** gives the emission rate that goes with the fractions.
+
+`anchor_ratio` is the mass in the bins divided by the mass between the
+*first edge* and the anchor. With the anchor inside the edges, the
+modelled mass below the anchor therefore equals the anchor's emission
+rate. The two ends are treated differently:
+
+- **Below the first edge.** Mass the distribution has there (a lognormal
+  truncated at 0.5 microns, or cut points with `lower` below the first
+  edge) is not in the anchor's mass either, so the anchor's whole rate is
+  spread over the bins: that fine mass is reassigned, not lost. This is
+  the study plan's rule that a member's modelled mass below 30 microns
+  equals the AP-42 PM30 emission.
+- **Above the last edge.** When the bins stop short of the anchor, the
+  mass between the last edge and the anchor is part of the anchor's mass
+  but not of the bins, so it is lost and `anchor_ratio` falls below 1.
+  AP-42 13.2.4's k-values on bins that stop at 15 microns give
+  `anchor_ratio` 0.48/0.74 = 0.649 with the default anchor, 30 microns.
+
+`truncated_below` and `truncated_above` report both, as fractions of the
+whole distribution, whatever the anchor.
 
 ```python
 # Cumulative mass relative to PM30, with 25% more mass between 30 and 50 um.
@@ -170,8 +191,11 @@ is a bin edge.
 | `slip` | `True` | With `stokes`, solve AERMOD's settling equation; `False` uses `d_a / sqrt(rho)` |
 | `drop_empty` | `False` | Leave out bins with no mass (AERMOD accepts a 0 fraction) |
 
-It raises `ValueError` for a diameter AERMOD would reject (E335) or a
-density at or below 0 (E334).
+It raises `ValueError` for a density at or below 0 (E334) or a diameter
+AERMOD would reject (E335). The diameter is checked as the source writer
+will print it, to four significant digits, because that is the number
+`INPPDM` reads: a mean-mass diameter of 0.00100006 microns is written as
+0.001 and rejected, and 1000.04 is written as 1000 and accepted.
 
 The source writer puts `PARTDIAM` and `PARTDENS` on the card to four
 significant digits and `MASSFRAX` to six decimal places, so the deck

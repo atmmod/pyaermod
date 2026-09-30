@@ -140,6 +140,13 @@ class TestLogLinearCDF:
         with pytest.raises(ValueError):
             LogLinearCDF({1.0: 0.0, 2.0: 1.0})(-1.0)
 
+    def test_hashable_and_equal_by_knots(self):
+        a = LogLinearCDF({1: 0, 2: 1})
+        b = LogLinearCDF({2.0: 1.0, 1.0: 0.0})
+        assert a == b
+        assert hash(a) == hash(b)
+        assert len({a, b, LogLinearCDF({1: 0, 3: 1})}) == 2
+
 
 class TestCutPoints:
     def test_reproduces_plan_p1_column(self):
@@ -176,11 +183,33 @@ class TestCutPoints:
 
     def test_explicit_lower_below_first_edge(self):
         dist = bins_from_cut_points({2.5: 0.2, 10: 1.0}, [1.0, 2.5, 10.0], lower=0.5)
-        # F(1) = 0.2 ln2/ln5 is below the first edge: dropped and reported.
+        # F(1) = 0.2 ln2/ln5 is below the first edge: left out of the bins and reported.
         below = 0.2 * math.log(2) / math.log(5)
         assert dist.truncated_below == pytest.approx(below, rel=1e-14)
+        # The convention: the anchor's mass is counted from the first edge, so
+        # the fine mass is reassigned to the bins, not lost (1, not 1 - below).
         assert dist.anchor_ratio == pytest.approx(1.0, abs=1e-15)
+        assert dist.anchor_ratio != pytest.approx(1.0 - below, rel=1e-3)
         assert sum(dist.mass_fractions) == pytest.approx(1.0, abs=1e-15)
+
+    def test_truncated_below_is_a_fraction_of_the_whole(self):
+        # The whole distribution is 0.8, not 1: truncated_below is F(1) / 0.8.
+        dist = bins_from_cut_points({2.5: 0.2, 10: 0.8}, [1.0, 2.5, 10.0], lower=0.5)
+        below = 0.2 * math.log(2) / math.log(5)
+        assert dist.truncated_below == pytest.approx(below / 0.8, rel=1e-14)
+        assert dist.truncated_above == 0.0
+
+    def test_bins_short_of_default_anchor_lose_the_rest(self):
+        """AP-42 13.2.4 k-values (whole = 0.74) on bins that stop at 15 um.
+
+        The default anchor is the largest cut point, 30 um, not the last edge:
+        the bins hold 0.48 of the 0.74 below 30 um, and the rest is lost.
+        """
+        dist = bins_from_cut_points(AP42_1324_K, EDGES[:10])
+        assert dist.edges[-1] == 15.0
+        assert dist.anchor_ratio == pytest.approx(0.48 / 0.74, rel=1e-14)
+        assert dist.truncated_above == pytest.approx((0.74 - 0.48) / 0.74, rel=1e-14)
+        assert dist.truncated_below == 0.0
 
     def test_mapped_surfcoal_has_no_mass_at_or_above_10um(self):
         # The plan's P4: surfcoal's fractions as cumulative knots, then the basis.
@@ -219,6 +248,20 @@ class TestLognormal:
         assert abs(math.fsum(dist.mass_fractions) - 1.0) <= 1e-12
         kept = phi(50) - phi(0.5)
         assert dist.mass_fractions[7] == pytest.approx((phi(12.5) - phi(10)) / kept, rel=1e-12)
+
+    def test_lognormal_fine_mass_is_reassigned_to_the_bins(self):
+        """P3: the PM30 rate times anchor_ratio puts all of PM30 in 0.5-30 um.
+
+        The convention is that the mass below the first edge is reassigned,
+        not lost: the modelled mass below 30 um equals the PM30 rate, so the
+        ratio is 1.17424, not the 1.17140 it would be if the 0.5 um cut
+        stayed dropped.
+        """
+        dist = bins_from_lognormal(15.07, 3.21, EDGES[:15], anchor=30)
+        below_30 = math.fsum(dist.mass_fractions[:12])
+        assert dist.anchor_ratio * below_30 == pytest.approx(1.0, rel=1e-12)
+        assert round(dist.anchor_ratio, 5) == 1.17424
+        assert dist.truncated_below > 0.001
 
     def test_cdf_at_zero_and_median(self):
         F = LognormalCDF(5.0, 2.0)
@@ -316,6 +359,24 @@ class TestSizeDistribution:
         dist = SizeDistribution((1000.0, 2000.0), (1.0,))
         with pytest.raises(ValueError, match="E335"):
             dist.to_deposition_params()
+
+    def test_diameter_range_is_checked_as_written(self):
+        """INPPDM reads the rounded card value (``.4g`` in sources.py)."""
+        # 0.00100006 passes as a float but is written 0.001, which AERMOD
+        # v26135 rejects with E335.
+        dist = SizeDistribution((0.0, 0.0015875, 1.0), (0.5, 0.5))
+        assert dist.diameters()[0] > psd.AERMOD_MIN_DIAMETER
+        with pytest.raises(ValueError, match=r"E335.*written as \[0\.001\]"):
+            dist.to_deposition_params()
+        # 1000.04 is written 1000, which AERMOD accepts; the returned
+        # diameter itself is not rounded.
+        dist = SizeDistribution((1000.0, 1000.08), (1.0,))
+        assert dist.diameters()[0] > psd.AERMOD_MAX_DIAMETER
+        params = dist.to_deposition_params()
+        assert params.diameters == dist.diameters()
+        assert "PARTDIAM  S1       1000" in AreaSource(
+            source_id="S1", x_coord=0.0, y_coord=0.0, emission_rate=1.0,
+            particle_deposition=params).to_aermod_input()
 
     @pytest.mark.parametrize("density", [0.0, -1.0, math.nan])
     def test_bad_density_rejected(self, density):

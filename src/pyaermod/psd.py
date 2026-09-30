@@ -94,6 +94,11 @@ AERMOD_MIN_DIAMETER = 0.001
 #: ``INPPDM`` (soset.f) rejects a diameter above this value (E335).
 AERMOD_MAX_DIAMETER = 1000.0
 
+
+def _as_written(value: float) -> float:
+    """``value`` as the source writer puts it on ``PARTDIAM`` (``sources.py``, ``.4g``)."""
+    return float(f"{value:.4g}")
+
 # Constants of soset.f subroutine VDP1 (AERMOD v26135) and G of modules.f.
 _A1, _A2, _A3 = 1.257, 0.4, 0.55
 _XMFP_CM = 6.5e-6        # mean free path of air, cm
@@ -302,9 +307,11 @@ class LogLinearCDF:
     0.6
     """
 
-    knots: Mapping[float, float]
-    _d: Tuple[float, ...] = field(init=False, repr=False, compare=False)
-    _f: Tuple[float, ...] = field(init=False, repr=False, compare=False)
+    # Equality and the hash use the sorted (_d, _f) tuples: the knots are
+    # stored read-only as a mappingproxy, which cannot be hashed.
+    knots: Mapping[float, float] = field(compare=False)
+    _d: Tuple[float, ...] = field(init=False, repr=False)
+    _f: Tuple[float, ...] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         items = sorted((float(d), float(f)) for d, f in self.knots.items())
@@ -413,11 +420,17 @@ class SizeDistribution:
         Fraction of the modelled mass in each bin; each 0 or above and
         summing to 1 within 1e-9.
     anchor_ratio : float
-        Modelled mass per unit of the mass the emission rate refers to
-        (for AP-42 factors, the mass below the largest size the factor
-        covers, such as PM30). Multiply that emission rate by
-        ``anchor_ratio`` to get the rate that goes with these fractions.
-        1 when the bins cover exactly the anchor's mass.
+        The mass in the bins divided by the mass between the first edge
+        and the anchor size (for AP-42 factors the largest size the factor
+        covers, such as 30 microns for PM30). Multiply the anchor's
+        emission rate by ``anchor_ratio`` to get the rate that goes with
+        these fractions. With the anchor inside the edges, the modelled
+        mass below the anchor then equals the anchor's rate, as the study
+        plan's "mass below 30 um equals the AP-42 PM30 emission" requires:
+        the share of the anchor's mass that lay below the first edge is
+        not lost but spread over the bins. Mass between the last edge and
+        an anchor beyond it *is* lost, and lowers the ratio. 1 when the
+        last edge is the anchor.
     truncated_below, truncated_above : float
         Fractions of the whole distribution that lie below the first edge
         and above the last edge, and so are not modelled.
@@ -518,9 +531,11 @@ class SizeDistribution:
         Raises
         ------
         ValueError
-            If a diameter falls outside AERMOD's accepted range, above
-            0.001 and up to 1000 microns (E335), or ``density`` is not
-            above 0 (E334).
+            If a diameter, rounded to the four significant digits the
+            source writer puts on ``PARTDIAM``, falls outside AERMOD's
+            accepted range, above 0.001 and up to 1000 microns (E335), or
+            ``density`` is not above 0 (E334). The diameters returned are
+            not rounded.
         """
         if not (math.isfinite(density) and density > 0):
             raise ValueError(f"density must be above 0 (AERMOD E334), got {density!r}")
@@ -529,11 +544,15 @@ class SizeDistribution:
             diameters = [aerodynamic_to_stokes(d, density, slip=slip) for d in diameters]
         keep = [i for i, f in enumerate(self.mass_fractions) if f > 0 or not drop_empty]
         diameters = [diameters[i] for i in keep]
-        bad = [d for d in diameters if not AERMOD_MIN_DIAMETER < d <= AERMOD_MAX_DIAMETER]
+        # INPPDM checks the number on the card, so check the diameter as
+        # the source writer rounds it: 0.00100006 is written as 0.001.
+        bad = [d for d in diameters
+               if not AERMOD_MIN_DIAMETER < _as_written(d) <= AERMOD_MAX_DIAMETER]
         if bad:
             raise ValueError(
                 f"AERMOD accepts diameters above {AERMOD_MIN_DIAMETER} and up to "
-                f"{AERMOD_MAX_DIAMETER} microns (E335), got {bad}"
+                f"{AERMOD_MAX_DIAMETER} microns (E335), got {bad}, written as "
+                f"{[_as_written(d) for d in bad]}"
             )
         fractions = [self.mass_fractions[i] for i in keep]
         return ParticleDepositionParams(
@@ -562,7 +581,9 @@ def bins_from_cdf(cdf: CumulativeMassDistribution, edges: Sequence[float], *,
         The diameter the emission rate's mass refers to (30 for a PM30
         rate). ``anchor_ratio`` of the result is the mass between the
         first edge and the last divided by the mass between the first edge
-        and ``anchor``. Defaults to the last edge, giving 1.
+        and ``anchor``; the mass below the first edge is in neither, so
+        the anchor's rate is spread over the bins (see
+        :class:`SizeDistribution`). Defaults to the last edge, giving 1.
     """
     e = _check_edges(edges)
     f = [cdf(x) for x in e]
@@ -627,8 +648,12 @@ def bins_from_lognormal(mass_median_diameter: float, geometric_std: float,
                         anchor: Optional[float] = None) -> SizeDistribution:
     """Bins from a lognormal mass distribution truncated to the edges.
 
-    Mass below the first edge and above the last is dropped and reported
-    in ``truncated_below`` and ``truncated_above``; the rest is
-    renormalised. ``anchor`` is as in :func:`bins_from_cdf`.
+    Mass below the first edge and above the last is left out of the bins
+    and reported in ``truncated_below`` and ``truncated_above``, as
+    fractions of the whole lognormal; the rest is renormalised to sum
+    to 1. ``anchor`` is as in :func:`bins_from_cdf`: the anchor's mass is
+    counted from the first edge, so an anchor emission rate times
+    ``anchor_ratio`` puts all of that rate in the bins, including the
+    share the lognormal had below the first edge.
     """
     return bins_from_cdf(LognormalCDF(mass_median_diameter, geometric_std), edges, anchor=anchor)
