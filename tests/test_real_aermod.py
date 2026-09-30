@@ -14,7 +14,9 @@ Skips if `aermod` isn't on PATH. When it's present, this module:
 5. Runs the three decks recorded in tests/fixtures/runner/ (a success,
    fatal error E480 at run time and E500 at setup, both of which AERMOD
    ends with exit code 0) and checks that the runner takes AERMOD's
-   verdict from the .out file and that the recordings still match.
+   verdict from the .out file and that the recordings still match; runs
+   the audit's E322 and E140 decks recorded there; and stops a run with
+   SIGTERM part way through to check that the result names the signal.
 
 Step 4's full-field comparison is the regulatory-grade check: it proves
 pyaermod drives the real AERMOD Fortran to reproduce EPA's own published
@@ -271,3 +273,56 @@ def test_run_status_setup_error_e500(tmp_path):
     assert result.messages == parse_aermod_messages(
         RECORDINGS / "setup_error_e500" / "aermod.out"
     )
+
+
+@pytest.mark.parametrize(("case", "code"), [
+    ("setup_error_e322_openpit", "E322"),
+    ("setup_error_e140_srcgroup", "E140"),
+])
+def test_run_status_audit_setup_errors(tmp_path, case, code):
+    """The 2026-09-29 audit's OPENPIT (E322) and SRCGROUP (E140) decks fail."""
+    result = _run_recorded_deck(case, tmp_path)
+    assert result.return_code == 0
+    assert result.success is False
+    assert result.fatal_messages[0].code == code
+    assert result.messages == parse_aermod_messages(RECORDINGS / case / "aermod.out")
+
+
+@pytest.mark.skipif(shutil.which("pgrep") is None, reason="needs pgrep to find AERMOD")
+def test_sigterm_mid_run_reports_the_signal(tmp_path):
+    """SIGTERM part way through a run: the result says so, and resume says todo."""
+    import os
+    import signal
+    import subprocess
+    import threading
+    import time
+
+    from pyaermod.runner_utils import resume_batch
+
+    def _stop_aermod_once_it_writes():
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            # AERMOD opens aermod.out as it starts, long before it finishes.
+            if (tmp_path / "aermod.out").exists():
+                found = subprocess.run(
+                    ["pgrep", "-x", "-P", str(os.getpid()), "aermod"],
+                    capture_output=True, text=True,
+                ).stdout.split()
+                for pid in found:
+                    os.kill(int(pid), signal.SIGTERM)
+                if found:
+                    return
+            time.sleep(0.02)
+
+    killer = threading.Thread(target=_stop_aermod_once_it_writes, daemon=True)
+    killer.start()
+    result = _run_recorded_deck("killed_sigterm", tmp_path)
+    killer.join(timeout=5)
+
+    assert result.return_code == -signal.SIGTERM
+    assert result.success is False
+    assert result.error_message.startswith(
+        "AERMOD was stopped by SIGTERM (signal 15) before it finished"
+    )
+    inp = tmp_path / "killed_sigterm.inp"
+    assert resume_batch([inp], tmp_path) == {"done": [], "todo": [inp]}

@@ -417,23 +417,48 @@ for date in result.data["date"].unique():
     print(f"{date}: max={ts['concentration'].max():.4g}")
 ```
 
-### Binary POSTFILE with Deposition
+### POSTFILEs with several output types
 
-Binary (UNFORM) POSTFILEs from deposition runs store concentration, dry deposition,
-and wet deposition as contiguous blocks of `N` floats each (3N total per record).
+A run writes one value per receptor for each output type on its MODELOPT
+line (CONC, DEPOS, DDEP, WDEP), always in that order. With one type the
+values are in `concentration`, whatever the type; with more, each type
+has its own column: `concentration` (CONC), `total_depo` (DEPOS),
+`dry_depo` (DDEP) and `wet_depo` (WDEP). `result.output_types` lists the
+file's types and `result.column_for("DDEP")` names the column of one.
+
+A text POSTFILE or PLOTFILE names its columns in its header, so it needs
+nothing more:
 
 ```python
 from pyaermod.postfile import read_postfile
 
-# Explicit deposition flag
-result = read_postfile("depo_post.pst", has_deposition=True)
-df = result.to_dataframe()
-print(df[["x", "y", "concentration", "dry_depo", "wet_depo"]])
-
-# Auto-detect: provide num_receptors, parser checks if 3N floats
-result = read_postfile("post.pst", num_receptors=50)
-# If 150 floats found, deposition is auto-detected
+result = read_postfile("depo_post.pst")
+print(result.output_types)          # e.g. ('CONC', 'DEPOS', 'DDEP', 'WDEP')
+print(result.data[["x", "y", "total_depo", "dry_depo", "wet_depo"]])
 ```
+
+A binary (UNFORM) POSTFILE stores each record as one block of `N` values
+per output type and does not say which types they are. Pass the run's
+MODELOPT line, or the type names:
+
+```python
+result = read_postfile("depo_post.bin", output_types="DFAULT CONC DDEP WDEP")
+result = read_postfile("depo_post.bin", output_types=["DEPOS", "WDEP"])
+```
+
+Without `output_types`, a receptor count (`num_receptors`, or the length
+of `receptor_coords`) settles the cases where the record size allows one
+reading: N values are one type, read into `concentration`, and 4N are all
+four types. 2N or 3N values could be several sets of types and raise
+`ValueError` asking for `output_types`; `has_deposition=True` still reads
+3N values as CONC DDEP WDEP. With neither a receptor count nor
+`output_types`, every value is read as a concentration at its own
+receptor, which is right only for a run with one output type.
+
+A text file written with `OU NOHEADER` has no header to name its columns.
+`read_postfile` reads the number of value columns from the first row; one
+value column needs nothing more, and two or three need `output_types`
+(AERMOD still writes the header of a PERIOD or ANNUAL POSTFILE).
 
 ## Validation
 

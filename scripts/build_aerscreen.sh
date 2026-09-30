@@ -23,8 +23,9 @@
 #   ./scripts/build_aerscreen.sh --with-testcase # also unpack EPA's test
 #                                                # cases (46 MB archive)
 # Output:
-#   ./bin/aerscreen
-#   ./bin/makemet
+#   ./bin/aerscreen   (or $BIN_DIR/...; BIN_DIR overrides ./bin, and a
+#   ./bin/makemet      relative path is taken from the current directory)
+#   and a build record for each on stdout: SHA-256, compiler version, flags
 #   ./test_cases/aerscreen_test_cases/   (with --with-testcase)
 #
 # Why EPA's source needs a patch before gfortran will build it:
@@ -53,7 +54,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-BIN_DIR="$REPO_ROOT/bin"
+# shellcheck source=build_common.sh
+source "$SCRIPT_DIR/build_common.sh"
 TESTCASE_DIR="$REPO_ROOT/test_cases"
 
 FC="${FC:-gfortran}"
@@ -83,7 +85,8 @@ if ! command -v "$FC" >/dev/null 2>&1; then
 fi
 command -v patch >/dev/null 2>&1 || { echo "ERROR: patch(1) not found"; exit 1; }
 
-mkdir -p "$BIN_DIR"
+resolve_bin_dir "$REPO_ROOT"
+echo "Output:   $BIN_DIR"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -131,9 +134,13 @@ tr -d '\032\r' < "$MSRC" > "$WORK/makemet.f"
 # Compile inside the scratch directory: gfortran drops the .mod file of
 # AERSCREEN's module in the current directory.
 echo "Compiling aerscreen ..."
+note_replacing "$BIN_DIR/aerscreen"
 ( cd "$WORK" && "$FC" $FFLAGS -o "$BIN_DIR/aerscreen" aerscreen.f )
+report_binary "$BIN_DIR/aerscreen" "$FFLAGS" "$FFLAGS"
 echo "Compiling makemet ..."
+note_replacing "$BIN_DIR/makemet"
 ( cd "$WORK" && "$FC" $FFLAGS -o "$BIN_DIR/makemet" makemet.f )
+report_binary "$BIN_DIR/makemet" "$FFLAGS" "$FFLAGS"
 
 # Prove the build works before declaring success: give AERSCREEN a
 # restart file (the ** header its own runs write, here with user-defined

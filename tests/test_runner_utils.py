@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -98,13 +100,25 @@ class TestResumeBatch:
         assert split["done"] == [] and len(split["todo"]) == 2
 
     def test_existing_success_marker_moves_to_done(self, tmp_path):
+        # A real successful run's .out (tests/fixtures/runner/success/).
+        inp = tmp_path / "a.inp"
+        inp.touch()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        shutil.copy(Path(__file__).parent / "fixtures" / "runner" / "success" / "aermod.out",
+                    out_dir / "a.out")
+        split = resume_batch([inp], out_dir)
+        assert split["done"] == [inp] and split["todo"] == []
+
+    def test_marker_text_alone_is_not_a_finished_run(self, tmp_path):
+        """The words without AERMOD's banner line and summary do not count."""
         inp = tmp_path / "a.inp"
         inp.touch()
         out_dir = tmp_path / "out"
         out_dir.mkdir()
         (out_dir / "a.out").write_text("stuff\nAERMOD FINISHES SUCCESSFULLY\n")
         split = resume_batch([inp], out_dir)
-        assert split["done"] == [inp] and split["todo"] == []
+        assert split["todo"] == [inp]
 
     def test_output_without_marker_still_todo(self, tmp_path):
         inp = tmp_path / "a.inp"
