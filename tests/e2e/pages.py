@@ -245,9 +245,6 @@ class ProjectPage(_Step):
         assert self.app.journey is not None
         target = self.app.journey.downloads / download.value.suggested_filename
         download.value.save_as(target)
-        # The current Save As also writes the file to a hard-coded /tmp on
-        # the server (PLAN-gui.md, WP-G2); the fixture removes it afterwards.
-        self.app.journey.server_side_files.append(Path("/tmp") / file_name)
         return target
 
     def open_file(self, path: Path) -> None:
@@ -256,12 +253,8 @@ class ProjectPage(_Step):
         dialog = self.app.dialog()
         with self.page.expect_file_chooser() as chooser:
             dialog.get_by_role("button", name="Choose File").first.click()
+        # The uploader sends the file as soon as it is chosen (auto_upload).
         chooser.value.set_files(str(path))
-        # A11Y-GAP (WP-G2): without auto_upload the file is only sent by the
-        # uploader's header button, which has no accessible name.
-        send = dialog.get_by_role("button").filter(has_text="cloud_upload")
-        if send.count():
-            send.click()
         expect(dialog).to_be_hidden()
         self.app.expect_notification(path.name)
 
