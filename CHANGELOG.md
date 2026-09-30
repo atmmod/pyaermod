@@ -405,6 +405,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v26135 the rewrite of `bg_no2_arm2_ppb` gave a highest 1-hr value of
   272.06202 against the original's 205.74079. Such a deck now reads as
   `TerrainType.ELEVATED`, and that rewrite gives 205.74079.
+- **`MODELOPT ELEV FLAT` was read as elevated terrain, and its rewrite
+  stopped AERMOD.** The reader followed the tokens in line order and
+  treated a FLAT after ELEV as ignored (W206), as the 2.2.0 notes said.
+  coset.f MODOPT (v26135) does not read them in order: without DFAULT it
+  scans the line for FLAT, then, if it found one, for ELEV, so `ELEV
+  FLAT` is flat sources in elevated terrain (FLATSRCS), as `FLAT ELEV`
+  is; W206 comes only with DFAULT, which overrides any FLAT and runs
+  ELEV. On the v26135 binary both orders accept a source whose
+  elevation is the literal `FLAT` (W752) and neither raises W206; read
+  as ELEV, the deck was rewritten as `MODELOPT CONC ELEV` and AERMOD
+  rejected that source (E208). Both orders now read as
+  `TerrainType.FLATSRCS` and are written as `FLAT ELEV`. With DFAULT the
+  tokens are read the same way, so `ELEV FLAT DFAULT` keeps its FLAT:
+  `ControlPathway.elevated_terrain` reports ELEV, the rewrite draws the
+  same W206, and the validator names it (before, that order read as
+  ELEV and the validator missed it). A MODELOPT with no terrain token
+  still reads as ELEV.
 - `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
   UI-free session, with one method per user operation (`new`,
   `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
