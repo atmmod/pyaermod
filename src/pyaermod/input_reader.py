@@ -9,8 +9,9 @@ so a round-trip is possible:
 
 Supported pathway keywords (stored on the project model and written back):
     CO: TITLEONE, TITLETWO, MODELOPT (incl. OLM/PVMRM/ARM2/GRSM/TTRM/TTRM2,
-        ALPHA/BETA/PSDCREDIT, FLAT/ELEV and the FLAT ELEV pair, any other
-        option kept in ``extra_model_options``), AVERTIME, POLLUTID,
+        ALPHA/BETA/PSDCREDIT, FLAT/ELEV and the FLAT ELEV pair, DRYDPLT/
+        NODRYDPLT/WETDPLT/NOWETDPLT, any other option kept in
+        ``extra_model_options``), DEBUGOPT, AVERTIME, POLLUTID,
         RUNORNOT, ELEVUNIT, FLAGPOLE, URBANOPT (one or several areas),
         LOW_WIND, HALFLIFE, DCAYCOEF, NO2STACK, OZONEVAL,
         OZONEFIL, O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE,
@@ -39,7 +40,7 @@ Supported pathway keywords (stored on the project model and written back):
 
 Every other line -- a keyword with no field above (EMISFACT, HOUREMIS,
 INCLUDED, BACKUNIT, SO ELEVUNIT, EVALCART, DISCPOLR, SITEDATA, ERRORFIL,
-DEBUGOPT, NO2EQUIL, ...) or a form of a known keyword
+NO2EQUIL, ...) or a form of a known keyword
 the model cannot hold (a BACKGRND hourly file, a PLOTFILE with a lower
 rank or a unit, a second POSTFILE, the definition lines of a source type
 the reader does not construct) -- is kept
@@ -401,6 +402,7 @@ def _parse_control(block: _PathwayBlock,
     urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
     saw_terrain = False
+    saw_modelopt = False
     extra_opts: List[str] = []
     urban_lines: List[List[str]] = []
     run_model = True
@@ -411,6 +413,9 @@ def _parse_control(block: _PathwayBlock,
     ord_downwash: List[str] = []
     aircraft_option = False
     airport_id: Optional[str] = None
+    dry_depletion: Optional[bool] = None
+    wet_depletion: Optional[bool] = None
+    debug_options: List[str] = []
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
     chem_method: Optional[ChemistryMethod] = None
@@ -443,6 +448,7 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "TITLETWO":
             title_two = " ".join(toks)
         elif kw == "MODELOPT":
+            saw_modelopt = True
             for opt in toks:
                 up = opt.upper()
                 if up == "CONC":
@@ -478,7 +484,13 @@ def _parse_control(block: _PathwayBlock,
                     beta = True
                 elif up == "PSDCREDIT":
                     psd_credit = True
+                elif up in ("DRYDPLT", "NODRYDPLT") and dry_depletion in (None, up == "DRYDPLT"):
+                    dry_depletion = up == "DRYDPLT"
+                elif up in ("WETDPLT", "NOWETDPLT") and wet_depletion in (None, up == "WETDPLT"):
+                    wet_depletion = up == "WETDPLT"
                 else:
+                    # A depletion token contradicting an earlier one
+                    # (AERMOD's E149) lands here too, so it is kept.
                     # SCREEN, FASTALL, NOCHKD, ... have no field of
                     # their own; kept so the deck rewrites with the
                     # same options.
@@ -489,6 +501,10 @@ def _parse_control(block: _PathwayBlock,
             pollutant = toks[0].upper() if toks else "OTHER"
         elif kw == "RUNORNOT":
             run_model = not (toks and toks[0].upper() == "NOT")
+        elif kw == "DEBUGOPT" and toks:
+            # coset.f DEBOPT (v26135 accepts repeated DEBUGOPT cards and
+            # pools their fields). File names keep their case.
+            debug_options.extend(toks)
         elif kw == "HALFLIFE":
             half_life = float(toks[0])
         elif kw == "DCAYCOEF":
@@ -496,7 +512,11 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "ELEVUNIT":
             elev_units = toks[0].upper() if toks else "METERS"
         elif kw == "FLAGPOLE":
-            flagpole = float(toks[0]) if toks else None
+            # A bare FLAGPOLE still switches flagpole receptors on
+            # (coset.f FLAGDF sets FLGPOL; W205) with the default
+            # height 0, and it changes which DISCCART field AERMOD
+            # reads as the flagpole height.
+            flagpole = float(toks[0]) if toks else 0.0
         elif kw == "URBANOPT" and toks:
             urban_lines.append(toks)
         elif kw == "LOW_WIND":
@@ -589,7 +609,7 @@ def _parse_control(block: _PathwayBlock,
                     h6h=h6h,
                 )
         else:
-            # ERRORFIL, DEBUGOPT, NO2EQUIL, a bare EVENTFIL, a malformed
+            # ERRORFIL, NO2EQUIL, a bare EVENTFIL or DEBUGOPT, a malformed
             # line of a known keyword, ...: kept verbatim in unparsed_lines.
             _drop(dropped, ln)
 
@@ -664,6 +684,11 @@ def _parse_control(block: _PathwayBlock,
             nox_background=nox_background,
         )
 
+    if saw_modelopt and not saw_terrain:
+        # coset.f MODOPT starts from elevated terrain and leaves it only
+        # for a FLAT token, so ``MODELOPT CONC`` runs with ELEV.
+        terrain = TerrainType.ELEVATED
+
     return ControlPathway(
         title_one=title_one,
         title_two=title_two or None,
@@ -687,7 +712,10 @@ def _parse_control(block: _PathwayBlock,
         alpha=alpha,
         beta=beta,
         psd_credit=psd_credit,
+        dry_depletion=dry_depletion,
+        wet_depletion=wet_depletion,
         extra_model_options=extra_opts,
+        debug_options=debug_options,
         run_model=run_model,
         eventfil=eventfil,
         eventfil_option=eventfil_option,
@@ -1606,7 +1634,14 @@ def _series_summary(values: List[float]) -> Tuple[float, int, float]:
 
 
 def _parse_receptors(block: _PathwayBlock,
-                     dropped: Optional[List[int]] = None) -> ReceptorPathway:
+                     dropped: Optional[List[int]] = None,
+                     flat_flagpole: bool = False) -> ReceptorPathway:
+    """Read the RE pathway.
+
+    ``flat_flagpole`` is true for a FLAT run with CO FLAGPOLE, where
+    reset.f DISCAR reads a DISCCART line of three values after the
+    keyword as ``x y zflag`` rather than ``x y zelev``.
+    """
     carts: Dict[str, Dict[str, Any]] = {}
     polars: Dict[str, Dict[str, Any]] = {}
     discretes: List[DiscreteReceptor] = []
@@ -1703,6 +1738,8 @@ def _parse_receptors(block: _PathwayBlock,
             z = values[2] if len(values) > 2 else 0.0
             z_hill = values[3] if len(values) > 3 else 0.0
             z_flag = values[4] if len(values) > 4 else 0.0
+            if flat_flagpole and len(values) == 3:
+                z, z_flag = 0.0, values[2]
             discretes.append(DiscreteReceptor(
                 x_coord=values[0], y_coord=values[1], z_elev=z,
                 z_hill=z_hill, z_flag=z_flag,
@@ -2142,7 +2179,8 @@ def parse_aermod_input(text: str) -> AERMODProject:
             # the deck can be repaired and written back.
             control.chemistry = ChemistryOptions(method=ChemistryMethod.OLM)
         control.chemistry.olm_groups = olm_groups
-    receptors = (_parse_receptors(blocks["RE"], dropped["RE"]) if "RE" in blocks
+    flat_flagpole = not control.elevated_terrain and control.flag_pole_height is not None
+    receptors = (_parse_receptors(blocks["RE"], dropped["RE"], flat_flagpole) if "RE" in blocks
                  else ReceptorPathway())
     meteorology = _parse_meteorology(blocks["ME"], dropped["ME"])
     output = _parse_output(blocks.get("OU", _PathwayBlock("OU")), dropped["OU"])
@@ -2221,6 +2259,7 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     - meteorology.surface_file / profile_file
     - control.chemistry.ozone_data.ozone_file (if chemistry is set)
     - control.chemistry.nox_file
+    - control.debug_options (the DEBUGOPT file names)
     - output.summary_file / plot_file / postfile / maxi_files
     - output.plot_file_groups (per-group filenames)
     """
@@ -2271,6 +2310,8 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     if control.multiyear is not None:
         _check("control.multiyear.save_file", control.multiyear.save_file)
         _check("control.multiyear.init_file", control.multiyear.init_file)
+    for name in control.debug_files():
+        _check("control.debug_options", name)
 
     out = project.output
     for attr in ("summary_file", "plot_file", "postfile"):

@@ -266,11 +266,19 @@ g/m², totalled over each averaging period (g/m²/yr for ANNUAL), not as a
 flux per second. `OutputPathway.output_type` selects nothing: a deck that
 sets only it calculates concentration alone.
 
+A source's `deposition_method` (and the `DepositionMethod` enum) writes
+nothing: AERMOD has no METHOD keyword. Plume depletion is set on the
+run with `ControlPathway(dry_depletion=..., wet_depletion=...)`
+(MODELOPT DRYDPLT / NODRYDPLT / WETDPLT / NOWETDPLT; `None` leaves
+AERMOD's default, depletion on), and a user-specified gas deposition
+velocity with `ControlPathway.gas_deposition_velocity` (CO GASDEPVD).
+
 Once any source has deposition inputs, AERMOD turns on dry and wet
 plume depletion by default, even in a run with CONC alone, and then
 every source needs particle or gas deposition inputs (E242). A source
 without them goes in a run with no deposition sources, or in a
-CONC-only run with `extra_model_options=["NODRYDPLT", "NOWETDPLT"]`.
+CONC-only run with `ControlPathway(dry_depletion=False, wet_depletion=False)`
+(NODRYDPLT NOWETDPLT).
 DFAULT forces elevated terrain: with `regulatory_default=True`, a
 `terrain_type` of FLAT is overridden (W206) and the run is modelled as
 ELEV, so a flat-terrain deposition run also sets
@@ -513,8 +521,9 @@ RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND,
 EVENTFIL (file and SOCONT/DETAIL option), NO2STACK, OZONEVAL, OZONEFIL,
 O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT,
 NOXSECTR, ARMRATIO, GASDEPDF, GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE,
-INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT. (DEBUGOPT, ERRORFIL and
-NO2EQUIL have no field and travel in `unparsed_lines`.)
+INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT, DEBUGOPT
+(`ControlPathway.debug_options`). (ERRORFIL and NO2EQUIL have no field
+and travel in `unparsed_lines`.)
 
 ### Source Pathway (SO)
 

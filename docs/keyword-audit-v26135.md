@@ -76,9 +76,9 @@ real run in `tests/fixtures/validator_openpit/`
 | OU | 16 | 16 | 0 | 0 |
 | EV | 5 | 5 | 0 | 0 |
 
-Every one of the 115 dispatched keywords is recognised and tested. 104
-have a field on the model; the eleven that are "handled" without one
-(ERRORFIL, DEBUGOPT, NO2EQUIL, EMISFACT, HOUREMIS, INCLUDED, BACKUNIT,
+Every one of the 115 dispatched keywords is recognised and tested. 105
+have a field on the model; the ten that are "handled" without one
+(ERRORFIL, NO2EQUIL, EMISFACT, HOUREMIS, INCLUDED, BACKUNIT,
 SO ELEVUNIT, EVALCART, DISCPOLR, SITEDATA) are stored verbatim by
 decision, each with its reason in "Stored only, by design" below.
 
@@ -158,8 +158,14 @@ HALFLIFE, INITFILE, LOW_WIND, MODELOPT, MULTYEAR, NO2EQUIL, NO2STACK,
 NOXSECTR, NOXVALUE, NOX_FILE, NOX_UNIT, NOX_VALS, O3SECTOR, O3VALUES,
 ORD_DWNW, OZONEFIL, OZONEVAL, OZONUNIT, POLLUTID, RUNORNOT, SAVEFILE,
 TITLEONE, TITLETWO, URBANOPT.
-Of these, DEBUGOPT, ERRORFIL and NO2EQUIL have no field and travel in
-`unparsed_lines` (see "Stored only, by design"); RUNORNOT
+Of these, ERRORFIL and NO2EQUIL have no field and travel in
+`unparsed_lines` (see "Stored only, by design"); DEBUGOPT
+(`ControlPathway.debug_options`, the fields as written: options and the
+file names after them, which keep their case; coset.f DEBOPT pools the
+fields of repeated cards and checks DEPOS against MODELOPT, so the writer
+puts the line after MODELOPT, and one card takes at most 11 fields,
+E202, so a longer list goes on several cards split between options;
+v24142 takes one card only, E135), RUNORNOT
 (`ControlPathway.run_model`), EVENTFIL (`.eventfil` and
 `.eventfil_option`, coset.f EVNTFL: `evfile [SOCONT|DETAIL]`; the bare
 form, AERMOD's EVENTS.INP with W207, is kept verbatim) and URBANOPT are
@@ -190,12 +196,19 @@ in 1-9. Ozone and NOx sector forms are stored per sector
 (`OzoneData.by_sector`, `NOxBackground.by_sector`).
 MODELOPT options with a field: CONC, DEPOS, DDEP, WDEP, FLAT, ELEV,
 DFAULT, ALPHA, BETA, PSDCREDIT (tranche 2: `ControlPathway.alpha` /
-`.beta` / `.psd_credit`), OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2. Terrain follows
+`.beta` / `.psd_credit`), OLM, PVMRM, ARM2, GRSM, TTRM, TTRM2, and the
+depletion switches DRYDPLT / NODRYDPLT and WETDPLT / NOWETDPLT
+(`.dry_depletion` / `.wet_depletion`: True, False, or None for AERMOD's
+default, depletion on whenever the run has deposition inputs; a token
+contradicting an earlier one, E149, is kept in `extra_model_options` so
+the rewrite fails the same way). Terrain follows
 `coset.f` MODOPT: `ELEV` is the token (the writer used to emit
 `ELEVATED`, which is E203), `FLAT` then `ELEV` on one line means flat
 sources in elevated terrain (`TerrainType.FLATSRCS`, which has no token
 of its own and is written as that pair; `ELEV FLAT` in the other order
-means the same). With `DFAULT`, AERMOD sets ELEV, drops any `FLAT` with
+means the same). A MODELOPT with no terrain token runs with ELEV
+(MODOPT leaves ELEV only for FLAT), so the reader reads it as
+`TerrainType.ELEVATED`. With `DFAULT`, AERMOD sets ELEV, drops any `FLAT` with
 W206 and runs in elevated terrain, so the validator warns when
 `regulatory_default=True` meets `FLAT` or `FLATSRCS`. Every other option token (FASTALL, SCREEN, TOXICS,
 PSDCREDIT, NOCHKD, NOURBTRAN, VECTORWS, SCIM, ...) is kept in
@@ -284,7 +297,18 @@ lines the network ID may be omitted (REPOLR/RECART take a bare
 sub-keyword as the current network), and the keyword columns may be
 blank (setup.f EXKEY inherits the previous keyword), which is how twenty
 EPA decks write their polar blocks. DISCCART takes `x y` alone in FLAT
-runs (a third field is W229 there) or `x y zelev [zhill [zflag]]`.
+runs (a third field is W229 there), `x y zflag` in FLAT runs with CO
+FLAGPOLE, and `x y zelev zhill [zflag]` under elevated terrain (a missing
+hill height is W228); reset.f DISCAR decides by the run's options, and so
+do the reader and the writer (`ControlPathway.elevated_terrain`,
+`.flag_pole_height`). A bare `FLAGPOLE` still switches flagpole receptors
+on (coset.f FLAGDF, height 0, W205) and is read as `flag_pole_height=0.0`.
+Under elevated terrain a Cartesian grid without ELEV and HILL rows is
+W214, so the writer fills both from `CartesianGrid.z_elev` / `.z_hill`;
+a grid given only one set is written as given and stays E218. A row of
+one value is written as `N*value`, which STODBL reads as N copies, in
+plain fixed-point: STODBL reads an exponent only after a decimal point
+(`3*1e-05` is E208).
 
 **ME (14):** DAYRANGE, NUMYEARS, PROFBASE, PROFFILE, SCIMBYHR, SITEDATA,
 STARTEND, SURFDATA, SURFFILE, UAIRDATA, WDROTATE, WINDCATS, and the nine
@@ -381,10 +405,12 @@ are read, reported, written back in their pathway where AERMOD accepts
 them, and the round-trip and acceptance suites cover them; what they do
 not get is a field on the model, for the reason given.
 
-**Whole keywords (11).**
-`ERRORFIL`, `DEBUGOPT` (CO): file names and debug switches for AERMOD's
-own diagnostics; they change no result, and modelling them would invite
-callers to set them where the runner already manages the run directory.
+**Whole keywords (10).**
+`ERRORFIL` (CO): the file name of AERMOD's message file; it changes no
+result, and modelling it would invite callers to set it where the runner
+already manages the run directory. (`DEBUGOPT` was stored this way
+until the demonstration study needed AREA and DEPOS debug output; it is
+now `ControlPathway.debug_options`.)
 `NO2EQUIL` (CO): the equilibrium NO2/NOx ratio of the OLM/PVMRM options,
 one number AERMOD defaults to 0.90; kept verbatim until a caller needs it
 (the validator's chemistry checks do not depend on it).

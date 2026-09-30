@@ -420,13 +420,13 @@ class TestMaxiFile:
 
 class TestUnparsedLines:
     def test_lines_are_collected_with_pathway_keyword_and_position(self):
-        project = parse(co_extra="   ERRORFIL  errors.out\n   DEBUGOPT  MODEL",
+        project = parse(co_extra="   ERRORFIL  errors.out\n   NO2EQUIL  0.9",
                         me_extra="   SITEDATA  99999  2020  HERE",
                         ou_body="   RECTABLE  ALLAVE  FIRST\n   RANKFILE  1  100")
         got = [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines]
         assert got == [
             ("CO", "ERRORFIL", ["errors.out"]),
-            ("CO", "DEBUGOPT", ["MODEL"]),
+            ("CO", "NO2EQUIL", ["0.9"]),
             ("ME", "SITEDATA", ["99999", "2020", "HERE"]),
             ("OU", "RANKFILE", ["1", "100"]),   # a RANKFILE short of its filename
         ]

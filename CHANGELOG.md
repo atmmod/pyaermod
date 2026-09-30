@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`ControlPathway.debug_options` writes `CO DEBUGOPT`.** AERMOD's debug
+  output (the per-hour AREA.DBG of an open pit, PDEP.DAT and DEPOS.DBG of
+  a deposition run, MODEL, METEOR, PRIME, ...) could only be had by
+  patching the deck text. The field holds the fields of the line as
+  AERMOD reads them, options each optionally followed by a file name
+  (`["AREA", "DEPOS"]`, `["MODEL", "model.dbg"]`), and the writer puts
+  the line after MODELOPT, which coset.f DEBOPT checks DEPOS against
+  (E194 otherwise). `debug_files()` returns the file names, and
+  `read_aermod_input(..., sandbox=True)` now checks them like every other
+  path. The reader fills the field, pooling repeated DEBUGOPT cards as
+  v26135 does and keeping the case of the file names, so `DEBUGOPT` no
+  longer travels in `unparsed_lines`. One card takes at most 11 fields
+  (DEBOPT's E202), so a longer list is written on several DEBUGOPT
+  cards, split between options so each keeps its file name
+  (`debug_cards()`); v26135 pools them, while v24142 takes one card
+  only (E135), so there a list must fit in 11 fields. `pathways.DEBUG_OPTIONS`
+  lists the 23 option names of v26135. The demonstration study's one-day DEBUGOPT
+  AREA DEPOS deck is now written from the field, and on the v26135
+  binary its AREA.DBG, PDEP.DAT, DEPOS.DBG and plot file are identical
+  to those of the text-patched deck.
+- **`ControlPathway.dry_depletion` and `.wet_depletion` write the
+  MODELOPT depletion switches.** `True` writes DRYDPLT or WETDPLT, `False`
+  NODRYDPLT or NOWETDPLT, and `None` (the default) neither, which leaves
+  AERMOD's default of depletion on whenever the run has deposition
+  inputs. The reader fills both from MODELOPT; a token that contradicts
+  an earlier one (AERMOD's E149) stays in `extra_model_options`, so the
+  rewritten deck fails the same way.
+- **`ControlPathway.elevated_terrain`** says whether AERMOD runs the deck
+  with elevated terrain: ELEV, the FLAT ELEV pair, and FLAT under DFAULT
+  (which AERMOD overrides with W206) all are.
 - **`pyaermod.psd`: particle size distributions for Method 1
   deposition.** Size data usually arrive as cumulative mass at a few
   cut points (AP-42's particle size multipliers `k`) or as a lognormal
@@ -174,6 +204,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `zelev`, `zhill`, `zflag`, `receptor_type` and `grid_id`.
 
 ### Changed
+- **`DepositionMethod` and the per-source `deposition_method` field are
+  documented as inert.** AERMOD has no `METHOD` keyword, so neither has
+  written anything since the writer stopped emitting the E105 card; both
+  stay so existing code and saved projects load, and the docstring points
+  to the fields that do what each member names (`GASDEPVD` / `GASDEPDF`
+  CO keywords, the new depletion fields, `method_2`).
+- **A uniform ELEV / HILL / FLAG row is written as `N*value`, exactly.**
+  On any Cartesian or polar grid, with or without the run's terrain
+  context, a row of one repeated value is now one `N*value` field
+  (STODBL reads it as N copies) instead of N `8.1f` fields, and the value
+  keeps every digit (`10.123456`, which `8.1f` wrote as `10.1`). The
+  deck text of such grids changes, so text-keyed fixtures of them will
+  too; rows of differing values keep the `8.1f` fields. The literal is
+  plain fixed-point (`0.00001`, never `1e-05`): STODBL reads an exponent
+  only after a decimal point, and `3*1e-05` was E208. The coordinate
+  lists (GRIDCART XPNTS / YPNTS, GRIDPOLR DIST / DDIR) keep their ten
+  significant digits but are no longer written in exponent form either
+  (`1e+10` was E208 there too); their text is otherwise unchanged.
 - GUI: in the source and receptor editors, Close now discards changes,
   and Add only adds the item on Save.
 - GUI: in the browser, Save on a project that has no file on disk opens
@@ -189,6 +237,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says so. A negative one is still an error (E209).
 
 ### Fixed
+- **Receptor elevations were not written under elevated terrain, so
+  AERMOD used zero with a warning.** `CartesianGrid.z_elev` and `.z_hill`
+  were never written: every grid of an ELEV run (or a FLAT run under
+  DFAULT, which AERMOD runs as ELEV) without AERMAP rows drew `RE W214
+  ELEV Input Inconsistent With Option: Defaults Used`, and a grid given
+  `grid_elevations` alone stopped with `E218 ... ZHILL`. A
+  `DiscreteReceptor` with a zero hill height was written as `x y zelev`,
+  which is `RE W228 Default(s) Used for Missing Parameters`. The RE
+  writer now gets the run's terrain and flagpole options from
+  `AERMODProject`: under elevated terrain a grid with neither ELEV nor
+  HILL rows gets rows of `z_elev` and `z_hill`, and every DISCCART line
+  carries `zelev zhill`. A grid given only one of the two row sets is
+  written as given, so AERMOD still stops with E218, as it does for an
+  EPA-style deck with ELEV rows and no HILL rows. On the v26135
+  binary the demonstration study's decks and a DFAULT grid-plus-discrete
+  deck set up with no W214 or W228, and the concentrations are unchanged
+  where the values were zero.
+- **Under FLAT with CO FLAGPOLE a discrete receptor's elevation was read
+  as its flagpole height.** reset.f DISCAR reads `x y zflag` in that
+  case, and the writer put `z_elev` in the third field: a receptor at
+  100 m elevation sat on a 100 m flagpole. The writer now puts `z_flag`
+  there, and the reader reads it back into `z_flag`. With FLAGPOLE, a
+  `z_flag` of 0 is written as the FLAGPOLE height, the one AERMOD gives a
+  receptor without its own; a Cartesian grid gets FLAG rows only from a
+  non-zero `z_flag`. With `elevated=None`, `ReceptorPathway`,
+  `CartesianGrid` and `DiscreteReceptor.to_aermod_input()` write the
+  same fields as before (a uniform row now as `N*value`, see Changed),
+  and FLAT runs without FLAGPOLE keep the old
+  DISCCART line so the elevation reads back.
+- **A bare `CO FLAGPOLE` was dropped by the reader.** AERMOD reads it as
+  flagpole receptors with a default height of 0 (coset.f FLAGDF, W205),
+  and EPA's surfcoal and four SNC decks use it. The reader stored `None`,
+  the rewritten deck had no FLAGPOLE, and the third DISCCART field (the
+  flagpole height) was then ignored with W229: on a one-day test deck
+  the concentration at a receptor on a 3.4 m flagpole moved from 0.84925
+  to 0.91634. The reader now stores `flag_pole_height=0.0`, and the
+  rewrite reproduces the original run.
+- **A MODELOPT with neither FLAT nor ELEV was read as FLAT.** coset.f
+  MODOPT starts from elevated terrain and leaves it only for a FLAT
+  token, so `MODELOPT CONC` runs with ELEV. The reader set
+  `TerrainType.FLAT`, and the rewritten deck added FLAT and lost every
+  receptor's elevation and hill height (W229): on a one-receptor test
+  deck (zelev 80 m, zhill 150 m) the concentration moved from 0.00564
+  to 0.03199. EPA's ten `bg_no2_*` test decks have no terrain token: on
+  v26135 the rewrite of `bg_no2_arm2_ppb` gave a highest 1-hr value of
+  272.06202 against the original's 205.74079. Such a deck now reads as
+  `TerrainType.ELEVATED`, and that rewrite gives 205.74079.
+- `pyaermod.gui_v2.session.Session` and `SessionEvent`: the GUI's
+  UI-free session, with one method per user operation (`new`,
+  `open_json`, `save`, `save_as`, `save_as_download`, `add_source`,
+  `update_source`, `delete_source`, the same for receptors,
+  `set_control`, `validate`, `start_run`, `cancel_run`) and change events
+  for observers.
+- `pyaermod.gui_v2.project_io.project_to_json` and `project_from_json`,
+  the project file format as text.
 - **`examples/deposition_modeling.py` calculated no deposition.** Its
   decks set only `OutputPathway.output_type`, which selects nothing in
   AERMOD, so the particle deck was `MODELOPT CONC FLAT DFAULT`, a
