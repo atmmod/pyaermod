@@ -95,6 +95,7 @@ fi
 tr -d '\032\r' < "$SRC" > "$WORK/bpipprm.f"
 
 echo "Compiling $(basename "$SRC") ..."
+note_replacing "$BIN_DIR/bpipprm"
 "$FC" $FFLAGS -o "$BIN_DIR/bpipprm" "$WORK/bpipprm.f"
 report_binary "$BIN_DIR/bpipprm" "$FFLAGS" "$FFLAGS"
 

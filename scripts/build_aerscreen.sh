@@ -134,9 +134,11 @@ tr -d '\032\r' < "$MSRC" > "$WORK/makemet.f"
 # Compile inside the scratch directory: gfortran drops the .mod file of
 # AERSCREEN's module in the current directory.
 echo "Compiling aerscreen ..."
+note_replacing "$BIN_DIR/aerscreen"
 ( cd "$WORK" && "$FC" $FFLAGS -o "$BIN_DIR/aerscreen" aerscreen.f )
 report_binary "$BIN_DIR/aerscreen" "$FFLAGS" "$FFLAGS"
 echo "Compiling makemet ..."
+note_replacing "$BIN_DIR/makemet"
 ( cd "$WORK" && "$FC" $FFLAGS -o "$BIN_DIR/makemet" makemet.f )
 report_binary "$BIN_DIR/makemet" "$FFLAGS" "$FFLAGS"
 

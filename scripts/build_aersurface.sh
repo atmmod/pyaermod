@@ -110,6 +110,7 @@ for m in "${MODULES[@]}" aersurface; do
 done
 
 LDFLAGS_AERSURFACE="-O2"
+note_replacing "$BIN_DIR/aersurface"
 "$FC" -o "$BIN_DIR/aersurface" $LDFLAGS_AERSURFACE "${OBJECTS[@]}"
 echo "  -> $BIN_DIR/aersurface"
 report_binary "$BIN_DIR/aersurface" "$FFLAGS" "$LDFLAGS_AERSURFACE"

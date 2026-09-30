@@ -309,8 +309,14 @@ BIN_DIR=~/bin ./scripts/build_aermod.sh all
 After each executable the script prints a short build record: its path,
 its SHA-256 checksum, the compiler version and the compile and link
 flags, and for AERMOD the version number in its banner (26135 for the
-current EPA source). Keep it with your results if you need to say
-exactly which executable produced them.
+current EPA source; "unknown (banner not found)" means the check could
+not read it). Keep it with your results if you need to say exactly which
+executable produced them.
+
+A build replaces an executable of the same name in that directory (the
+script tells you when it does). To keep a second AERMOD, for example one
+built from source you have changed, give it another name with
+`AERMOD_EXE_NAME=aermod_test` or build it into its own `BIN_DIR`.
 
 #### Option C: Windows
 

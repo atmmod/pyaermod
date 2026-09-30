@@ -25,14 +25,23 @@
 # and:
 #   BIN_DIR   where the binaries go (default ./bin; relative paths are
 #             taken from the directory the script is run in)
+#   AERMOD_EXE_NAME   file name of the AERMOD binary (default aermod), so
+#             a variant build (a patched source) can sit beside the
+#             regulatory one in the same BIN_DIR instead of replacing it
 #   FC, FFLAGS   compiler and AERMOD/AERMAP flags (AERMET uses its own)
+#
+# A build replaces a binary of the same name in BIN_DIR; the script says
+# so, with the old file's SHA-256. Give each variant its own
+# AERMOD_EXE_NAME or its own BIN_DIR.
 #
 # Output:
 #   ./bin/aermod  ./bin/aermap  ./bin/aermet   (or $BIN_DIR/...)
 #   and, for each, a build record on stdout: SHA-256, compiler version,
-#   compile and link flags, and for AERMOD the version in its banner.
+#   compile and link flags, and for AERMOD the version in its banner
+#   ("unknown (banner not found)", with a warning, when it prints none).
 #
-# Then:  make test-binaries      (puts ./bin on PATH and runs the suite)
+# Then:  make test-binaries      (puts ./bin on PATH and runs the suite;
+#                                 it always tests ./bin, never $BIN_DIR)
 
 set -euo pipefail
 
@@ -77,6 +86,14 @@ echo
 
 resolve_bin_dir "$REPO_ROOT"
 echo "Output:   $BIN_DIR"
+AERMOD_EXE_NAME="${AERMOD_EXE_NAME:-aermod}"
+case "$AERMOD_EXE_NAME" in
+    */* | . | ..)
+        echo "ERROR: AERMOD_EXE_NAME must be a file name, not a path: $AERMOD_EXE_NAME" >&2
+        exit 1
+        ;;
+esac
+AERMOD_EXE="$BIN_DIR/$AERMOD_EXE_NAME"
 echo
 
 SCRAM="https://gaftp.epa.gov/Air/aqmg/SCRAM/models"
@@ -155,12 +172,13 @@ build_aermod() {
     # Link
     echo "  Linking aermod..."
     local OBJECTS=(*.o)
-    "$FC" -o "$BIN_DIR/aermod" $FFLAGS "${OBJECTS[@]}"
+    note_replacing "$AERMOD_EXE"
+    "$FC" -o "$AERMOD_EXE" $FFLAGS "${OBJECTS[@]}"
 
     cd "$REPO_ROOT"
-    echo "  -> $BIN_DIR/aermod"
-    report_binary "$BIN_DIR/aermod" "$FFLAGS" "$FFLAGS" \
-        "$(aermod_banner_version "$BIN_DIR/aermod")"
+    echo "  -> $AERMOD_EXE"
+    report_binary "$AERMOD_EXE" "$FFLAGS" "$FFLAGS" \
+        "$(aermod_banner_version "$AERMOD_EXE")"
     echo "  AERMOD build successful!"
     echo
 }
@@ -207,6 +225,7 @@ build_aermap() {
     # Link
     echo "  Linking aermap..."
     local OBJECTS=(*.o)
+    note_replacing "$BIN_DIR/aermap"
     "$FC" -o "$BIN_DIR/aermap" $FFLAGS "${OBJECTS[@]}"
 
     cd "$REPO_ROOT"
@@ -251,6 +270,7 @@ build_aermet() {
 
     echo "  Linking aermet..."
     local OBJECTS=(*.o)
+    note_replacing "$BIN_DIR/aermet"
     "$FC" $AERMET_LDFLAGS -o "$BIN_DIR/aermet" "${OBJECTS[@]}"
 
     cd "$REPO_ROOT"
@@ -289,8 +309,19 @@ esac
 echo "============================================"
 echo "  Build complete!"
 echo "  Binaries in: $BIN_DIR/"
-ls -lh "$BIN_DIR"/aermod "$BIN_DIR"/aermap "$BIN_DIR"/aermet 2>/dev/null || true
+ls -lh "$AERMOD_EXE" "$BIN_DIR"/aermap "$BIN_DIR"/aermet 2>/dev/null || true
 echo
 echo "  Add to PATH:  export PATH=\"$BIN_DIR:\$PATH\""
-echo "  Then:         make test-binaries"
+# make test-binaries checks for bin/aermod and puts ./bin first on PATH,
+# so after a build elsewhere it would test the wrong binary (or none).
+if [ "$BIN_DIR" = "$(cd "$REPO_ROOT/bin" 2>/dev/null && pwd)" ]; then
+    echo "  Then:         make test-binaries"
+else
+    echo "  Then:         PATH=\"$BIN_DIR:\$PATH\" python -m pytest -o addopts=\"\" -q"
+    echo "                (make test-binaries tests ./bin, not $BIN_DIR)"
+fi
+if [ "$AERMOD_EXE_NAME" != aermod ]; then
+    echo "  Note:         AERMODRunner looks for a binary named aermod on PATH;"
+    echo "                pass executable_path=\"$AERMOD_EXE\" to use this one"
+fi
 echo "============================================"

@@ -15,9 +15,11 @@ pinned here:
 
 The scripts run for real, but against a stand-in compiler: a shell script
 that answers ``--version``, logs every invocation, writes empty objects for
-``-c`` and a small executable for ``-o``. The executable answers ``--help``
-with AERMOD's usage banner and writes the ``aerscreen.log`` lines
-``build_aerscreen.sh``'s smoke test looks for. That keeps these tests to a
+``-c`` and a small executable for ``-o``. The executable prints AERMOD's
+usage banner under the same rule as ``aermod.f`` (only for one argument, or
+three or more), with the version the test sets in ``FAKE_AERMOD_VERSN``
+(default 26135; empty means no banner and exit 3), and writes the
+``aerscreen.log`` lines ``build_aerscreen.sh``'s smoke test looks for. That keeps these tests to a
 second or two with no gfortran and no network; the real compilers run in the
 ``real_*.yml`` workflows, which call the same scripts.
 
@@ -67,8 +69,14 @@ if [ "$compile" = 1 ]; then
 fi
 {{
     printf '#!/bin/sh\\n# linked from: %s\\n' "${{srcs[*]}}"
+    printf "VERSN='%s'\\n" "${{FAKE_AERMOD_VERSN-26135}}"
     cat <<'EOF'
-echo " Usage: AERMOD 26135  takes either no or one or two parameters."
+# aermod.f calls USAGE for one argument, or three or more; with none or two
+# it goes to the run. VERSN is CHARACTER*6, hence the padding.
+[ -n "$VERSN" ] || exit 3
+if [ $# -eq 1 ] || [ $# -ge 3 ]; then
+    printf ' Usage: AERMOD %-6s takes either no or one or two parameters.\\n' "$VERSN"
+fi
 printf 'AERSCREEN 21112\\n Stopping AERSCREEN by user action\\n' > aerscreen.log
 EOF
 }} > "$out"
@@ -157,7 +165,7 @@ class Sandbox:
             }
         raise AssertionError(script)
 
-    def run(self, script: str, *args: str, cwd: Path | None = None, **overrides: str | None):
+    def run(self, script: str, *args: str, cwd: Path | None = None, ok: bool = True, **overrides: str | None):
         env = {k: v for k, v in os.environ.items() if k not in _SCRIPT_ENV}
         env.update(self.env_for(script))
         env.update(FC=str(self.fc), FAKEFC_LOG=str(self.log))
@@ -175,7 +183,8 @@ class Sandbox:
             timeout=120,
             check=False,
         )
-        assert proc.returncode == 0, f"{script} failed:\n{proc.stdout}\n{proc.stderr}"
+        if ok:
+            assert proc.returncode == 0, f"{script} failed:\n{proc.stdout}\n{proc.stderr}"
         return proc
 
     def calls(self) -> list[str]:
@@ -184,7 +193,7 @@ class Sandbox:
 
 # Variables the scripts read; cleared so the caller's shell cannot leak in.
 _SCRIPT_ENV = {
-    "BIN_DIR", "FC", "FFLAGS",
+    "BIN_DIR", "AERMOD_EXE_NAME", "FC", "FFLAGS", "FAKE_AERMOD_VERSN",
     "AERMOD_SRC_DIR", "AERMAP_SRC_DIR", "AERMET_SRC_DIR", "AERMOD_ZIP", "AERMAP_ZIP", "AERMET_ZIP",
     "BPIP_ZIP", "AERSURFACE_ZIP", "AERSCREEN_ZIP", "MAKEMET_ZIP",
 }  # fmt: skip
@@ -343,6 +352,98 @@ class TestBuildRecord:
     def test_distinct_binaries_get_distinct_hashes(self, overridden):
         records = overridden["build_aermod-all"].records
         assert len({rec["sha256"] for rec in records.values()}) == 3
+
+
+class TestAermodVersion:
+    """The version line comes from the built binary's banner, whatever it says."""
+
+    @pytest.mark.parametrize("versn", ["24142", "D26135"])
+    def test_version_is_read_from_the_banner(self, box, versn):
+        # D26135 is EPA's draft form (VERSN is six characters "to
+        # accommodate leading qualifier character", modules.f); the record
+        # must keep the qualifier, and must not be a hard-coded 26135.
+        rec = build_records(box.run("build_aermod.sh", "aermod", FAKE_AERMOD_VERSN=versn).stdout)["aermod"]
+        assert rec["version"] == versn
+
+    def test_a_missing_banner_is_reported_not_dropped(self, box):
+        proc = box.run("build_aermod.sh", "aermod", FAKE_AERMOD_VERSN="")
+        assert build_records(proc.stdout)["aermod"]["version"] == "unknown (banner not found)"
+        assert "WARNING:" in proc.stderr and "no version banner" in proc.stderr
+
+    def test_the_stand_in_prints_its_banner_when_aermod_does(self, box, tmp_path):
+        # The probe passes exactly one argument because aermod.f prints the
+        # banner for one argument or three or more, and not for none or two.
+        # A probe that ran the binary with no arguments would find nothing.
+        box.run("build_aermod.sh", "aermod")
+        exe = box.repo / "bin" / "aermod"
+        banner = {n: "Usage: AERMOD 26135  takes" in _run_in(tmp_path, exe, n) for n in range(4)}
+        assert banner == {0: False, 1: True, 2: False, 3: True}
+
+
+def _run_in(tmp_path: Path, exe: str | Path, nargs: int) -> str:
+    work = tmp_path / f"probe{nargs}"
+    work.mkdir(exist_ok=True)
+    # Two arguments are an input and an output file name; other counts
+    # start with --help, as the build script's probe does.
+    args = ["missing.inp", "missing.out"] if nargs == 2 else ["--help", "b.out", "c"][:nargs]
+    proc = subprocess.run(
+        [str(exe), *args], cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, check=False
+    )
+    return proc.stdout + proc.stderr
+
+
+@pytest.mark.skipif(shutil.which("aermod") is None, reason="needs a real aermod on PATH")
+def test_real_aermod_prints_its_banner_under_the_same_rule(tmp_path):
+    """The stand-in's argument rule, checked against the real binary."""
+    exe = shutil.which("aermod")
+    banner = {n: bool(re.search(r"Usage: AERMOD +[A-Z]?\d{5}", _run_in(tmp_path, exe, n))) for n in range(4)}
+    assert banner == {0: False, 1: True, 2: False, 3: True}
+
+
+class TestExeNameAndReplacing:
+    def test_exe_name_puts_a_variant_beside_the_regulatory_binary(self, box):
+        first = box.run("build_aermod.sh", "aermod")
+        regulatory = box.repo / "bin" / "aermod"
+        before = sha256(regulatory)
+        proc = box.run("build_aermod.sh", "aermod", AERMOD_EXE_NAME="aermod_diag")
+        diag = box.repo / "bin" / "aermod_diag"
+        assert diag.is_file() and sha256(regulatory) == before
+        assert build_records(proc.stdout)["aermod_diag"]["sha256"] == sha256(diag)
+        assert "Replacing" not in proc.stdout and "Replacing" not in first.stdout
+        assert f'executable_path="{diag}"' in proc.stdout
+
+    @pytest.mark.parametrize("name", ["sub/aermod", "..", "."])
+    def test_exe_name_must_be_a_file_name(self, box, name):
+        proc = box.run("build_aermod.sh", "aermod", ok=False, AERMOD_EXE_NAME=name)
+        assert proc.returncode != 0
+        assert "AERMOD_EXE_NAME must be a file name" in proc.stderr
+        assert not (box.repo / "bin" / "aermod").exists()
+
+    @pytest.mark.parametrize(("script", "args", "binaries"), SCRIPT_CASES, ids=CASE_IDS)
+    def test_a_rebuild_says_what_it_replaces(self, box, script, args, binaries):
+        box.run(script, *args)
+        # Make each existing binary distinct from what the rebuild writes,
+        # so the hash quoted can only be the old file's, taken before the link.
+        old = {}
+        for name in binaries:
+            (box.repo / "bin" / name).write_bytes(f"older {name}\n".encode())
+            old[name] = sha256(box.repo / "bin" / name)
+        stdout = box.run(script, *args).stdout
+        for name in binaries:
+            assert f"Replacing {box.repo / 'bin' / name} (sha256 was {old[name]})" in stdout
+
+
+class TestNextStepHint:
+    def test_default_build_points_at_make_test_binaries(self, box):
+        assert "Then:         make test-binaries" in box.run("build_aermod.sh", "aermod").stdout
+
+    def test_other_bin_dir_does_not(self, overridden):
+        # make test-binaries tests ./bin; after a BIN_DIR build it would
+        # run the suite against an older binary or fail to find one.
+        stdout = overridden["build_aermod-aermod"].stdout
+        out = overridden["build_aermod-aermod"].out.resolve()
+        assert "Then:         make test-binaries" not in stdout
+        assert f'PATH="{out}:$PATH" python -m pytest' in stdout
 
 
 class TestParser:
