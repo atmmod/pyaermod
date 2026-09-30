@@ -31,6 +31,8 @@ ME FINISHED
 
 OU STARTING
    RECTABLE  ALLAVE  1-4
+   PLOTFILE  1  ALL  FIRST  ddep_01H.plt
+   PLOTFILE  PERIOD  ALL  ddep_PERIOD.plt
 OU FINISHED
 
 
@@ -54,8 +56,8 @@ OU FINISHED
  *** SETUP Finishes Successfully ***
  ***********************************
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   1
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -102,6 +104,7 @@ OU FINISHED
  **Output Options Selected:
           Model Outputs Tables of PERIOD Averages by Receptor
           Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+          Model Outputs External File(s) of High Values for Plotting (PLOTFILE Keyword)
   
  **NOTE:  The Following Flags May Appear Following DEPO Values:  c for Calm Hours
                                                                  m for Missing Hours
@@ -118,8 +121,8 @@ OU FINISHED
  **Input Runstream File:          aermod.inp                                                                                      
  **Output Print File:             aermod.out                                                                                      
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   2
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -132,8 +135,8 @@ OU FINISHED
  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
  STACK1           0   0.10000E+03       0.0       0.0     0.0    65.00   425.00    18.00     3.00    NO      NO    NO         
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   3
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -145,8 +148,8 @@ OU FINISHED
 
 
   ALL        STACK1      ,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   4
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -169,8 +172,8 @@ OU FINISHED
           100.0,     110.0,     120.0,     130.0,     140.0,     150.0,     160.0,     170.0,     180.0,     190.0,
           200.0,     210.0,     220.0,     230.0,     240.0,     250.0,     260.0,     270.0,     280.0,     290.0,
           300.0,     310.0,     320.0,     330.0,     340.0,     350.0,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   5
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -194,8 +197,8 @@ OU FINISHED
                                                             (METERS/SEC)
 
                                                  1.54,   3.09,   5.14,   8.23,  10.80,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   6
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -245,8 +248,8 @@ OU FINISHED
  ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
 
  F indicates top of profile (=1) or below (=0)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   7
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -297,8 +300,8 @@ OU FINISHED
       330.00 |       0.00074      0.00107
       340.00 |       0.00067      0.00100
       350.00 |       0.00059      0.00096
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   8
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -349,8 +352,8 @@ OU FINISHED
      330.0 |      0.00013 (88030212)      0.00011 (88030211)
      340.0 |      0.00010 (88030212)      0.00009 (88030115)
      350.0 |      0.00007 (88030110)      0.00009 (88030115)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE   9
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -401,8 +404,8 @@ OU FINISHED
      330.0 |      0.00012 (88030211)      0.00009 (88030115)
      340.0 |      0.00007 (88030211)      0.00009 (88030110)
      350.0 |      0.00007 (88030212)      0.00009 (88030110)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  10
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -453,8 +456,8 @@ OU FINISHED
      330.0 |      0.00007 (88030110)      0.00009 (88030110)
      340.0 |      0.00007 (88030110)      0.00009 (88030113)
      350.0 |      0.00006 (88030213)      0.00009 (88030213)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  11
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -505,8 +508,8 @@ OU FINISHED
      330.0 |      0.00005 (88030113)      0.00009 (88030113)
      340.0 |      0.00005 (88030213)      0.00008 (88030213)
      350.0 |      0.00005 (88030113)      0.00009 (88030113)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  12
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -557,8 +560,8 @@ OU FINISHED
      330.0 |      0.00035 (88030224)      0.00056 (88030124)
      340.0 |      0.00028 (88030124)      0.00056 (88030124)
      350.0 |      0.00028 (88030124)      0.00056 (88030124)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  13
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -609,8 +612,8 @@ OU FINISHED
      330.0 |      0.00028 (88030124)      0.00033 (88030224)
      340.0 |      0.00027 (88030224)      0.00026 (88030224)
      350.0 |      0.00020 (88030224)      0.00022 (88030224)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  14
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -661,8 +664,8 @@ OU FINISHED
      330.0 |      0.00011 (88030324)      0.00017 (88030324)
      340.0 |      0.00011 (88030324)      0.00018 (88030324)
      350.0 |      0.00012 (88030324)      0.00018 (88030324)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  15
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -713,8 +716,8 @@ OU FINISHED
      330.0 |      0.00000 (88030424)      0.00001 (88030424)
      340.0 |      0.00000 (88030424)      0.00001 (88030424)
      350.0 |      0.00000 (88030424)      0.00001 (88030424)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  16
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -743,8 +746,8 @@ ALL       1ST HIGHEST VALUE IS       0.01867 AT (     519.62,     -300.00,     0
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  17
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -767,8 +770,8 @@ ALL      HIGH   1ST HIGH VALUE IS       0.00274  ON 88030111: AT (     519.62,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  18
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 
@@ -791,8 +794,8 @@ ALL      HIGH   1ST HIGH VALUE IS       0.01455  ON 88030124: AT (     519.62,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/29/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        19:00:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack dry deposition of a gas only                           ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        13:51:31
                                                                                                                        PAGE  19
  *** MODELOPTs:    NonDFAULT  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
 

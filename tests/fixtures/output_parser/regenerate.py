@@ -3,11 +3,13 @@
 
 Usage::
 
-    python tests/fixtures/output_parser/regenerate.py [path/to/aermod]
+    python tests/fixtures/output_parser/regenerate.py [path/to/aermod] [case ...]
 
 Each case directory holds its deck, ``aermod.inp``. The script runs the
 deck in a scratch directory with the met files the case names, then copies
-back the ``aermod.out`` and stdout (``stdout.txt``) AERMOD produced.
+back the ``aermod.out``, the stdout (``stdout.txt``) and any plot files
+(``*.plt``) AERMOD produced. Name cases after the binary to re-record only
+those.
 
 The met files are the Albany data of ``tests/fixtures/epa_official/``
 (1 to 4 March 1988), except for two cases that need met data those four
@@ -107,13 +109,19 @@ def full_year_met(target: Path) -> None:
 
 def main(argv: list) -> int:
     exe = argv[1] if len(argv) > 1 else shutil.which("aermod")
+    only = argv[2:] or list(CASES)
+    unknown = sorted(set(only) - set(CASES))
+    if unknown:
+        print(f"unknown case(s) {unknown}; the cases are {sorted(CASES)}", file=sys.stderr)
+        return 1
     if not exe or not Path(exe).exists():
         print("aermod not found: pass its path or put it on PATH "
               "(build it with scripts/build_aermod.sh)", file=sys.stderr)
         return 1
     exe = str(Path(exe).resolve())
     (HERE / "calm_missing" / "CALM.SFC").write_text(calm_missing_sfc())
-    for case, met in CASES.items():
+    for case in only:
+        met = CASES[case]
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             shutil.copy(HERE / case / "aermod.inp", work)
@@ -124,6 +132,8 @@ def main(argv: list) -> int:
                 full_year_met(work)
             proc = subprocess.run([exe], cwd=work, capture_output=True, check=False)
             shutil.copy(work / "aermod.out", HERE / case)
+            for plot in sorted(work.glob("*.plt")):
+                shutil.copy(plot, HERE / case)
             (HERE / case / "stdout.txt").write_bytes(proc.stdout)
             if proc.stderr:
                 print(f"{case}: AERMOD wrote to stderr:\n{proc.stderr.decode()}",
