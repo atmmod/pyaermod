@@ -12,7 +12,8 @@ itself; every number comes from the library's readers.
 
 A view is built once per run, when the run finishes (:func:`watch`
 subscribes to ``RUN_FINISHED``), and kept for as long as the run record
-lives. So an earlier run can still be shown after a later run in the same
+lives: the view holds no reference to the record, so a record the session
+lets go of (New, Open) takes its view with it. So an earlier run can still be shown after a later run in the same
 working directory has overwritten its files; the files themselves are
 checked against the checksum taken at that moment before they are offered
 for download (:meth:`RunFile.read`).
@@ -30,7 +31,8 @@ import math
 import threading
 import warnings
 import weakref
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -73,6 +75,31 @@ def period_sort_key(key: str) -> Tuple[int, str]:
         return _PERIOD_ORDER.index(key), key
     except ValueError:
         return len(_PERIOD_ORDER), key
+
+
+def table_qualifier(title: Optional[str]) -> str:
+    """What a summary table holds when it is not the period's maximum.
+
+    ``""`` for a table of the highest values (``THE SUMMARY OF HIGHEST
+    24-HR RESULTS``, ``MAXIMUM PERIOD``, ``MAXIMUM ANNUAL``, or a
+    1ST-highest table of one year). For one of AERMOD's design-value
+    tables, its rank and the years it averages: ``"8th-highest, averaged
+    over 5 years"``, ``"4th-highest daily maximum, averaged over 1 year"``.
+    """
+    from ..output_parser import _RANKED_HEADING, _YEARS_HEADING, _is_maximum_table
+
+    text = " ".join(str(title or "").upper().split())
+    rank = _RANKED_HEADING.search(text)
+    if rank is None or _is_maximum_table(text):
+        return ""
+    years = _YEARS_HEADING.search(text)
+    n_years = int(years.group(1)) if years else None
+    what = rank.group(0).lower()
+    if "MAX DAILY" in text:
+        what += " daily maximum"
+    if n_years is not None:
+        what += f", averaged over {n_years} year{'s' if n_years != 1 else ''}"
+    return what
 
 
 def _period_key(ave: Any) -> Optional[str]:
@@ -134,17 +161,34 @@ class PlotField:
     x: Tuple[float, ...]
     y: Tuple[float, ...]
     values: Tuple[float, ...]
+    output_type: str = "CONC"   # or "DEPOS", "DDEP", "WDEP" (the column mapped)
+
+    @property
+    def quantity(self) -> str:
+        """``"Concentration"``, ``"Dry deposition"``, ..."""
+        return OUTPUT_TYPES.get(self.output_type, self.output_type)
 
     @property
     def title(self) -> str:
         what = f"{self.rank} highest {period_label(self.period)}" if self.rank else (
             f"{period_label(self.period)} average")
+        if self.output_type != "CONC":
+            what += f" {self.quantity.lower()}"
         return f"{what} values, source group {self.group}"
 
     @property
     def peak(self) -> Tuple[float, float, float]:
         i = max(range(len(self.values)), key=self.values.__getitem__)
         return self.x[i], self.y[i], self.values[i]
+
+
+#: What AERMOD tabulates, as the Results step names it.
+OUTPUT_TYPES = {"CONC": "Concentration", "DEPOS": "Total deposition",
+                "DDEP": "Dry deposition", "WDEP": "Wet deposition"}
+
+#: A plot file's deposition columns (output.f PLOTFL headings), in the
+#: order a map uses them when the file holds no concentration.
+_DEPOSITION_COLUMNS = (("TOTAL_DEPO", "DEPOS"), ("DRY_DEPO", "DDEP"), ("WET_DEPO", "WDEP"))
 
 
 def _plot_field(path: Path, run_number: int) -> Optional[PlotField]:
@@ -155,7 +199,13 @@ def _plot_field(path: Path, run_number: int) -> Optional[PlotField]:
     except (OSError, ValueError) as exc:
         logger.info("not a plot file: %s (%s)", path, exc)
         return None
-    column = plot.concentration_column
+    column, output_type = plot.concentration_column, "CONC"
+    if not column:
+        # A deposition-only run (MODELOPT DDEP, WDEP or DEPOS without CONC)
+        # writes its deposition in the concentration's place.
+        names = plot.column_names
+        column, output_type = next(((c, kind) for c, kind in _DEPOSITION_COLUMNS
+                                    if c in names), (None, "CONC"))
     if not column:
         return None
     records = [r for r in plot.records
@@ -175,6 +225,7 @@ def _plot_field(path: Path, run_number: int) -> Optional[PlotField]:
         x=tuple(float(r["X"]) for r in records),
         y=tuple(float(r["Y"]) for r in records),
         values=tuple(float(r[column]) for r in records),
+        output_type=output_type,
     )
 
 
@@ -382,7 +433,12 @@ class RunView:
     results: Optional[AERMODResults] = None
     naaqs: Tuple[NaaqsCheck, ...] = ()
     notes: Tuple[str, ...] = ()
-    record: Optional[RunRecord] = field(default=None, compare=False, repr=False)
+    # Copied from the record rather than holding it: the view is cached
+    # for as long as the record lives (view_of), so it must not keep the
+    # record alive itself.
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    ran: bool = True                   # False when AERMOD could not be started
 
     @property
     def files(self) -> Tuple[RunFile, ...]:
@@ -405,15 +461,28 @@ class RunView:
                 for _, table in sorted(self.results.deposition[kind].items(),
                                        key=lambda kv: period_sort_key(kv[0]))]
 
+    def plot_units(self, plot: PlotField) -> Optional[str]:
+        """The units of ``plot``'s values, from AERMOD's summary table of
+        the same output type and period (None when there is none)."""
+        if self.results is None:
+            return None
+        if plot.output_type == "CONC":
+            table = self.results.concentrations.get(plot.period)
+        else:
+            table = self.results.deposition.get(plot.output_type, {}).get(plot.period)
+        return table.units if table is not None else None
+
 
 def build_view(record: RunRecord) -> RunView:
     """Read ``record``'s files and build its view (see :func:`view_of`)."""
     number, wd = record.number, record.work_dir
+    started, finished = record.started_at, record.finished_at
     deck = RunFile.of("Deck", record.deck_path, number)
     result = record.result
     if result is None:
         return RunView(number, wd, False, "failed", f"Run {number} failed",
-                       f"AERMOD could not be run: {record.error}", deck=deck, record=record)
+                       f"AERMOD could not be run: {record.error}", deck=deck, ran=False,
+                       started_at=started, finished_at=finished)
 
     out = None
     if result.output_file:
@@ -429,7 +498,7 @@ def build_view(record: RunRecord) -> RunView:
         else:
             detail = result.error_message or "AERMOD did not report finishing successfully."
         return RunView(number, wd, False, "failed", f"Run {number} failed", detail,
-                       fatal=fatal, deck=deck, out=out, record=record)
+                       fatal=fatal, deck=deck, out=out, started_at=started, finished_at=finished)
 
     notes: List[str] = []
     results = None
@@ -462,7 +531,7 @@ def build_view(record: RunRecord) -> RunView:
     return RunView(number, wd, True, "succeeded", f"Run {number} succeeded",
                    f"AERMOD finished successfully with {counts}.",
                    deck=deck, out=out, plots=tuple(plots), postfiles=posts, results=results,
-                   naaqs=checks, notes=tuple(notes), record=record)
+                   naaqs=checks, notes=tuple(notes), started_at=started, finished_at=finished)
 
 
 _LOCK = threading.Lock()
@@ -508,8 +577,9 @@ def watch(session: Session) -> Callable[[], None]:
 
 
 def completed_runs(session: Session) -> List[RunRecord]:
-    """The runs Results can show (AERMOD ran), newest first."""
-    return [r for r in reversed(session.runs) if r.result is not None]
+    """The runs Results can show, newest first: every finished run,
+    including one AERMOD could not be started for (its view says why)."""
+    return [r for r in reversed(session.runs) if not r.in_progress]
 
 
 def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:
@@ -528,6 +598,7 @@ def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:
 
 __all__ = [
     "FLAG_MEANINGS",
+    "OUTPUT_TYPES",
     "NaaqsCheck",
     "PlotField",
     "RunFile",
@@ -539,6 +610,7 @@ __all__ = [
     "overwritten_by",
     "period_label",
     "period_sort_key",
+    "table_qualifier",
     "view_of",
     "watch",
 ]

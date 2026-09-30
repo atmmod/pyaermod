@@ -7,7 +7,9 @@ of the GUI would leave it, and the view is built from it.
 
 from __future__ import annotations
 
+import gc
 import shutil
+import weakref
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -30,6 +32,8 @@ def _record(case: str, tmp_path: Path, number: int = 1,
     shutil.copy(RUNS / case / "aermod.inp", deck)
     out = wd / "pyaermod_gui.out"
     shutil.copy(RUNS / case / "aermod.out", out)
+    for plot in (RUNS / case).glob("*.plt"):
+        shutil.copy(plot, wd)
     messages = parse_aermod_messages(out)
     result = AERMODRunResult(success=True, input_file=str(deck), return_code=0,
                              output_file=str(out), messages=messages,
@@ -63,6 +67,42 @@ def test_a_deposition_only_run_has_no_concentration_tables(tmp_path):
     view = rr.build_view(_record("ddep_only", tmp_path))
     assert view.concentration_tables() == []
     assert [t.output_type for t in view.deposition_tables()] == ["DDEP"] * 3
+
+
+def test_a_deposition_only_run_is_mapped_as_deposition(tmp_path):
+    """Its plot files hold DRY DEPO where a concentration run has AVERAGE CONC."""
+    from pyaermod.gui_v2.results_map import map_description
+
+    view = rr.build_view(_record("ddep_only", tmp_path))
+    assert [(p.file.name, p.period, p.output_type) for p in view.plots] == [
+        ("ddep_01H.plt", "1HR", "DDEP"), ("ddep_PERIOD.plt", "PERIOD", "DDEP")]
+    one = view.plots[0]
+    assert one.title == "1ST highest 1-HR dry deposition values, source group ALL"
+    assert view.plot_units(one) == "g/m^2"
+    # The plot file's peak is the summary table's: 0.00274 at (519.62, -300.00).
+    x, y, value = one.peak
+    assert (round(x, 2), round(y, 2), value) == (519.62, -300.0, 0.00274)
+    assert view.deposition_tables()[0].max_value == pytest.approx(value)
+    assert map_description(one, "g/m²") == (
+        "Dry deposition map of the 1ST highest 1-HR dry deposition values, source group "
+        "ALL from ddep_01H.plt: 72 receptors, highest 0.00274 g/m² at (519.62, -300.00).")
+    assert [f.name for f in view.files] == [
+        "pyaermod_gui.inp", "pyaermod_gui.out", "ddep_01H.plt", "ddep_PERIOD.plt"]
+
+
+def test_a_design_value_table_is_labelled_with_its_rank():
+    """Headings as AERMOD prints them (full_year here, EPA's testpm25)."""
+    assert rr.table_qualifier("THE SUMMARY OF HIGHEST 24-HR RESULTS") == ""
+    assert rr.table_qualifier("THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS) RESULTS") == ""
+    assert rr.table_qualifier("THE SUMMARY OF MAXIMUM ANNUAL RESULTS AVERAGED OVER 5 YEARS") == ""
+    assert rr.table_qualifier(
+        "THE SUMMARY OF MAXIMUM 1ST-HIGHEST MAX DAILY 1-HR RESULTS AVERAGED OVER 1 YEARS") == ""
+    assert rr.table_qualifier(
+        "THE SUMMARY OF MAXIMUM 4TH-HIGHEST MAX DAILY 1-HR RESULTS AVERAGED OVER 1 YEARS"
+    ) == "4th-highest daily maximum, averaged over 1 year"
+    assert rr.table_qualifier(
+        "THE SUMMARY OF MAXIMUM 8TH-HIGHEST 24-HR RESULTS AVERAGED OVER 5 YEARS"
+    ) == "8th-highest, averaged over 5 years"
 
 
 def test_aermods_own_design_value_is_compared_with_the_naaqs(tmp_path):
@@ -121,6 +161,37 @@ def test_views_are_built_when_runs_finish_and_kept(tmp_path):
     assert rr.completed_runs(session) == [later, record]
     unsubscribe()
     assert session._observers == []
+
+
+def test_a_view_goes_with_its_run(tmp_path):
+    """The cache holds a view only while its run record is alive."""
+    record = _record("calm_missing", tmp_path)
+    view = rr.view_of(record)
+    assert rr.view_of(record) is view
+    key, alive = id(record), weakref.ref(record)
+    del record
+    gc.collect()
+    assert alive() is None
+    assert key not in rr._VIEWS
+    # The view is still usable on its own.
+    assert view.headline == "Run 1 succeeded" and view.started_at is not None
+
+
+def test_a_run_that_could_not_start_is_listed(tmp_path):
+    session = Session()
+    ran = _record("calm_missing", tmp_path)
+    wd = tmp_path / "second"
+    wd.mkdir()
+    (wd / "pyaermod_gui.inp").write_text("CO STARTING\n")
+    did_not = RunRecord(number=2, work_dir=wd, deck_path=wd / "pyaermod_gui.inp",
+                        started_at=datetime.now(), finished_at=datetime.now(),
+                        error="no aermod on PATH")
+    in_progress = RunRecord(number=3, work_dir=wd, deck_path=wd / "pyaermod_gui.inp",
+                            started_at=datetime.now())
+    session.runs.extend([ran, did_not, in_progress])
+    assert rr.completed_runs(session) == [did_not, ran]
+    view = rr.view_of(did_not)
+    assert (view.headline, view.ran) == ("Run 2 failed", False)
 
 
 def test_period_labels():

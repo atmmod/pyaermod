@@ -46,6 +46,7 @@ from ..run_results import (
     completed_runs,
     overwritten_by,
     period_label,
+    table_qualifier,
     view_of,
     watch,
 )
@@ -101,7 +102,7 @@ def render(session: Session, *, dialogs: Any = None,
             ui.select(
                 {r.number: _history_label(r, view_of(r)) for r in runs},
                 value=record.number, label="Run shown", on_change=_pick,
-            ).classes("w-96")
+            ).classes("w-full").style("max-width: 24rem")
 
         view = view_of(record)
         later = overwritten_by(session, record)
@@ -131,7 +132,8 @@ def _render_view(ui: Any, view: RunView, *, later_run: Optional[int],
     if not view.succeeded:
         ui.label(
             "No results are shown for a failed run: AERMOD did not complete it, so its "
-            "output holds no valid concentrations.",
+            "output holds no valid concentrations." if view.ran else
+            "AERMOD did not run, so this run has no results.",
         ).classes("text-body1 q-mt-sm")
         if view.fatal:
             ui.label("AERMOD's fatal errors").classes("text-subtitle2 q-mt-sm")
@@ -167,7 +169,6 @@ def _render_view(ui: Any, view: RunView, *, later_run: Optional[int],
 
 
 def _status_card(ui: Any, view: RunView) -> None:
-    record = view.record
     with ui.card().classes("w-full q-mt-sm"):
         with ui.row().classes("items-center q-gutter-sm"):
             ui.icon("check_circle" if view.succeeded else "error",
@@ -175,9 +176,9 @@ def _status_card(ui: Any, view: RunView) -> None:
                 'aria-hidden="true"')
             ui.label(view.headline).classes("text-subtitle1 text-weight-medium")
         ui.label(view.detail).classes("text-body2")
-        if record is not None:
-            started = f"{record.started_at:%Y-%m-%d %H:%M:%S}"
-            finished = f", finished {record.finished_at:%H:%M:%S}" if record.finished_at else ""
+        if view.started_at is not None:
+            started = f"{view.started_at:%Y-%m-%d %H:%M:%S}"
+            finished = f", finished {view.finished_at:%H:%M:%S}" if view.finished_at else ""
             ui.label(f"Started {started}{finished}").classes("text-body2 text-grey-8")
         ui.label(f"Working directory: {view.work_dir}").classes("text-body2 text-grey-8")
         if view.out is not None:
@@ -208,9 +209,18 @@ def _maxima(ui: Any, view: RunView, tables: List[Any]) -> None:
             top = table.max_row or {}
             value = str(top.get("value_text") or table.max_value)
             units = _units(table.units)
+            # A period whose only table is one of AERMOD's design-value
+            # tables (RECTABLE asking for the 8th highest only, say): its
+            # value is that rank's, not the maximum, and is labelled so.
+            qualifier = table_qualifier(table.title)
+            period = period_label(table.averaging_period)
+            if qualifier:
+                period = f"{period} ({qualifier})"
             with ui.card().classes("q-pa-md").style("min-width: 11rem"):
                 ui.label(period_label(table.averaging_period)).classes(
                     "text-overline text-grey-8")
+                if qualifier:
+                    ui.label(qualifier.capitalize()).classes("text-caption text-grey-8")
                 ui.label(f"{value}{top.get('flag') or ''}").classes("text-h6")
                 ui.label(units).classes("text-caption text-grey-8")
                 ui.label(f"at ({_xy(table.max_location[0])}, {_xy(table.max_location[1])})"
@@ -219,7 +229,7 @@ def _maxima(ui: Any, view: RunView, tables: List[Any]) -> None:
                     ui.label(f"ending {top['date']} (YYMMDDHH)").classes(
                         "text-caption text-grey-8")
             rows.append({
-                "period": period_label(table.averaging_period),
+                "period": period,
                 "value": value,
                 "x": _xy(table.max_location[0]),
                 "y": _xy(table.max_location[1]),
@@ -244,6 +254,11 @@ def _maxima(ui: Any, view: RunView, tables: List[Any]) -> None:
         rows=rows, row_key="period",
     ).classes("w-full q-mt-sm").props(
         'aria-label="Maximum for each averaging period" flat bordered').mark("results-maxima")
+    if any(table_qualifier(t.title) for t in tables):
+        ui.label("A period labelled with a rank has only that design-value table in the "
+                 ".out file (the receptor table did not ask for the highest values), so "
+                 "its value is that rank's, not the period's maximum.").classes(
+            "text-caption text-grey-8")
     if any(r["note"] for r in rows):
         ui.label("AERMOD flags a value whose average includes calm hours (c), missing "
                  "hours (m) or both (b).").classes("text-caption text-grey-8")
@@ -292,8 +307,10 @@ def _sources_of(view: RunView) -> Tuple[Tuple[str, float, float], ...]:
 
 
 def _plot_units(view: RunView, plot: PlotField) -> str:
-    table = view.results.concentrations.get(plot.period) if view.results else None
-    return _units(table.units) if table is not None else "µg/m³"
+    units = view.plot_units(plot)
+    if units is not None:
+        return _units(units)
+    return "µg/m³" if plot.output_type == "CONC" else "AERMOD's deposition units"
 
 
 #: Drawn maps (data URIs), newest last; a map is drawn once per plot file.
@@ -332,7 +349,10 @@ def _map(ui: Any, view: RunView, map_choice: Dict[int, int],
 
     from ..results_map import map_description
 
-    ui.label("Concentration map").classes("text-subtitle1 q-mt-md")
+    kinds = {p.output_type for p in view.plots}
+    ui.label("Concentration map" if kinds <= {"CONC"} else
+             "Deposition map" if "CONC" not in kinds else "Map").classes(
+        "text-subtitle1 q-mt-md")
     if not view.plots:
         ui.label("This run wrote no plot files, which the map is drawn from. Ask for "
                  "them on the Output step and run again.").classes("text-grey")
@@ -357,7 +377,7 @@ def _map(ui: Any, view: RunView, map_choice: Dict[int, int],
                 if not getattr(image, "is_deleted", False):
                     image.set_source(src)
 
-            background_tasks.create(draw(), name="draw the concentration map")
+            background_tasks.create(draw(), name="draw the map")
         ui.label(f"Drawn from {current.file.name}; the tables hold the values.").classes(
             "text-caption text-grey-8")
 
@@ -516,7 +536,8 @@ def _downloads(ui: Any, view: RunView, *, stale: bool,
         for file in files:
             ui.label(f"{file.name}: {file.path}").classes("text-caption text-grey-8")
 
-    if view.succeeded and view.plots and map_choice is not None:
+    if view.succeeded and map_choice is not None and any(
+            p.output_type == "CONC" for p in view.plots):
         _kmz(ui, view, map_choice, stale=stale)
 
 
@@ -532,6 +553,10 @@ def _kmz(ui: Any, view: RunView, map_choice: Dict[int, int], *, stale: bool) -> 
                           "latitude and longitude).", color="warning")
                 return
             plot = view.plots[map_choice.get(view.number, 0)]
+            if plot.output_type != "CONC":
+                ui.notify("The KMZ labels its values as concentrations: show a "
+                          "concentration plot file on the map first.", color="warning")
+                return
             try:
                 data = _kmz_bytes(view, plot, int(zone.value), not south.value)
             except ImportError as exc:

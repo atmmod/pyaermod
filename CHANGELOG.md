@@ -39,8 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downloads of the deck, the `.out` file, the plot files, the POSTFILEs
   and a KMZ. A run history reopens earlier runs; a run whose files a
   later run overwrote keeps the values read when it finished, and its
-  files are no longer offered. The view of a run is built by the UI-free
-  `pyaermod.gui_v2.run_results`, the map by `gui_v2.results_map`.
+  files are no longer offered. A run AERMOD could not be started for is
+  listed too, as failed, with the reason. A period whose only summary
+  table is one of AERMOD's design-value tables (`RECTABLE ALLAVE
+  eighth`, say) is labelled with its rank ("8th-highest, averaged over 5
+  years") rather than presented as the maximum. A deposition-only run's
+  plot files are mapped as deposition, in AERMOD's units. The view of a
+  run is built by the UI-free `pyaermod.gui_v2.run_results`, the map by
+  `gui_v2.results_map`.
 
 ### Changed
 - GUI: in the source and receptor editors, Close now discards changes,

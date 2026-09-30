@@ -255,6 +255,35 @@ class TestRunHistory:
         await gui.user.should_see("Run 3 succeeded")
 
     @pytest.mark.asyncio
+    async def test_a_run_that_could_not_start_is_shown_as_the_latest(
+            self, gui, recorded_aermod, tmp_path, monkeypatch):
+        recorded_aermod("albany_success")
+        await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
+        await _run_in(gui, tmp_path / "first", outcome="Run succeeded", shows="Run 1 succeeded")
+        await gui.user.should_see("Run 1 succeeded")
+        # No AERMOD on PATH for the second run: the runner cannot start it.
+        empty = tmp_path / "no_aermod"
+        empty.mkdir()
+        monkeypatch.setenv("PATH", str(empty))
+        box = _by_id(gui.user.find(kind=ui.input, content="Working directory").elements,
+                     newest=True)
+        with gui.user:
+            box.value = str(tmp_path / "second")
+        gui.user.find(kind=ui.button, content="Run AERMOD").click()
+        await gui.user.should_see("Run 2 failed", retries=100)
+        await gui.user.should_see("AERMOD could not be run: AERMOD executable not found in PATH")
+        await gui.user.should_see("AERMOD did not run, so this run has no results.")
+        await gui.user.should_not_see("Run 1 succeeded")
+        assert _no_element(gui, kind=ui.table, marker="results-maxima")
+        history = _one(gui, kind=ui.select, content="Run shown")
+        assert [re.sub(r"\d\d:\d\d:\d\d", "hh:mm:ss", v) for v in history.options.values()] == [
+            "Run 2, finished hh:mm:ss: failed", "Run 1, finished hh:mm:ss: succeeded"]
+        # Only the deck the GUI wrote can be downloaded.
+        assert await _download(gui, "Download deck") == (
+            tmp_path / "second" / "pyaermod_gui.inp").read_bytes()
+        await gui.user.should_not_see("Download AERMOD output (.out)")
+
+    @pytest.mark.asyncio
     async def test_a_run_whose_files_were_overwritten_keeps_its_values(
             self, gui, recorded_aermod, tmp_path):
         recorded_aermod("albany_success")

@@ -1,5 +1,6 @@
 """
-The Results step's concentration map, drawn from one plot file.
+The Results step's map, drawn from one plot file (concentration, or
+deposition for a run that writes no concentration).
 
 :func:`concentration_map_png` renders a :class:`~.run_results.PlotField`
 (AERMOD's value at every receptor) as filled contours over the receptors,
@@ -119,7 +120,7 @@ def map_description(plot: PlotField, units: str, source_count: int = 0,
                     note: Optional[str] = None) -> str:
     """The map's accessible name: what it shows and its highest value."""
     px, py, pv = plot.peak
-    text = (f"Concentration map of the {plot.title} from {plot.file.name}: "
+    text = (f"{plot.quantity} map of the {plot.title} from {plot.file.name}: "
             f"{len(plot.values)} receptors, highest {pv:.5f} {units} at "
             f"({px:.2f}, {py:.2f})")
     if source_count:
