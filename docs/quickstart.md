@@ -308,6 +308,11 @@ sources.group_definitions = [
 ]
 ```
 
+A source can also name its groups itself, `source_groups=["BOILERS"]`.
+Those cards are written with the definitions above, after every source
+(AERMOD stops with `SO E140` on a group card among the source cards).
+Naming `ALL` adds nothing, since every source is in it.
+
 ### EVENT Processing
 
 Run AERMOD in event mode for specific date/receptor combinations:

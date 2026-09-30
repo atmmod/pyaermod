@@ -52,6 +52,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+- **A source's `source_groups` wrote `SRCGROUP` among the source cards,
+  which AERMOD rejects.** Every source writer put
+  `SRCGROUP grp srcid` right after its own cards, so the next source's
+  `LOCATION` and `SRCPARAM` came after a group card: two OPENPIT sources
+  in one group through `source_groups=["PITS"]` stopped v26135's setup
+  with `SO E140 ... Invalid Order of Keyword` (soset.f SOCARD admits no
+  source card once a group is defined). A source naming group `ALL`, as
+  `create_example_project()` and the examples do, wrote
+  `SRCGROUP ALL srcid`, which is `SO E203` (SOGRP reads only
+  BACKGROUND/NOBACKGROUND after ALL), so that deck failed setup even with
+  one source. `SourcePathway.to_aermod_input()` now gathers every
+  source's `source_groups` into the group block after all the sources:
+  a group that also has a `SourceGroupDefinition` gets the members the
+  definition does not already list on continuation cards written with
+  it (AERMOD files a continuation under the last group defined, so the
+  cards of one group stay together); other groups follow, ten IDs to a
+  card; `ALL` adds nothing, because every source is in it; a BUOYLINE
+  source contributes its segment IDs; and PSDCREDIT decks still write no
+  SRCGROUP (E105). The field and its meaning are unchanged, for all
+  thirteen source classes, but a source's own `to_aermod_input()` no
+  longer contains any SRCGROUP line. The two-OPENPIT deck, a one-source
+  `ALL` deck and a mixed deck now run to completion on the v26135
+  binary (`tests/test_real_aermod_source_writers.py` when `aermod` is on
+  PATH).
 
 ## [2.2.0] - YYYY-MM-DD
 

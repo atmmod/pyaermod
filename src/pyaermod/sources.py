@@ -383,7 +383,8 @@ class PointSource:
     building_x_offset: Optional[Union[float, List[float]]] = None
     building_y_offset: Optional[Union[float, List[float]]] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -463,11 +464,6 @@ class PointSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -525,6 +521,7 @@ class SidewashPointSource:
     building_height: float = 1.0  # m
     building_angle: float = 0.0  # degrees
 
+    # Written by SourcePathway after every source (E140).
     source_groups: List[str] = field(default_factory=list)
     is_urban: bool = False
     urban_area_name: Optional[str] = None
@@ -542,8 +539,6 @@ class SidewashPointSource:
         ]
         if self.no2_ratio is not None:
             lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
-        for group in self.source_groups:
-            lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
         return "\n".join(lines)
@@ -582,7 +577,8 @@ class AreaSource:
     building_x_offset: Optional[Union[float, List[float]]] = None
     building_y_offset: Optional[Union[float, List[float]]] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -635,11 +631,6 @@ class AreaSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -672,7 +663,8 @@ class AreaCircSource:
     # Discretization
     num_vertices: int = 20  # Number of vertices for approximation
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -715,11 +707,6 @@ class AreaCircSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -750,7 +737,8 @@ class AreaPolySource:
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m^2
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -810,11 +798,6 @@ class AreaPolySource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -854,7 +837,8 @@ class VolumeSource:
     building_x_offset: Optional[Union[float, List[float]]] = None
     building_y_offset: Optional[Union[float, List[float]]] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -904,11 +888,6 @@ class VolumeSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -945,7 +924,8 @@ class LineSource:
     # Emission parameters
     emission_rate: float = 1.0  # g/s/m (per unit length)
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -991,11 +971,6 @@ class LineSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -1094,7 +1069,8 @@ class RLineSource:
     # Street canyon (optional)
     street_canyon: Optional[StreetCanyon] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1144,11 +1120,6 @@ class RLineSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -1203,7 +1174,8 @@ class RLineExtSource:
     # Street canyon (optional)
     street_canyon: Optional[StreetCanyon] = None
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1291,11 +1263,6 @@ class RLineExtSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
-
         # Urban source
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
@@ -1345,7 +1312,8 @@ class BuoyLineSource:
     # sits in flat terrain in a FLAT ELEV (FLATSRCS) run (soset.f SOLOCA).
     flat_source: bool = False
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1422,12 +1390,6 @@ class BuoyLineSource:
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
 
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                for seg in self.line_segments:
-                    lines.append(f"   SRCGROUP  {group:<8} {seg.source_id}")
-
         # Urban source
         if self.is_urban:
             for seg in self.line_segments:
@@ -1461,7 +1423,8 @@ class OpenPitSource:
     pit_volume: float = 100000.0     # m^3 (must be > 0)
     angle: float = 0.0               # rotation angle from north (degrees)
 
-    # Source groups
+    # Source groups this source belongs to. SourcePathway writes them
+    # with its other SRCGROUP cards, after every source (E140).
     source_groups: List[str] = field(default_factory=list)
 
     # Urban source
@@ -1519,11 +1482,6 @@ class OpenPitSource:
             self.source_id, self.gas_deposition,
             self.particle_deposition, self.deposition_method, self.method_2,
         ))
-
-        # Source groups
-        if self.source_groups:
-            for group in self.source_groups:
-                lines.append(f"   SRCGROUP  {group:<8} {self.source_id}")
 
         # Urban source
         if self.is_urban:
@@ -1684,6 +1642,13 @@ class SourceGroupDefinition:
     description: str = ""
 
 
+#: Source IDs per SRCGROUP card for the groups gathered from the sources'
+#: ``source_groups``: consecutive cards of one group are continuations
+#: (soset.f SOGRP), and ten 12-character IDs stay well inside AERMOD's
+#: 512-character input line (ISTRG, modules.f).
+_GROUP_IDS_PER_CARD = 10
+
+
 def _group_lines(keyword: str, group: SourceGroupDefinition,
                  allow_bare_all: bool = False) -> List[str]:
     """One ``<keyword> grpid members...`` line, or the bare ``ALL`` form.
@@ -1770,6 +1735,21 @@ class SourcePathway:
                 ids.append(source.source_id)
         return ids
 
+    def _per_source_groups(self) -> Dict[str, List[str]]:
+        """Each group named in a source's ``source_groups``, with the IDs
+        that name it, in the order the sources are defined (a BUOYLINE
+        source contributes its segment IDs)."""
+        members: Dict[str, List[str]] = {}
+        for source in self.sources:
+            if isinstance(source, BuoyLineSource):
+                ids = [seg.source_id for seg in source.line_segments]
+            else:
+                ids = [source.source_id]
+            for name in source.source_groups:
+                bucket = members.setdefault(name, [])
+                bucket.extend(i for i in ids if i not in bucket)
+        return members
+
     def to_aermod_input(self, chemistry: Optional[ChemistryOptions] = None,
                         psd_credit: bool = False) -> str:
         """Generate AERMOD SO pathway text.
@@ -1830,10 +1810,21 @@ class SourcePathway:
             # continuation under the *last* group defined, whichever ID
             # it names. So a definition named ALL is written on the ALL
             # card, and every group's lines are written together.
+            #
+            # A source's own ``source_groups`` join the same block: a
+            # SRCGROUP card among the source cards makes the next
+            # LOCATION or SRCPARAM fatal (soset.f SOCARD, E140). Their
+            # members are written after the group's definitions, on
+            # continuation cards of that group. Naming ALL adds nothing:
+            # every source is in ALL, and a source ID on the ALL card is
+            # E203.
             all_ids = self._collect_all_source_ids()
             by_name: Dict[str, List[SourceGroupDefinition]] = {}
             for group in self.group_definitions:
                 by_name.setdefault(group.group_name, []).append(group)
+            hoisted = self._per_source_groups()
+            for name in hoisted:
+                by_name.setdefault(name, [])
             write_all = (bool(all_ids) or any(n.upper() == "ALL" for n in by_name)
                          if self.include_all_group is None else self.include_all_group)
             if write_all:
@@ -1846,6 +1837,11 @@ class SourcePathway:
                     continue
                 for group in defs:
                     lines.extend(_group_lines("SRCGROUP", group))
+                defined = {m for g in defs for m in g.member_source_ids}
+                extra = [m for m in hoisted.get(name, []) if m not in defined]
+                for start in range(0, len(extra), _GROUP_IDS_PER_CARD):
+                    lines.extend(_group_lines("SRCGROUP", SourceGroupDefinition(
+                        name, extra[start:start + _GROUP_IDS_PER_CARD])))
 
         lines.append("SO FINISHED")
         return "\n".join(lines)

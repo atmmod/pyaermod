@@ -101,16 +101,17 @@ class TestPointSource:
         assert "200.0000" in output
 
     def test_source_groups(self):
-        """Test source groups"""
+        """A source's groups are written by the pathway, after the sources
+        (E140), and ALL gets no member (E203)."""
         source = PointSource(
             source_id="STACK1",
             x_coord=0, y_coord=0,
             source_groups=["ALL", "STACKS"]
         )
 
-        output = source.to_aermod_input()
-        assert "SRCGROUP  ALL" in output
-        assert "SRCGROUP  STACKS" in output
+        assert "SRCGROUP" not in source.to_aermod_input()
+        output = SourcePathway(sources=[source]).to_aermod_input()
+        assert "   SRCGROUP  ALL\n   SRCGROUP  STACKS   STACK1\nSO FINISHED" in output
 
 
 class TestAreaSource:
