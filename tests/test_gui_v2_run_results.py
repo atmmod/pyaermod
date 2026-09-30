@@ -217,6 +217,33 @@ def test_a_view_is_read_in_a_thread_of_its_own(tmp_path, monkeypatch):
     assert rr.prepare(record).result() is view
 
 
+def test_a_failed_build_is_kept_until_retried(tmp_path, monkeypatch):
+    """A view that cannot be built is not built again each time it is asked for."""
+    calls, real = [], rr.build_view
+
+    def boom(record):
+        calls.append(record.number)
+        raise RuntimeError("unreadable")
+
+    monkeypatch.setattr(rr, "build_view", boom)
+    record = _record("calm_missing", tmp_path)
+    future = rr.prepare(record)
+    with pytest.raises(RuntimeError, match="unreadable"):
+        future.result(timeout=20)
+    assert rr.prepare(record) is future
+    with pytest.raises(RuntimeError, match="unreadable"):
+        rr.view_of(record)
+    assert rr.cached_view(record) is None
+    assert str(rr.build_error(record)) == "unreadable"
+    assert calls == [1]
+    # The user asks again, and now the files can be read.
+    monkeypatch.setattr(rr, "build_view", real)
+    view = rr.retry(record).result(timeout=20)
+    assert view.headline == "Run 1 succeeded"
+    assert rr.build_error(record) is None and rr.cached_view(record) is view
+    assert rr.retry(record).result() is view      # a built view is not rebuilt
+
+
 def test_watch_starts_the_view_without_waiting_for_it(tmp_path, monkeypatch):
     """The RUN_FINISHED observer returns before the run's files are read."""
     release, real = threading.Event(), rr.build_view

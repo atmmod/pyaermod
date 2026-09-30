@@ -276,6 +276,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   POSTFILE larger than 100 MB (`POSTFILE_DESIGN_VALUE_MAX_BYTES`) is not
   read for a design value: the NAAQS row is a screening row that names
   it. Checksums of a run's files are taken in pieces.
+- **GUI: Results could rebuild a run's view without end.** When reading a
+  run's files raised an error `build_view` does not catch itself, the
+  failed build was forgotten and Results asked for it again on every
+  refresh: thousands of builds a second, each in a new thread, while it
+  said "Reading the results of run N ..." for ever. A failed build is now
+  kept (`run_results.build_error()`), and Results says "Could not read the
+  results of run N: <error>" with a **Try reading again** button
+  (`run_results.retry()`).
 - **GUI: an imported deck's output folders.** EPA's `aertest.inp`,
   imported from its path, writes `../Outputs/AERTEST.SUM`,
   `../plotfiles/...`, `../postfiles/...` and `CO ERRORFIL ../Outputs/...`;

@@ -359,6 +359,38 @@ class TestReadingTheResults:
         assert _maxima(gui)["1-HR"]["value"] == "76.07952"
 
 
+    @pytest.mark.asyncio
+    async def test_results_that_cannot_be_read_say_so_once(
+            self, gui, recorded_aermod, tmp_path, monkeypatch):
+        from pyaermod.gui_v2 import run_results as rr
+
+        calls, real = [], rr.build_view
+
+        def boom(record):
+            calls.append(record.number)
+            raise RuntimeError("unreadable")
+
+        monkeypatch.setattr(rr, "build_view", boom)
+        # Logged, and shown on the step below.
+        gui.expect_error_log("could not read the results of run 1")
+        recorded_aermod("albany_success")
+        await _open_albany(gui, tmp_path, REFERENCE_PERIODS)
+        await _run_in(gui, tmp_path / "run", outcome="Succeeded in")
+        gui.user.find(kind=ui.tab, content="Results").click()
+        await gui.user.should_see("Could not read the results of run 1: unreadable")
+        await asyncio.sleep(1.0)        # a failed read must not be retried by itself
+        await gui.user.should_see("Could not read the results of run 1: unreadable")
+        await gui.user.should_not_see("Reading the results of run 1 ...")
+        assert calls == [1]
+        # The user tries again once the files can be read.
+        monkeypatch.setattr(rr, "build_view", real)
+        gui.user.find(kind=ui.button, content="Try reading again").click()
+        await gui.user.should_see("Run 1 succeeded", retries=100)
+        await gui.user.should_not_see("Could not read the results")
+        assert _maxima(gui)["1-HR"]["value"] == "76.07952"
+        assert calls == [1]
+
+
 class TestReload:
     @pytest.mark.asyncio
     async def test_a_reload_shows_the_same_run(self, gui, recorded_aermod, tmp_path):

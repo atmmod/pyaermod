@@ -675,22 +675,33 @@ def _future_of(record: RunRecord) -> Tuple[Future, bool]:
 def _build_into(record: RunRecord, future: Future) -> None:
     try:
         future.set_result(build_view(record))
-    except BaseException as exc:
-        # Not kept: the next call builds the view again.
-        with _LOCK:
-            entry = _VIEWS.get(id(record))
-            if entry is not None and entry[1] is future:
-                del _VIEWS[id(record)]
+    except Exception as exc:
+        # Kept, like a view: asking again gives the same failure, not a new
+        # build (Results would otherwise rebuild it on every refresh). The
+        # user retries on purpose, through :func:`retry`.
+        logger.exception("could not read the results of run %d", record.number)
         future.set_exception(exc)
-        if not isinstance(exc, Exception):
-            raise
+    except BaseException as exc:
+        # An interrupt is not the view's failure: not kept.
+        _drop(record, future)
+        future.set_exception(exc)
+        raise
+
+
+def _drop(record: RunRecord, future: Future) -> None:
+    """Forget ``future`` if it is still ``record``'s."""
+    with _LOCK:
+        entry = _VIEWS.get(id(record))
+        if entry is not None and entry[1] is future:
+            del _VIEWS[id(record)]
 
 
 def prepare(record: RunRecord) -> Future:
     """Start building ``record``'s view in a thread of its own; return its future.
 
     Returns at once. The view is built once, however many callers ask
-    (the future is shared); a view already built is returned done.
+    (the future is shared); a view already built is returned done, and so
+    is a build that failed (with its exception) until :func:`retry`.
     """
     future, mine = _future_of(record)
     if mine:
@@ -699,16 +710,39 @@ def prepare(record: RunRecord) -> Future:
     return future
 
 
-def cached_view(record: RunRecord) -> Optional[RunView]:
-    """``record``'s view if it has been built; None while it is being built."""
+def _done_future(record: RunRecord) -> Optional[Future]:
     with _LOCK:
         entry = _VIEWS.get(id(record))
         if entry is None or entry[0]() is not record:
             return None
         future = entry[1]
-    if future.done() and future.exception() is None:
+    return future if future.done() else None
+
+
+def cached_view(record: RunRecord) -> Optional[RunView]:
+    """``record``'s view if it has been built; None while it is being built
+    or when building it failed (:func:`build_error`)."""
+    future = _done_future(record)
+    if future is not None and future.exception() is None:
         return future.result()
     return None
+
+
+def build_error(record: RunRecord) -> Optional[BaseException]:
+    """Why ``record``'s view could not be built; None unless its build failed."""
+    future = _done_future(record)
+    return future.exception() if future is not None else None
+
+
+def retry(record: RunRecord) -> Future:
+    """Build ``record``'s view again after a failed build (as :func:`prepare`).
+
+    A view that was built, or is being built, is left as it is.
+    """
+    future = _done_future(record)
+    if future is not None and future.exception() is not None:
+        _drop(record, future)
+    return prepare(record)
 
 
 def view_of(record: RunRecord) -> RunView:
@@ -716,7 +750,8 @@ def view_of(record: RunRecord) -> RunView:
 
     Blocks until it is built, here or by :func:`prepare`'s thread: the
     GUI's event loop never calls it, it uses :func:`cached_view` and
-    awaits :func:`prepare`.
+    awaits :func:`prepare`. Raises the build's exception when it failed,
+    each time it is asked, until :func:`retry`.
     """
     future, mine = _future_of(record)
     if mine:

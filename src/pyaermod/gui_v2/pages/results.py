@@ -23,7 +23,9 @@ which reads a run's files once, in a thread of its own, when the run
 finishes. Until the files are read the step says "Reading the results of
 run N ..." and every tab stays usable; the section is rebuilt when the
 view is ready, when a run starts or finishes, and on every page build (a
-reload shows the last run again). New and Open clear the run history.
+reload shows the last run again). When the files cannot be read the step
+says so, with the error, and reads them again only when the user asks
+(Try reading again). New and Open clear the run history.
 
 ``goto(step)`` sends the user to another step (``"run"``, ``"output"``);
 the shell wires it to its navigation.
@@ -46,11 +48,13 @@ from ..run_results import (
     RunFile,
     RunView,
     StaleFileError,
+    build_error,
     cached_view,
     completed_runs,
     overwritten_by,
     period_label,
     prepare,
+    retry,
     table_qualifier,
     watch,
 )
@@ -61,6 +65,9 @@ NO_RUN = "No run yet. Run AERMOD from the Review & Run step."
 
 #: Shown while a finished run's files are being read.
 READING = "Reading the results of run {number} ..."
+
+#: Shown when a finished run's files could not be read.
+COULD_NOT_READ = "Could not read the results of run {number}: {error}"
 
 _UNITS = {"ug/m^3": "µg/m³", "g/m^2": "g/m²", "g/m^2/yr": "g/m²/yr"}
 
@@ -97,7 +104,7 @@ def render(session: Session, *, dialogs: Any = None,
         async def wait() -> None:
             try:
                 await asyncio.wrap_future(prepare(record))
-            except Exception:           # build_view logged it; the section says so
+            except Exception:           # logged; the section shows it (build_error)
                 pass
             finally:
                 awaited.discard(record.number)
@@ -137,6 +144,19 @@ def render(session: Session, *, dialogs: Any = None,
         # Read in a thread (run_results.prepare): the loop that serves
         # every tab must not wait for a large run's files.
         view = cached_view(record)
+        failure = build_error(record) if view is None else None
+        if failure is not None:
+            # Kept, not rebuilt on every refresh: the user retries on purpose.
+            ui.label(COULD_NOT_READ.format(
+                number=record.number, error=str(failure) or type(failure).__name__)).props(
+                'role=alert').classes("text-body1 text-negative q-mt-sm")
+
+            def _retry(record: Any = record) -> None:
+                retry(record)
+                _body.refresh()
+
+            ui.button("Try reading again", on_click=_retry).props("outline")
+            return
         if view is None:
             ui.label(READING.format(number=record.number)).props(
                 'role=status aria-live=polite').classes("text-body1 q-mt-sm")
