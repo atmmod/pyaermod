@@ -42,6 +42,8 @@ from typing import Iterable, List, Optional, Tuple, Union
 
 import pandas as pd
 
+from ._fortran import fortran_float
+
 #: AERMOD's output types, in the order AERMOD writes them.
 OUTPUT_TYPES: Tuple[str, ...] = ("CONC", "DEPOS", "DDEP", "WDEP")
 
@@ -415,7 +417,7 @@ class PostfileParser:
         parts = line.split()
         for idx in range(2, len(parts)):
             try:
-                float(parts[idx])
+                fortran_float(parts[idx])
             except ValueError:
                 break
         else:
@@ -610,7 +612,7 @@ class PostfileParser:
         try:
             row: dict = {"x": float(parts[0]), "y": float(parts[1])}
             for i, column in enumerate(value_cols):
-                row[column] = float(parts[2 + i])
+                row[column] = fortran_float(parts[2 + i])
             row.update({
                 "zelev": float(parts[2 + k]),
                 "zhill": float(parts[3 + k]),

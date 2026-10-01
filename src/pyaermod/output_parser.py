@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from ._fortran import fortran_float
 from .versions import VALIDATED_AERMOD_VERSIONS, is_validated_aermod_version
 
 logger = logging.getLogger(__name__)
@@ -153,7 +154,7 @@ _SUMMARY_ROW = re.compile(
 
 def _float_or_nan(text: str) -> float:
     try:
-        return float(text.replace("D", "E").replace("d", "e"))
+        return fortran_float(text.replace("D", "E").replace("d", "e"))
     except ValueError:
         return float("nan")
 
@@ -413,7 +414,7 @@ class AERMODOutputParser:
                         source.stack_temp = float(parts[6])
                         source.exit_velocity = float(parts[7])
                         source.stack_diameter = float(parts[8])
-                        source.emission_rate = float(parts[9])
+                        source.emission_rate = fortran_float(parts[9])
                     self.sources.append(source)
                 except (ValueError, IndexError):
                     continue
@@ -490,7 +491,7 @@ class AERMODOutputParser:
                     x_coord=x,
                     y_coord=y,
                     base_elevation=base_elev,
-                    emission_rate=float(emission_str),
+                    emission_rate=fortran_float(emission_str),
                 )
 
                 # POINT sources have stack params after base_elev
@@ -832,7 +833,7 @@ class AERMODOutputParser:
                 try:
                     x = float(parts[0])
                     y = float(parts[1])
-                    conc = float(parts[2])
+                    conc = fortran_float(parts[2])
 
                     row = {
                         'x': x,
@@ -909,7 +910,7 @@ class AERMODOutputParser:
         data_rows = []
         for match in value_pattern.finditer(table_text):
             try:
-                conc = float(match.group(1))
+                conc = fortran_float(match.group(1))
                 x = float(match.group(3).strip())
                 y = float(match.group(4).strip())
                 data_rows.append({

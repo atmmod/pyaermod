@@ -358,6 +358,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- **Values below 1e-99 were lost or returned as text.** With `OU
+  FILEFORM EXP` AERMOD writes Fortran `E13.6` (`E14.6` in the summary
+  tables, `E13.6` in an EVENT run's source contributions), and Fortran
+  drops the E when the exponent needs three digits: 2.82465e-104 is
+  printed `0.282465-103`. `read_plotfile`, `read_maxifile`,
+  `read_rankfile` and the other `pyaermod.aermod_outputs` readers
+  returned such a value as the string `'0.282465-103'`, so a PLOTFILE
+  column held a mix of floats and strings, and
+  `ensemble.collect_plotfiles` wrote that column to its `.npz` as text;
+  the POSTFILE reader (`read_postfile`, on POSTFILEs and PLOTFILEs)
+  silently dropped the whole row; `AERMODOutputParser` dropped those
+  rows of the summary tables, and a table all of whose rows were that
+  small disappeared; `read_event_output` raised `ValueError`; and so
+  would `read_maxdaily`. They now all read a mantissa with a decimal
+  point followed by a signed three-digit exponent as the number it is,
+  and read anything else exactly as before: `0.28246-5-10`, a two-digit
+  exponent without the E or a mantissa without a point is still not a
+  number. Pinned by three recorded v26135 runs in
+  `tests/fixtures/fortran_exponents/`: an open pit whose plume is washed
+  out by the 137.2 mm hour of EPA's Cordero met, so that receptors 15 to
+  27 km downwind get 1e-103 to 1e-193 in the POSTFILE, the PLOTFILEs,
+  the MAXIFILE, the RANKFILE, the `aermod.out` tables and an EVENT run's
+  source contributions.
 - **Receptor elevations were not written under elevated terrain, so
   AERMOD used zero with a warning.** `CartesianGrid.z_elev` and `.z_hill`
   were never written: every grid of an ELEV run (or a FLAT run under
