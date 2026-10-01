@@ -1,0 +1,406 @@
+CO STARTING
+   TITLEONE  Three-digit exponents: CONC only, so two more output files use E13.6
+   MODELOPT  CONC ELEV DFAULT
+   AVERTIME  1  PERIOD
+   POLLUTID  OTHER
+   RUNORNOT  RUN
+CO FINISHED
+SO STARTING
+   LOCATION  PIT      OPENPIT    -500.0000    -500.0000     0.00
+   SRCPARAM  PIT        0.000010     0.00  1000.00  1000.00 100000000.00
+   PARTDIAM  PIT      6.055
+   MASSFRAX  PIT      1.000000
+   PARTDENS  PIT      2.65
+   SRCGROUP  ALL
+SO FINISHED
+RE STARTING
+   DISCCART  12833.05   7427.88  0.0  0.0
+   DISCCART  13663.68   5682.30  0.0  0.0
+   DISCCART  14241.02   3837.02  0.0  0.0
+   DISCCART  17375.34  10050.29  0.0  0.0
+   DISCCART  23602.25  13645.31  0.0  0.0
+RE FINISHED
+ME STARTING
+   SURFFILE  CORDERO_1993-05-21.SFC
+   PROFFILE  CORDERO_1993-05-21.PFL
+   SURFDATA  24090  1993
+   UAIRDATA  24090  1993
+   PROFBASE  1000.0  METERS
+   STARTEND  93 05 21 20 93 05 21 20
+ME FINISHED
+OU STARTING
+   RECTABLE  1  FIRST
+   MAXTABLE  1  10
+   FILEFORM  EXP
+   POSTFILE  1  ALL  PLOT  post_1h.pst
+   PLOTFILE  1  ALL  FIRST  high_1h.plt
+   MAXIFILE  1  ALL  0.0  maxi_1h.max
+   RANKFILE  1  10  rank_1h.rnk
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   1
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Uses Regulatory DEFAULT Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * NO GAS DEPOSITION Data Provided.
+      * PARTICLE DEPOSITION Data Provided.
+      * Model Uses DRY DEPLETION. DDPLETE  =  T
+      * Model Uses WET DEPLETION. WETDPLT  =  T
+      * Stack-tip Downwash.
+      * Model Accounts for ELEVated Terrain Effects.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: OTHER   
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+     and Calculates PERIOD Averages
+  
+ **This Run Includes:      1 Source(s);       1 Source Group(s); and       5 Receptor(s)
+
+                with:      0 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      1 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Tables of PERIOD Averages by Receptor
+          Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
+          Model Outputs Tables of Overall Maximum Short Term Values (MAXTABLE Keyword)
+          Model Outputs External File(s) of Threshold Violations (MAXIFILE Keyword)
+          Model Outputs External File(s) of Concurrent Values for Postprocessing (POSTFILE Keyword)
+          Model Outputs External File(s) of High Values for Plotting (PLOTFILE Keyword)
+          Model Outputs External File(s) of Ranked Values (RANKFILE Keyword)
+  
+          NOTE: Option for EXPonential format used in formatted output result files (FILEFORM Keyword)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =  1000.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+                  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+  
+ **Approximate Storage Requirements of Model =      3.5 MB of RAM.
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   2
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+
+                                                  *** OPENPIT SOURCE DATA ***
+
+               NUMBER EMISSION RATE  COORD (SW CORNER)  BASE     RELEASE  X-DIM     Y-DIM    ORIENT.    VOLUME   URBAN  EMISSION RATE
+   SOURCE       PART.  (GRAMS/SEC       X        Y      ELEV.    HEIGHT  OF PIT    OF PIT    OF PIT     OF PIT   SOURCE  SCALAR VARY
+     ID         CATS.   /METER**2)   (METERS) (METERS) (METERS) (METERS) (METERS)  (METERS)   (DEG.)    (M**3)               BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ PIT              1   0.10000E-04    -500.0    -500.0     0.0     0.00   1000.00   1000.00      0.00   .10000E+09  NO           
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   3
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        PIT         ,
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   4
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                                *** SOURCE PARTICULATE/GAS DATA ***
+
+
+
+
+        *** SOURCE ID = PIT         ; SOURCE TYPE = OPENPIT  ***
+
+        MASS FRACTION =
+            1.00000, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            6.05500, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000, 
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   5
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                             *** DISCRETE CARTESIAN RECEPTORS ***
+                                           (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                           (METERS)
+
+     (  12833.0,    7427.9,       0.0,       0.0,       0.0);         (  13663.7,    5682.3,       0.0,       0.0,       0.0);      
+     (  14241.0,    3837.0,       0.0,       0.0,       0.0);         (  17375.3,   10050.3,       0.0,       0.0,       0.0);      
+     (  23602.2,   13645.3,       0.0,       0.0,       0.0);                                                                       
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   6
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1   1 1 1 1 1 1 1 1 1 1
+            1 1 1 1 1 1 1 1 1 1   1 1 1 1 1
+
+                       METEOROLOGICAL DATA PROCESSED BETWEEN START DATE: 1993   5 21 20
+                                                           AND END DATE: 1993   5 21 20
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   7
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                    *** UP TO THE FIRST 24 HOURS OF METEOROLOGICAL DATA ***
+
+   Surface file:   CORDERO_1993-05-21.SFC                                                             Met Version:  26135
+   Profile file:   CORDERO_1993-05-21.PFL                                                          
+   Surface format: FREE                                                                                                     
+   Profile format: FREE                                                                                                     
+   Surface station no.:    24090                  Upper air station no.:    24090
+                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Year:   1993                                     Year:   1993
+
+ First 24 hours of scalar data
+ YR MO DY HR     H0     U*     W*  DT/DZ ZICNV ZIMCH  M-O LEN  Z0 BOWEN  ALB  REF WS   WD   HT  REF TA  HT IPCOD PRATE  RH SFCP CCVR
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+ ** 05 21 01  -54.0  0.546 -9.000 -9.000 -999.  968.    243.2 0.10 3.00 1.00    6.57  162.  10.  286.2  10.  0   0.00   79.  903.  1
+ 93 05 21 02  -39.5  0.416 -9.000 -9.000 -999.  658.    146.2 0.10 3.00 1.00    5.14  165.  10.  285.4  10.  0   0.00   76.  902.  3
+ 93 05 21 03  -44.8  0.487 -9.000 -9.000 -999.  815.    207.2 0.10 3.00 1.00    5.90  158.  10.  283.8  10.  0   0.00   73.  902.  4
+ 93 05 21 04  -46.9  0.507 -9.000 -9.000 -999.  866.    223.5 0.10 3.00 1.00    6.12  158.  10.  282.4  10.  0   0.00   70.  902.  4
+ 93 05 21 05  -54.9  0.571 -9.000 -9.000 -999. 1035.    272.8 0.10 3.00 1.00    6.84  169.  10.  281.8  10.  0   0.00   73.  901.  3
+ 93 05 21 06   -3.7  0.640 -9.000 -9.000 -999. 1226.   5671.1 0.10 3.00 0.44    7.38  164.  10.  282.8  10.  0   0.00   70.  902.  3
+ 93 05 21 07   78.1  0.658  0.865  0.005  266. 1279.   -292.7 0.10 3.00 0.28    7.38  164.  10.  284.2  10.  0   0.00   60.  902.  1
+ 93 05 21 08  166.6  0.715  1.314  0.005  438. 1448.   -176.2 0.10 3.00 0.23    7.91  168.  10.  286.2  10.  0   0.00   64.  901.  1
+ 93 05 21 09  243.7  0.779  1.777  0.005  741. 1645.   -155.7 0.10 3.00 0.21    8.58  168.  10.  287.6  10.  0   0.00   61.  901.  1
+ 93 05 21 10  304.1  0.738  1.978  0.005  819. 1526.   -106.1 0.10 3.00 0.20    8.00  166.  10.  288.9  10.  0   0.00   62.  900.  4
+ 93 05 21 11  334.5  0.658  2.150  0.005  955. 1292.    -68.3 0.10 3.00 0.20    6.97  155.  10.  291.5  10.  0   0.00   62.  899.  5
+ 93 05 21 12  251.8  0.581  2.038  0.006 1080. 1072.    -62.4 0.10 3.00 0.20    6.12  217.  10.  296.5  10.  0   0.00   58.  898.  8
+ 93 05 21 13  336.6  0.601  2.316  0.005 1184. 1119.    -51.8 0.10 3.00 0.20    6.26  272.  10.  298.2  10.  0   0.00   60.  898.  6
+ 93 05 21 14  239.2  0.645  2.120  0.005 1278. 1240.    -89.6 0.10 3.00 0.20    6.93  280.  10.  298.6  10.  0   0.00   58.  897.  8
+ 93 05 21 15  312.2  0.675  2.735  0.007 2099. 1328.    -78.5 0.10 3.00 0.20    7.20  267.  10.  298.8  10.  0   0.00   50.  896.  3
+ 93 05 21 16  251.4  0.549  2.579  0.007 2184.  994.    -52.5 0.10 3.00 0.21    5.72  256.  10.  298.5  10.  0   0.00   51.  895.  3
+ 93 05 21 17  174.9  0.453  2.303  0.006 2234.  742.    -42.5 0.10 3.00 0.23    4.65  335.  10.  298.2  10.  0   0.00   51.  895.  3
+ 93 05 21 18   62.3  0.528  1.635  0.006 2244.  921.   -189.2 0.10 3.00 0.29    5.86  344.  10.  296.0  10.  0   0.00   60.  895.  8
+ 93 05 21 19    1.7  0.524  0.496  0.006 2239.  912.  -6617.6 0.10 3.00 0.45    6.03  325.  10.  293.4  10.  0   0.00   63.  895.  9
+ 93 05 21 20  -48.7  0.987 -9.000 -9.000 -999. 2352.   1573.8 0.10 3.00 1.00   11.44  246.  10.  285.2  10. 11 137.20   70.  894. 10
+ 93 05 21 21   -7.3  0.149 -9.000 -9.000 -999. 1543.     35.8 0.10 3.00 1.00    2.23  211.  10.  286.0  10.  0   0.00   83.  897. 10
+ 93 05 21 22  -14.4  0.291 -9.000 -9.000 -999.  677.    137.5 0.10 3.00 1.00    3.62  304.  10.  285.8  10.  0   0.00   89.  899. 10
+ 93 05 21 23  -28.9  0.430 -9.000 -9.000 -999.  676.    219.5 0.10 3.00 1.00    5.19  319.  10.  285.5  10.  0   0.00   83.  898.  8
+ 93 05 21 24  -16.7  0.337 -9.000 -9.000 -999.  475.    183.1 0.10 3.00 1.00    4.11  308.  10.  284.5  10.  0   0.00   89.  898. 10
+
+
+ First hour of profile data
+ YR MO DY HR HEIGHT F  WDIR    WSPD AMB_TMP sigmaA  sigmaW  sigmaV
+ ** 05 21 01   10.0 1  162.    6.57   286.3    4.0  -99.00    0.46
+
+ F indicates top of profile (=1) or below (=0)
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   8
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                              *** THE PERIOD (     1 HRS) AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP: ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+       X-COORD (M)   Y-COORD (M)        CONC                       X-COORD (M)   Y-COORD (M)        CONC
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+          12833.05       7427.88   0.282465-103                       13663.68       5682.30   0.782577-103                         
+          14241.02       3837.02   0.149224-104                       17375.34      10050.29   0.841488-140                         
+          23602.25      13645.31   0.971887-190                                                                                     
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE   9
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                              *** THE   1ST HIGHEST  1-HR AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                             *** DISCRETE CARTESIAN RECEPTOR POINTS ***
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+      X-COORD (M)  Y-COORD (M)        CONC     (YYMMDDHH)              X-COORD (M)  Y-COORD (M)        CONC     (YYMMDDHH)
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+         12833.05      7427.88   0.282465-103  (93052120)                 13663.68      5682.30   0.782577-103  (93052120)          
+         14241.02      3837.02   0.149224-104  (93052120)                 17375.34     10050.29   0.841488-140  (93052120)          
+         23602.25     13645.31   0.971887-190  (93052120)                                                                           
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE  10
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                              *** THE MAXIMUM   10   1-HR AVERAGE CONCENTRATION   VALUES FOR SOURCE GROUP:  ALL      ***
+                                  INCLUDING SOURCE(S):     PIT         , 
+
+                                        ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+ RANK        CONC    (YYMMDDHH) AT      RECEPTOR (XR,YR) OF TYPE    RANK        CONC    (YYMMDDHH) AT      RECEPTOR (XR,YR) OF TYPE 
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    1.  0.782577-103 (93052120) AT (  13663.68,    5682.30)  DC        6.  0.000000E+00 (00000000) AT (      0.00,       0.00)    
+    2.  0.282465-103 (93052120) AT (  12833.05,    7427.88)  DC        7.  0.000000E+00 (00000000) AT (      0.00,       0.00)    
+    3.  0.149224-104 (93052120) AT (  14241.02,    3837.02)  DC        8.  0.000000E+00 (00000000) AT (      0.00,       0.00)    
+    4.  0.841488-140 (93052120) AT (  17375.34,   10050.29)  DC        9.  0.000000E+00 (00000000) AT (      0.00,       0.00)    
+    5.  0.971887-190 (93052120) AT (  23602.25,   13645.31)  DC       10.  0.000000E+00 (00000000) AT (      0.00,       0.00)    
+
+  *** RECEPTOR TYPES:  GC = GRIDCART
+                       GP = GRIDPOLR
+                       DC = DISCCART
+                       DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE  11
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                        *** THE SUMMARY OF MAXIMUM PERIOD (     1 HRS) RESULTS ***
+
+
+                                    ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+ALL       1ST HIGHEST VALUE IS  0.782577-103 AT (   13663.68,     5682.30,     0.00,     0.00,    0.00)  DC          
+          2ND HIGHEST VALUE IS  0.282465-103 AT (   12833.05,     7427.88,     0.00,     0.00,    0.00)  DC          
+          3RD HIGHEST VALUE IS  0.149224-104 AT (   14241.02,     3837.02,     0.00,     0.00,    0.00)  DC          
+          4TH HIGHEST VALUE IS  0.841488-140 AT (   17375.34,    10050.29,     0.00,     0.00,    0.00)  DC          
+          5TH HIGHEST VALUE IS  0.971887-190 AT (   23602.25,    13645.31,     0.00,     0.00,    0.00)  DC          
+          6TH HIGHEST VALUE IS  0.000000E+00 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          7TH HIGHEST VALUE IS  0.000000E+00 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          8TH HIGHEST VALUE IS  0.000000E+00 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+          9TH HIGHEST VALUE IS  0.000000E+00 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+         10TH HIGHEST VALUE IS  0.000000E+00 AT (       0.00,        0.00,     0.00,     0.00,    0.00)
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE  12
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+                                                *** THE SUMMARY OF HIGHEST  1-HR RESULTS ***
+
+
+                                    ** CONC OF OTHER    IN MICROGRAMS/M**3                          **
+
+                                                      DATE                                                                    NETWORK
+GROUP ID                          AVERAGE CONC     (YYMMDDHH)             RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)    OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+  
+ALL      HIGH   1ST HIGH VALUE IS  0.782577-103  ON 93052120: AT (   13663.68,     5682.30,     0.00,     0.00,    0.00)  DC          
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
+                      GP = GRIDPOLR
+                      DC = DISCCART
+                      DP = DISCPOLR
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+                                                                                                                       PAGE  13
+ *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+
+ A Total of            1 Hours Were Processed
+
+ A Total of            0 Calm Hours Identified
+
+ A Total of            0 Missing Hours Identified (  0.00 Percent)
+
+ Met Data File Includes     137.20 Millimeters (     5.402 Inches) of Precipitation
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+
