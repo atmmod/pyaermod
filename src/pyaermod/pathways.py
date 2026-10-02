@@ -12,6 +12,7 @@ or :mod:`pyaermod.api`.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1559,10 +1560,11 @@ def _event_conc_field(value: float) -> str:
     ``EXP`` file's ``0.282465-103``, has no field AERMOD reads; it is
     written ``0.00000``, which AERMOD takes as unknown and does not check,
     as it does not check that ``EXP`` field (STODBL reads it as a
-    negative number).
+    negative number). A NaN or infinite value has no E form; it is
+    written ``F17.5`` (``nan``, ``inf``), as before.
     """
     fixed = f"{value:17.5f}"
-    if float(fixed) == value:
+    if not math.isfinite(value) or float(fixed) == value:
         return fixed
     for digits in range(17):
         text = f"{value:#.{digits}E}"

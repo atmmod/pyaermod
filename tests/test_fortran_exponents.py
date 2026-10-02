@@ -362,6 +362,9 @@ def test_eventfil_events_are_read():
     (1.13318, "1.13318"),
     (1e-30, "1.E-30"),             # the smallest exponent STODBL reads
     (2.82465e-104, "0.00000"),     # 0.282465-103: no field AERMOD reads
+    (float("nan"), "nan"),         # no E form: F17.5, as before
+    (float("inf"), "inf"),
+    (float("-inf"), "-inf"),
 ])
 def test_eventper_concentration_field(value, field):
     (line,) = EventPeriod("E1", 1, "93052120", original_conc=value).to_aermod_lines()
