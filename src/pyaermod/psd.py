@@ -425,8 +425,8 @@ class SizeDistribution:
         covers, such as 30 microns for PM30). Multiply the anchor's
         emission rate by ``anchor_ratio`` to get the rate that goes with
         these fractions. With the anchor inside the edges, the modelled
-        mass below the anchor then equals the anchor's rate, as the study
-        plan's "mass below 30 um equals the AP-42 PM30 emission" requires:
+        mass below the anchor then equals the anchor's rate (for PM30, the
+        mass below 30 um equals the AP-42 PM30 emission):
         the share of the anchor's mass that lay below the first edge is
         not lost but spread over the bins. Mass between the last edge and
         an anchor beyond it *is* lost, and lowers the ratio. 1 when the

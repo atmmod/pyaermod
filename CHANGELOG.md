@@ -24,10 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cards, split between options so each keeps its file name
   (`debug_cards()`); v26135 pools them, while v24142 takes one card
   only (E135), so there a list must fit in 11 fields. `pathways.DEBUG_OPTIONS`
-  lists the 23 option names of v26135. The demonstration study's one-day DEBUGOPT
-  AREA DEPOS deck is now written from the field, and on the v26135
-  binary its AREA.DBG, PDEP.DAT, DEPOS.DBG and plot file are identical
-  to those of the text-patched deck.
+  lists the 23 option names of v26135. A one-day DEBUGOPT AREA DEPOS
+  deck for an OPENPIT deposition run is now written from the field, and
+  on the v26135 binary its AREA.DBG, PDEP.DAT, DEPOS.DBG and plot file
+  are identical to those of the text-patched deck.
 - **`ControlPathway.dry_depletion` and `.wet_depletion` write the
   MODELOPT depletion switches.** `True` writes DRYDPLT or WETDPLT, `False`
   NODRYDPLT or NOWETDPLT, and `None` (the default) neither, which leaves
@@ -155,7 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   aermod.f HRQREAD reads with the rate alone, refusing POINT and BUOYLINE
   sources (their records need more fields each hour), SWPOINT (HRQREAD
   has no branch for it) and a source already on a card (E834). `ap42_wind_profile(sfc_file)` builds the hourly
-  factor of AP-42 13.2.4 Eq. 1 ("profile W" of the demonstration study):
+  factor of AP-42 13.2.4 Eq. 1 (the batch-drop wind-speed profile):
   `(clip(U, 0.6, 6.7)/2.2)**1.3` from the SFC reference wind, divided by
   its mean over the hours AERMOD models, with 1 for the hours it skips as
   missing: any hour metext.f CHKMSG flags (a missing wind speed or
@@ -411,10 +411,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HILL rows gets rows of `z_elev` and `z_hill`, and every DISCCART line
   carries `zelev zhill`. A grid given only one of the two row sets is
   written as given, so AERMOD still stops with E218, as it does for an
-  EPA-style deck with ELEV rows and no HILL rows. On the v26135
-  binary the demonstration study's decks and a DFAULT grid-plus-discrete
-  deck set up with no W214 or W228, and the concentrations are unchanged
-  where the values were zero.
+  EPA-style deck with ELEV rows and no HILL rows. On the v26135 binary,
+  elevated-terrain OPENPIT deposition decks and a DFAULT
+  grid-plus-discrete deck set up with no W214 or W228, and the
+  concentrations are unchanged where the values were zero.
 - **Under FLAT with CO FLAGPOLE a discrete receptor's elevation was read
   as its flagpole height.** reset.f DISCAR reads `x y zflag` in that
   case, and the writer put `z_elev` in the third field: a receptor at
@@ -604,45 +604,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`AERMODRunner.run_batch` returned its results in the order the runs
   finished, not the order of the decks.** `zip(input_files, results)`
   paired decks with other decks' results whenever a later deck finished
-  first; the 2026-09-29 demonstration pilot had to re-key its first batch
-  by hand. `results[i]` now belongs to `input_files[i]` however the runs
-  finish, and a run that raised in its worker carries its deck's
-  absolute path like every other result. With `stop_on_error=True` the
-  list also holds one result per deck: runs already under way when the
-  batch stops are waited for and filed in their place (they used to be
-  dropped, which shifted every later pair), and a deck never started
-  gets `success=False` with "Not run: the batch stopped after an earlier
-  run failed". The docstring and `docs/common-errors.md` now say that a
-  script calling `run_batch` or `BatchRunner.parameter_sweep` on macOS or
-  Windows must do so under `if __name__ == "__main__":`: those platforms
-  start workers with `spawn`, and without the guard every run came back
-  failed with "A process in the process pool was terminated abruptly".
+  first, so callers had to re-key results by hand. `results[i]` now
+  belongs to `input_files[i]` however the runs finish, and a run that
+  raised in its worker carries its deck's absolute path like every other
+  result. With `stop_on_error=True` the list also holds one result per
+  deck: runs already under way when the batch stops are waited for and
+  filed in their place (they used to be dropped, which shifted every later
+  pair), and a deck never started gets `success=False` with "Not run: the
+  batch stopped after an earlier run failed". The docstring and
+  `docs/common-errors.md` now say that a script calling `run_batch` or
+  `BatchRunner.parameter_sweep` on macOS or Windows must do so under
+  `if __name__ == "__main__":`: those platforms start workers with
+  `spawn`, and without the guard every run came back failed with "A
+  process in the process pool was terminated abruptly".
   `tests/test_runner_batch.py` makes four decks finish in reverse order
   and checks the results come back in input order.
-- **`resume_batch` counted runs as done that were not, and a timed-out
-  run left the previous run's `.out` under the deck's name.**
-  `resume_batch` called a deck done when the last 50 lines of its `.out`
-  contained "FINISHES SUCCESSFULLY", which `*** SETUP Finishes
-  Successfully ***` also matches, and it never asked whether the `.out`
-  came from the current deck. On a timeout `AERMODRunner.run` skipped
-  renaming `aermod.out`, so the partial output of the re-run stayed as
-  `aermod.out` and the earlier, successful `<deck>.out` survived: the
-  2026-09-29 defect verification re-ran an edited deck, the re-run timed
-  out, and `resume_batch` still called it done. A run that wrote no
-  `.out` at all was judged by the one an earlier run had left. Now
-  `resume_batch` applies `AERMODRunner.run`'s own test (AERMOD's
-  `*** AERMOD Finishes Successfully ***` line and no fatal error in the
-  final message summary) and requires the `.out` to come from the deck
-  as it is now: AERMOD copies the runstream to the top of the `.out`,
+- **`resume_batch` counted runs as done that were not, and a timed-out run
+  left the previous run's `.out` under the deck's name.** `resume_batch`
+  called a deck done when the last 50 lines of its `.out` contained
+  "FINISHES SUCCESSFULLY", which `*** SETUP Finishes Successfully ***`
+  also matches, and it never asked whether the `.out` came from the
+  current deck. On a timeout `AERMODRunner.run` skipped renaming
+  `aermod.out`, so the partial output of the re-run stayed as `aermod.out`
+  and the earlier, successful `<deck>.out` survived: when an edited deck
+  was re-run and the re-run timed out, `resume_batch` still called it
+  done. A run that wrote no `.out` at all was judged by the one an earlier
+  run had left. Now `resume_batch` applies `AERMODRunner.run`'s own test
+  (AERMOD's `*** AERMOD Finishes Successfully ***` line and no fatal error
+  in the final message summary) and requires the `.out` to come from the
+  deck as it is now: AERMOD copies the runstream to the top of the `.out`,
   and `resume_batch` compares that copy with the deck's text, so a deck
   written again with the same content stays done and an edited one does
   not, whatever the file times say. File times decide only what the copy
   cannot show: a deck with `NO ECHO`, and the files named on `INCLUDED`
-  records, are stale when newer than the `.out`. `run` removes the deck's `.out`, `.err` and `.sum` and any
-  leftover `aermod.out`, `.err` and `.sum` before it starts AERMOD, and
-  keeps a timed-out run's partial output as `<deck>.out`, reported in
-  `output_file`. **A timed-out or crashed re-run no longer leaves the
-  earlier run's output in place.**
+  records, are stale when newer than the `.out`. `run` removes the deck's
+  `.out`, `.err` and `.sum` and any leftover `aermod.out`, `.err` and
+  `.sum` before it starts AERMOD, and keeps a timed-out run's partial
+  output as `<deck>.out`, reported in `output_file`. **A timed-out or
+  crashed re-run no longer leaves the earlier run's output in place.**
 - **`AERMODRunner.run` deleted a deck named `aermod.inp`, EPA's default
   name.** It replaced `<working_dir>/aermod.inp` with a link to the deck,
   which was that same file, so the deck was deleted, the link pointed to
@@ -664,13 +663,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that did not exist there; it now holds the deck's path relative to the
   working directory.
 - **A killed AERMOD run was reported as "AERMOD did not report
-  success".** A run stopped by a signal (the pilot ended its slowest
-  run, an area source, with SIGTERM) now reads "AERMOD was stopped by
+  success".** A run stopped by a signal (for instance, a slow
+  area-source run stopped with SIGTERM) now reads "AERMOD was stopped by
   SIGTERM (signal 15) before it finished; its output ends where the run
   was cut off", and a timeout reads "Execution timed out after N
   seconds; AERMOD was stopped before it finished". The runner recordings
   in `tests/fixtures/runner/` gain a run killed with SIGTERM part way
-  through, and the audit's E322 (OPENPIT release height above the pit's
+  through, and E322 (OPENPIT release height above the pit's
   effective depth) and E140 (SRCGROUP inside a source block) decks, both
   of which AERMOD ends with exit code 0 and which the runner reports as
   failures.
@@ -1009,9 +1008,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `regulatory_parity.score_postfile_pair` compares the `concentration`
   columns, so it now raises `KeyError` on such files where it used to
   score the first type under that name; single-type files and files with
-  CONC score as before (keying it on the output type is part of WP-D16's
-  deposition parity). A file with one output type keeps its values in
-  `concentration`, and a CONC DDEP WDEP text file reads as before.
+  CONC score as before (keying it on the output type is left to later
+  work on deposition parity). A file with one output type keeps its
+  values in `concentration`, and a CONC DDEP WDEP text file reads as before.
   `tests/test_postfile_types.py` pins
   this against real AERMOD v26135 runs of every set of types, recorded in
   `tests/fixtures/postfile_types/`, and checks each binary file against
@@ -1043,11 +1042,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the results by value. It named each deck after the value's `str()`,
   which gave 124-character names full of brackets and commas. And every
   deck named the same PLOTFILE in the same directory, so only the last
-  run's `pit.plt` was left: the 2026-09-29 audit's two-distribution
-  sweep ended with one PLOTFILE for two runs. The fix is described under
-  Changed. The sweep's decks still share one directory, whose lock lets
-  one AERMOD run there at a time; `pyaermod.ensemble.run_design` runs
-  them in parallel.
+  run's `pit.plt` was left: a sweep over two distributions ended with
+  one PLOTFILE for two runs. The fix is described under Changed. The
+  sweep's decks still share one directory, whose lock lets one AERMOD
+  run there at a time; `pyaermod.ensemble.run_design` runs them in
+  parallel.
 
 ### Removed
 - `pyaermod.gui_v2.state.AppState`, replaced by

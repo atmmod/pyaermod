@@ -50,7 +50,7 @@ def _stack() -> PointSource:
 
 
 def _pit() -> OpenPitSource:
-    # The pilot's pit (paper/demo pilot, DBG deck): AREA debug needs an
+    # An open pit with deposition: AREA debug needs an
     # AREA, LINE or OPENPIT source and DEPOS debug needs deposition.
     return OpenPitSource(
         "PIT", -500.0, -350.0, emission_rate=9.0e-6, x_dimension=1000.0,
@@ -121,7 +121,7 @@ def test_receptor_fields_are_read_without_defaults(label, control, flags, tmp_pa
     assert not (_messages(tmp_path) & UNWANTED), f"{label}:\n{deck}"
 
 
-def test_pilot_debugopt_deck_needs_no_text_patch(tmp_path):
+def test_debugopt_area_depos_deck_needs_no_text_patch(tmp_path):
     """DEBUGOPT AREA DEPOS on an OPENPIT deposition run passes DEBOPT's E194 checks."""
     control = _ctl(terrain_type=TerrainType.ELEVATED, pollutant_id="PM10",
                    averaging_periods=["24", "PERIOD"],

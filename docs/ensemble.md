@@ -262,8 +262,8 @@ share a machine slow each other down, so each run's own time is longer
 than it would be alone. To measure the speed-up, time the same design
 with `n_workers=1`.
 
-On 2026-09-30 we measured this for WP-D5's acceptance on a 12-core Apple
-M2 Pro, with a gfortran 15.2 `-O2 -fbounds-check` build of AERMOD v26135:
+On 2026-09-30 we measured this on a 12-core Apple M2 Pro, with a
+gfortran 15.2 `-O2 -fbounds-check` build of AERMOD v26135:
 
 - **The design.** Four single-bin OPENPIT runs on EPA's Cordero Mine
   met: 720 hours, with `NOCHKD` because the days alternate. Each run had

@@ -168,7 +168,7 @@ def _psds():
 
 
 class TestSizeDistributionSweep:
-    """The 2026-09-29 audit's sweep: ``particle_deposition`` over two size
+    """A sweep of ``particle_deposition`` over two size
     distributions crashed with ``TypeError: unhashable type:
     'ParticleDepositionParams'`` after every run had finished, and named
     each deck after the value's repr (124 characters, with brackets and
