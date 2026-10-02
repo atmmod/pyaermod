@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Optional, Union
 import numpy as np
 import pandas as pd
 
+from ._fortran import fortran_float
+
 if TYPE_CHECKING:
     from .pathways import OutputPathway
 
@@ -524,7 +526,7 @@ def _read_maxdaily_like(path: Union[str, Path], kind: str) -> pd.DataFrame:
                 )
             netid = parts[11] if len(parts) > 11 else ""
             rows.append((
-                float(parts[0]), float(parts[1]), float(parts[2]),
+                float(parts[0]), float(parts[1]), fortran_float(parts[2]),
                 float(parts[3]), float(parts[4]), float(parts[5]),
                 parts[6], parts[7], int(parts[8]), int(parts[9]),
                 parts[10].zfill(8), netid,

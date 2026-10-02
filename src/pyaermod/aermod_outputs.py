@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from ._fortran import fortran_float
 from ._optional import optional_import, require
 
 pd = optional_import("pandas")
@@ -282,7 +283,7 @@ def _split_header_and_rows(text: str) -> Tuple[List[str], List[str]]:
 def _coerce(tok: str) -> Any:
     try:
         if "." in tok or "e" in tok.lower():
-            return float(tok)
+            return fortran_float(tok)
         return int(tok)
     except ValueError:
         return tok
@@ -512,7 +513,10 @@ _EVENT_PER_RE = re.compile(
     r"\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)")
 _EVENT_GROUP_RE = re.compile(r"GROUP ID:\s*(\S+)\s+OF SOURCES:")
 _EVENT_VALUE_RE = re.compile(r"\*\*\* GROUP VALUE =\s*([-\d.Ee+]+)\s*\*\*\*")
-_EVENT_PAIR_RE = re.compile(r"(\S+)\s+([-\d.]+(?:[Ee][-+]?\d+)?)")
+# A source ID and its E13.6 contribution. The sign class takes "+" as
+# well as "-", so an E-free exponent of either sign (0.282465-103,
+# 0.282465+101) stays in the value rather than ending it.
+_EVENT_PAIR_RE = re.compile(r"(\S+)\s+([-+\d.]+(?:[Ee][-+]?\d+)?)")
 
 
 def read_event_output(filepath: Union[str, Path]) -> List[EventContribution]:
@@ -550,14 +554,14 @@ def read_event_output(filepath: Union[str, Path]) -> List[EventContribution]:
             continue
         m = _EVENT_VALUE_RE.search(line)
         if m:
-            current.group_value = float(m.group(1))
+            current.group_value = fortran_float(m.group(1))
             continue
         if "SOURCE ID" in line and "CONTRIBUTION" in line:
             in_table = True
             continue
         if in_table and line.strip() and not line.lstrip().startswith("-"):
             for sid, value in _EVENT_PAIR_RE.findall(line):
-                current.contributions[sid] = float(value)
+                current.contributions[sid] = fortran_float(value)
     return events
 
 

@@ -575,6 +575,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory, and then any other `.PLT` or `.PST` file the run wrote
   there; so an EPA-layout run has its map, its downloads and a design
   value from its 1-hour POSTFILE.
+- **Values below 1e-99 were lost or returned as text.** With `OU
+  FILEFORM EXP` AERMOD writes Fortran `E13.6` (`E14.6` in the summary
+  tables, `E13.6` in an EVENT run's source contributions, `E17.6` in the
+  `EVENTFIL` it writes), and Fortran drops the E when the exponent needs
+  three digits: 2.82465e-104 is printed `0.282465-103`. `read_plotfile`,
+  `read_maxifile`, `read_rankfile` and the other
+  `pyaermod.aermod_outputs` readers returned such a value as the string
+  `'0.282465-103'`, so a PLOTFILE column held a mix of floats and
+  strings, and `ensemble.collect_plotfiles` wrote that column to its
+  `.npz` as text; the POSTFILE reader (`read_postfile`, on POSTFILEs and
+  PLOTFILEs) silently dropped the whole row; `AERMODOutputParser`
+  dropped those rows of the summary tables, and a table all of whose
+  rows were that small disappeared; `read_event_output` raised
+  `ValueError`, and read a contribution with a positive E-free exponent
+  (`0.282465+101`) as `0.282465`; `read_aermod_input` on an `EVENTFIL`
+  dropped every such `EVENTPER` and with it its `EVENTLOC`, so the
+  parsed `EventPathway` was empty; and `read_maxdaily` would have raised
+  `ValueError`. They now all read a mantissa with a decimal point
+  followed by a signed three-digit exponent as the number it is, and
+  read anything else exactly as before: a two-digit exponent without
+  the E (`0.282465-10`), a mantissa without a point (`282465-103`) or
+  trailing characters (`0.28246-5-10`) is still not a number. Pinned by
+  three recorded v26135 runs in `tests/fixtures/fortran_exponents/`: an
+  open pit whose plume is washed out by the 137.2 mm hour of EPA's
+  Cordero met, so that receptors 15 to 27 km downwind get 1e-103 to
+  1e-193 in the POSTFILE, the PLOTFILEs, the MAXIFILE, the RANKFILE, the
+  `EVENTFIL`, the `aermod.out` tables and an EVENT run's source
+  contributions.
+- **An event deck read from an `EXP` `EVENTFIL` and written again made
+  AERMOD warn that the events did not match.** `EventPeriod` wrote its
+  concentration as `F17.5`, so `0.306833E-01` went back as `0.03068`,
+  and AERMOD, which checks each event's result against that value to a
+  relative 2e-6, issued `W497 ... EVENT mismatch` for it. The value is
+  now written as `F17.5` only when that keeps it (every `FIX`
+  `EVENTFIL` value), and otherwise in E form with the digits that give
+  it back (`3.06833E-02`). AERMOD refuses an exponent beyond 30 in an
+  input field (E208), so a value such as `0.282465-103` is still
+  written `0.00000`, which AERMOD leaves unchecked, as it leaves its own
+  `0.282465-103` (setup.f `STODBL` reads that field as a negative
+  number). Checked by running both rewrites with AERMOD v26135.
 - **Receptor elevations were not written under elevated terrain, so
   AERMOD used zero with a warning.** `CartesianGrid.z_elev` and `.z_hill`
   were never written: every grid of an ELEV run (or a FLAT run under
@@ -1269,6 +1309,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
   `mark_clean()` are replaced by the operations that change or save the
   project. `pyaermod.gui_v2.state._empty_project()` is still importable.
+
 ## [2.2.0] - YYYY-MM-DD
 
 <!-- YYYY-MM-DD is a placeholder: RELEASING.md sets it to the day the GitHub release is published. -->
