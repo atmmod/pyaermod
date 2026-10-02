@@ -12,6 +12,7 @@ or :mod:`pyaermod.api`.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1542,6 +1543,38 @@ class EventLocation:
         return text
 
 
+#: The largest exponent AERMOD's number reader (setup.f STODBL) takes;
+#: beyond it a field is an illegal number (E208).
+_STODBL_MAX_EXPONENT = 30
+
+
+def _event_conc_field(value: float) -> str:
+    """The ``EVENTPER`` concentration as a 17-wide field AERMOD reads back.
+
+    An EVENT run checks its result against this value to a relative
+    2e-6 (evcalc.f EVLOOP, W497), so it is written as ``F17.5``, as a
+    ``FILEFORM FIX`` EVENTFIL has it, only when that keeps the value.
+    Otherwise (an ``EXP`` EVENTFIL's ``0.306833E-01``) it is written in
+    E form with the digits that give it back, as long as the exponent is
+    one STODBL accepts. A value further from 1 than that, such as an
+    ``EXP`` file's ``0.282465-103``, has no field AERMOD reads; it is
+    written ``0.00000``, which AERMOD takes as unknown and does not check,
+    as it does not check that ``EXP`` field (STODBL reads it as a
+    negative number). A NaN or infinite value has no E form; it is
+    written ``F17.5`` (``nan``, ``inf``), as before.
+    """
+    fixed = f"{value:17.5f}"
+    if not math.isfinite(value) or float(fixed) == value:
+        return fixed
+    for digits in range(17):
+        text = f"{value:#.{digits}E}"
+        if float(text) == value:
+            break
+    if abs(int(text.partition("E")[2])) > _STODBL_MAX_EXPONENT:
+        return fixed
+    return f"{text:>17}"
+
+
 @dataclass
 class EventPeriod:
     """``EV EVENTPER evname aveper grpid date conc``: one event.
@@ -1586,7 +1619,7 @@ class EventPeriod:
         name = f"{self.event_name:<{EVENT_NAME_LENGTH}}"
         lines = [
             f"   EVENTPER {name} {int(self.averaging_period):3d}  "
-            f"{self.source_group:<8}   {self.date_text} {self.original_conc:17.5f}"
+            f"{self.source_group:<8}   {self.date_text} {_event_conc_field(self.original_conc)}"
         ]
         if self.location is not None:
             lines.append(f"   EVENTLOC {name} {self.location.to_aermod_fields()}")

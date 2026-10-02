@@ -1,0 +1,261 @@
+CO STARTING
+   TITLEONE  Three-digit exponents in an EVENT run's source contributions
+   MODELOPT  CONC ELEV DFAULT
+   AVERTIME  1
+   POLLUTID  OTHER
+   RUNORNOT  RUN
+CO FINISHED
+SO STARTING
+   LOCATION  PIT      OPENPIT    -500.0000    -500.0000     0.00
+   SRCPARAM  PIT        0.000010     0.00  1000.00  1000.00 100000000.00
+   PARTDIAM  PIT      6.055
+   MASSFRAX  PIT      1.000000
+   PARTDENS  PIT      2.65
+   LOCATION  PIT2     OPENPIT   -1500.0000    -500.0000     0.00
+   SRCPARAM  PIT2       0.000010     0.00   500.00   500.00  10000000.00
+   PARTDIAM  PIT2     6.055
+   MASSFRAX  PIT2     1.000000
+   PARTDENS  PIT2     2.65
+   SRCGROUP  ALL
+SO FINISHED
+ME STARTING
+   SURFFILE  CORDERO_1993-05-21.SFC
+   PROFFILE  CORDERO_1993-05-21.PFL
+   SURFDATA  24090  1993
+   UAIRDATA  24090  1993
+   PROFBASE  1000.0  METERS
+ME FINISHED
+EV STARTING
+   EVENTPER  NEAR  1  ALL  93052120  0.0
+   EVENTLOC  NEAR  XR=  1732.05  YR=  1000.00  0.0  0.0  0.0
+   EVENTPER  FAR   1  ALL  93052120  0.0
+   EVENTLOC  FAR   XR= 12833.05  YR=  7427.88  0.0  0.0  0.0
+EV FINISHED
+OU STARTING
+   EVENTOUT  SOCONT
+   FILEFORM  EXP
+OU FINISHED
+
+
+  *** Message Summary For AERMOD Model Setup ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      27       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
+
+ ***********************************
+ *** SETUP Finishes Successfully ***
+ ***********************************
+
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   1
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+
+                                            ***     MODEL SETUP OPTIONS SUMMARY       ***
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ ** Model Options Selected:
+      * Model Uses Regulatory DEFAULT Options
+      * Model Is Setup For Calculation of Average CONCentration Values.
+      * NO GAS DEPOSITION Data Provided.
+      * PARTICLE DEPOSITION Data Provided.
+      * Model Uses DRY DEPLETION. DDPLETE  =  T
+      * Model Uses WET DEPLETION. WETDPLT  =  T
+      * Stack-tip Downwash.
+      * Model Accounts for ELEVated Terrain Effects.
+      * Use Calms Processing Routine.
+      * Use Missing Data Processing Routine.
+      * No Exponential Decay.
+      * Model Uses RURAL Dispersion Only.
+      * CCVR_Sub - Meteorological data includes CCVR substitutions
+      * Model Assumes No FLAGPOLE Receptor Heights. 
+      * The User Specified a Pollutant Type of: OTHER   
+  
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
+  
+ **This Run is for EVENT Processing.
+ **         and Includes:      2 Source(s);       1 Source Group(s); and       2 Event(s)
+
+                with:      0 POINT(s), including
+                           0 POINTCAP(s) and      0 POINTHOR(s)
+                 and:      0 VOLUME source(s)
+                 and:      0 AREA type source(s)
+                 and:      0 LINE source(s)
+                 and:      0 RLINE/RLINEXT source(s)
+                 and:      2 OPENPIT source(s)
+                 and:      0 BUOYANT LINE source(s) with a total of     0 line(s)
+                 and:      0 SWPOINT source(s)
+
+  
+ **Model Set To Continue RUNning After the Setup Testing.
+
+ **The AERMET Input Meteorological Data Version Date:  26135
+  
+ **Output Options Selected:
+          Model Outputs Source Contribution Information Only for EVENT Processing (SOCONT Option)
+  
+ **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
+                                                                 m for Missing Hours
+                                                                 b for Both Calm and Missing Hours
+  
+ **Misc. Inputs:  Base Elev. for Pot. Temp. Profile (m MSL) =  1000.00 ;  Decay Coef. =    0.000     ;  Rot. Angle =     0.0
+                  Emission Units = GRAMS/SEC                                ;  Emission Rate Unit Factor =   0.10000E+07
+                  Output Units   = MICROGRAMS/M**3                         
+  
+ **Input Runstream File:          aermod.inp                                                                                      
+ **Output Print File:             aermod.out                                                                                      
+
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   2
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+
+
+                                                  *** OPENPIT SOURCE DATA ***
+
+               NUMBER EMISSION RATE  COORD (SW CORNER)  BASE     RELEASE  X-DIM     Y-DIM    ORIENT.    VOLUME   URBAN  EMISSION RATE
+   SOURCE       PART.  (GRAMS/SEC       X        Y      ELEV.    HEIGHT  OF PIT    OF PIT    OF PIT     OF PIT   SOURCE  SCALAR VARY
+     ID         CATS.   /METER**2)   (METERS) (METERS) (METERS) (METERS) (METERS)  (METERS)   (DEG.)    (M**3)               BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ PIT              1   0.10000E-04    -500.0    -500.0     0.0     0.00   1000.00   1000.00      0.00   .10000E+09  NO           
+ PIT2             1   0.10000E-04   -1500.0    -500.0     0.0     0.00    500.00    500.00      0.00   .10000E+08  NO           
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   3
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+
+
+                                           *** SOURCE IDs DEFINING SOURCE GROUPS ***
+
+ SRCGROUP ID                                              SOURCE IDs
+ -----------                                              ----------
+
+
+  ALL        PIT         , PIT2        ,
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   4
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+
+                                                *** SOURCE PARTICULATE/GAS DATA ***
+
+
+
+
+        *** SOURCE ID = PIT         ; SOURCE TYPE = OPENPIT  ***
+
+        MASS FRACTION =
+            1.00000, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            6.05500, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000, 
+
+
+        *** SOURCE ID = PIT2        ; SOURCE TYPE = OPENPIT  ***
+
+        MASS FRACTION =
+            1.00000, 
+
+        PARTICLE DIAMETER (MICRONS) =
+            6.05500, 
+
+        PARTICLE DENSITY (G/CM**3)  =
+            2.65000, 
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   5
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+
+                                            *** METEOROLOGICAL DAYS SELECTED FOR PROCESSING ***
+                                                               (1=YES; 0=NO)
+
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   1 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0   0 0 0 0 0 0 0 0 0 0
+            0 0 0 0 0 0 0 0 0 0   0 0 0 0 0
+
+                       METEOROLOGICAL DATA PROCESSED BETWEEN START DATE: 1993   5 21  0
+                                                           AND END DATE: 1993   5 21 24
+
+                NOTE:  METEOROLOGICAL DATA ACTUALLY PROCESSED WILL ALSO DEPEND ON WHAT IS INCLUDED IN THE DATA FILE.
+
+
+
+                                  *** UPPER BOUND OF FIRST THROUGH FIFTH WIND SPEED CATEGORIES ***
+                                                            (METERS/SEC)
+
+                                                 1.54,   3.09,   5.14,   8.23,  10.80,
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   6
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+                                          *** SOURCE CONTRIBUTIONS FOR EVENT: NEAR       ***
+
+ ---> AVE. PER.:   1 HRS;  END DATE:  93052120;  LOCATION (XR,YR,ZELEV,ZFLAG):    1732.05    1000.00       0.00       0.00 (M)
+
+ GROUP ID: ALL      OF SOURCES: PIT         , PIT2        , 
+
+   *** GROUP VALUE =   0.568898E-13 ***
+
+   SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION 
+ -------------    ------------            -------------    ------------            -------------    ------------ 
+  PIT             0.568898E-13             PIT2            0.205726E-22
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   7
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+                                          *** SOURCE CONTRIBUTIONS FOR EVENT: FAR        ***
+
+ ---> AVE. PER.:   1 HRS;  END DATE:  93052120;  LOCATION (XR,YR,ZELEV,ZFLAG):   12833.05    7427.88       0.00       0.00 (M)
+
+ GROUP ID: ALL      OF SOURCES: PIT         , PIT2        , 
+
+   *** GROUP VALUE =   0.282465-103 ***
+
+   SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION              SOURCE ID      CONTRIBUTION 
+ -------------    ------------            -------------    ------------            -------------    ------------ 
+  PIT             0.282465-103             PIT2            0.378148-112
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents in an EVENT run's source contributions        ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:19:59
+                                                                                                                       PAGE   8
+ *** MODELOPTs:   RegDFAULT CONC      ELEV      DRYDPLT   WETDPLT   RURAL     SigA Data
+
+ *** Message Summary : AERMOD Model Execution ***
+
+  --------- Summary of Total Messages --------
+  
+ A Total of            0 Fatal Error Message(s)
+ A Total of            1 Warning Message(s)
+ A Total of            0 Informational Message(s)
+  
+  
+    ******** FATAL ERROR MESSAGES ******** 
+               ***  NONE  ***         
+  
+  
+    ********   WARNING MESSAGES   ******** 
+ MX W403      27       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
+
+    ************************************
+    *** AERMOD Finishes Successfully ***
+    ************************************
+

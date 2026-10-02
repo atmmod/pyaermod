@@ -1,0 +1,13 @@
+* AERMOD (26135 ):  Three-digit exponents: CONC only, so two more output files use E13.     10/02/26
+* AERMET ( 26135):                                                                          16:03:09
+* MODELING OPTIONS USED:   RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
+*         PLOT FILE OF  HIGH   1ST HIGH  1-HR VALUES FOR SOURCE GROUP: ALL     
+*         FOR A TOTAL OF     5 RECEPTORS.
+*         FORMAT: (2(1X,F13.5),1X,E13.6,3(1X,F8.2),3X,A5,2X,A8,2X,A5,5X,A8,2X,I8)                                                                                                                                         
+*        X             Y      AVERAGE CONC    ZELEV    ZHILL    ZFLAG    AVE     GRP       RANK     NET ID   DATE(CONC)
+* ____________  ____________  ____________   ______   ______   ______  ______  ________  ________  ________  ________
+   12833.05000    7427.88000  0.282465-103     0.00     0.00     0.00    1-HR  ALL         1ST               93052120
+   13663.68000    5682.30000  0.782577-103     0.00     0.00     0.00    1-HR  ALL         1ST               93052120
+   14241.02000    3837.02000  0.149224-104     0.00     0.00     0.00    1-HR  ALL         1ST               93052120
+   17375.34000   10050.29000  0.841488-140     0.00     0.00     0.00    1-HR  ALL         1ST               93052120
+   23602.25000   13645.31000  0.971887-190     0.00     0.00     0.00    1-HR  ALL         1ST               93052120
