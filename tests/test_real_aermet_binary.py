@@ -11,15 +11,14 @@ test_real_aermod.py and test_real_aermap.py.
 * A METPREP deck with NWS surface data only and the default ``methods``
   runs: the writer adds ``METHOD REFLEVEL SUBNWS``, without which AERMET
   26135 stops with E87.
-* Check V12 of the demonstration study: pyaermod's decks for EPA's
-  Cordero test case (upper air, ISHD surface and on-site data) reproduce
-  EPA's ``CORDERO_FULL.SFC`` and ``.PFL`` field by field, and its decks
-  for EX04 (Houston: FSL upper air, ISHD surface, a full year) reproduce
-  ``HOUSTON.SFC`` and ``.PFL``. The reference files are AERMET 24142's,
-  so the comparison with them runs on a 24142 binary; on any version the
-  output is compared with what EPA's own decks produce on the same
-  binary. Needs EPA's AERMET test cases (``aermet_test_cases/``, not
-  committed).
+* pyaermod's decks for EPA's Cordero test case (upper air, ISHD surface
+  and on-site data) reproduce EPA's ``CORDERO_FULL.SFC`` and ``.PFL``
+  field by field, and its decks for EX04 (Houston: FSL upper air, ISHD
+  surface, a full year) reproduce ``HOUSTON.SFC`` and ``.PFL``. The
+  reference files are AERMET 24142's, so the comparison with them runs
+  on a 24142 binary; on any version the output is compared with what
+  EPA's own decks produce on the same binary. Needs EPA's AERMET test
+  cases (``aermet_test_cases/``, not committed).
 """
 
 from __future__ import annotations
@@ -72,7 +71,7 @@ def _ex01_stages():
 
 
 def _normalized(path: Path) -> list:
-    """Lines of an SFC/PFL file with blanks collapsed (the V12 comparison)."""
+    """Lines of an SFC/PFL file with blanks collapsed, for a field-by-field comparison."""
     return [" ".join(line.split()) for line in path.read_text().replace("\r", "").splitlines()]
 
 
@@ -230,8 +229,8 @@ def _cordero_dir(tmp_path: Path, name: str) -> Path:
 
 
 @needs_cordero
-def test_v12_cordero_reproduces_epa_output(tmp_path):
-    """V12: pyaermod's Cordero decks give EPA's SFC and PFL, field by field."""
+def test_cordero_reproduces_epa_output(tmp_path):
+    """pyaermod's Cordero decks give EPA's SFC and PFL, field by field."""
     ours = _cordero_dir(tmp_path, "pyaermod")
     stage1, stage3 = cordero_stages()
     results = run_aermet_pipeline(stage1, None, stage3, working_dir=ours, timeout=600)

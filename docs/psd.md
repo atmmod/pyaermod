@@ -154,8 +154,8 @@ rate. The two ends are treated differently:
   truncated at 0.5 microns, or cut points with `lower` below the first
   edge) is not in the anchor's mass either, so the anchor's whole rate is
   spread over the bins: that fine mass is reassigned, not lost. This is
-  the study plan's rule that a member's modelled mass below 30 microns
-  equals the AP-42 PM30 emission.
+  what makes a distribution's modelled mass below 30 microns
+  equal the AP-42 PM30 emission.
 - **Above the last edge.** When the bins stop short of the anchor, the
   mass between the last edge and the anchor is part of the anchor's mass
   but not of the bins, so it is lost and `anchor_ratio` falls below 1.

@@ -241,7 +241,7 @@ def _read_sfc_hours(path: Path) -> Tuple[List[Hour], List[float], List[bool]]:
 def ap42_wind_profile(sfc_file: Union[str, Path], *,
                       u_min: float = 0.6, u_max: float = 6.7,
                       exponent: float = 1.3, u_ref: float = 2.2) -> WindEmissionProfile:
-    """Build the AP-42 batch-drop wind profile ("profile W") from a .SFC file.
+    """Build the AP-42 batch-drop wind profile from a .SFC file.
 
     Parameters
     ----------

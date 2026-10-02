@@ -15,8 +15,9 @@ Skips if `aermod` isn't on PATH. When it's present, this module:
    fatal error E480 at run time and E500 at setup, both of which AERMOD
    ends with exit code 0) and checks that the runner takes AERMOD's
    verdict from the .out file and that the recordings still match; runs
-   the audit's E322 and E140 decks recorded there; and stops a run with
-   SIGTERM part way through to check that the result names the signal.
+   the E322 (OPENPIT) and E140 (SRCGROUP) decks recorded there; and stops
+   a run with SIGTERM part way through to check that the result names the
+   signal.
 
 Step 4's full-field comparison is the regulatory-grade check: it proves
 pyaermod drives the real AERMOD Fortran to reproduce EPA's own published
@@ -279,8 +280,8 @@ def test_run_status_setup_error_e500(tmp_path):
     ("setup_error_e322_openpit", "E322"),
     ("setup_error_e140_srcgroup", "E140"),
 ])
-def test_run_status_audit_setup_errors(tmp_path, case, code):
-    """The 2026-09-29 audit's OPENPIT (E322) and SRCGROUP (E140) decks fail."""
+def test_run_status_openpit_srcgroup_setup_errors(tmp_path, case, code):
+    """The recorded OPENPIT (E322) and SRCGROUP (E140) decks fail."""
     result = _run_recorded_deck(case, tmp_path)
     assert result.return_code == 0
     assert result.success is False

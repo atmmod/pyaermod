@@ -2,9 +2,9 @@
 
 ``AERMODRunner.run_batch`` used to return its results in the order the
 runs finished, so ``zip(input_files, results)`` paired decks with other
-decks' results; the 2026-09-29 pilot had to re-key its first batch by
-hand. ``resume_batch`` used to count a deck as done when the last 50
-lines of its ``.out`` mentioned "FINISHES SUCCESSFULLY", which the
+decks' results and callers had to re-key them by hand. ``resume_batch``
+used to count a deck as done when the last 50 lines of its ``.out``
+mentioned "FINISHES SUCCESSFULLY", which the
 ``*** SETUP Finishes Successfully ***`` line of a failed or killed run
 also satisfies, and it took the ``.out`` of an earlier run, or of an
 earlier version of the deck, for the current one. It now compares the
@@ -92,7 +92,7 @@ class TestResumeBatch:
     def test_deck_written_again_unchanged_is_done(self, tmp_path, case):
         """A script that writes every deck again before resuming skips nothing it need not.
 
-        ``BatchRunner.parameter_sweep`` and the demonstration study
+        ``BatchRunner.parameter_sweep`` and scripts built like it
         write each deck and then resume. An earlier version of this
         check called an ``.out`` older than its deck stale, so that
         workflow re-ran every deck.
@@ -162,7 +162,7 @@ class TestResumeBatch:
 
 @posix_only
 def test_timed_out_rerun_is_todo(tmp_path):
-    """The pilot's case: a good run, the deck re-run, and the re-run times out.
+    """A good run, the deck re-run, and the re-run times out.
 
     The runner used to skip renaming aermod.out on a timeout, so the
     first run's ``run.out`` survived under the deck's name and

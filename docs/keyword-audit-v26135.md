@@ -409,7 +409,7 @@ not get is a field on the model, for the reason given.
 `ERRORFIL` (CO): the file name of AERMOD's message file; it changes no
 result, and modelling it would invite callers to set it where the runner
 already manages the run directory. (`DEBUGOPT` was stored this way
-until the demonstration study needed AREA and DEPOS debug output; it is
+until a caller needed AREA and DEPOS debug output; it is
 now `ControlPathway.debug_options`.)
 `NO2EQUIL` (CO): the equilibrium NO2/NOx ratio of the OLM/PVMRM options,
 one number AERMOD defaults to 0.90; kept verbatim until a caller needs it

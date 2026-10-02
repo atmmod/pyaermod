@@ -184,7 +184,7 @@ class TestSourceGroupAllTypes:
     block, after every source, for every source type.
 
     The source writers used to put ``SRCGROUP grp srcid`` among their own
-    cards, so the next source's LOCATION was fatal: the audit's two-OPENPIT
+    cards, so the next source's LOCATION was fatal: a two-OPENPIT
     deck stopped with SO E140 on v26135. And a source naming group ALL
     wrote ``SRCGROUP ALL srcid``, which is E203 (soset.f SOGRP reads only
     BACKGROUND/NOBACKGROUND after ALL), so even ``create_example_project()``

@@ -1,4 +1,4 @@
-"""Oracle decks for WP-D2: every rule the validator gains, run through AERMOD v26135."""
+"""Oracle decks for the OPENPIT validator: every rule it gains, run through AERMOD v26135."""
 import sys
 from pathlib import Path
 

@@ -159,7 +159,7 @@ class TestE322ReleaseHeightAboveDepth:
         assert not _findings(result, "E322")
 
     def test_write_refuses_the_deck(self, tmp_path):
-        # The audit's D_hs_gt_depth deck: 150 m release in a 100 m-deep pit,
+        # The D_hs_gt_depth deck: 150 m release in a 100 m-deep pit,
         # which AERMOD refused at setup while pyaermod only warned.
         project = _project([_pit(release_height=150.0,
                                  particle_deposition=_pm([1, 2.5, 5, 10, 20]))])
@@ -305,8 +305,8 @@ class TestReceptorsInsideThePit:
             assert f"({x:.1f}, {y:.1f})" in warning.message
 
     def test_counts_the_grid_nodes_inside(self):
-        # The audit's 21 x 21, 100 m grid around a 600 x 400 m pit: AERMOD
-        # reported 0 at exactly the 5 x 3 interior nodes (E_25bins).
+        # A 21 x 21, 100 m grid around a 600 x 400 m pit: AERMOD
+        # reported 0 at exactly the 5 x 3 interior nodes.
         grid = CartesianGrid(grid_name="G1", x_init=-1000, x_num=21, x_delta=100,
                              y_init=-1000, y_num=21, y_delta=100)
         result = Validator.validate(_project([_pit()], ReceptorPathway(cartesian_grids=[grid])))
