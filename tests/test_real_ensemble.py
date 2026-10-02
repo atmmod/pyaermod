@@ -7,7 +7,7 @@ With AERMOD v26135, the release the recordings in
 ``tests/fixtures/ensemble/`` were made with, it also checks that the
 PLOTFILE values match them to AERMOD's print precision (the replaying
 tests in ``tests/test_ensemble.py`` rely on those). A sweep over two
-particle size distributions (the 2026-09-29 audit's crash) must return
+particle size distributions (which used to crash) must return
 one result per distribution. The design's ``extras`` row, whose hourly
 emission file, second POSTFILE and 2ND PLOTFILE the model holds only as
 lines kept verbatim, must keep every output in its run directory, and

@@ -11,9 +11,9 @@ These tests pin that rule against real AERMOD v26135 runs recorded in
   averages with four days of met data), the GUI's "Run succeeded" bug;
 * ``setup_error_e500/``: exits 0 after fatal error E500 (a missing
   surface file) during setup;
-* ``setup_error_e322_openpit/`` and ``setup_error_e140_srcgroup/``: the
-  2026-09-29 audit's OPENPIT deck with its release height above the
-  pit's effective depth (E322) and its two-pit deck with SRCGROUP inside
+* ``setup_error_e322_openpit/`` and ``setup_error_e140_srcgroup/``: an
+  OPENPIT deck with its release height above the
+  pit's effective depth (E322) and a two-pit deck with SRCGROUP inside
   the source blocks (E140), both fatal at setup with exit code 0;
 * ``killed_sigterm/``: a run stopped with SIGTERM part way through, which
   the fake replays by killing itself with the same signal.
@@ -383,8 +383,8 @@ class TestRunnerVerdict:
         (E322, ["E322"]),
         (E140, ["E140", "E140"]),
     ], ids=["e322_openpit", "e140_srcgroup"])
-    def test_audit_setup_errors_fail(self, replay_bin, tmp_path, case, codes):
-        """The audit's E322 and E140 decks: exit code 0, fatal at setup."""
+    def test_openpit_srcgroup_setup_errors_fail(self, replay_bin, tmp_path, case, codes):
+        """The E322 and E140 decks: exit code 0, fatal at setup."""
         result = _run(case, replay_bin, tmp_path / "w")
         assert result.return_code == 0
         assert result.success is False

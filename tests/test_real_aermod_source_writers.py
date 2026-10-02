@@ -1,7 +1,7 @@
 """The source writers' decks, run through a real AERMOD binary.
 
 Skips unless ``aermod`` is on PATH (as tests/test_real_aermod.py does).
-Each case is an acceptance check of the demonstration study's WP-D3:
+Each case is an acceptance check of a source-writer fix:
 
 * two OPENPIT sources in one group through their ``source_groups``: the
   writer used to put ``SRCGROUP`` among the source cards, and v26135

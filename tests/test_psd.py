@@ -38,21 +38,21 @@ from pyaermod.sources import AreaSource, ParticleDepositionParams
 FIXTURE = Path(__file__).parent / "fixtures" / "psd"
 ROOT = Path(__file__).resolve().parents[1]
 
-# The demonstration study's sixteen basis bins (microns, aerodynamic).
+# Sixteen aerodynamic bins from 0.5 to 75 um (edges in microns).
 EDGES = [0.5, 1, 1.6, 2.5, 3.5, 5, 7, 10, 12.5, 15, 20, 25, 30, 40, 50, 62.5, 75]
 
 # AP-42 section 13.2.4 (aggregate handling and storage piles), Equation 1:
 # particle size multiplier k for the mass below each aerodynamic size.
 AP42_1324_K = {2.5: 0.053, 5: 0.20, 10: 0.35, 15: 0.48, 30: 0.74}
 
-# The basis-bin table of PLAN-demo-study.md ("Size bins, size distributions
-# and diameter convention"): d_mm, d_se and the P1 fraction (of PM30).
-PLAN_D_MM = [0.78, 1.32, 2.08, 3.03, 4.29, 6.06, 8.59, 11.30, 13.79, 17.62,
-             22.59, 27.58, 35.24, 45.18, 56.48, 68.94]
-PLAN_D_SE = [0.74, 1.29, 2.03, 2.99, 4.23, 5.97, 8.46, 11.23, 13.73, 17.44,
-             22.45, 27.46, 34.88, 44.91, 56.13, 68.66]
-PLAN_P1 = [0.0308, 0.0209, 0.0199, 0.0964, 0.1022, 0.0984, 0.1043, 0.0967,
-           0.0790, 0.1458, 0.1131, 0.0924, 0, 0, 0, 0]
+# On those bins: the mean-mass diameter d_mm, the settling-equivalent
+# diameter d_se, and the AP-42 13.2.4 cut-point fractions (of PM30).
+EXPECTED_D_MM = [0.78, 1.32, 2.08, 3.03, 4.29, 6.06, 8.59, 11.30, 13.79, 17.62,
+                 22.59, 27.58, 35.24, 45.18, 56.48, 68.94]
+EXPECTED_D_SE = [0.74, 1.29, 2.03, 2.99, 4.23, 5.97, 8.46, 11.23, 13.73, 17.44,
+                 22.45, 27.46, 34.88, 44.91, 56.13, 68.66]
+AP42_FRACTIONS = [0.0308, 0.0209, 0.0199, 0.0964, 0.1022, 0.0984, 0.1043, 0.0967,
+                  0.0790, 0.1458, 0.1131, 0.0924, 0, 0, 0, 0]
 
 # EPA surfcoal (aermod test cases, inputs/surfcoal.inp):
 #   SO PARTDIAM A-Z9999999  7.77  3.88  1.85  0.63
@@ -61,7 +61,7 @@ SURFCOAL_DIAMETERS = [0.63, 1.85, 3.88, 7.77]
 SURFCOAL_FRACTIONS = [0.03, 0.07, 0.20, 0.70]
 
 
-def _p1():
+def _ap42_bins():
     return bins_from_cut_points(AP42_1324_K, EDGES)
 
 
@@ -81,10 +81,10 @@ class TestRepresentativeDiameters:
         mean_cube = (b**4 - a**4) / (4 * (b - a))
         assert mean_mass_diameter(a, b) == pytest.approx(mean_cube ** (1 / 3), rel=1e-14)
 
-    def test_plan_table_d_mm_and_d_se(self):
+    def test_d_mm_and_d_se_on_sixteen_bins(self):
         dist = SizeDistribution(tuple(EDGES), tuple([1 / 16] * 16))
-        assert [round(d, 2) for d in dist.diameters()] == PLAN_D_MM
-        assert [round(d, 2) for d in dist.diameters("settling_equivalent")] == PLAN_D_SE
+        assert [round(d, 2) for d in dist.diameters()] == EXPECTED_D_MM
+        assert [round(d, 2) for d in dist.diameters("settling_equivalent")] == EXPECTED_D_SE
 
     def test_settling_equivalent_needs_positive_lower_edge(self):
         with pytest.raises(ValueError, match="above 0"):
@@ -149,24 +149,24 @@ class TestLogLinearCDF:
 
 
 class TestCutPoints:
-    def test_reproduces_plan_p1_column(self):
-        """AP-42 13.2.4 k-values, log-linear from F(0.5) = 0: the plan's P1."""
-        dist = _p1()
-        assert [round(f, 4) for f in dist.mass_fractions] == PLAN_P1
+    def test_reproduces_ap42_fractions(self):
+        """AP-42 13.2.4 k-values, log-linear from F(0.5) = 0."""
+        dist = _ap42_bins()
+        assert [round(f, 4) for f in dist.mass_fractions] == AP42_FRACTIONS
 
-    def test_p1_mass_at_or_above_10um(self):
-        # The plan: "52.7% of mass at >= 10 um" for P1.
-        assert round(_p1().fraction_at_or_above(10), 3) == 0.527
+    def test_ap42_mass_at_or_above_10um(self):
+        # 52.7% of the mass is at or above 10 um.
+        assert round(_ap42_bins().fraction_at_or_above(10), 3) == 0.527
 
-    def test_p1_is_anchored_to_pm30(self):
-        dist = _p1()
+    def test_ap42_is_anchored_to_pm30(self):
+        dist = _ap42_bins()
         assert dist.anchor_ratio == pytest.approx(1.0, abs=1e-15)
         assert dist.truncated_below == 0.0
         assert dist.truncated_above == 0.0
 
     @pytest.mark.parametrize("r, p10, t", [(0.05, 0.2, 0.0), (0.2, 0.6, 0.5), (0.151, 0.473, 0.35)])
     def test_fractions_sum_to_one(self, r, p10, t):
-        """The Sobol family's knots: F(2.5)=r p10, F(10)=p10, F(30)=1, F(50)=1+t."""
+        """Knots of the form F(2.5)=r p10, F(10)=p10, F(30)=1, F(50)=1+t."""
         knots = {2.5: r * p10, 10: p10, 30: 1.0}
         if t:
             knots[50] = 1.0 + t
@@ -212,7 +212,7 @@ class TestCutPoints:
         assert dist.truncated_below == 0.0
 
     def test_mapped_surfcoal_has_no_mass_at_or_above_10um(self):
-        # The plan's P4: surfcoal's fractions as cumulative knots, then the basis.
+        # surfcoal's fractions as cumulative knots, mapped onto the sixteen bins.
         cum = {1: 0.03, 2.5: 0.10, 5: 0.30, 10: 1.0}
         dist = bins_from_cut_points(cum, EDGES)
         assert dist.fraction_at_or_above(10) == 0.0
@@ -250,7 +250,7 @@ class TestLognormal:
         assert dist.mass_fractions[7] == pytest.approx((phi(12.5) - phi(10)) / kept, rel=1e-12)
 
     def test_lognormal_fine_mass_is_reassigned_to_the_bins(self):
-        """P3: the PM30 rate times anchor_ratio puts all of PM30 in 0.5-30 um.
+        """The PM30 rate times anchor_ratio puts all of PM30 in 0.5-30 um.
 
         The convention is that the mass below the first edge is reassigned,
         not lost: the modelled mass below 30 um equals the PM30 rate, so the
@@ -327,7 +327,7 @@ class TestSizeDistribution:
         assert [round(d, 2) for d in dist.to_deposition_params().diameters] == epa_d
 
     def test_deposition_params_write_on_a_source(self):
-        params = _p1().to_deposition_params(density=1.0)
+        params = _ap42_bins().to_deposition_params(density=1.0)
         src = AreaSource(source_id="PIT", x_coord=0.0, y_coord=0.0, emission_rate=1e-5,
                          release_height=0.0, initial_lateral_dimension=100.0,
                          initial_vertical_dimension=50.0, particle_deposition=params)
@@ -338,7 +338,7 @@ class TestSizeDistribution:
         assert abs(sum(float(x) for x in lines["MASSFRAX"]) - 1.0) < 0.02  # AERMOD W330
 
     def test_drop_empty(self):
-        params = _p1().to_deposition_params(drop_empty=True)
+        params = _ap42_bins().to_deposition_params(drop_empty=True)
         assert len(params.diameters) == 12
         assert len(params.mass_fractions) == len(params.densities) == 12
         assert round(params.diameters[-1], 2) == 27.58
@@ -381,10 +381,10 @@ class TestSizeDistribution:
     @pytest.mark.parametrize("density", [0.0, -1.0, math.nan])
     def test_bad_density_rejected(self, density):
         with pytest.raises(ValueError, match="E334"):
-            _p1().to_deposition_params(density=density)
+            _ap42_bins().to_deposition_params(density=density)
 
     def test_fraction_at_or_above(self):
-        dist = _p1()
+        dist = _ap42_bins()
         assert dist.fraction_at_or_above(0.1) == 1.0
         assert dist.fraction_at_or_above(0.5) == 1.0
         assert dist.fraction_at_or_above(75) == 0.0

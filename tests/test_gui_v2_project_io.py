@@ -264,10 +264,10 @@ _DECKS = sorted(
 
 
 def _deposition_project():
-    """The demonstration study's shape: an open pit with size-resolved dry deposition."""
+    """An open pit with size-resolved dry deposition."""
     return AERMODProject(
         control=ControlPathway(
-            title_one="REE mine fugitive dust", pollutant_id="TSP",
+            title_one="Open pit fugitive dust", pollutant_id="TSP",
             averaging_periods=["24", "PERIOD"],
         ),
         sources=SourcePathway(
