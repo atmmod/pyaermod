@@ -18,6 +18,7 @@ from pyaermod.input_reader import (
 )
 from pyaermod.pathways import DEBUG_OPTIONS, ControlPathway, TerrainType
 from pyaermod.sources import DepositionMethod
+from pyaermod.validator import Validator
 
 
 def _ctl(**kw) -> ControlPathway:
@@ -182,11 +183,39 @@ def test_elevated_terrain(terrain, dfault, elevated):
     ("CONC FLAT", TerrainType.FLAT),
     ("CONC ELEV", TerrainType.ELEVATED),
     ("CONC FLAT ELEV", TerrainType.FLATSRCS),
+    ("CONC ELEV FLAT", TerrainType.FLATSRCS),
 ])
 def test_reader_terrain_is_what_modopt_runs(modelopt, terrain):
     project = parse_aermod_input(_deck(modelopt=modelopt))
     assert project.control.terrain_type == terrain
     assert project.control.elevated_terrain is (terrain != TerrainType.FLAT)
+
+
+@pytest.mark.parametrize("dfault", [False, True], ids=["no_dfault", "dfault"])
+@pytest.mark.parametrize("tokens", ["FLAT ELEV", "ELEV FLAT"])
+def test_flat_and_elev_are_read_in_either_order(tokens, dfault):
+    # coset.f MODOPT (v26135) scans the whole line for FLAT, then, if it
+    # found one, for ELEV: FLATSRCS either way. The binary agrees: both
+    # orders accept a source whose elevation is FLAT (W752) and neither
+    # raises W206. DFAULT overrides FLAT (W206) and runs ELEV in both
+    # orders; the FLAT token is still read, so the validator names the
+    # W206 AERMOD raises (the old reader read ELEV FLAT DFAULT as ELEV and
+    # missed it).
+    project = parse_aermod_input(_deck(modelopt=f"CONC {tokens}" + (" DFAULT" if dfault else "")))
+    control = project.control
+    assert control.terrain_type == TerrainType.FLATSRCS
+    assert control.regulatory_default is dfault
+    assert control.elevated_terrain
+    w206 = [e for e in Validator.validate(project).errors if "(AERMOD W206)" in e.message]
+    assert bool(w206) is dfault
+
+
+def test_dfault_overrides_flat_wherever_it_stands():
+    # MODOPT looks for DFAULT across the whole line before the terrain
+    # tokens, so DFAULT ahead of FLAT still runs ELEV.
+    control = parse_aermod_input(_deck(modelopt="DFAULT CONC FLAT")).control
+    assert control.terrain_type == TerrainType.FLAT
+    assert control.regulatory_default and control.elevated_terrain
 
 
 def test_modelopt_without_a_terrain_token_keeps_its_disccart_heights():

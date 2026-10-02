@@ -402,7 +402,7 @@ def _parse_control(block: _PathwayBlock,
     urban_pop: Optional[float] = None
     urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
-    saw_terrain = False
+    saw_flat = saw_elev = False
     saw_modelopt = False
     extra_opts: List[str] = []
     urban_lines: List[List[str]] = []
@@ -461,20 +461,14 @@ def _parse_control(block: _PathwayBlock,
                 elif up == "WDEP":
                     calc_wdep = True
                 elif up == "FLAT":
-                    # coset.f MODOPT: FLAT after ELEV is ignored (W206);
-                    # FLAT then ELEV means flat sources in elevated
-                    # terrain (FLATSRCS).
-                    if terrain == TerrainType.FLAT or not saw_terrain:
-                        terrain = TerrainType.FLAT
-                    saw_terrain = True
+                    # Terrain is settled after the loop: coset.f MODOPT
+                    # does not read the terrain tokens in line order.
+                    saw_flat = True
                 elif up in ("ELEV", "ELEVATED"):
-                    terrain = (TerrainType.FLATSRCS if saw_terrain and terrain == TerrainType.FLAT
-                               else TerrainType.ELEVATED)
-                    saw_terrain = True
+                    saw_elev = True
                 elif up == "FLATSRCS":
                     # pyaermod's own spelling (not an AERMOD token).
-                    terrain = TerrainType.FLATSRCS
-                    saw_terrain = True
+                    saw_flat = saw_elev = True
                 elif up == "DFAULT":
                     reg_default = True
                 elif up in _CHEM_METHODS:
@@ -685,10 +679,20 @@ def _parse_control(block: _PathwayBlock,
             nox_background=nox_background,
         )
 
-    if saw_modelopt and not saw_terrain:
-        # coset.f MODOPT starts from elevated terrain and leaves it only
-        # for a FLAT token, so ``MODELOPT CONC`` runs with ELEV.
-        terrain = TerrainType.ELEVATED
+    if saw_modelopt:
+        # coset.f MODOPT scans the whole line for each terrain token, so
+        # their order does not matter. It starts from ELEV and leaves it
+        # only for FLAT, so ``MODELOPT CONC`` runs with ELEV. Without
+        # DFAULT, FLAT gives flat terrain, and FLAT with ELEV, in either
+        # order, gives flat sources in elevated terrain (FLATSRCS). With
+        # DFAULT anywhere on the line, AERMOD overrides any FLAT (W206)
+        # and runs ELEV; the tokens are still read as given, so the
+        # rewrite keeps them, ControlPathway.elevated_terrain reports
+        # ELEV and the validator raises W206 as AERMOD does.
+        if saw_flat:
+            terrain = TerrainType.FLATSRCS if saw_elev else TerrainType.FLAT
+        else:
+            terrain = TerrainType.ELEVATED
 
     return ControlPathway(
         title_one=title_one,
