@@ -4,6 +4,7 @@ CO STARTING
    AVERTIME  1  PERIOD
    POLLUTID  OTHER
    RUNORNOT  RUN
+   EVENTFIL  evfile.inp
 CO FINISHED
 SO STARTING
    LOCATION  PIT      OPENPIT    -500.0000    -500.0000     0.00
@@ -53,14 +54,14 @@ OU FINISHED
   
   
     ********   WARNING MESSAGES   ******** 
- MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
+ MX W403      31       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
 
  ***********************************
  *** SETUP Finishes Successfully ***
  ***********************************
 
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   1
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -128,8 +129,9 @@ OU FINISHED
  **Input Runstream File:          aermod.inp                                                                                      
  **Output Print File:             aermod.out                                                                                      
 
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ **File Created for Event Model:  evfile.inp                                                                                      
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   2
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -142,8 +144,8 @@ OU FINISHED
  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
  PIT              1   0.10000E-04    -500.0    -500.0     0.0     0.00   1000.00   1000.00      0.00   .10000E+09  NO           
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   3
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -155,8 +157,8 @@ OU FINISHED
 
 
   ALL        PIT         ,
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   4
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -175,8 +177,8 @@ OU FINISHED
 
         PARTICLE DENSITY (G/CM**3)  =
             2.65000, 
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   5
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -187,8 +189,8 @@ OU FINISHED
      (  12833.0,    7427.9,       0.0,       0.0,       0.0);         (  13663.7,    5682.3,       0.0,       0.0,       0.0);      
      (  14241.0,    3837.0,       0.0,       0.0,       0.0);         (  17375.3,   10050.3,       0.0,       0.0,       0.0);      
      (  23602.2,   13645.3,       0.0,       0.0,       0.0);                                                                       
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   6
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -215,8 +217,8 @@ OU FINISHED
                                                             (METERS/SEC)
 
                                                  1.54,   3.09,   5.14,   8.23,  10.80,
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   7
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -264,8 +266,8 @@ OU FINISHED
  ** 05 21 01   10.0 1  162.    6.57   286.3    4.0  -99.00    0.46
 
  F indicates top of profile (=1) or below (=0)
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   8
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -281,8 +283,8 @@ OU FINISHED
           12833.05       7427.88   0.282465-103                       13663.68       5682.30   0.782577-103                         
           14241.02       3837.02   0.149224-104                       17375.34      10050.29   0.841488-140                         
           23602.25      13645.31   0.971887-190                                                                                     
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE   9
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -298,8 +300,8 @@ OU FINISHED
          12833.05      7427.88   0.282465-103  (93052120)                 13663.68      5682.30   0.782577-103  (93052120)          
          14241.02      3837.02   0.149224-104  (93052120)                 17375.34     10050.29   0.841488-140  (93052120)          
          23602.25     13645.31   0.971887-190  (93052120)                                                                           
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE  10
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -320,8 +322,8 @@ OU FINISHED
                        GP = GRIDPOLR
                        DC = DISCCART
                        DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE  11
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -350,8 +352,8 @@ ALL       1ST HIGHEST VALUE IS  0.782577-103 AT (   13663.68,     5682.30,     0
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE  12
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -371,8 +373,8 @@ ALL      HIGH   1ST HIGH VALUE IS  0.782577-103  ON 93052120: AT (   13663.68,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        20:24:07
+ *** AERMOD - VERSION 26135  ***   ***  Three-digit exponents: CONC only, so two more output files use E13. ***        10/02/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        16:03:09
                                                                                                                        PAGE  13
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  DRYDPLT  WETDPLT  RURAL  SigA Data
 
@@ -398,7 +400,7 @@ ALL      HIGH   1ST HIGH VALUE IS  0.782577-103  ON 93052120: AT (   13663.68,  
   
   
     ********   WARNING MESSAGES   ******** 
- MX W403      30       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
+ MX W403      31       PFLCNV: Turbulence data is being used w/o ADJ_U* option       SigA Data
 
     ************************************
     *** AERMOD Finishes Successfully ***

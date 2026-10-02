@@ -5,8 +5,9 @@ Fortran ``Ew.d`` editing writes the exponent as ``E`` and two digits
 digits with no letter (``0.282465-103``) when it does not; that is the
 standard's rule for ``Ew.d`` without ``Ee``. AERMOD's ``OU FILEFORM
 EXP`` output (``E13.6``, ``E14.6`` in the summary tables, an EVENT
-run's source contributions included) therefore prints a value below
-1e-99 in the second form, which Python's :func:`float` refuses.
+run's source contributions included, ``E17.6`` in the ``EVENTPER``
+cards of an ``EVENTFIL``) therefore prints a value below 1e-99 in the
+second form, which Python's :func:`float` refuses.
 """
 
 from __future__ import annotations

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -25,7 +26,9 @@ from pyaermod.aermod_outputs import (
 )
 from pyaermod.design_values import read_maxdaily
 from pyaermod.ensemble import MANIFEST_NAME, EnsembleManifest, EnsembleManifestEntry, collect_plotfiles
-from pyaermod.output_parser import AERMODOutputParser
+from pyaermod.input_reader import parse_aermod_input, read_aermod_input
+from pyaermod.output_parser import AERMODOutputParser, parse_aermod_output
+from pyaermod.pathways import EventPeriod
 from pyaermod.postfile import read_postfile
 
 RUNS = Path(__file__).parent / "fixtures" / "fortran_exponents"
@@ -47,6 +50,8 @@ HOUR_20_FAR = [
 ]
 
 THREE_DIGIT = re.compile(r"\d\.\d+[-+]\d{3}(?!\d)")
+
+AERMOD_EXE = shutil.which("aermod")
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +98,7 @@ def test_every_recorded_file_holds_three_digit_exponents():
     """The fixture is only a test while AERMOD's files hold such numbers."""
     files = [WASHOUT / n for n in ("aermod.out", "post_1h.pst", "high_1h.plt", "period.plt")]
     files += [CONC_ONLY / n for n in ("aermod.out", "post_1h.pst", "high_1h.plt",
-                                      "maxi_1h.max", "rank_1h.rnk")]
+                                      "maxi_1h.max", "rank_1h.rnk", "evfile.inp")]
     files += [RUNS / "events" / "aermod.out"]
     for path in files:
         assert THREE_DIGIT.search(path.read_text(encoding="latin-1")), path
@@ -259,6 +264,35 @@ class TestSummaryTables:
         assert result.data["concentration"].tolist()[:2] == pytest.approx(
             [7.82577e-104, 2.82465e-104], rel=1e-12, abs=0)
 
+    def test_source_emission_rate(self, tmp_path):
+        # OPENPIT SOURCE DATA: PIT  1  0.10000E-04  -500.0 ... (E11.5); a
+        # rate below 1e-99 would be printed without the E.
+        path = tmp_path / "rate.out"
+        text = (WASHOUT / "aermod.out").read_text(encoding="latin-1")
+        assert " PIT              1   0.10000E-04 " in text
+        path.write_text(text.replace("   0.10000E-04 ", "   0.10000-100 "))
+        (pit,) = AERMODOutputParser(path).parse().sources
+        assert (pit.source_id, pit.source_type) == ("PIT", "OPENPIT")
+        assert pit.emission_rate == pytest.approx(1.0e-101, rel=1e-12, abs=0)
+
+    def test_pyaermod_layout_emission_rate_and_rows(self, tmp_path):
+        # The SOURCE LOCATIONS / ANNUAL RESULTS layout of
+        # tests/test_output_parser_coverage.py, with E-free values.
+        path = tmp_path / "pyaermod.out"
+        path.write_text(
+            "*** AERMOD - VERSION 24142 ***\n\n"
+            "*** SOURCE LOCATIONS ***\n\n"
+            "   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV  HGT   TEMP    VELOC   DIAM   EMISS\n"
+            "   STK1     POINT      100.00       200.00       5.00      75.0  400.0   15.0    2.5    0.12500-100\n\n"
+            "*** ANNUAL RESULTS ***\n\n"
+            "   100.00    200.00    0.850000-100\n"
+            "   300.00    400.00    4.200\n")
+        results = parse_aermod_output(str(path))
+        (stk1,) = results.sources
+        assert stk1.emission_rate == pytest.approx(1.25e-101, rel=1e-12, abs=0)
+        annual = results.concentrations["ANNUAL"].data
+        assert annual["concentration"].tolist() == pytest.approx([8.5e-101, 4.2], rel=1e-12, abs=0)
+
     def test_malformed_value_is_not_a_row(self, tmp_path):
         path = tmp_path / "bad.out"
         text = (WASHOUT / "aermod.out").read_text(encoding="latin-1")
@@ -280,6 +314,112 @@ def test_event_source_contributions():
     assert (far.event_name, far.x, far.y) == ("FAR", 12833.05, 7427.88)
     assert far.group_value == pytest.approx(2.82465e-104, rel=1e-12, abs=0)
     assert far.contributions == pytest.approx({"PIT": 2.82465e-104, "PIT2": 3.78148e-113}, rel=1e-12, abs=0)
+
+
+def test_event_contribution_with_a_positive_exponent(tmp_path):
+    """``0.1+101`` is the other sign of the same E13.6 form (1e100 and up)."""
+    text = (RUNS / "events" / "aermod.out").read_text(encoding="latin-1")
+    pairs = "  PIT             0.282465-103             PIT2            0.378148-112"
+    assert pairs in text
+    path = tmp_path / "plus.out"
+    path.write_text(text.replace(pairs, pairs.replace("0.282465-103", "0.282465+101")))
+    _, far = read_event_output(path)
+    assert far.contributions == pytest.approx({"PIT": 2.82465e100, "PIT2": 3.78148e-113}, rel=1e-12, abs=0)
+
+
+# ---------------------------------------------------------------------------
+# EVENTFIL: the event deck AERMOD writes (pyaermod.input_reader, pathways)
+# ---------------------------------------------------------------------------
+
+#: washout_conc/evfile.inp: the 1-hour first high (H001H01001) and the
+#: five MAXIFILE events (threshold 0.0), as AERMOD wrote them in E17.6.
+EVENTFIL_EVENTS = [
+    ("H001H01001", 7.82577e-104, (13663.68, 5682.30)),  # 0.782577-103
+    ("TH01000001", 2.82465e-104, (12833.05, 7427.88)),  # 0.282465-103
+    ("TH01000002", 7.82577e-104, (13663.68, 5682.30)),
+    ("TH01000003", 1.49224e-105, (14241.02, 3837.02)),  # 0.149224-104
+    ("TH01000004", 8.41488e-141, (17375.34, 10050.29)),
+    ("TH01000005", 9.71887e-191, (23602.25, 13645.31)),  # 0.971887-190
+]
+
+
+def test_eventfil_events_are_read():
+    project = read_aermod_input(CONC_ONLY / "evfile.inp")
+    assert [u.keyword for u in project.unparsed_lines] == []
+    events = project.events.events
+    assert [e.event_name for e in events] == [name for name, _, _ in EVENTFIL_EVENTS]
+    for event, (_, conc, xy) in zip(events, EVENTFIL_EVENTS):
+        assert event.original_conc == pytest.approx(conc, rel=1e-12, abs=0)
+        assert (event.location.x, event.location.y) == xy
+        assert (event.averaging_period, event.source_group, event.date_text) == (1, "ALL", "93052120")
+
+
+@pytest.mark.parametrize(("value", "field"), [
+    (52.33812, "52.33812"),        # FILEFORM FIX: F17.5, as before
+    (0.0, "0.00000"),
+    (0.0306833, "3.06833E-02"),    # FILEFORM EXP 0.306833E-01: F17.5 would give 0.03068
+    (-0.0306833, "-3.06833E-02"),
+    (1.13318, "1.13318"),
+    (1e-30, "1.E-30"),             # the smallest exponent STODBL reads
+    (2.82465e-104, "0.00000"),     # 0.282465-103: no field AERMOD reads
+])
+def test_eventper_concentration_field(value, field):
+    (line,) = EventPeriod("E1", 1, "93052120", original_conc=value).to_aermod_lines()
+    assert line.split()[-1] == field
+    assert line.endswith(f" {field:>17}")
+
+
+def _run_aermod(deck: str, work: Path) -> str:
+    work.mkdir()
+    for name in ("CORDERO_1993-05-21.SFC", "CORDERO_1993-05-21.PFL"):
+        shutil.copy(RUNS / name, work)
+    (work / "aermod.inp").write_text(deck)
+    subprocess.run([AERMOD_EXE], cwd=work, capture_output=True, timeout=300, check=False)
+    out = (work / "aermod.out").read_text(encoding="latin-1")
+    assert "AERMOD Finishes Successfully" in out
+    return out
+
+
+@pytest.mark.skipif(AERMOD_EXE is None, reason="aermod not on PATH; build with scripts/build_aermod.sh")
+class TestEventDeckRewrite:
+    def test_rewritten_eventfil_runs(self, tmp_path):
+        """AERMOD reads its own 0.282465-103 as a negative number and
+        so skips its EVENTPER check; pyaermod writes 0.00000, which
+        AERMOD also leaves unchecked. The events come out the same.
+
+        AERMOD wrote ``EVENTOUT DETAIL``; both runs use ``SOCONT``, the
+        table :func:`read_event_output` reads."""
+        original = (CONC_ONLY / "evfile.inp").read_text()
+        assert "   EVENTOUT  DETAIL\n" in original
+        original = original.replace("   EVENTOUT  DETAIL\n", "   EVENTOUT  SOCONT\n")
+        out_ref = _run_aermod(original, tmp_path / "aermod")
+        written = parse_aermod_input(original).to_aermod_input()
+        out = _run_aermod(written, tmp_path / "pyaermod")
+        for text in (out_ref, out):
+            assert "W497" not in text and "E208" not in text
+        ref = read_event_output(tmp_path / "aermod" / "aermod.out")
+        new = read_event_output(tmp_path / "pyaermod" / "aermod.out")
+        assert [(e.event_name, e.group_value) for e in new] == [(e.event_name, e.group_value) for e in ref]
+        assert [e.group_value for e in new] == pytest.approx([c for _, c, _ in EVENTFIL_EVENTS], rel=1e-12, abs=0)
+
+    def test_exp_concentration_is_written_so_aermod_checks_it(self, tmp_path):
+        """An EXP EVENTFIL value such as 0.306833E-01 written as F17.5
+        (0.03068) makes AERMOD stop trusting the event (W497)."""
+        deck = (RUNS / "events" / "aermod.inp").read_text()
+        deck = re.sub(r"EV STARTING\n.*EV FINISHED", (
+            "EV STARTING\n"
+            "   EVENTPER  N12  1  ALL  93052112  0.0\n"
+            "   EVENTLOC  N12  XR=  1732.05  YR=  1000.00  0.0  0.0  0.0\n"
+            "EV FINISHED"), deck, flags=re.DOTALL)
+        _run_aermod(deck, tmp_path / "probe")
+        (probe,) = read_event_output(tmp_path / "probe" / "aermod.out")
+        assert 1e-5 < probe.group_value < 1.0  # F17.5 would lose digits
+        project = parse_aermod_input(deck)
+        project.events.events[0].original_conc = probe.group_value
+        out = _run_aermod(project.to_aermod_input(), tmp_path / "pyaermod")
+        assert "W497" not in out
+        (event,) = read_event_output(tmp_path / "pyaermod" / "aermod.out")
+        assert event.group_value == probe.group_value
 
 
 # ---------------------------------------------------------------------------

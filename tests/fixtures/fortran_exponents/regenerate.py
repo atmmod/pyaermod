@@ -42,7 +42,7 @@ DAY = (b"1993", b"5", b"21")
 #: case -> the outputs (besides aermod.out) the deck writes.
 CASES = {
     "washout": ("post_1h.pst", "high_1h.plt", "period.plt"),
-    "washout_conc": ("post_1h.pst", "high_1h.plt", "maxi_1h.max", "rank_1h.rnk"),
+    "washout_conc": ("post_1h.pst", "high_1h.plt", "maxi_1h.max", "rank_1h.rnk", "evfile.inp"),
     "events": (),
 }
 

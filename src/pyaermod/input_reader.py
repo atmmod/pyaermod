@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from ._fortran import fortran_float
 from .input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -2131,7 +2132,7 @@ def _parse_events(block: _PathwayBlock,
                 events[toks[0]] = EventPeriod(
                     event_name=toks[0], averaging_period=int(float(toks[1])),
                     source_group=toks[2], date=f"{int(float(toks[3])):08d}",
-                    original_conc=float(toks[4]),
+                    original_conc=fortran_float(toks[4]),
                 )
             except ValueError:
                 _drop(dropped, ln)

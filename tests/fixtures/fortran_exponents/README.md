@@ -17,7 +17,9 @@ hand-edited.
 - **Build:** `scripts/build_aermod.sh` with GNU Fortran 15.2.0 (Homebrew
   GCC) and the script's default flags, `-O2 -fbounds-check
   -Wuninitialized`, on macOS arm64.
-- **Recorded:** 2026-09-30.
+- **Recorded:** 2026-09-30; `washout_conc/` again on 2026-10-02, when
+  its deck gained `EVENTFIL` (its other files changed only in the run
+  date and time and the line number of a warning).
 
 ## How the values get that small
 
@@ -42,7 +44,7 @@ names. Each run exited with code 0, finished with
 | Case | Deck | Files with three-digit exponents |
 |---|---|---|
 | `washout/` | `MODELOPT CONC DEPOS DDEP WDEP ELEV DFAULT`, `AVERTIME 1 PERIOD`, seven receptors on a line 60 degrees from north, hours 19 to 21 | `post_1h.pst` (1-hour POSTFILE), `high_1h.plt` (PLOTFILE of first-highest 1-hour values) and `period.plt` (PERIOD PLOTFILE), all four value columns; the receptor tables and the summary tables of `aermod.out` (`3RD HIGHEST VALUE IS  0.260859-103 AT ...`). Hours 19 and 21 give zeros or ordinary values, so the files mix the two forms. |
-| `washout_conc/` | The same source with `MODELOPT CONC ELEV DFAULT`, hour 20 only and only the five far receptors | With one output type AERMOD also writes the MAXIFILE (`maxi_1h.max`) and RANKFILE (`rank_1h.rnk`) in `E13.6`; with several (as in `washout/`) those two stay `F13.5`. The highest 1-hour value itself (`HIGH 1ST HIGH VALUE IS  0.782577-103 ON 93052120:`) has a three-digit exponent. |
+| `washout_conc/` | The same source with `MODELOPT CONC ELEV DFAULT`, hour 20 only, only the five far receptors and `CO EVENTFIL evfile.inp` | With one output type AERMOD also writes the MAXIFILE (`maxi_1h.max`) and RANKFILE (`rank_1h.rnk`) in `E13.6`; with several (as in `washout/`) those two stay `F13.5`. The highest 1-hour value itself (`HIGH 1ST HIGH VALUE IS  0.782577-103 ON 93052120:`) has a three-digit exponent. `evfile.inp` is the event deck AERMOD wrote for the 1-hour first high and the five MAXIFILE events, its `EVENTPER` concentrations in `E17.6` (`0.282465-103`). |
 | `events/` | An EVENT run (`EV` pathway, `EVENTOUT SOCONT`, `FILEFORM EXP`) with a second, smaller pit; events `NEAR` (1732.05, 1000.00) and `FAR` (12833.05, 7427.88), both for hour 20 | `aermod.out`: `*** GROUP VALUE =   0.282465-103 ***` and the source contributions `PIT 0.282465-103`, `PIT2 0.378148-112`. |
 
 `FILEFORM EXP` has no effect on MAXDAILY, MXDYBYYR or MAXDCONT files

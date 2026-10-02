@@ -513,7 +513,10 @@ _EVENT_PER_RE = re.compile(
     r"\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)")
 _EVENT_GROUP_RE = re.compile(r"GROUP ID:\s*(\S+)\s+OF SOURCES:")
 _EVENT_VALUE_RE = re.compile(r"\*\*\* GROUP VALUE =\s*([-\d.Ee+]+)\s*\*\*\*")
-_EVENT_PAIR_RE = re.compile(r"(\S+)\s+([-\d.]+(?:[Ee][-+]?\d+)?)")
+# A source ID and its E13.6 contribution. The sign class takes "+" as
+# well as "-", so an E-free exponent of either sign (0.282465-103,
+# 0.282465+101) stays in the value rather than ending it.
+_EVENT_PAIR_RE = re.compile(r"(\S+)\s+([-+\d.]+(?:[Ee][-+]?\d+)?)")
 
 
 def read_event_output(filepath: Union[str, Path]) -> List[EventContribution]:
