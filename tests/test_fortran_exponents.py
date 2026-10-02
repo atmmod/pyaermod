@@ -156,8 +156,8 @@ class TestAuxFiles:
 
 
 def test_ensemble_collect_plotfiles(tmp_path):
-    """The demonstration study's ensemble collects PERIOD PLOTFILEs like
-    this one; a column with one such value went to the .npz as text."""
+    """pyaermod.ensemble collects PERIOD PLOTFILEs like this one; a column
+    with one such value went to the .npz as text."""
     run_dir = tmp_path / "run1"
     run_dir.mkdir()
     shutil.copy(WASHOUT / "period.plt", run_dir)

@@ -24,8 +24,8 @@ hand-edited.
 ## How the values get that small
 
 The source is an open pit (1000 m by 1000 m, 10^8 m^3, 1e-5 g/s/m^2 of
-6.055 um particles of density 2.65, the basis run of the demonstration
-study's ensemble, where these numbers were first seen). At 20:00 on
+6.055 um particles of density 2.65, as in the ensemble runs where these
+numbers were first seen). At 20:00 on
 21 May 1993 the Cordero surface file has 137.2 mm of precipitation with
 an 11.4 m/s wind from 246 degrees. AERMOD's wet depletion
 (`WETDPLT`, on by default when a source has particle inputs) removes
