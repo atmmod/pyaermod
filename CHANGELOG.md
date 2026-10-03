@@ -221,6 +221,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table's own heading) and `.max_row`. Rows read from AERMOD's summary
   tables now also carry `rank`, `group`, `date`, `flag`, `value_text`,
   `zelev`, `zhill`, `zflag`, `receptor_type` and `grid_id`.
+- GUI: a step list on the left with the seven steps (Project, Sources,
+  Receptors, Meteorology, Output, Review & Run, Results), each with a
+  badge (not started, complete, warning, error) computed from `Validator`
+  and the runs, and a header with the project's name, the unsaved-changes
+  marker, a one-line readiness summary and a Save button. The badges and
+  the summary follow every change. On a narrow window the step list is a
+  drawer behind a menu button, and every step fits a 390 px phone.
+- GUI: the Project step edits the averaging periods (a multi-select, with
+  a button that applies the NAAQS periods of the chosen pollutant) and the
+  model options: CONC, DEPOS, DDEP and WDEP, the terrain (FLAT, ELEV or
+  FLAT ELEV), DFAULT and the urban population, name and roughness.
+- GUI: a plan view of the sources and receptors in model coordinates on
+  the Sources and Receptors steps, redrawn after every change.
+- GUI: New and Open ask before they discard unsaved changes.
+- GUI: the Sources and Receptors tables show 25 rows a page, with Previous
+  and Next page buttons; each row's Edit and Delete buttons are named for
+  the item ("Edit STACK1").
+- `pyaermod.footprints`: `source_footprint()` (the outline AERMOD builds
+  for a source, from `soset.f`) and `receptor_points()` (every receptor a
+  grid or discrete receptor stands for), with no optional dependency.
+- `pyaermod.naaqs.naaqs_averaging_periods()`: the AVERTIME periods a
+  pollutant's NAAQS need (`["1"]` for SO2, `["24", "ANNUAL"]` for PM2.5).
+- `OutputPathway.period_plot_files` and `period_postfiles`: a file-name
+  stem each; the pathway then writes a PLOTFILE and a POSTFILE for every
+  averaging period of the run, named as EPA's decks name them
+  (`<stem>_01H.plt`), and `period_plot_file_names()` /
+  `period_postfile_names()` say where they are.
+- Units and help text on the fields of every source type, the receptor
+  types and the meteorology and output pathways, as dataclass field
+  metadata (`pyaermod._fields.described`, `units_of`, `help_of`).
+- `Validator` reports as errors what AERMOD refuses in the model options:
+  DEPOS, DDEP or WDEP with a source that has no gas or particle deposition
+  parameters (E242; `GASDEPVD` exempts it), an urban roughness without an
+  urban area name, and an urban name or roughness without a population
+  (which the deck writer used to fill in as 1,000,000).
+- GUI (WP-G4): the **Review & Run** step. A readiness checklist
+  names each step with a problem that blocks the run (no source, no
+  receptors, no met files, a met file named by a relative path while the
+  working directory is blank, a met file whose path starts with `~`, which
+  AERMOD does not expand, a value the deck cannot be written with, no
+  `aermod` binary) and links to that step, and Run AERMOD stays disabled
+  until it is empty. Warnings that do not block the run follow, among
+  them ANNUAL with less than a year of met data. A read-only deck
+  preview has Copy and Download.
+- GUI: runs happen in the background. A progress bar follows AERMOD's
+  "Now Processing Data For Day No." lines against the days in the
+  surface file, the elapsed time ticks, Cancel stops AERMOD (status
+  "Cancelled"), and every other step and browser tab stays usable. The
+  status reads "Succeeded", "Failed" or "Cancelled"; AERMOD's message
+  counts and a table of its messages (severity, pathway, code, line,
+  text) follow, linking to `docs/common-errors.md` for E101, E480 and
+  E500. A second click on Run while a run is going is ignored, and New or
+  Open during a run asks first ("Stop the run in progress?", or "Discard
+  unsaved changes?" saying the run is stopped) and then stops it.
+- `AERMODRunner.start()` runs AERMOD in the background and returns an
+  `AERMODRun`: `progress` (an `AERMODProgress` with the stage, "setup",
+  "day" or "output", AERMOD's day and year, and the days processed),
+  `cancel()` (SIGTERM, then a kill after `CANCEL_GRACE_SECONDS`), `wait()`,
+  `done`, `result`, and `on_progress`/`on_finish` callbacks. A cancelled
+  run's result has the new `AERMODRunResult.cancelled` set. The process
+  is always reaped, and `stop_active_runs()` stops the runs still going;
+  it runs when Python exits normally or on Ctrl+C, and the GUI server
+  also calls it when it shuts down on SIGTERM or SIGHUP.
+  `parse_progress_line()` reads one progress line.
+- `aermet.read_surface_period()` reads which hours an AERMET `.SFC` file
+  holds (`SurfaceFilePeriod`: first and last hour, hours, days, station
+  IDs) without loading its data, and `SurfaceFilePeriod.complete_years`
+  is AERMOD's own count of years for a run over the file (checked
+  against AERMOD v26135 on either side of the E480 boundary).
+  `validator_advanced.check_annual_met_coverage()` warns when ANNUAL is
+  requested with no complete year of data (AERMOD's E480), and
+  `surface_file_path()` resolves the surface file as AERMOD opens it.
+- `Session.deck_text()`, `Session.met_period()`, `RunRecord.status`,
+  `RunRecord.progress` and `RunRecord.fraction_done`; `start_run(...,
+  background=True)` with `Session.dispatch` to deliver the run's events
+  on the GUI's event loop; `cancel_run()`; the `run_progress` event; and
+  `RunInProgressError` for a second `start_run` during a run.
+- `docs/common-errors.md` has entries for E480 and E500.
+- `NAAQSStandard.level_ugm3` and `pyaermod.naaqs.ppb_to_ugm3`: a
+  standard's level in µg/m³, the unit AERMOD reports, converting ppb at
+  the 25 °C and 760 mm Hg of 40 CFR 50.3 (75 ppb of SO2 is 196.4 µg/m³).
+- GUI Results step (WP-G5): it names the run it shows and whether AERMOD
+  completed it, and a failed run shows its fatal errors and no values.
+  A successful run shows a card and a table row with the maximum of each
+  averaging period and its location, exactly as AERMOD printed them
+  (with the `c`/`m`/`b` calm and missing-hour flags explained), every
+  rank of every summary table, deposition tables as deposition, a
+  concentration map drawn from the run's plot files, a comparison with
+  the NAAQS for the pollutant (AERMOD's own design-value table where it
+  prints one, a design value from a 1-hour or 24-hour POSTFILE through
+  `design_values`, otherwise a screen against the period's maximum; a
+  period with only a design-value table at another rank is not
+  compared), and
+  downloads of the deck, the `.out` file, the plot files, the POSTFILEs
+  and a KMZ. A run history reopens earlier runs; a run whose files a
+  later run overwrote keeps the values read when it finished, and its
+  files are no longer offered. A run AERMOD could not be started for is
+  listed too, as failed, with the reason. A period whose only summary
+  table is one of AERMOD's design-value tables (`RECTABLE ALLAVE
+  eighth`, say) is labelled with its rank ("8th-highest, averaged over 5
+  years") rather than presented as the maximum. A deposition-only run's
+  plot files are mapped as deposition, in AERMOD's units. The view of a
+  run is built by the UI-free `pyaermod.gui_v2.run_results`, the map by
+  `gui_v2.results_map`.
+- GUI: **Import deck...** on the Project step imports an AERMOD `.inp`
+  deck (`Session.import_inp`). In a browser the deck is uploaded and read
+  with `read_aermod_input(..., sandbox=True)` from a private temporary
+  folder, so it may name only files beside itself; a deck that names
+  others is refused with every such path listed. In `pyaermod-desktop` a
+  native dialog chooses the deck, and a **Deck file path** field imports
+  a deck on this computer in either mode; such a deck is read as it
+  stands, and the files it reads that are beside it (met, ozone and NOx
+  files, `INCLUDED`, `HOUREMIS`, an hourly `BACKGRND` file, a `MULTYEAR`
+  or `INITFILE` start file) come along as full paths. A notice lists the
+  lines PyAERMOD keeps as written (`unparsed_lines`), names the files the
+  deck reads that are not on this computer, and asks for the met files
+  not yet found, through path fields that say when a file does not exist
+  (with **Browse...** in desktop mode). Every deck under
+  `tests/fixtures/epa_official/` either imports or says why not.
+- GUI: a **Recent files** list on the Project step: projects opened or
+  saved through a path on this computer and decks imported from one,
+  newest first, kept in `~/.pyaermod/recent_files.json`
+  (`$PYAERMOD_RECENT_FILES` overrides it).
+- `PathTraversalError.violations` lists every path of a sandboxed deck
+  that escapes its folder (`SandboxViolation`: the field, the path as
+  the deck wrote it and where it resolves), not only the first, which
+  the message still names.
+- `pyaermod.input_reader.input_files(project)` lists the files AERMOD
+  reads that a project names (`InputFile`: the keyword, as `ME SURFFILE`
+  or `SO HOUREMIS at line 40`, and the path as written), and
+  `anchor_input_files(project, deck_dir)` gives each one named by a
+  relative path that exists beside the deck its full path, so the project
+  runs from any working directory. Files AERMOD writes are left alone.
+- `pyaermod.input_reader.runstream_fields(text)` splits a runstream line
+  into fields as AERMOD does (blanks, and double quotes around a name
+  with blanks).
 - `pyaermod.ensemble` (`docs/ensemble.md`): `run_design(rows,
   build_fn, root, n_workers)` runs one AERMOD run per design row, each in
   its own directory `root/runs/<run ID>`, `n_workers` at a time. It
@@ -262,6 +398,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
+- GUI: a new project asks for elevated terrain (`MODELOPT CONC ELEV
+  DFAULT`). It asked for FLAT with DFAULT, which AERMOD drops with W206
+  and runs as ELEV, and which the validator now warns about (#25), so
+  every new project's Project badge and readiness line showed that
+  warning. The run is the one AERMOD made before: the `albany_success`,
+  `albany_e480` and `missing_met` recordings, made again with the real
+  binary, have the same concentrations and maxima and one warning fewer
+  (no W206). FLAT stays available once DFAULT is off.
+- GUI: the Meteorology step says what the surface file holds, as the next
+  run would read it: the period it covers, the station IDs and first year
+  in its header, and, when ANNUAL is asked for with less than a year of
+  data, AERMOD's E480 warning with a button to the Project step's
+  averaging periods. The header's readiness line and the Meteorology
+  badge count that warning (`Session.validate(check_files=True)` adds
+  `Session.met_coverage()`'s finding), and its item on Review & Run links
+  to both Meteorology and Project.
+- GUI: after a cancelled run the Review & Run and Results badges follow
+  the run before it (or read "not started"), as Results does, instead of
+  "error".
+- GUI: the Output step says that a file name with folders is relative to
+  the working directory and that AERMOD does not create folders.
+- GUI: the Meteorology step's surface and profile files are the same
+  checked path fields as the import notice's (with **Browse...** in
+  desktop mode): each says when its path is relative, is not a file on
+  this computer, or starts with `~`, which AERMOD does not expand.
+- GUI: Results lists neither a cancelled run nor, when there is no run,
+  the old "Run tab": it says "No run yet. Run AERMOD from the Review &
+  Run step."
+- GUI: `Session.last_completed_run` skips cancelled runs, so Results does
+  not show one; New and Open during a run stop the run.
 - **`DepositionMethod` and the per-source `deposition_method` field are
   documented as inert.** AERMOD has no `METHOD` keyword, so neither has
   written anything since the writer stopped emitting the E105 card; both
@@ -290,6 +456,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dict whose keys are not all strings (background `sector_values`) as
   `{"_items": [[key, value], ...]}`. `save_format_version` stays 1, and
   files written before this change still open.
+- GUI: form labels carry units ("Stack temp (K)") and the inputs their
+  help text; integer fields use integer boxes that store `int`, so the
+  project in memory holds `14735`, not `14735.0`; file paths span the
+  full width; editors put the fields AERMOD's LOCATION and SRCPARAM cards
+  need first and the rest under "Advanced".
+- GUI: the Output step turns on, by default, a plot file and a POSTFILE
+  for every averaging period (`pyaermod_01H.plt`, `pyaermod_01H.pst`,
+  ...), which the Results step reads. The GUI's default deck changes
+  accordingly; the `albany_success`, `albany_e480` and `missing_met`
+  recordings were made again with the real binary.
 - **AERMET runs in two stages, and the pipeline returns two results.**
   AERMET 11 and later merge the data inside METPREP, so
   `run_aermet_pipeline(stage1, stage2, stage3)` ignores `stage2` (pass
@@ -358,6 +534,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- `input_reader.input_files`, `anchor_input_files` and the sandbox did not
+  know #28's `SourcePathway.hourly_emissions`: a project that models its
+  HOUREMIS cards had its hourly emission files left out of the files a
+  deck reads (so the GUI neither listed a missing one nor anchored a
+  relative one to the deck's folder), and `sandbox=True` did not check
+  them. Each card's file is now `SO HOUREMIS` among the input files and
+  `sources.hourly_emissions[i]` in the sandbox check. A deck's own
+  HOUREMIS lines, which the reader keeps verbatim, were covered already.
+- **GUI: the whole server froze while Results read a finished run.**
+  The view was built on the event loop from the `RUN_FINISHED` observer,
+  so for a large run (tens of thousands of receptors, or a POSTFILE of
+  hundreds of MB) every tab stopped answering, Review & Run kept showing
+  "Running" with a Cancel that did nothing, and the browser could show
+  "Connection lost". `run_results.prepare()` now reads the run's files in
+  a thread of its own; Results says "Reading the results of run N ..."
+  until they are read, and the run's end reaches every page at once. A
+  POSTFILE larger than 100 MB (`POSTFILE_DESIGN_VALUE_MAX_BYTES`) is not
+  read for a design value: the NAAQS row is a screening row that names
+  it. Checksums of a run's files are taken in pieces.
+- **GUI: Results could rebuild a run's view without end.** When reading a
+  run's files raised an error `build_view` does not catch itself, the
+  failed build was forgotten and Results asked for it again on every
+  refresh: thousands of builds a second, each in a new thread, while it
+  said "Reading the results of run N ..." for ever. A failed build is now
+  kept (`run_results.build_error()`), and Results says "Could not read the
+  results of run N: <error>" with a **Try reading again** button
+  (`run_results.retry()`).
+- **GUI: an imported deck's output folders.** EPA's `aertest.inp`,
+  imported from its path, writes `../Outputs/AERTEST.SUM`,
+  `../plotfiles/...`, `../postfiles/...` and `CO ERRORFIL ../Outputs/...`;
+  run in a blank working directory (a new, empty folder) it passed the
+  checklist and then stopped with four E500 errors. Review & Run now
+  blocks every output file whose folder will not exist where AERMOD runs,
+  names the deck's own folder when that one has it, and clears once the
+  working directory does.
+- **GUI: Results found no plot file or POSTFILE that a deck put in a
+  folder.** Results takes them from the `OU PLOTFILE` and `OU POSTFILE`
+  lines of the deck the run used, resolved against the working
+  directory, and then any other `.PLT` or `.PST` file the run wrote
+  there; so an EPA-layout run has its map, its downloads and a design
+  value from its 1-hour POSTFILE.
 - **Values below 1e-99 were lost or returned as text.** With `OU
   FILEFORM EXP` AERMOD writes Fortran `E13.6` (`E14.6` in the summary
   tables, `E13.6` in an EVENT run's source contributions, `E17.6` in the
@@ -529,9 +746,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     both, the concentration tables are the ones in `concentrations`;
   - a summary table that continues on later pages (more source groups
     than fit a page) is read to its end; ALLSRCS's PERIOD maximum is
-    88881.24949 (group RLINEB2), not the 11819.89828 of the first page.
+    88881.24949 (group RLINEB2), not the 11819.89828 of the first page;
+  - a period's entry in `concentrations` (and `deposition`) is its table
+    of highest values when the file has one; one of AERMOD's
+    design-value tables (an Nth-highest value, or a multi-year average of
+    ranked values) fills it only when it is the period's only table, and
+    its `title` says so.
   `tests/test_output_parser_real_runs.py` pins each case against runs of
   the real binary recorded in `tests/fixtures/output_parser/`.
+- `AERMODRunner` no longer reports a run with an earlier run's `.out`
+  file (its verdict, messages and counts) when this run wrote none, for
+  instance because AERMOD crashed; a run killed by a signal before it
+  wrote one says so ("AERMOD was stopped by SIGSEGV (signal 11) before it
+  finished, and wrote no run.out", in the form of #27's signal message).
+  `AERMODRunner.start()` runs in the background what `run()` does,
+  including #27's refusal of another deck named `aermod.inp`, its removal
+  of an earlier run's outputs and its timeout message.
 - **Runs that AERMOD aborted were reported as successful.** AERMOD
   exits with code 0 even after a fatal error, and `AERMODRunner.run`
   counted exit code 0 plus an `.out` file as success. A deck with
@@ -787,6 +1017,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set unpacked (46 decks), the 53-deck check failed although every deck
   round-tripped. It now skips, naming the set it found, unless that set
   is AERMOD v26135's, which must still have all 53 decks.
+- GUI: emptying a number box that is not optional no longer stores
+  `None` (which the project file refused, late, on Save): the box says
+  "Required" and the value stays.
+- GUI: lists that have no editor yet (`plot_file_groups`, `maxi_files`,
+  the buoyant line segments, vegetative barriers) are shown read-only;
+  the free-text box they had stored strings the project file refused.
+- The comments on `AreaSource` said its two dimensions are half-widths
+  and those on `LineSource` and `RLineSource` that the emission rate is
+  per unit length; AERMOD reads full side lengths (Xinit, Yinit) and a
+  rate per unit area.
+- **`read_aermod_input(..., sandbox=True)` let a deck write or read
+  outside its folder through the lines it keeps verbatim.** Only paths
+  stored on project fields were checked, while `unparsed_lines` go back
+  into the deck as written, and several of them name files AERMOD opens:
+  `CO ERRORFIL /elsewhere/x` (EPA's own `aertest.inp` writes
+  `../Outputs/AERTEST_ERRORS.OUT`), `INCLUDED`, `HOUREMIS`, `BACKGRND
+  HOURLY`, `DEBUGOPT` files, a second `POSTFILE`. A sandboxed deck could
+  therefore still make AERMOD overwrite any file its user can write, or
+  read one from anywhere. Every field of every kept line is now checked, split as
+  AERMOD splits it, and an escape is reported as, for example,
+  `CO ERRORFIL at line 14`. A name the file system cannot resolve (a NUL
+  byte) is refused rather than raised. The `CO EVENTFIL` file, which
+  AERMOD writes and the reader stores as `ControlPathway.eventfil`, is
+  now checked too.
 - **AERMAP rejected every deck `AERMAPProject.to_aermap_input` wrote.**
   Run through EPA's AERMAP 24142 (the current release; AERMAP has no
   26135), the deck for one receptor, a grid and a source stopped at

@@ -44,8 +44,7 @@ def test_j05_import_and_run_aertest(gui, step, known_gap, run_dir, tmp_path):
 
     gui.open()
     step("blank_project")
-    with known_gap("WP-G6", "no deck import"):
-        gui.project.import_deck(deck_dir / "aertest.inp")
+    gui.project.import_deck(deck_dir / "aertest.inp")
     step("imported")
 
     gui.sources.expect_ids(["STACK1"])

@@ -20,12 +20,11 @@ RECEPTORS = re.compile(r"\breceptors?\b", re.I)
 MET = re.compile(r"\bmet(eorolog\w*)?\b|\bsurface file\b", re.I)
 
 
-def test_j06_blank_project_is_not_ready_to_run(gui, step, known_gap):
+def test_j06_blank_project_is_not_ready_to_run(gui, step):
     gui.open()
     gui.run.open()
     step("blank_review")
-    with known_gap("WP-G4", "no readiness checklist; Run is enabled on a blank project"):
-        gui.run.expect_run_blocked()
+    gui.run.expect_run_blocked()
     gui.run.expect_checklist_names(SOURCE, RECEPTORS, MET)
 
     gui.run.follow_checklist_item(SOURCE)

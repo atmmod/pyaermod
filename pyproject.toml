@@ -67,9 +67,13 @@ cad = [
 ]
 gui = [
     "nicegui>=3.0",
+    # The Results step draws its concentration map with matplotlib
+    # (gui_v2/results_map.py).
+    "matplotlib>=3.7.0",
 ]
 gui-desktop = [
     "nicegui>=3.0",
+    "matplotlib>=3.7.0",
     "pywebview>=5.0",
 ]
 all = [

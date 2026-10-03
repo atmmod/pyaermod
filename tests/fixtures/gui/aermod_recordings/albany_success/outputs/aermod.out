@@ -1,6 +1,6 @@
 CO STARTING
    TITLEONE  Albany stack reference scenario
-   MODELOPT  CONC FLAT DFAULT
+   MODELOPT  CONC ELEV DFAULT
    AVERTIME  1 3 24 PERIOD
    POLLUTID  SO2
    RUNORNOT  RUN
@@ -31,6 +31,14 @@ ME FINISHED
 OU STARTING
    RECTABLE  ALLAVE  1-10
    MAXTABLE  ALLAVE  10
+   PLOTFILE  1  ALL  FIRST  pyaermod_01H.plt
+   PLOTFILE  3  ALL  FIRST  pyaermod_03H.plt
+   PLOTFILE  24  ALL  FIRST  pyaermod_24H.plt
+   PLOTFILE  PERIOD  ALL  pyaermod_PERIOD.plt
+   POSTFILE  1  ALL  PLOT  pyaermod_01H.pst
+   POSTFILE  3  ALL  PLOT  pyaermod_03H.pst
+   POSTFILE  24  ALL  PLOT  pyaermod_24H.pst
+   POSTFILE  PERIOD  ALL  PLOT  pyaermod_PERIOD.pst
 OU FINISHED
 
 
@@ -39,7 +47,7 @@ OU FINISHED
   --------- Summary of Total Messages --------
   
  A Total of            0 Fatal Error Message(s)
- A Total of            6 Warning Message(s)
+ A Total of            5 Warning Message(s)
  A Total of            0 Informational Message(s)
   
   
@@ -48,7 +56,6 @@ OU FINISHED
   
   
     ********   WARNING MESSAGES   ******** 
- CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
  CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
  CO W362       7       COCARD: Multiyear 1h NO2/SO2 processing not applicable for     3-hr Ave
  CO W362       7       COCARD: Multiyear 1h NO2/SO2 processing not applicable for    24-hr Ave
@@ -59,8 +66,8 @@ OU FINISHED
  *** SETUP Finishes Successfully ***
  ***********************************
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   1
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -113,6 +120,8 @@ OU FINISHED
           Model Outputs Tables of PERIOD Averages by Receptor
           Model Outputs Tables of Highest Short Term Values by Receptor (RECTABLE Keyword)
           Model Outputs Tables of Overall Maximum Short Term Values (MAXTABLE Keyword)
+          Model Outputs External File(s) of Concurrent Values for Postprocessing (POSTFILE Keyword)
+          Model Outputs External File(s) of High Values for Plotting (PLOTFILE Keyword)
   
  **NOTE:  The Following Flags May Appear Following CONC Values:  c for Calm Hours
                                                                  m for Missing Hours
@@ -127,8 +136,8 @@ OU FINISHED
  **Input Runstream File:          aermod.inp                                                                                      
  **Output Print File:             aermod.out                                                                                      
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   2
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -141,8 +150,8 @@ OU FINISHED
  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
  STACK1           0   0.10000E+03       0.0       0.0     0.0    65.00   425.00    18.00     3.00    NO      NO    NO         
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   3
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -154,8 +163,8 @@ OU FINISHED
 
 
   ALL        STACK1      ,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   4
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -179,8 +188,8 @@ OU FINISHED
           100.0,     110.0,     120.0,     130.0,     140.0,     150.0,     160.0,     170.0,     180.0,     190.0,
           200.0,     210.0,     220.0,     230.0,     240.0,     250.0,     260.0,     270.0,     280.0,     290.0,
           300.0,     310.0,     320.0,     330.0,     340.0,     350.0,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   5
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -228,8 +237,8 @@ OU FINISHED
       330.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       340.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       350.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   6
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -277,8 +286,8 @@ OU FINISHED
       330.00 |          0.00
       340.00 |          0.00
       350.00 |          0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   7
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -326,8 +335,8 @@ OU FINISHED
       330.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       340.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       350.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   8
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -375,8 +384,8 @@ OU FINISHED
       330.00 |          0.00
       340.00 |          0.00
       350.00 |          0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE   9
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -400,8 +409,8 @@ OU FINISHED
                                                             (METERS/SEC)
 
                                                  1.54,   3.09,   5.14,   8.23,  10.80,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  10
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -451,8 +460,8 @@ OU FINISHED
  ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
 
  F indicates top of profile (=1) or below (=0)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  11
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -503,8 +512,8 @@ OU FINISHED
       330.00 |       0.12720      0.15106      0.21520      0.27015      0.29778      0.30864      0.30041      0.29307      0.29514
       340.00 |       0.10023      0.12616      0.19257      0.24801      0.27782      0.29052      0.28183      0.27207      0.26995
       350.00 |       0.07120      0.09966      0.17177      0.22907      0.26232      0.27849      0.27239      0.26444      0.26345
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  12
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -555,8 +564,8 @@ OU FINISHED
       330.00 |       0.30723
       340.00 |       0.27572
       350.00 |       0.26938
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  13
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -607,8 +616,8 @@ OU FINISHED
      330.0 |      5.56750 (88030212)      4.71039 (88030212)      3.66727 (88030212)      3.32976 (88030211)      3.15799 (88030211)
      340.0 |      4.54380 (88030212)      3.79061 (88030212)      2.87946 (88030212)      2.47525 (88030212)      2.56554 (88030113)
      350.0 |      3.09527 (88030212)      2.50341 (88030212)      1.84590 (88030110)      2.39008 (88030110)      2.56554 (88030113)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  14
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -659,8 +668,8 @@ OU FINISHED
      330.0 |      3.00038 (88030211)      2.97614 (88030211)      3.10226 (88030211)      3.34234 (88030211)      4.29801 (88030210)
      340.0 |      2.52815 (88030115)      2.32034 (88030213)      2.33886 (88030213)      2.41552 (88030213)      2.80835 (88030210)
      350.0 |      2.52815 (88030115)      2.51025 (88030213)      2.53935 (88030213)      2.65103 (88030213)      2.78445 (88030213)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  15
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -711,8 +720,8 @@ OU FINISHED
      330.0 |      3.67083 (88030211)      3.53655 (88030211)      3.28890 (88030211)      3.21942 (88030212)      2.78337 (88030212)
      340.0 |      2.37285 (88030211)      2.24520 (88030211)      1.90588 (88030211)      2.39008 (88030110)      2.52409 (88030110)
      350.0 |      1.33494 (88030211)      1.20698 (88030211)      1.84139 (88030212)      2.13516 (88030113)      2.52409 (88030110)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  16
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -763,8 +772,8 @@ OU FINISHED
      330.0 |      2.52815 (88030115)      2.20742 (88030115)      2.01460 (88030212)      2.82590 (88030210)      3.64285 (88030211)
      340.0 |      2.47544 (88030110)      2.20742 (88030115)      1.90568 (88030115)      1.87372 (88030210)      2.52912 (88030213)
      350.0 |      2.47544 (88030110)      2.20742 (88030115)      1.90568 (88030115)      1.66089 (88030115)      2.28999 (88030210)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  17
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -815,8 +824,8 @@ OU FINISHED
      330.0 |      1.56042 (88030210)      1.40648 (88030210)      1.84590 (88030110)      2.39008 (88030110)      2.56554 (88030113)
      340.0 |      1.23065 (88030210)      1.04954 (88030210)      1.84590 (88030110)      2.13516 (88030113)      2.37326 (88030115)
      350.0 |      0.89185 (88030210)      0.74993 (88030213)      1.58393 (88030213)      2.08867 (88030115)      2.37326 (88030115)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  18
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -867,8 +876,8 @@ OU FINISHED
      330.0 |      2.47544 (88030110)      2.18773 (88030212)      1.91127 (88030213)      1.92234 (88030213)      2.00686 (88030213)
      340.0 |      2.45021 (88030113)      2.14677 (88030113)      1.85773 (88030113)      1.66089 (88030115)      1.75925 (88030211)
      350.0 |      2.46159 (88030213)      2.14677 (88030113)      1.85773 (88030113)      1.61738 (88030113)      1.46964 (88030115)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  19
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -919,8 +928,8 @@ OU FINISHED
      330.0 |      0.43483 (88030319)      0.67450 (88030110)      1.40340 (88030113)      2.13516 (88030113)      2.52409 (88030110)
      340.0 |      0.43489 (88030319)      0.67890 (88030213)      1.45601 (88030213)      2.08867 (88030115)      2.16732 (88030213)
      350.0 |      0.44781 (88030319)      0.70822 (88030210)      1.40340 (88030113)      2.08546 (88030213)      2.34139 (88030213)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  20
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -971,8 +980,8 @@ OU FINISHED
      330.0 |      2.45021 (88030113)      2.14677 (88030113)      1.90568 (88030115)      1.88670 (88030212)      1.81242 (88030212)
      340.0 |      2.27813 (88030213)      2.13917 (88030110)      1.83699 (88030110)      1.64519 (88030211)      1.46964 (88030115)
      350.0 |      2.45021 (88030113)      2.13917 (88030110)      1.83699 (88030110)      1.59875 (88030110)      1.42551 (88030113)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  21
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1023,8 +1032,8 @@ OU FINISHED
      330.0 |      0.17073 (88030208)      0.57060 (88030311)      1.35995 (88030115)      2.08867 (88030115)      2.37326 (88030115)
      340.0 |      0.17825 (88030304)      0.67450 (88030110)      1.40340 (88030113)      1.92732 (88030213)      2.11368 (88030212)
      350.0 |      0.19802 (88030304)      0.67450 (88030110)      1.35995 (88030115)      1.74825 (88030311)      1.87019 (88030311)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  22
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1075,8 +1084,8 @@ OU FINISHED
      330.0 |      2.40203 (88030212)      2.13917 (88030110)      1.85773 (88030113)      1.66089 (88030115)      1.46964 (88030115)
      340.0 |      2.14564 (88030112)      1.97817 (88030112)      1.75983 (88030112)      1.61738 (88030113)      1.42551 (88030113)
      350.0 |      2.14564 (88030112)      1.97817 (88030112)      1.75983 (88030112)      1.54616 (88030112)      1.42430 (88030110)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  23
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1127,8 +1136,8 @@ OU FINISHED
      330.0 |      0.16404 (88030318)      0.53352 (88030213)      1.35818 (88030311)      1.74825 (88030311)      1.87019 (88030311)
      340.0 |      0.17073 (88030208)      0.57060 (88030311)      1.35995 (88030115)      1.83794 (88030211)      1.87019 (88030311)
      350.0 |      0.17073 (88030208)      0.57060 (88030311)      1.35818 (88030311)      1.50973 (88030212)      1.82375 (88030112)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  24
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1179,8 +1188,8 @@ OU FINISHED
      330.0 |      2.14564 (88030112)      1.97817 (88030112)      1.83699 (88030110)      1.61738 (88030113)      1.42551 (88030113)
      340.0 |      1.91290 (88030114)      1.80373 (88030116)      1.57250 (88030211)      1.59875 (88030110)      1.42430 (88030110)
      350.0 |      1.91290 (88030114)      1.80373 (88030116)      1.56975 (88030116)      1.54518 (88030210)      1.37702 (88030112)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  25
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1231,8 +1240,8 @@ OU FINISHED
      330.0 |      0.12905 (88030304)      0.40294 (88030319)      1.18283 (88030213)      1.58451 (88030213)      1.82375 (88030112)
      340.0 |      0.16404 (88030318)      0.40302 (88030319)      1.35818 (88030311)      1.74825 (88030311)      1.82375 (88030112)
      350.0 |      0.16404 (88030318)      0.42415 (88030319)      1.02830 (88030211)      1.47623 (88030116)      1.80598 (88030114)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  26
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1283,8 +1292,8 @@ OU FINISHED
      330.0 |      1.91290 (88030114)      1.90885 (88030213)      1.78055 (88030210)      1.59875 (88030110)      1.42430 (88030110)
      340.0 |      1.89419 (88030311)      1.73172 (88030311)      1.56975 (88030116)      1.54616 (88030112)      1.37702 (88030112)
      350.0 |      1.89419 (88030311)      1.73172 (88030311)      1.55321 (88030311)      1.39976 (88030311)      1.26948 (88030311)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  27
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1335,8 +1344,8 @@ OU FINISHED
      330.0 |      0.08762 (88030205)      0.34289 (88030113)      1.14292 (88030210)      1.47623 (88030116)      1.80598 (88030114)
      340.0 |      0.08762 (88030205)      0.34289 (88030113)      0.90050 (88030116)      1.47623 (88030116)      1.80598 (88030114)
      350.0 |      0.08762 (88030205)      0.34289 (88030113)      0.90050 (88030116)      1.42308 (88030114)      1.74473 (88030116)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  28
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1387,8 +1396,8 @@ OU FINISHED
      330.0 |      1.89419 (88030311)      1.80373 (88030116)      1.75983 (88030112)      1.54616 (88030112)      1.37702 (88030112)
      340.0 |      1.86049 (88030116)      1.68071 (88030114)      1.55321 (88030311)      1.39976 (88030311)      1.26948 (88030311)
      350.0 |      1.86049 (88030116)      1.68071 (88030114)      1.45571 (88030114)      1.37661 (88030116)      1.22860 (88030319)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  29
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1439,8 +1448,8 @@ OU FINISHED
      330.0 |      0.07066 (88030207)      0.31827 (88030115)      0.90050 (88030116)      1.42308 (88030114)      1.78820 (88030213)
      340.0 |      0.07066 (88030207)      0.31827 (88030115)      0.83148 (88030210)      1.42308 (88030114)      1.74473 (88030116)
      350.0 |      0.07066 (88030207)      0.31827 (88030115)      0.80976 (88030114)      1.37461 (88030112)      1.26009 (88030212)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  30
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1491,8 +1500,8 @@ OU FINISHED
      330.0 |      1.87841 (88030213)      1.73172 (88030311)      1.56975 (88030116)      1.39976 (88030311)      1.26948 (88030311)
      340.0 |      1.80504 (88030212)      1.59893 (88030212)      1.45571 (88030114)      1.37661 (88030116)      1.26447 (88030212)
      350.0 |      1.05040 (88030212)      0.90549 (88030104)      1.00339 (88030319)      1.26840 (88030114)      1.22482 (88030116)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  31
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1543,8 +1552,8 @@ OU FINISHED
      330.0 |      0.06022 (88030219)      0.19493 (88030310)      0.80976 (88030114)      1.37461 (88030112)      1.74473 (88030116)
      340.0 |      0.06022 (88030219)      0.19493 (88030310)      0.80976 (88030114)      1.37461 (88030112)      1.71179 (88030211)
      350.0 |      0.06022 (88030219)      0.19493 (88030310)      0.69379 (88030112)      0.93598 (88030211)      0.87840 (88030211)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  32
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1595,8 +1604,8 @@ OU FINISHED
      330.0 |      1.86049 (88030116)      1.68071 (88030114)      1.55321 (88030311)      1.37661 (88030116)      1.22859 (88030319)
      340.0 |      1.60086 (88030211)      1.55261 (88030211)      1.45385 (88030212)      1.33690 (88030212)      1.22859 (88030319)
      350.0 |      0.84374 (88030211)      0.89171 (88030212)      0.97962 (88030210)      1.11959 (88030319)      1.11876 (88030114)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  33
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1647,8 +1656,8 @@ OU FINISHED
      330.0 |      3.59958 (88030212)      3.21781 (88030212)      2.69970 (88030212)      2.50401 (88030212)      2.26403 (88030212)
      340.0 |      2.71577 (88030212)      2.36178 (88030212)      1.87227 (88030212)      1.88231 (88030115)      2.24826 (88030115)
      350.0 |      1.77402 (88030212)      1.47287 (88030212)      1.19103 (88030115)      1.88231 (88030115)      2.24826 (88030115)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  34
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1699,8 +1708,8 @@ OU FINISHED
      330.0 |      2.29709 (88030115)      2.10205 (88030212)      2.29914 (88030212)      2.68498 (88030212)      3.25109 (88030212)
      340.0 |      2.29709 (88030115)      2.01163 (88030115)      1.73971 (88030115)      1.61860 (88030212)      1.94402 (88030212)
      350.0 |      2.29709 (88030115)      2.01163 (88030115)      1.73971 (88030115)      1.51556 (88030115)      1.33892 (88030212)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  35
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1751,8 +1760,8 @@ OU FINISHED
      330.0 |      0.16331 (88030321)      0.29931 (88030312)      1.19103 (88030115)      1.88231 (88030115)      2.24826 (88030115)
      340.0 |      0.16333 (88030321)      0.29931 (88030312)      1.19103 (88030115)      1.66495 (88030212)      1.57148 (88030112)
      350.0 |      0.16764 (88030321)      0.29931 (88030312)      1.14057 (88030212)      1.32245 (88030112)      1.57148 (88030112)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  36
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1803,8 +1812,8 @@ OU FINISHED
      330.0 |      2.08954 (88030212)      2.01163 (88030115)      1.73971 (88030115)      1.51556 (88030115)      1.33797 (88030115)
      340.0 |      1.70263 (88030112)      1.55119 (88030112)      1.40816 (88030212)      1.51556 (88030115)      1.33797 (88030115)
      350.0 |      1.70263 (88030112)      1.55119 (88030112)      1.35637 (88030112)      1.18535 (88030112)      1.33797 (88030115)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  37
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1855,8 +1864,8 @@ OU FINISHED
      330.0 |      0.08572 (88030209)      0.26827 (88030115)      0.86153 (88030112)      1.32245 (88030112)      1.57148 (88030112)
      340.0 |      0.08572 (88030209)      0.26827 (88030115)      0.86153 (88030112)      1.32245 (88030112)      1.47236 (88030212)
      350.0 |      0.08572 (88030209)      0.26827 (88030115)      0.86153 (88030112)      0.96449 (88030212)      1.00277 (88030312)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  38
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1907,8 +1916,8 @@ OU FINISHED
      330.0 |      1.70263 (88030112)      1.55119 (88030112)      1.35637 (88030112)      1.18535 (88030112)      1.05315 (88030112)
      340.0 |      1.33557 (88030212)      1.31217 (88030212)      1.35637 (88030112)      1.18535 (88030112)      1.05315 (88030112)
      350.0 |      1.03519 (88030312)      1.01759 (88030215)      1.04789 (88030215)      1.10102 (88030215)      1.15266 (88030215)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  39
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -1959,8 +1968,8 @@ OU FINISHED
      330.0 |      0.05468 (88030318)      0.25813 (88030112)      0.69235 (88030312)      0.91215 (88030312)      1.00277 (88030312)
      340.0 |      0.06612 (88030306)      0.25813 (88030112)      0.69235 (88030312)      0.91215 (88030312)      1.00277 (88030312)
      350.0 |      0.07271 (88030306)      0.25813 (88030112)      0.69235 (88030312)      0.91215 (88030312)      0.89310 (88030215)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  40
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2011,8 +2020,8 @@ OU FINISHED
      330.0 |      1.03519 (88030312)      0.99468 (88030312)      0.92468 (88030312)      0.86103 (88030312)      0.83901 (88030215)
      340.0 |      1.03519 (88030312)      0.99468 (88030312)      0.93292 (88030215)      0.97148 (88030215)      1.01317 (88030215)
      350.0 |      0.97231 (88030215)      0.99468 (88030312)      0.92468 (88030312)      1.08225 (88030212)      1.05315 (88030112)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  41
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2063,8 +2072,8 @@ OU FINISHED
      330.0 |      0.04972 (88030306)      0.17958 (88030215)      0.41218 (88030215)      0.57819 (88030215)      0.68109 (88030215)
      340.0 |      0.05468 (88030318)      0.22804 (88030215)      0.50325 (88030215)      0.69249 (88030215)      0.80751 (88030215)
      350.0 |      0.05468 (88030318)      0.25210 (88030215)      0.55111 (88030215)      0.76105 (88030215)      0.84311 (88030212)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  42
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2115,8 +2124,8 @@ OU FINISHED
      330.0 |      0.74073 (88030215)      0.77326 (88030215)      0.79031 (88030215)      0.80701 (88030215)      0.80642 (88030312)
      340.0 |      0.87404 (88030215)      0.91049 (88030215)      0.92468 (88030312)      0.86103 (88030312)      0.80642 (88030312)
      350.0 |      0.77248 (88030212)      0.78683 (88030212)      0.89555 (88030212)      0.86103 (88030312)      0.80642 (88030312)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  43
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2167,8 +2176,8 @@ OU FINISHED
      330.0 |      0.03426 (88030221)      0.15093 (88030321)      0.30022 (88030118)      0.49238 (88030118)      0.58243 (88030118)
      340.0 |      0.03299 (88030221)      0.15095 (88030321)      0.30022 (88030118)      0.49238 (88030118)      0.58243 (88030118)
      350.0 |      0.03080 (88030221)      0.15800 (88030321)      0.30022 (88030118)      0.49238 (88030118)      0.58243 (88030118)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  44
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2219,8 +2228,8 @@ OU FINISHED
      330.0 |      0.62181 (88030118)      0.60382 (88030118)      0.52679 (88030118)      0.46565 (88030106)      0.48390 (88030106)
      340.0 |      0.62181 (88030118)      0.60382 (88030118)      0.52679 (88030118)      0.46565 (88030106)      0.48390 (88030106)
      350.0 |      0.62181 (88030118)      0.60382 (88030118)      0.52679 (88030118)      0.46565 (88030106)      0.50459 (88030218)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  45
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2271,8 +2280,8 @@ OU FINISHED
      330.0 |      0.02962 (88030206)      0.08867 (88030209)      0.16530 (88030321)      0.19549 (88030106)      0.26575 (88030106)
      340.0 |      0.02962 (88030206)      0.08867 (88030209)      0.16531 (88030321)      0.19549 (88030106)      0.26575 (88030106)
      350.0 |      0.02962 (88030206)      0.08867 (88030209)      0.16950 (88030321)      0.19549 (88030106)      0.26575 (88030106)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  46
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2323,8 +2332,8 @@ OU FINISHED
      330.0 |      0.33603 (88030106)      0.39429 (88030106)      0.43619 (88030106)      0.46375 (88030118)      0.41929 (88030321)
      340.0 |      0.33603 (88030106)      0.39429 (88030106)      0.43619 (88030106)      0.46375 (88030118)      0.41929 (88030321)
      350.0 |      0.33603 (88030106)      0.39429 (88030106)      0.43619 (88030106)      0.46375 (88030118)      0.48390 (88030106)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  47
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2375,8 +2384,8 @@ OU FINISHED
      330.0 |      0.02067 (88030106)      0.07348 (88030106)      0.13221 (88030106)      0.19224 (88030321)      0.22598 (88030321)
      340.0 |      0.02067 (88030106)      0.07348 (88030106)      0.13221 (88030106)      0.19224 (88030321)      0.22598 (88030321)
      350.0 |      0.02067 (88030106)      0.07348 (88030106)      0.13221 (88030106)      0.19324 (88030321)      0.22626 (88030321)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  48
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2427,8 +2436,8 @@ OU FINISHED
      330.0 |      0.26377 (88030321)      0.30385 (88030321)      0.34401 (88030321)      0.38281 (88030321)      0.41539 (88030118)
      340.0 |      0.26377 (88030321)      0.30385 (88030321)      0.34401 (88030321)      0.38281 (88030321)      0.41539 (88030118)
      350.0 |      0.26385 (88030321)      0.30389 (88030321)      0.34402 (88030321)      0.38875 (88030218)      0.41930 (88030321)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  49
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2479,8 +2488,8 @@ OU FINISHED
      330.0 |      0.01029 (88030312)      0.06197 (88030118)      0.09063 (88030315)      0.12418 (88030109)      0.15615 (88030109)
      340.0 |      0.01102 (88030303)      0.06197 (88030118)      0.09063 (88030315)      0.12418 (88030109)      0.15615 (88030109)
      350.0 |      0.01324 (88030303)      0.06197 (88030118)      0.09063 (88030315)      0.12418 (88030109)      0.15615 (88030109)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  50
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2531,8 +2540,8 @@ OU FINISHED
      330.0 |      0.17235 (88030109)      0.17828 (88030109)      0.17858 (88030109)      0.19062 (88030109)      0.19691 (88030109)
      340.0 |      0.17235 (88030109)      0.17828 (88030109)      0.17858 (88030109)      0.19062 (88030109)      0.21981 (88030218)
      350.0 |      0.17235 (88030109)      0.23470 (88030218)      0.30599 (88030218)      0.38282 (88030321)      0.41539 (88030118)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  51
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2583,8 +2592,8 @@ OU FINISHED
      330.0 |      0.00841 (88030303)      0.04826 (88030315)      0.07277 (88030109)      0.11883 (88030315)      0.13766 (88030315)
      340.0 |      0.01096 (88030215)      0.04826 (88030315)      0.07277 (88030109)      0.11883 (88030315)      0.13766 (88030315)
      350.0 |      0.01278 (88030215)      0.04831 (88030306)      0.07277 (88030109)      0.11883 (88030315)      0.13766 (88030315)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  52
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2635,8 +2644,8 @@ OU FINISHED
      330.0 |      0.14878 (88030315)      0.15396 (88030315)      0.15827 (88030315)      0.16710 (88030315)      0.17581 (88030221)
      340.0 |      0.14878 (88030315)      0.15396 (88030315)      0.15827 (88030315)      0.17231 (88030218)      0.19691 (88030109)
      350.0 |      0.16369 (88030218)      0.17828 (88030109)      0.17858 (88030109)      0.19062 (88030109)      0.19691 (88030109)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  53
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2687,8 +2696,8 @@ OU FINISHED
      330.0 |      0.46964 (88030224)      0.44483 (88030224)      0.40769 (88030224)      0.50426 (88030124)      0.60604 (88030124)
      340.0 |      0.35941 (88030224)      0.34374 (88030224)      0.32101 (88030124)      0.50426 (88030124)      0.60604 (88030124)
      350.0 |      0.24164 (88030224)      0.23514 (88030224)      0.32101 (88030124)      0.50426 (88030124)      0.60604 (88030124)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  54
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2739,8 +2748,8 @@ OU FINISHED
      330.0 |      0.64513 (88030124)      0.59720 (88030124)      0.53561 (88030124)      0.48472 (88030124)      0.55845 (88030224)
      340.0 |      0.64513 (88030124)      0.59720 (88030124)      0.53561 (88030124)      0.48472 (88030124)      0.44452 (88030124)
      350.0 |      0.64513 (88030124)      0.59720 (88030124)      0.53561 (88030124)      0.48472 (88030124)      0.44452 (88030124)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  55
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2791,8 +2800,8 @@ OU FINISHED
      330.0 |      0.03631 (88030324)      0.08530 (88030124)      0.32101 (88030124)      0.40527 (88030224)      0.39093 (88030224)
      340.0 |      0.03869 (88030324)      0.08530 (88030124)      0.31577 (88030224)      0.31549 (88030224)      0.30988 (88030224)
      350.0 |      0.04033 (88030324)      0.08530 (88030124)      0.22997 (88030224)      0.23754 (88030224)      0.24580 (88030224)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  56
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2843,8 +2852,8 @@ OU FINISHED
      330.0 |      0.38011 (88030224)      0.38967 (88030224)      0.42072 (88030224)      0.47648 (88030224)      0.44452 (88030124)
      340.0 |      0.30641 (88030224)      0.31402 (88030224)      0.33528 (88030224)      0.37415 (88030224)      0.43071 (88030224)
      350.0 |      0.25616 (88030224)      0.27404 (88030224)      0.30240 (88030224)      0.34552 (88030224)      0.40250 (88030224)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  57
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2895,8 +2904,8 @@ OU FINISHED
      330.0 |      0.00283 (88030124)      0.07375 (88030324)      0.13049 (88030324)      0.16745 (88030324)      0.18842 (88030324)
      340.0 |      0.00283 (88030124)      0.07524 (88030324)      0.13187 (88030324)      0.16868 (88030324)      0.18962 (88030324)
      350.0 |      0.00283 (88030124)      0.07783 (88030324)      0.13446 (88030324)      0.17085 (88030324)      0.19170 (88030324)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  58
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2947,8 +2956,8 @@ OU FINISHED
      330.0 |      0.20181 (88030324)      0.20557 (88030324)      0.20529 (88030324)      0.20657 (88030324)      0.20910 (88030324)
      340.0 |      0.20305 (88030324)      0.20689 (88030324)      0.20673 (88030324)      0.20814 (88030324)      0.21081 (88030324)
      350.0 |      0.20517 (88030324)      0.20912 (88030324)      0.20912 (88030324)      0.21074 (88030324)      0.21365 (88030324)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  59
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -2999,8 +3008,8 @@ OU FINISHED
      330.0 |      0.00001 (88030424)      0.00035 (88030424)      0.00164 (88030424)      0.00362 (88030424)      0.00572 (88030424)
      340.0 |      0.00001 (88030424)      0.00035 (88030424)      0.00164 (88030424)      0.00362 (88030424)      0.00572 (88030424)
      350.0 |      0.00001 (88030424)      0.00035 (88030424)      0.00164 (88030424)      0.00362 (88030424)      0.00572 (88030424)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  60
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3051,8 +3060,8 @@ OU FINISHED
      330.0 |      0.00750 (88030424)      0.00920 (88030424)      0.01064 (88030424)      0.01280 (88030424)      0.01685 (88030424)
      340.0 |      0.00750 (88030424)      0.00920 (88030424)      0.01064 (88030424)      0.01280 (88030424)      0.01685 (88030424)
      350.0 |      0.00750 (88030424)      0.00920 (88030424)      0.01064 (88030424)      0.01280 (88030424)      0.01685 (88030424)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  61
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3103,8 +3112,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  62
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3155,8 +3164,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  63
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3207,8 +3216,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  64
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3259,8 +3268,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  65
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3311,8 +3320,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  66
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3363,8 +3372,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  67
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3415,8 +3424,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  68
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3467,8 +3476,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  69
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3519,8 +3528,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  70
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3571,8 +3580,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  71
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3623,8 +3632,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  72
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3675,8 +3684,8 @@ OU FINISHED
      330.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      340.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
      350.0 |      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)      0.00000 (00000000)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  73
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3697,8 +3706,8 @@ OU FINISHED
                        GP = GRIDPOLR
                        DC = DISCCART
                        DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  74
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3719,8 +3728,8 @@ OU FINISHED
                        GP = GRIDPOLR
                        DC = DISCCART
                        DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  75
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3741,8 +3750,8 @@ OU FINISHED
                        GP = GRIDPOLR
                        DC = DISCCART
                        DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  76
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3771,8 +3780,8 @@ ALL       1ST HIGHEST VALUE IS       5.40459 AT (     519.62,     -300.00,     0
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  77
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3801,8 +3810,8 @@ ALL      HIGH   1ST HIGH VALUE IS      76.07952  ON 88030111: AT (     519.62,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  78
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3831,8 +3840,8 @@ ALL      HIGH   1ST HIGH VALUE IS      59.57654  ON 88030112: AT (     519.62,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  79
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3861,8 +3870,8 @@ ALL      HIGH   1ST HIGH VALUE IS      16.85665  ON 88030124: AT (     519.62,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:02
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
                                                                                                                        PAGE  80
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -3871,7 +3880,7 @@ ALL      HIGH   1ST HIGH VALUE IS      16.85665  ON 88030124: AT (     519.62,  
   --------- Summary of Total Messages --------
   
  A Total of            0 Fatal Error Message(s)
- A Total of            6 Warning Message(s)
+ A Total of            5 Warning Message(s)
  A Total of            0 Informational Message(s)
 
  A Total of           96 Hours Were Processed
@@ -3886,7 +3895,6 @@ ALL      HIGH   1ST HIGH VALUE IS      16.85665  ON 88030124: AT (     519.62,  
   
   
     ********   WARNING MESSAGES   ******** 
- CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
  CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
  CO W362       7       COCARD: Multiyear 1h NO2/SO2 processing not applicable for     3-hr Ave
  CO W362       7       COCARD: Multiyear 1h NO2/SO2 processing not applicable for    24-hr Ave

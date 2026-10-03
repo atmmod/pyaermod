@@ -81,6 +81,10 @@ def _pit(**kw):
     geom = dict(source_id="PIT", x_coord=-300.0, y_coord=-200.0,
                 emission_rate=1e-5, release_height=0.0,
                 x_dimension=600.0, y_dimension=400.0, pit_volume=2.4e7)
+    # _project turns DDEP on, and a source without particle categories or
+    # gas deposition parameters is then E242 (soset.f SRCQA; the validator
+    # says so). The recorded decks give each pit these five categories.
+    geom.setdefault("particle_deposition", _pm([1, 2.5, 5, 10, 20]))
     geom.update(kw)
     return OpenPitSource(**geom)
 

@@ -27,14 +27,13 @@ ANNUAL_NEEDS_A_YEAR = re.compile(r"ANNUAL.*\b(year|12 months)\b", re.I)
 
 
 @pytest.mark.aermod_recording("albany_e480")
-def test_j02_warns_before_an_annual_run_on_short_met(gui, step, known_gap):
+def test_j02_warns_before_an_annual_run_on_short_met(gui, step):
     gui.open()
     enter_reference_scenario(gui)
     gui.project.set_averaging_periods(*E480_AVERAGING_PERIODS)
     gui.run.open()
     step("before_run")
-    with known_gap("WP-G4", "no pre-run ANNUAL warning"):
-        gui.run.expect_warning(ANNUAL_NEEDS_A_YEAR)
+    gui.run.expect_warning(ANNUAL_NEEDS_A_YEAR)
 
 
 @pytest.mark.aermod_recording("albany_e480")
@@ -48,17 +47,15 @@ def test_j02_run_anyway_reports_failure(gui, step, known_gap, run_dir):
     step("run_finished")
 
     gui.run.reports_failure()
-    with known_gap("WP-G4", "no message table listing E480"):
-        gui.run.expect_message("E480", "Less than 1yr")
+    gui.run.expect_message("E480", "Less than 1yr")
 
     gui.results.open()
     step("results")
-    with known_gap("WP-G5", "Results does not say the run failed"):
-        gui.results.expect_failed_run_without_valid_results()
+    gui.results.expect_failed_run_without_valid_results()
 
 
 @pytest.mark.aermod_recording("missing_met")
-def test_j02_setup_error_reports_failure(gui, step, known_gap, run_dir, tmp_path):
+def test_j02_setup_error_reports_failure(gui, step, run_dir, tmp_path):
     gui.open()
     enter_reference_scenario(gui, surface_file=tmp_path / "met" / "MISSING.SFC")
     gui.project.set_averaging_periods(*E480_AVERAGING_PERIODS)
@@ -68,5 +65,4 @@ def test_j02_setup_error_reports_failure(gui, step, known_gap, run_dir, tmp_path
     step("run_finished")
 
     gui.run.reports_failure()
-    with known_gap("WP-G4", "no message table listing E500"):
-        gui.run.expect_message("E500", "SURFFILE")
+    gui.run.expect_message("E500", "SURFFILE")

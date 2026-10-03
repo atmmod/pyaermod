@@ -37,7 +37,7 @@ Both modes share the same seven-tab layout:
 | **Receptors** | Cartesian grid, polar grid, and discrete receptor lists |
 | **Meteorology** | Surface + profile file paths, anemometer height, date range |
 | **Output** | Output pathway: summary, plot, post, max files |
-| **Run** | Dispatch AERMOD against the current project |
+| **Run** | Review & Run: what blocks the run, a preview of the deck, and the run itself |
 | **Results** | Parsed `.OUT` summary, source list, max concentrations, POSTFILE listing |
 
 The Project tab's "Save as..." button saves the project as a JSON file you
@@ -54,12 +54,39 @@ Each browser tab keeps its own project: reloading the tab brings back the
 project and the last run, but closing the tab or stopping the server
 discards unsaved changes, so save before you do.
 
+## Review & Run
+
+The Run tab reviews the project before AERMOD sees it. Its readiness
+checklist lists every problem that would stop the run, grouped by the
+step that fixes it, with a "Go to" link to that step; **Run AERMOD**
+stays disabled until the checklist is empty. A met file given by a
+relative path counts as such a problem while the working directory is
+blank, because AERMOD opens relative paths from its working directory
+and a blank one is a new, empty temporary folder: give the full path or
+set the working directory. So does a met file whose path starts with
+`~`, because AERMOD does not expand `~` to your home folder: give the
+full path. Warnings that do not stop the run follow
+under "Before you run", among them ANNUAL averages with less than a year
+of met data, which AERMOD would abort with fatal error E480. Below them
+is a read-only preview of the deck the run will use, with Copy and
+Download.
+
+AERMOD runs in the background, so the other tabs, and other browser
+tabs, stay usable. A progress bar follows AERMOD's day count against the
+days in the surface file, next to the elapsed time and a **Cancel**
+button. When the run ends the status says Succeeded, Failed or
+Cancelled, followed by the number of fatal errors, warnings and
+informational messages AERMOD reported and a table of those messages
+(severity, pathway, code, input line and text). Codes with an entry in
+[Common AERMOD errors](common-errors.md) link to it. New or Open during
+a run stops the run, and so does stopping the server.
+
 ## AERMOD binary
 
 The Run tab calls the `aermod` binary on your `PATH`. Install AERMOD
 from [EPA SCRAM](https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/)
-separately. The Run tab surfaces a clear "no AERMOD binary" banner
-when the executable isn't found.
+separately. When the executable isn't found, the Run tab's checklist
+says so and Run AERMOD stays disabled.
 
 ## Source forms
 

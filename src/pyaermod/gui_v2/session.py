@@ -27,8 +27,9 @@ import dataclasses
 import logging
 import re
 import tempfile
+import threading
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import (
@@ -48,8 +49,10 @@ from .project_io import check_project, project_from_json, project_to_json, save_
 from .state import _empty_project
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..runner import AERMODRunner, AERMODRunResult
-    from ..validator import ValidationResult
+    from ..aermet import SurfaceFilePeriod
+    from ..runner import AERMODProgress, AERMODRun, AERMODRunner, AERMODRunResult
+    from ..unparsed import UnparsedLine
+    from ..validator import ValidationError, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +60,12 @@ logger = logging.getLogger(__name__)
 class SessionEvent(StrEnum):
     """What changed in a :class:`Session`."""
 
-    PROJECT_REPLACED = "project_replaced"      # new(), open_json()
+    PROJECT_REPLACED = "project_replaced"      # new(), open_json(), import_inp()
     PROJECT_CHANGED = "project_changed"        # any in-place change; Change.part names what
     DIRTY_CHANGED = "dirty_changed"            # the dirty flag or the file name changed
     VALIDATION_CHANGED = "validation_changed"  # validate()
     RUN_STARTED = "run_started"
-    RUN_PROGRESS = "run_progress"              # reserved; emitted from WP-G4 on
+    RUN_PROGRESS = "run_progress"              # a background run printed another day
     RUN_FINISHED = "run_finished"
 
 
@@ -104,6 +107,10 @@ class RunRecord:
     finished_at: Optional[datetime] = None
     result: Optional[AERMODRunResult] = None   # None when the runner raised
     error: Optional[str] = None                # str(exc) when the runner raised
+    # WP-G4: a background run's progress, and the days of met data it has
+    # to process (from the surface file; None when it could not be read).
+    progress: Optional[AERMODProgress] = None
+    expected_days: Optional[int] = None
 
     @property
     def in_progress(self) -> bool:
@@ -112,6 +119,28 @@ class RunRecord:
     @property
     def success(self) -> bool:
         return self.result is not None and bool(self.result.success)
+
+    @property
+    def cancelled(self) -> bool:
+        return self.result is not None and bool(getattr(self.result, "cancelled", False))
+
+    @property
+    def status(self) -> str:
+        """"Running", "Succeeded", "Cancelled" or "Failed"."""
+        if self.in_progress:
+            return "Running"
+        if self.success:
+            return "Succeeded"
+        return "Cancelled" if self.cancelled else "Failed"
+
+    @property
+    def fraction_done(self) -> Optional[float]:
+        """Days processed over the days of met data, in [0, 1]; None if unknown."""
+        if self.progress is not None and self.progress.stage == "output":
+            return 1.0
+        if not self.expected_days or self.progress is None:
+            return None
+        return min(1.0, self.progress.days_processed / self.expected_days)
 
 
 @dataclass(frozen=True)
@@ -131,6 +160,25 @@ class RunOptions:
     timeout_s: int = 600
 
 
+@dataclass(frozen=True)
+class MetCoverage:
+    """The surface file a run would read, as :meth:`Session.met_coverage` finds it.
+
+    ``path`` is the file resolved as AERMOD will open it (None when none is
+    set, or when AERMOD would not find it: a relative path with a blank
+    working directory, or one starting with ``~``); ``period`` what it
+    holds and ``problem`` why it could not be read (see
+    :meth:`Session.met_period`); ``warnings`` the
+    :func:`~pyaermod.validator_advanced.check_annual_met_coverage` finding
+    (ANNUAL with less than a year of data, which AERMOD aborts with E480).
+    """
+
+    path: Optional[Path] = None
+    period: Optional[SurfaceFilePeriod] = None
+    problem: Optional[str] = None
+    warnings: Tuple[ValidationError, ...] = ()
+
+
 class ProjectFileError(ValueError):
     """:meth:`Session.open_json` could not read the project file."""
 
@@ -139,7 +187,111 @@ class DeckError(ValueError):
     """The project could not be written as an AERMOD deck."""
 
 
+class RunInProgressError(RuntimeError):
+    """:meth:`Session.start_run` was called while a run is in progress."""
+
+
+def _call_now(callback: Callable[[], object]) -> None:
+    callback()
+
+
+# (path, mtime_ns, size) -> the period read from that surface file.
+_PERIOD_CACHE: Dict[Tuple[str, int, int], Any] = {}
+_PERIOD_CACHE_SIZE = 16
+
+
+def read_met_period(path: Path) -> SurfaceFilePeriod:
+    """:func:`~pyaermod.aermet.read_surface_period`, cached by path and mtime.
+
+    Raises what it raises (``OSError``, ``ValueError``).
+    """
+    from ..aermet import read_surface_period
+
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    period = _PERIOD_CACHE.get(key)
+    if period is None:
+        period = read_surface_period(path)
+        if len(_PERIOD_CACHE) >= _PERIOD_CACHE_SIZE:
+            _PERIOD_CACHE.pop(next(iter(_PERIOD_CACHE)))
+        _PERIOD_CACHE[key] = period
+    return period
+
+
+# --- WP-G6: deck import ---------------------------------------------------
+
+class DeckImportError(ValueError):
+    """:meth:`Session.import_inp` could not import the deck.
+
+    The message starts with the deck's name and says why, in words meant
+    for the user; nothing in the session has changed.
+    """
+
+
+#: The met file fields an imported deck names, and how the GUI calls them.
+MET_FILE_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("surface_file", "surface"),
+    ("profile_file", "profile"),
+)
+
+#: The name an uploaded deck is shown under when it came without one.
+_DEFAULT_DECK_NAME = "deck.inp"
+
+#: The file an upload is written to in its temporary folder: the name the
+#: user sees may be longer than a file name can be.
+_UPLOAD_FILE_NAME = "upload.inp"
+
+#: How long a deck's name may be in the header and in messages.
+_MAX_DECK_NAME = 120
+
+#: The deck keyword that names each met file field.
+_MET_KEYWORDS = {"ME SURFFILE": "surface_file", "ME PROFFILE": "profile_file"}
+
+
+@dataclass(frozen=True)
+class DeckImport:
+    """What :meth:`Session.import_inp` brought in, for the notice the GUI shows.
+
+    ``path`` is the deck's file on this computer, or None for an upload.
+    ``unparsed`` holds the lines the reader kept as written
+    (:attr:`AERMODProject.unparsed_lines`). ``met_found`` names the met
+    file fields whose relative path was found beside the deck and is now
+    a full path; ``met_needed`` lists ``(field, path as written)`` for
+    each met file the user still has to point at. The deck's other input
+    files (ozone and NOx files, ``INCLUDED``, ``HOUREMIS`` ...; see
+    :func:`~pyaermod.input_reader.input_files`) are listed as
+    ``(keyword, path as written)``: ``inputs_found`` for those found
+    beside the deck, now full paths, and ``inputs_missing`` for those
+    that are not a file on this computer as the project names them.
+    """
+
+    name: str
+    path: Optional[Path]
+    unparsed: Tuple[UnparsedLine, ...] = ()
+    met_found: Tuple[str, ...] = ()
+    met_needed: Tuple[Tuple[str, str], ...] = ()
+    inputs_found: Tuple[Tuple[str, str], ...] = ()
+    inputs_missing: Tuple[Tuple[str, str], ...] = ()
+
+# --- end WP-G6 --------------------------------------------------------------
+
+
 Observer = Callable[[Change], None]
+
+
+def _orphan_record(result: Optional[AERMODRunResult]) -> RunRecord:
+    """A record for the end of a run the session no longer tracks."""
+    deck = Path(result.input_file) if result is not None else Path(DECK_NAME)
+    return RunRecord(number=0, work_dir=deck.parent, deck_path=deck, started_at=datetime.now())
+
+
+# WP-G6: shared by clean_file_name (WP-G2) and the deck import below.
+def _last_name_part(name: Optional[str]) -> str:
+    """The last part of ``name`` after either separator, browser-safe; may be ''."""
+    # "C:" is not a directory here.
+    parts = [p.strip() for p in re.split(r"[\\/]", name or "")]
+    parts = [p for p in parts if p not in ("", ".", "..")]
+    return _UNSAFE_NAME_CHARS.sub("_", parts[-1]) if parts else ""
 
 
 def clean_file_name(name: Optional[str]) -> str:
@@ -150,10 +302,7 @@ def clean_file_name(name: Optional[str]) -> str:
     ``_`` so the header names the file the browser saved, an empty name
     becomes ``project.json`` and a name without a ``.json`` suffix gets one.
     """
-    # The last part after either separator; "C:" is not a directory here.
-    parts = [p.strip() for p in re.split(r"[\\/]", name or "")]
-    parts = [p for p in parts if p not in ("", ".", "..")]
-    base = _UNSAFE_NAME_CHARS.sub("_", parts[-1]) if parts else ""
+    base = _last_name_part(name)  # WP-G6: shared with the deck import
     if not base:
         return _DEFAULT_FILE_NAME
     if not base.lower().endswith(".json"):
@@ -184,9 +333,22 @@ class Session:
         The run :meth:`start_run` is executing, or None.
     run_options
         The Run step's inputs.
+    last_import
+        What the latest :meth:`import_inp` brought in, until the project
+        is replaced again; the header names the deck while the project
+        has no file of its own.
+    show_import_notice
+        Whether the Project step still shows the import notice (the user
+        can dismiss it).
     tab_id
         Which browser tab owns this session. The GUI shell reads and
         writes it; the session never interprets it.
+    dispatch
+        How a background run's events reach the session's owner:
+        ``dispatch(callback)`` must arrange for ``callback()`` to run on the
+        thread that owns the session. The GUI passes its event loop's
+        ``call_soon_threadsafe``; the default calls at once, on the run's
+        own thread (fine for scripts and tests that only wait).
     """
 
     def __init__(self, project: Optional[AERMODProject] = None, *,
@@ -199,8 +361,17 @@ class Session:
         self.runs: List[RunRecord] = []
         self.run_in_progress: Optional[RunRecord] = None
         self.run_options = RunOptions()
+        self.last_import: Optional[DeckImport] = None  # WP-G6
+        self.show_import_notice: bool = False  # WP-G6
         self.tab_id: Optional[str] = tab_id
+        self.dispatch: Callable[[Callable[[], object]], Any] = _call_now
         self._observers: List[Tuple[frozenset, Observer]] = []
+        # The background run in progress: its handle and serial number, and
+        # the newest progress not yet applied on the owner's thread.
+        self._run_handle: Optional[AERMODRun] = None
+        self._run_serial = 0
+        self._progress_lock = threading.Lock()
+        self._pending_progress: Optional[Tuple[int, AERMODProgress]] = None
         # id(obj) -> (key, obj). Holding obj keeps its id from being reused
         # while the key exists.
         self._keys: Dict[int, Tuple[str, object]] = {}
@@ -216,20 +387,26 @@ class Session:
 
     @property
     def last_completed_run(self) -> Optional[RunRecord]:
-        """The newest run AERMOD actually completed (it has a result)."""
+        """The newest run AERMOD actually completed (it has a result and was not cancelled)."""
         for record in reversed(self.runs):
-            if record.result is not None:
+            if record.result is not None and not record.cancelled:
                 return record
         return None
 
     @property
     def title(self) -> str:
         """The header text: the file name, and whether it has unsaved changes."""
-        name = self.file_name or "Untitled"
-        return f"PyAERMOD — {name}{' (modified)' if self.dirty else ''}"
+        # WP-G6: an imported deck names the project until it has a file.
+        name = self.file_name or (self.last_import.name if self.last_import else None)
+        return f"PyAERMOD — {name or 'Untitled'}{' (modified)' if self.dirty else ''}"
 
     def suggested_file_name(self) -> str:
-        return self.file_name or _DEFAULT_FILE_NAME
+        if self.file_name:
+            return self.file_name
+        if self.last_import is not None:
+            # WP-G6: an imported deck is saved as a project named after it.
+            return clean_file_name(Path(self.last_import.name).stem)
+        return _DEFAULT_FILE_NAME
 
     def source_entries(self) -> List[Tuple[str, Any]]:
         """``(key, source)`` for every source, in the project's order."""
@@ -297,17 +474,27 @@ class Session:
             self._emit(Change(SessionEvent.DIRTY_CHANGED))
 
     def _replaced(self, project: AERMODProject, *, path: Optional[Path],
-                  name: Optional[str]) -> None:
-        was_dirty, old_name = self.dirty, self.file_name
+                  name: Optional[str], imported: Optional[DeckImport] = None) -> None:
+        # Policy (WP-G4): replacing the project stops its run. The run's
+        # outputs belong to the discarded project, and its record would go
+        # with the discarded history.
+        self._abandon_run()
+        # WP-G6 changed this method (``imported``, the dirty flag, and the
+        # DIRTY_CHANGED rule). The header shows the name and the dirty
+        # flag: DIRTY_CHANGED says either changed.
+        old_title = self.title
         self.project = project
         self.project_path = path
         self.file_name = name
-        self.dirty = False
+        # WP-G6: an imported deck is not saved anywhere as a project yet.
+        self.dirty = imported is not None
+        self.last_import = imported
+        self.show_import_notice = imported is not None
         self.runs = []
         self.validation = None
         self._keys.clear()
         self._emit(Change(SessionEvent.PROJECT_REPLACED))
-        if was_dirty or old_name != name:
+        if self.title != old_title:
             self._emit(Change(SessionEvent.DIRTY_CHANGED))
 
     # ------------------------------------------------------------------
@@ -381,6 +568,93 @@ class Session:
                 message = f"{origin}: {message}"
             raise ProjectFileError(message) from exc
         self._replaced(project, path=path, name=file_name)
+
+    # --- WP-G6: deck import ------------------------------------------------
+    def import_inp(self, source: Union[str, bytes, Path], *,
+                   name: Optional[str] = None) -> DeckImport:
+        """Replace the project with one read from an AERMOD ``.inp`` deck.
+
+        A :class:`~pathlib.Path` is a deck on this computer that the user
+        chose (a native dialog, a path they typed, the recent-files list):
+        it is read as it stands, and each file it reads (met, ozone,
+        ``INCLUDED`` ...) named by a relative path that exists beside it
+        becomes a full path (:func:`~pyaermod.input_reader.anchor_input_files`),
+        so a run in any working directory finds it. Text or bytes are an
+        upload, whose folder the server never sees: the deck is read with
+        ``read_aermod_input(..., sandbox=True)`` from a private temporary
+        folder, so no path in it, kept-as-written lines included, may
+        lead outside its own folder, and every file it reads is one the
+        user still has to supply.
+
+        The project has no file of its own afterwards and counts as
+        modified. Raises :class:`DeckImportError`, with nothing changed,
+        when the deck cannot be imported. Returns what came in, which is
+        also kept as :attr:`last_import`.
+        """
+        from ..input_reader import anchor_input_files
+
+        if isinstance(source, Path):
+            deck_name = _shorten_deck_name(source.name or _DEFAULT_DECK_NAME)
+            project = self._read_deck(source, deck_name, sandbox=False)
+            anchored = [ref for ref, _full in anchor_input_files(project, source.parent)]
+            path: Optional[Path] = source
+        else:
+            deck_name = _clean_deck_name(name)
+            data = source.encode("utf-8") if isinstance(source, str) else source
+            with tempfile.TemporaryDirectory(prefix="pyaermod_import_") as tmp:
+                deck = Path(tmp) / _UPLOAD_FILE_NAME
+                try:
+                    deck.write_bytes(data)
+                except OSError as exc:
+                    raise DeckImportError(
+                        f"{deck_name}: could not be stored for reading: "
+                        f"{exc.strerror or exc}") from exc
+                project = self._read_deck(deck, deck_name, sandbox=True)
+            anchored, path = [], None
+        try:
+            # The project as its file would reopen it, like every project the
+            # session holds: a value the pages or the deck writer could not
+            # use is refused here, by field.
+            project = check_project(project, origin=deck_name)
+        except (ValueError, TypeError) as exc:
+            raise DeckImportError(str(exc)) from exc
+        report = DeckImport(
+            name=deck_name, path=path, unparsed=tuple(project.unparsed_lines),
+            met_found=tuple(_MET_KEYWORDS[ref.keyword] for ref in anchored
+                            if ref.keyword in _MET_KEYWORDS),
+            met_needed=_met_needed(project),
+            inputs_found=tuple((ref.keyword, ref.path) for ref in anchored
+                               if ref.keyword not in _MET_KEYWORDS),
+            inputs_missing=_inputs_missing(project),
+        )
+        self._replaced(project, path=None, name=None, imported=report)
+        return report
+
+    @staticmethod
+    def _read_deck(deck: Path, name: str, *, sandbox: bool) -> AERMODProject:
+        from ..input_reader import PathTraversalError, read_aermod_input
+
+        try:
+            return read_aermod_input(deck, sandbox=sandbox)
+        except PathTraversalError as exc:
+            outside = "; ".join(f"{v.path} ({v.field})" for v in exc.violations) or str(exc)
+            raise DeckImportError(
+                f"{name}: an uploaded deck may only name files in its own folder, and "
+                f"this one names {outside}. Import it from its path on this computer "
+                f"instead, or change those paths in the deck.") from exc
+        except UnicodeDecodeError as exc:
+            raise DeckImportError(f"{name}: not a UTF-8 text file") from exc
+        except OSError as exc:
+            raise DeckImportError(f"{name}: {exc.strerror or exc}") from exc
+        except ValueError as exc:
+            raise DeckImportError(f"{name}: not an AERMOD deck PyAERMOD can read: {exc}") from exc
+        except Exception as exc:
+            # The reader raised something it does not document: a bug in
+            # the reader, so the traceback goes to the log.
+            logger.exception("Reading deck %s raised", name)
+            raise DeckImportError(
+                f"{name}: could not be read ({type(exc).__name__}: {exc})") from exc
+    # --- end WP-G6 -----------------------------------------------------------
 
     def save(self) -> Path:
         """Write the project to :attr:`project_path` and mark it saved.
@@ -513,43 +787,126 @@ class Session:
         self._changed(part)
 
     def validate(self, check_files: bool = False) -> ValidationResult:
-        """Validate the project, keep the result and emit VALIDATION_CHANGED."""
+        """Validate the project, keep the result and emit VALIDATION_CHANGED.
+
+        With ``check_files`` the files are checked on disk, and the surface
+        file is read for the warning that ANNUAL needs a year of met data
+        (:meth:`met_coverage`), which ``Validator.validate`` does not
+        read: the header's readiness line and the step badges count it
+        as the Review & Run step does.
+        """
         from ..validator import Validator
 
-        self.validation = Validator.validate(self.project, check_files=check_files)
+        result = Validator.validate(self.project, check_files=check_files)
+        if check_files:
+            try:
+                result.errors.extend(self.met_coverage().warnings)
+            except Exception:           # a surface file the reader trips on
+                logger.exception("checking the met data's coverage raised")
+        self.validation = result
         self._emit(Change(SessionEvent.VALIDATION_CHANGED))
         return self.validation
 
     # ------------------------------------------------------------------
     # Runs
     # ------------------------------------------------------------------
-    def start_run(self, *, working_dir: Union[str, Path, None] = None, timeout: int = 600,
-                  runner: Optional[AERMODRunner] = None) -> RunRecord:
-        """Write the deck, run AERMOD on it, and record the run.
+    def deck_text(self) -> str:
+        """The AERMOD deck :meth:`start_run` would write for the project.
 
-        Raises :class:`DeckError` (nothing recorded, nothing emitted) when
-        the project cannot be written as a deck, either because it holds a
-        value its file could not be reopened with (the message names the
-        field; see :func:`~.project_io.check_project`) or because the deck
-        writer refuses it, and ``OSError`` when the
-        deck cannot be written to the working directory. Anything the
-        runner raises, including a missing binary, is kept on the record
-        as ``error``. Emits RUN_STARTED and then RUN_FINISHED.
-
-        The run is synchronous; WP-G4 moves it to the background.
+        Written from the project as a file would reopen it: a value the
+        loader refuses is refused here by name, and whole numbers the number
+        boxes stored as floats are integers again. Raises
+        :class:`DeckError` when the project cannot be written as a deck.
+        Emits nothing, so a page section may call it.
         """
         try:
-            # The deck is written from the project as a file would reopen it:
-            # a value the loader refuses is refused here by name, and whole
-            # numbers the number boxes stored as floats are integers again.
             deck_project = check_project(self.project, origin="deck")
-            deck = deck_project.to_aermod_input(validate=False)
+            return deck_project.to_aermod_input(validate=False)
         except ValueError as exc:
             raise DeckError(str(exc).removeprefix("deck: ")) from exc
         except Exception as exc:
             # Anything else is a bug in the deck writer or the check.
             logger.exception("Writing the deck raised")
             raise DeckError(str(exc) or type(exc).__name__) from exc
+
+    def met_period(self, base_dir: Union[str, Path, None] = None,
+                   ) -> Tuple[Optional[Path], Optional[SurfaceFilePeriod], Optional[str]]:
+        """The surface file, the period it covers, and why it could not be read.
+
+        ``(path, period, problem)``: ``path`` is the surface file resolved
+        against ``base_dir`` (None when none is set), ``period`` the
+        :class:`~pyaermod.aermet.SurfaceFilePeriod` it holds, and
+        ``problem`` a sentence saying why it could not be read (then
+        ``period`` is None). Reads are cached by the file's mtime. Emits
+        nothing.
+        """
+        from ..validator_advanced import surface_file_path
+
+        path = surface_file_path(self.project.meteorology, base_dir)
+        if path is None:
+            return None, None, None
+        try:
+            return path, read_met_period(path), None
+        except FileNotFoundError:
+            return path, None, f"{path} does not exist"
+        except IsADirectoryError:
+            return path, None, f"{path} is a directory, not a surface file"
+        except (OSError, ValueError) as exc:
+            return path, None, f"{path} could not be read: {exc}"
+
+    def met_coverage(self) -> MetCoverage:
+        """The surface file the next run would read, what it holds, and the
+        ANNUAL warning (see :class:`MetCoverage`). Emits nothing.
+
+        The file is resolved against :attr:`run_options`' working
+        directory. With a blank one the run goes to a new, empty folder, so
+        a relative surface file is not read from the server's own
+        directory; nor is one starting with ``~``, which AERMOD does not
+        expand. Review & Run blocks both (``run.RELATIVE_MET``,
+        ``run.HOME_MET``).
+        """
+        from ..validator_advanced import check_annual_met_coverage
+
+        working_dir = str(self.run_options.working_dir or "").strip()
+        name = str(self.project.meteorology.surface_file or "").strip().strip('"')
+        if not name or name.startswith("~") or (not working_dir and not Path(name).is_absolute()):
+            return MetCoverage()
+        base_dir = working_dir or None
+        path, period, problem = self.met_period(base_dir)
+        warnings: Tuple[ValidationError, ...] = ()
+        if period is not None:
+            warnings = tuple(check_annual_met_coverage(self.project, base_dir=base_dir,
+                                                       period=period))
+        return MetCoverage(path, period, problem, warnings)
+
+    def start_run(self, *, working_dir: Union[str, Path, None] = None, timeout: int = 600,
+                  runner: Optional[AERMODRunner] = None,
+                  background: bool = False) -> RunRecord:
+        """Write the deck, run AERMOD on it, and record the run.
+
+        Raises :class:`RunInProgressError` while another run is in progress
+        (nothing written, nothing emitted), :class:`DeckError` (nothing
+        recorded, nothing emitted) when the project cannot be written as a
+        deck (see :meth:`deck_text`), and ``OSError`` when the deck cannot
+        be written to the working directory. Anything the runner raises,
+        including a missing binary, is kept on the record as ``error``.
+
+        With ``background=False`` the run is synchronous: RUN_STARTED, then
+        RUN_FINISHED, and the finished record is returned.
+
+        With ``background=True`` AERMOD runs through
+        :meth:`AERMODRunner.start <pyaermod.runner.AERMODRunner.start>` and
+        this returns the record in progress (:attr:`run_in_progress`) after
+        RUN_STARTED. RUN_PROGRESS follows for each day AERMOD reports (a
+        burst is coalesced into one event), then RUN_FINISHED, all
+        delivered through :attr:`dispatch`. :meth:`cancel_run` stops it. A
+        runner that cannot be built or started finishes the run at once,
+        as a synchronous run would.
+        """
+        if self.run_in_progress is not None:
+            raise RunInProgressError(
+                f"AERMOD is already running (run {self.run_in_progress.number})")
+        deck = self.deck_text()
 
         if working_dir is not None and str(working_dir).strip():
             wd = Path(working_dir).expanduser()
@@ -560,43 +917,127 @@ class Session:
         deck_path.write_text(deck, encoding="utf-8")
 
         record = RunRecord(number=len(self.runs) + 1, work_dir=wd, deck_path=deck_path,
-                           started_at=datetime.now())
+                           started_at=datetime.now(), expected_days=self._expected_days(wd))
+        self._run_serial += 1
+        serial = self._run_serial
         self.run_in_progress = record
         self._emit(Change(SessionEvent.RUN_STARTED, run=record))
 
-        result: Optional[AERMODRunResult] = None
-        error: Optional[str] = None
         try:
             if runner is None:
                 from ..runner import AERMODRunner
 
                 runner = AERMODRunner(log_level="WARNING")
-            result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+            if not background:
+                result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+                return self._finish_run(serial, result=result)
+            handle = runner.start(
+                input_file=deck_path, working_dir=wd, timeout=timeout,
+                on_progress=lambda progress: self._progress_arrived(serial, progress),
+                on_finish=lambda result: self._dispatch(
+                    lambda: self._finish_run(serial, result=result)),
+            )
         except FileNotFoundError as exc:
             # No AERMOD binary, or a file it needs: the user's setup, and the
             # Run step says so. Logged without a traceback.
             logger.warning("AERMOD run %d could not start: %s", record.number, exc)
-            error = str(exc) or type(exc).__name__
+            return self._finish_run(serial, error=str(exc) or type(exc).__name__)
         except Exception as exc:
             # Anything else is a bug: keep the traceback in the log, and show
             # the message on the Run step.
             logger.exception("AERMOD run %d raised", record.number)
-            error = str(exc) or type(exc).__name__
+            return self._finish_run(serial, error=str(exc) or type(exc).__name__)
+        if self._run_serial == serial and self.run_in_progress is not None:
+            self._run_handle = handle
+            return self.run_in_progress
+        # It ended already (a dispatch that calls at once, and a quick failure).
+        return self.runs[-1] if self.runs and self.runs[-1].number == record.number else record
 
-        finished = replace(record, finished_at=datetime.now(), result=result, error=error)
+    def cancel_run(self) -> bool:
+        """Stop the background run in progress.
+
+        Returns True when a cancel was sent: RUN_FINISHED follows once
+        AERMOD has exited, with a record whose status is "Cancelled".
+        False when nothing is running, the run was already cancelled, or
+        the run is synchronous (it cannot be interrupted).
+        """
+        if self.run_in_progress is None or self._run_handle is None:
+            return False
+        return self._run_handle.cancel()
+
+    def _expected_days(self, work_dir: Path) -> Optional[int]:
+        """How many "Day No." lines AERMOD will print: the days of met data it reads."""
+        _path, period, _problem = self.met_period(work_dir)
+        if period is None:
+            return None
+        from ..validator_advanced import _startend_window
+
+        window = _startend_window(self.project.meteorology)
+        if window is None:
+            return period.days
+        first, last = max(period.first, window[0]), min(period.last, window[1])
+        if last <= first:
+            return None
+        return (last - timedelta(hours=1)).date().toordinal() - first.date().toordinal() + 1
+
+    def _dispatch(self, callback: Callable[[], object]) -> None:
+        try:
+            self.dispatch(callback)
+        except RuntimeError as exc:         # the event loop has closed: the app is stopping
+            logger.debug("dropped a run event: %s", exc)
+
+    def _progress_arrived(self, serial: int, progress: AERMODProgress) -> None:
+        """From the run's reader thread: apply ``progress`` on the owner's thread."""
+        with self._progress_lock:
+            already = self._pending_progress is not None
+            self._pending_progress = (serial, progress)
+        if not already:
+            self._dispatch(self._apply_progress)
+
+    def _apply_progress(self) -> None:
+        with self._progress_lock:
+            pending, self._pending_progress = self._pending_progress, None
+        record = self.run_in_progress
+        if pending is None or record is None or pending[0] != self._run_serial:
+            return
+        self.run_in_progress = replace(record, progress=pending[1])
+        self._emit(Change(SessionEvent.RUN_PROGRESS, run=self.run_in_progress))
+
+    def _finish_run(self, serial: int, *, result: Optional[AERMODRunResult] = None,
+                    error: Optional[str] = None) -> RunRecord:
+        """Record the end of run ``serial`` and emit RUN_FINISHED.
+
+        A run that is no longer the one in progress (New or Open replaced
+        the project and stopped it) is dropped without an event.
+        """
+        record = self.run_in_progress
+        if record is None or serial != self._run_serial:
+            if result is not None:
+                logger.info("A stopped run of a replaced project ended: %s", result)
+            return replace(record or _orphan_record(result), finished_at=datetime.now(),
+                           result=result, error=error)
+        handle, self._run_handle = self._run_handle, None
+        progress = record.progress
+        if handle is not None and handle.progress is not None:
+            progress = handle.progress
+        finished = replace(record, finished_at=datetime.now(), result=result, error=error,
+                           progress=progress)
         self.runs.append(finished)
         self.run_in_progress = None
         self._emit(Change(SessionEvent.RUN_FINISHED, run=finished))
         return finished
 
-    def cancel_run(self) -> bool:
-        """Stop the run in progress. False when nothing is running.
-
-        Runs are synchronous until WP-G4, which implements cancelling.
-        """
+    def _abandon_run(self) -> None:
+        """Stop the run in progress without recording it (the project is going)."""
+        handle, self._run_handle = self._run_handle, None
         if self.run_in_progress is None:
-            return False
-        raise NotImplementedError("cancelling arrives with WP-G4")
+            return
+        logger.info("Stopping AERMOD run %d: the project was replaced",
+                    self.run_in_progress.number)
+        self.run_in_progress = None
+        self._run_serial += 1               # its finish no longer matches
+        if handle is not None:
+            handle.cancel()
 
     # ------------------------------------------------------------------
     # Tabs
@@ -610,18 +1051,69 @@ class Session:
         other.validation = self.validation
         other.runs = list(self.runs)
         other.run_options = replace(self.run_options)
+        other.last_import = self.last_import  # WP-G6
+        other.show_import_notice = self.show_import_notice  # WP-G6
         return other
+
+
+# --- WP-G6: deck import helpers ----------------------------------------------
+
+def _shorten_deck_name(name: str) -> str:
+    """``name``, cut to fit the header, keeping its suffix."""
+    if len(name) <= _MAX_DECK_NAME:
+        return name
+    suffix = Path(name).suffix if len(Path(name).suffix) <= 10 else ""
+    return name[:_MAX_DECK_NAME - len(suffix) - 3] + "..." + suffix
+
+
+def _clean_deck_name(name: Optional[str]) -> str:
+    """An uploaded deck's bare name, as the header and messages show it."""
+    return _shorten_deck_name(_last_name_part(name) or _DEFAULT_DECK_NAME)
+
+
+def _is_local_file(raw: str) -> bool:
+    try:
+        return Path(raw).is_absolute() and Path(raw).is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def _met_needed(project: AERMODProject) -> Tuple[Tuple[str, str], ...]:
+    """``(field, path)`` for each met file that is not a file on this computer."""
+    met = project.meteorology
+    needed = []
+    for field_name, _label in MET_FILE_FIELDS:
+        raw = getattr(met, field_name, None) or ""
+        if not (raw and _is_local_file(raw)):
+            needed.append((field_name, raw))
+    return tuple(needed)
+
+
+def _inputs_missing(project: AERMODProject) -> Tuple[Tuple[str, str], ...]:
+    """``(keyword, path)`` for each other input file not on this computer."""
+    from ..input_reader import input_files
+
+    return tuple((ref.keyword, ref.path) for ref in input_files(project)
+                 if ref.keyword not in _MET_KEYWORDS and not _is_local_file(ref.path))
+
+# --- end WP-G6 ----------------------------------------------------------------
 
 
 __all__ = [
     "DECK_NAME",
+    "MET_FILE_FIELDS",
     "PARTS",
     "Change",
     "DeckError",
+    "DeckImport",
+    "DeckImportError",
+    "MetCoverage",
     "ProjectFileError",
+    "RunInProgressError",
     "RunOptions",
     "RunRecord",
     "Session",
     "SessionEvent",
     "clean_file_name",
+    "read_met_period",
 ]

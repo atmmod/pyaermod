@@ -5,6 +5,7 @@ Executes AERMOD binaries from Python with error handling, progress monitoring,
 and batch processing capabilities.
 """
 
+import atexit
 import contextlib
 import hashlib
 import logging
@@ -14,12 +15,15 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
+import time
+import weakref
 from collections.abc import ItemsView, Mapping, ValuesView
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 # ============================================================================
 # AERMOD'S MESSAGE SUMMARY
@@ -253,6 +257,9 @@ class AERMODRunResult:
     message_counts: Dict[str, int] = field(default_factory=dict)
     finished_successfully: bool = False
 
+    # True when the run was stopped by AERMODRun.cancel() before AERMOD ended
+    cancelled: bool = False
+
     @property
     def fatal_messages(self) -> List[AERMODMessage]:
         """The fatal errors AERMOD listed (severity ``'E'``)."""
@@ -279,7 +286,7 @@ class AERMODRunResult:
         return _severity_count(self.messages, self.message_counts, "I")
 
     def __repr__(self) -> str:
-        status = "SUCCESS" if self.success else "FAILED"
+        status = "SUCCESS" if self.success else ("CANCELLED" if self.cancelled else "FAILED")
         runtime = f"{self.runtime_seconds:.1f}s" if self.runtime_seconds else "N/A"
         return f"AERMODRunResult({status}, {self.input_file}, runtime={runtime})"
 
@@ -355,6 +362,9 @@ class AERMODRunner:
         """
         Execute AERMOD with given input file
 
+        Blocks until AERMOD ends. :meth:`start` runs AERMOD in the
+        background instead, reporting its progress and allowing a cancel.
+
         Args:
             input_file: Path to AERMOD input file (.inp)
             working_dir: Working directory for execution (defaults to input file location)
@@ -383,17 +393,7 @@ class AERMODRunner:
                 error_message=f"Input file not found: {input_path}"
             )
 
-        # Determine working directory
-        if working_dir:
-            work_dir = Path(working_dir).resolve()
-        else:
-            work_dir = input_path.parent
-
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        # AERMOD reads from a fixed filename (aermod.inp) in its working directory.
-        # We symlink the user's .inp file to aermod.inp, run AERMOD, then rename
-        # the output files back to the user's naming convention.
+        work_dir = self._work_dir_for(input_path, working_dir)
         input_name = input_path.stem
 
         self.logger.info(f"Running AERMOD: {input_name}")
@@ -401,70 +401,9 @@ class AERMODRunner:
         self.logger.debug(f"  Working dir: {work_dir}")
         self.logger.debug(f"  Timeout: {timeout}s")
 
-        # Expected output files (will be renamed from aermod.* after run)
-        output_files = {
-            key: work_dir / f"{input_name}{suffix}"
-            for key, suffix in _OUTPUT_SUFFIXES.items()
-        }
-
-        # Concurrency safety: AERMOD reads from a fixed filename
-        # (aermod.inp), so two concurrent runs in the same working_dir
-        # would clobber each other's symlinks + outputs. Acquire an
-        # exclusive lock on a sentinel file before touching anything.
-        # Released automatically in the finally clause below.
-        lock_path = work_dir / ".pyaermod.lock"
-        lock_fh = _acquire_dir_lock(lock_path)
-
-        # AERMOD reads <work_dir>/aermod.inp. It is in place when it is
-        # this deck, or a link to it: run it as it is and leave it there.
-        # A regular file named aermod.inp that is another deck (EPA's
-        # default name, as in a base case beside its variants) must not
-        # be replaced, and the aermod.out this run would write, then
-        # rename, may be that deck's results. Refuse before touching
-        # anything. A link to another file is one this runner left or
-        # one it can re-create, so it is replaced, and so is a copy this
-        # runner made (see _is_runner_copy).
-        aermod_inp = work_dir / "aermod.inp"
-        copy_marker = work_dir / _COPY_MARKER
-        in_place = aermod_inp.exists() and aermod_inp.samefile(input_path)
-        if (not in_place and aermod_inp.exists() and not aermod_inp.is_symlink()
-                and not _is_runner_copy(aermod_inp, copy_marker)):
-            _release_dir_lock(lock_fh)
-            return AERMODRunResult(
-                success=False,
-                input_file=str(input_path),
-                error_message=(
-                    f"The working directory {work_dir} already holds another deck "
-                    "named aermod.inp, the file AERMOD reads; running this deck "
-                    "there would replace it and overwrite its aermod.out. Rename "
-                    "that deck, or give this run a different working_dir"
-                ),
-            )
-
-        # Files left by an earlier run would otherwise stand in for this
-        # one's whenever this run writes none: a timeout before AERMOD
-        # opens aermod.out, or a crash. The verdict below would then be
-        # read from the old .out, and resume_batch would count the deck
-        # as done. Remove this deck's outputs, and AERMOD's own
-        # aermod.out/.err/.sum, before AERMOD starts.
-        for suffix in _OUTPUT_SUFFIXES.values():
-            for stale in (work_dir / f"{input_name}{suffix}", work_dir / f"aermod{suffix}"):
-                with contextlib.suppress(FileNotFoundError):
-                    stale.unlink()
-
-        # Create symlink: aermod.inp -> <input_name>.inp, unless the deck
-        # is already in place (see above).
-        if not in_place:
-            try:
-                if aermod_inp.exists() or aermod_inp.is_symlink():
-                    aermod_inp.unlink()
-                aermod_inp.symlink_to(os.path.relpath(input_path, work_dir))
-            except (OSError, ValueError):
-                # Fallback: copy the file (ValueError: relpath across
-                # Windows drives). Mark the copy first, so that one left
-                # by a killed process is still known as the runner's.
-                copy_marker.write_text(_sha256(input_path) + "\n")
-                shutil.copy2(str(input_path), str(aermod_inp))
+        staged = self._stage(input_path, work_dir)
+        if isinstance(staged, AERMODRunResult):
+            return staged
 
         start_time = datetime.now()
 
@@ -511,97 +450,12 @@ class AERMODRunner:
                 result.stdout = _read_capped(stdout_path, 1_000_000)
                 result.stderr = _read_capped(stderr_path, 1_000_000)
 
-            _rename_aermod_outputs(work_dir, input_name)
-
-            end_time = datetime.now()
-            runtime = (end_time - start_time).total_seconds()
-
-            self.logger.debug(f"AERMOD completed with return code: {result.returncode}")
-            self.logger.debug(f"Runtime: {runtime:.2f}s")
-
-            # Check for output files
-            has_output = output_files['output'].exists()
-
-            # AERMOD's verdict is in the .out file, not in its exit code,
-            # which is 0 even after a fatal error (see the comment above
-            # AERMODMessage).
-            summary = _MessageSummary([], {}, False)
-            if has_output:
-                try:
-                    summary = _read_message_summary(output_files['output'])
-                except OSError as exc:
-                    self.logger.warning(
-                        f"Could not read AERMOD output file {output_files['output']}: {exc}"
-                    )
-            fatal_count = _severity_count(summary.messages, summary.counts, "E")
-
-            # Determine success: exit code 0, an .out file, AERMOD's own
-            # completion banner and no fatal errors.
-            success = (
-                result.returncode == 0
-                and has_output
-                and summary.finished_successfully
-                and fatal_count == 0
-            )
-
-            error_msg = None
-            if not success:
-                error_msg = self._extract_error_message(
-                    result, output_files,
-                    messages=summary.messages,
-                    finished_successfully=summary.finished_successfully,
-                )
-                self.logger.error(f"AERMOD run failed: {error_msg}")
-            else:
-                warnings = _severity_count(summary.messages, summary.counts, "W")
-                self.logger.info(
-                    f"AERMOD run succeeded ({runtime:.1f}s, {warnings} warning(s))"
-                )
-
-            return AERMODRunResult(
-                success=success,
-                input_file=str(input_path),
-                return_code=result.returncode,
-                runtime_seconds=runtime,
-                output_file=str(output_files['output']) if has_output else None,
-                error_file=str(output_files['error']) if output_files['error'].exists() else None,
-                summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
-                stdout=result.stdout if capture_output else None,
-                stderr=result.stderr if capture_output else None,
-                error_message=error_msg,
-                start_time=start_time,
-                end_time=end_time,
-                messages=summary.messages,
-                message_counts=summary.counts,
-                finished_successfully=summary.finished_successfully,
-            )
+            return self._collect(result, input_path, work_dir, start_time,
+                                 capture_output=capture_output)
 
         except subprocess.TimeoutExpired:
-            end_time = datetime.now()
-            runtime = (end_time - start_time).total_seconds()
-
-            # subprocess.run has killed AERMOD. Keep what it wrote under
-            # this deck's name, as after any other run: left as
-            # aermod.out, it would be taken for the next run's output.
-            _rename_aermod_outputs(work_dir, input_name)
-            has_output = output_files['output'].exists()
-
-            self.logger.error(f"AERMOD execution timed out after {timeout}s")
-
-            return AERMODRunResult(
-                success=False,
-                input_file=str(input_path),
-                runtime_seconds=runtime,
-                output_file=str(output_files['output']) if has_output else None,
-                error_file=str(output_files['error']) if output_files['error'].exists() else None,
-                summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
-                error_message=(
-                    f"Execution timed out after {timeout} seconds; AERMOD was "
-                    "stopped before it finished"
-                ),
-                start_time=start_time,
-                end_time=end_time
-            )
+            # subprocess.run has killed AERMOD.
+            return self._timed_out(input_path, work_dir, start_time, timeout)
 
         except Exception as e:
             end_time = datetime.now()
@@ -624,20 +478,276 @@ class AERMODRunner:
                 if fh is not None:
                     with contextlib.suppress(Exception):
                         fh.close()
-            # Clean up the aermod.inp symlink/copy, never the user's own deck
-            if not in_place:
-                for made in (aermod_inp, copy_marker):
-                    if made.exists() or made.is_symlink():
-                        with contextlib.suppress(OSError):
-                            made.unlink()
-            # Release the working-dir lock
+            self._unstage(staged)
+
+    def start(self,
+              input_file: Union[str, Path],
+              working_dir: Optional[Union[str, Path]] = None,
+              timeout: int = 3600,
+              *,
+              on_progress: Optional[Callable[["AERMODProgress"], None]] = None,
+              on_finish: Optional[Callable[[AERMODRunResult], None]] = None,
+              ) -> "AERMODRun":
+        """Start AERMOD in the background and return at once.
+
+        The run does what :meth:`run` does, in a thread of its own: it waits
+        for the working directory's lock, points ``aermod.inp`` at the deck,
+        runs AERMOD, renames its outputs and reads its verdict. The returned
+        :class:`AERMODRun` reports AERMOD's progress, can be cancelled and
+        can be waited for.
+
+        Args:
+            input_file: Path to AERMOD input file (.inp)
+            working_dir: Working directory for execution (defaults to input
+                file location)
+            timeout: Maximum execution time in seconds (default 1 hour)
+            on_progress: Called with an :class:`AERMODProgress` for each
+                "Now Processing Data For Day No." line AERMOD prints, from
+                the thread that reads AERMOD's output.
+            on_finish: Called with the :class:`AERMODRunResult` once the run
+                has ended (``cancelled=True`` after :meth:`AERMODRun.cancel`),
+                from the run's own thread and before :meth:`AERMODRun.wait`
+                returns, so it must not wait for the run itself.
+
+        Returns:
+            The running :class:`AERMODRun`.
+        """
+        run = AERMODRun(self, input_file, working_dir, timeout,
+                        on_progress=on_progress, on_finish=on_finish)
+        run._launch()
+        return run
+
+    # ------------------------------------------------------------------
+    # The steps run() and start() share
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _work_dir_for(input_path: Path, working_dir: Optional[Union[str, Path]]) -> Path:
+        """The directory AERMOD runs in: ``working_dir``, or the deck's own."""
+        work_dir = Path(working_dir).resolve() if working_dir else input_path.parent
+        work_dir.mkdir(parents=True, exist_ok=True)
+        return work_dir
+
+    def _stage(self, input_path: Path, work_dir: Path) -> Union["_Staged", AERMODRunResult]:
+        """Lock ``work_dir`` and point its ``aermod.inp`` at the deck.
+
+        AERMOD reads from a fixed filename (aermod.inp) in its working
+        directory. We symlink the user's .inp file to aermod.inp, run AERMOD,
+        then rename the output files back to the user's naming convention.
+
+        Concurrency safety: two concurrent runs in the same working_dir would
+        clobber each other's symlinks + outputs, so this first acquires an
+        exclusive lock on a sentinel file (blocking until it is free).
+        :meth:`_unstage` releases it.
+
+        Returns the :class:`_Staged` run, or a failed :class:`AERMODRunResult`
+        (the lock already released) when ``aermod.inp`` is another deck.
+        It is :meth:`_claim` then :meth:`_prepare`.
+        """
+        staged = self._claim(input_path, work_dir)
+        if not isinstance(staged, AERMODRunResult):
+            self._prepare(input_path, work_dir, staged)
+        return staged
+
+    def _claim(self, input_path: Path, work_dir: Path) -> Union["_Staged", AERMODRunResult]:
+        """Lock ``work_dir`` and check its ``aermod.inp``, changing nothing.
+
+        Returns the :class:`_Staged` run, not yet prepared, or a failed
+        :class:`AERMODRunResult` (the lock already released) when
+        ``aermod.inp`` is another deck. A run that stops here releases
+        the lock alone, with :func:`_release_dir_lock`.
+        """
+        lock_path = work_dir / ".pyaermod.lock"
+        lock_fh = _acquire_dir_lock(lock_path)
+
+        # AERMOD reads <work_dir>/aermod.inp. It is in place when it is
+        # this deck, or a link to it: run it as it is and leave it there.
+        # A regular file named aermod.inp that is another deck (EPA's
+        # default name, as in a base case beside its variants) must not
+        # be replaced, and the aermod.out this run would write, then
+        # rename, may be that deck's results. Refuse before touching
+        # anything. A link to another file is one this runner left or
+        # one it can re-create, so it is replaced, and so is a copy this
+        # runner made (see _is_runner_copy).
+        aermod_inp = work_dir / "aermod.inp"
+        copy_marker = work_dir / _COPY_MARKER
+        in_place = aermod_inp.exists() and aermod_inp.samefile(input_path)
+        if (not in_place and aermod_inp.exists() and not aermod_inp.is_symlink()
+                and not _is_runner_copy(aermod_inp, copy_marker)):
             _release_dir_lock(lock_fh)
+            return AERMODRunResult(
+                success=False,
+                input_file=str(input_path),
+                error_message=(
+                    f"The working directory {work_dir} already holds another deck "
+                    "named aermod.inp, the file AERMOD reads; running this deck "
+                    "there would replace it and overwrite its aermod.out. Rename "
+                    "that deck, or give this run a different working_dir"
+                ),
+            )
+        return _Staged(lock_fh, aermod_inp, copy_marker, in_place)
+
+    @staticmethod
+    def _prepare(input_path: Path, work_dir: Path, staged: "_Staged") -> None:
+        """Remove an earlier run's outputs and point ``aermod.inp`` at the deck."""
+        # Files left by an earlier run would otherwise stand in for this
+        # one's whenever this run writes none: a timeout before AERMOD
+        # opens aermod.out, a cancel, or a crash. The verdict would then be
+        # read from the old .out, and resume_batch would count the deck
+        # as done. Remove this deck's outputs, and AERMOD's own
+        # aermod.out/.err/.sum, before AERMOD starts.
+        input_name = input_path.stem
+        for suffix in _OUTPUT_SUFFIXES.values():
+            for stale in (work_dir / f"{input_name}{suffix}", work_dir / f"aermod{suffix}"):
+                with contextlib.suppress(FileNotFoundError):
+                    stale.unlink()
+
+        # Create symlink: aermod.inp -> <input_name>.inp, unless the deck
+        # is already in place (see _claim).
+        if not staged.in_place:
+            aermod_inp = staged.aermod_inp
+            try:
+                if aermod_inp.exists() or aermod_inp.is_symlink():
+                    aermod_inp.unlink()
+                aermod_inp.symlink_to(os.path.relpath(input_path, work_dir))
+            except (OSError, ValueError):
+                # Fallback: copy the file (ValueError: relpath across
+                # Windows drives). Mark the copy first, so that one left
+                # by a killed process is still known as the runner's.
+                staged.copy_marker.write_text(_sha256(input_path) + "\n")
+                shutil.copy2(str(input_path), str(aermod_inp))
+
+    @staticmethod
+    def _unstage(staged: "_Staged") -> None:
+        """Remove the ``aermod.inp`` link or copy and release the directory lock.
+
+        A deck that was already ``aermod.inp`` stays: it is the user's.
+        """
+        if not staged.in_place:
+            for made in (staged.aermod_inp, staged.copy_marker):
+                if made.exists() or made.is_symlink():
+                    with contextlib.suppress(OSError):
+                        made.unlink()
+        _release_dir_lock(staged.lock_fh)
+
+    def _collect(self, result: "subprocess.CompletedProcess[str]", input_path: Path,
+                 work_dir: Path, start_time: datetime, *, capture_output: bool = True,
+                 cancelled: bool = False) -> AERMODRunResult:
+        """Rename AERMOD's outputs, read its verdict and build the result."""
+        input_name = input_path.stem
+        output_files = _output_files(work_dir, input_name)
+
+        _rename_aermod_outputs(work_dir, input_name)
+
+        end_time = datetime.now()
+        runtime = (end_time - start_time).total_seconds()
+
+        self.logger.debug(f"AERMOD completed with return code: {result.returncode}")
+        self.logger.debug(f"Runtime: {runtime:.2f}s")
+
+        # Check for output files. _stage removed any an earlier run left,
+        # so an <name>.out is this run's, whether it finished, was
+        # cancelled or crashed.
+        has_output = output_files['output'].exists()
+
+        # AERMOD's verdict is in the .out file, not in its exit code,
+        # which is 0 even after a fatal error (see the comment above
+        # AERMODMessage).
+        summary = _MessageSummary([], {}, False)
+        if has_output:
+            try:
+                summary = _read_message_summary(output_files['output'])
+            except OSError as exc:
+                self.logger.warning(
+                    f"Could not read AERMOD output file {output_files['output']}: {exc}"
+                )
+        fatal_count = _severity_count(summary.messages, summary.counts, "E")
+
+        # Determine success: exit code 0, an .out file, AERMOD's own
+        # completion banner and no fatal errors.
+        success = (
+            not cancelled
+            and result.returncode == 0
+            and has_output
+            and summary.finished_successfully
+            and fatal_count == 0
+        )
+
+        error_msg = None
+        if cancelled:
+            error_msg = "Cancelled before AERMOD finished"
+            self.logger.info(f"AERMOD run cancelled after {runtime:.1f}s")
+        elif not success:
+            error_msg = self._extract_error_message(
+                result, output_files,
+                messages=summary.messages,
+                finished_successfully=summary.finished_successfully,
+                has_output=has_output,
+            )
+            self.logger.error(f"AERMOD run failed: {error_msg}")
+        else:
+            warnings = _severity_count(summary.messages, summary.counts, "W")
+            self.logger.info(
+                f"AERMOD run succeeded ({runtime:.1f}s, {warnings} warning(s))"
+            )
+
+        return AERMODRunResult(
+            success=success,
+            input_file=str(input_path),
+            return_code=result.returncode,
+            runtime_seconds=runtime,
+            output_file=str(output_files['output']) if has_output else None,
+            error_file=str(output_files['error']) if output_files['error'].exists() else None,
+            summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
+            stdout=result.stdout if capture_output else None,
+            stderr=result.stderr if capture_output else None,
+            error_message=error_msg,
+            start_time=start_time,
+            end_time=end_time,
+            messages=summary.messages,
+            message_counts=summary.counts,
+            finished_successfully=summary.finished_successfully,
+            cancelled=cancelled,
+        )
+
+    def _timed_out(self, input_path: Path, work_dir: Path, start_time: datetime,
+                   timeout: float) -> AERMODRunResult:
+        """The result of a run killed at its timeout.
+
+        What AERMOD wrote is kept under the deck's name, as after any
+        other run: left as aermod.out, it would be taken for the next
+        run's output.
+        """
+        end_time = datetime.now()
+        runtime = (end_time - start_time).total_seconds()
+
+        input_name = input_path.stem
+        _rename_aermod_outputs(work_dir, input_name)
+        output_files = _output_files(work_dir, input_name)
+        has_output = output_files['output'].exists()
+
+        self.logger.error(f"AERMOD execution timed out after {timeout}s")
+
+        return AERMODRunResult(
+            success=False,
+            input_file=str(input_path),
+            runtime_seconds=runtime,
+            output_file=str(output_files['output']) if has_output else None,
+            error_file=str(output_files['error']) if output_files['error'].exists() else None,
+            summary_file=str(output_files['summary']) if output_files['summary'].exists() else None,
+            error_message=(
+                f"Execution timed out after {timeout} seconds; AERMOD was "
+                "stopped before it finished"
+            ),
+            start_time=start_time,
+            end_time=end_time
+        )
 
     def _extract_error_message(self,
                                result: subprocess.CompletedProcess,
                                output_files: Dict[str, Path],
                                messages: Optional[Sequence[AERMODMessage]] = None,
-                               finished_successfully: Optional[bool] = None) -> str:
+                               finished_successfully: Optional[bool] = None,
+                               has_output: Optional[bool] = None) -> str:
         """Explain why a run failed, naming AERMOD's first fatal error when there is one.
 
         Args:
@@ -646,7 +756,11 @@ class AERMODRunner:
             messages: The messages parsed from the ``.out`` file, if any.
             finished_successfully: Whether the ``.out`` file carries
                 AERMOD's completion banner; None when it was not checked.
+            has_output: Whether this run wrote the ``output`` file; None
+                to take any ``output`` file that exists as this run's.
         """
+        out = output_files['output']
+        wrote_out = out.exists() if has_output is None else has_output
         fatal = [m for m in (messages or ()) if m.severity == "E"]
         parts = []
         if fatal:
@@ -656,28 +770,29 @@ class AERMODRunner:
             parts.append(first)
 
         # A negative return code is a POSIX signal: AERMOD was stopped
-        # from outside (SIGTERM, SIGKILL, ...) and its .out simply ends
-        # where the run was cut off, so neither the .out scan nor the
-        # missing banner says anything more.
+        # from outside (SIGTERM, SIGKILL, ...) or crashed (SIGSEGV), and
+        # its .out, if it wrote one, simply ends where the run was cut
+        # off, so neither the .out scan nor the missing banner says
+        # anything more.
         killed = result.returncode is not None and result.returncode < 0
         if killed:
-            parts.append(_describe_signal(-result.returncode))
+            parts.append(_describe_signal(-result.returncode,
+                                          None if wrote_out else out.name))
 
         parts.extend(self._error_context(
-            result, output_files, scan_output=not fatal and not killed,
+            result, output_files, scan_output=not fatal and not killed and wrote_out,
         ))
 
-        if (not fatal and not killed and finished_successfully is False
-                and output_files['output'].exists()):
+        if not fatal and not killed and finished_successfully is False and wrote_out:
             parts.append(
                 "AERMOD did not report success: no '*** AERMOD Finishes "
-                f"Successfully ***' line in {output_files['output'].name}"
+                f"Successfully ***' line in {out.name}"
             )
 
         if parts:
             return "; ".join(parts)
-        if result.returncode == 0 and not output_files['output'].exists():
-            return f"AERMOD exited with code 0 but wrote no {output_files['output'].name}"
+        if result.returncode == 0 and not wrote_out:
+            return f"AERMOD exited with code 0 but wrote no {out.name}"
         return f"AERMOD failed with return code {result.returncode}"
 
     def _error_context(self,
@@ -889,6 +1004,349 @@ class AERMODRunner:
         return len(issues) == 0, issues
 
 
+# ============================================================================
+# BACKGROUND RUNS: PROGRESS AND CANCEL
+# ============================================================================
+#
+# While it runs, AERMOD prints what it is doing (aermod.f): a line when
+# setup starts, one per day of met data (HRLOOP, FORMAT 909; EVENT runs
+# print "Events" for "Data", evcalc.f), and one when it writes the results:
+#
+#     +Now Processing SETUP Information
+#     +Now Processing Data For Day No.   61 of 1988
+#     +Now Processing Output Options
+#
+# The day is the Julian day and the year the four-digit year. The "+" is
+# Fortran carriage control, printed as a character by gfortran. A build
+# whose stdout is not a terminal may buffer these lines; gfortran reads
+# GFORTRAN_UNBUFFERED_PRECONNECTED, which AERMODRun sets unless the caller
+# has. (The gfortran -O2 build of v26135 streamed all 366 day lines of a
+# one-year run to AERMODRun one by one with or without it.)
+
+_PROGRESS_LINE = re.compile(
+    r"Now Processing (?:Data|Events) For Day No\.\s*(\d+)\s+of\s+(\d+)", re.IGNORECASE)
+_SETUP_LINE = re.compile(r"Now Processing SETUP Information", re.IGNORECASE)
+_OUTPUT_LINE = re.compile(r"Now Processing Output Options", re.IGNORECASE)
+
+#: Seconds a cancelled AERMOD has to exit after SIGTERM before it is killed.
+CANCEL_GRACE_SECONDS = 5.0
+
+# How often the run's thread looks at a cancel request and the timeout.
+_POLL_SECONDS = 0.1
+
+
+def parse_progress_line(line: str) -> Optional[Tuple[int, int]]:
+    """``(julian_day, year)`` from an AERMOD progress line, or None.
+
+    >>> parse_progress_line("+Now Processing Data For Day No.   61 of 1988")
+    (61, 1988)
+    """
+    m = _PROGRESS_LINE.search(line)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+@dataclass(frozen=True)
+class AERMODProgress:
+    """How far a background AERMOD run has got.
+
+    Attributes:
+        stage: ``"setup"`` (AERMOD is reading the deck), ``"day"`` (it is
+            processing a day of met data) or ``"output"`` (it is writing
+            the results).
+        day: The Julian day of the latest "Now Processing Data For Day No."
+            line, or 0 before the first.
+        year: The year of that day, or 0 before the first.
+        days_processed: How many of those lines AERMOD has printed so far.
+            Compared with the number of days in the met data (see
+            :func:`pyaermod.aermet.read_surface_period`) it gives the run's
+            fraction done.
+        line: The line as AERMOD printed it.
+    """
+    stage: str
+    day: int = 0
+    year: int = 0
+    days_processed: int = 0
+    line: str = ""
+
+
+# Every AERMODRun whose process may still be running, so that a Python
+# that exits normally does not leave an AERMOD behind.
+_ACTIVE_RUNS: "weakref.WeakSet[AERMODRun]" = weakref.WeakSet()
+
+
+def stop_active_runs() -> None:
+    """Kill every background AERMOD run still going in this process.
+
+    Runs when Python exits normally (``atexit``), which covers a clean
+    exit and Ctrl+C but not a process killed by a signal it does not
+    handle, such as SIGTERM: a server should also call this from its own
+    shutdown hook (the GUI does, from NiceGUI's ``app.on_shutdown``).
+    """
+    for run in list(_ACTIVE_RUNS):
+        run._kill()
+
+
+_stop_active_runs = atexit.register(stop_active_runs)
+
+
+class AERMODRun:
+    """An AERMOD run started in the background by :meth:`AERMODRunner.start`.
+
+    The run executes in a thread of its own. Its state can be read from
+    any thread:
+
+    * :attr:`progress` is the latest :class:`AERMODProgress`;
+    * :attr:`done` says whether the run has ended, and :attr:`result`
+      holds its :class:`AERMODRunResult` once it has;
+    * :meth:`cancel` stops AERMOD (SIGTERM, then a kill after
+      :data:`CANCEL_GRACE_SECONDS`), and the result then has
+      ``cancelled=True`` and ``success=False``;
+    * :meth:`wait` blocks until the run has ended and returns the result.
+
+    The process is always waited for, so a cancelled or timed-out run
+    leaves neither a running AERMOD nor a zombie behind.
+    """
+
+    def __init__(self, runner: AERMODRunner, input_file: Union[str, Path],
+                 working_dir: Optional[Union[str, Path]], timeout: float, *,
+                 on_progress: Optional[Callable[[AERMODProgress], None]] = None,
+                 on_finish: Optional[Callable[[AERMODRunResult], None]] = None) -> None:
+        self.input_file = Path(input_file).resolve()
+        self.working_dir: Optional[Path] = Path(working_dir) if working_dir else None
+        self.timeout = timeout
+        self._runner = runner
+        self._on_progress = on_progress
+        self._on_finish = on_finish
+        self._lock = threading.Lock()
+        self._done = threading.Event()
+        self._proc: Optional[subprocess.Popen] = None
+        self._cancel_at: Optional[float] = None
+        self._progress: Optional[AERMODProgress] = None
+        self._result: Optional[AERMODRunResult] = None
+        self._thread = threading.Thread(
+            target=self._main, name=f"aermod-run-{self.input_file.stem}", daemon=True)
+
+    # -- state -----------------------------------------------------------
+    @property
+    def pid(self) -> Optional[int]:
+        """AERMOD's process id once it has started, else None."""
+        proc = self._proc
+        return proc.pid if proc is not None else None
+
+    @property
+    def progress(self) -> Optional[AERMODProgress]:
+        return self._progress
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    @property
+    def result(self) -> Optional[AERMODRunResult]:
+        """The run's result once it has ended, else None."""
+        return self._result if self._done.is_set() else None
+
+    @property
+    def cancel_requested(self) -> bool:
+        return self._cancel_at is not None
+
+    # -- control ---------------------------------------------------------
+    def cancel(self) -> bool:
+        """Stop the run. False if it has already ended or was already cancelled.
+
+        Returns at once; the run ends (and :meth:`wait` returns) once AERMOD
+        has exited. A run cancelled before AERMOD started never starts it.
+        """
+        with self._lock:
+            if self._done.is_set() or self._cancel_at is not None:
+                return False
+            self._cancel_at = time.monotonic()
+            proc = self._proc
+        if proc is not None:
+            with contextlib.suppress(OSError):
+                proc.terminate()
+        return True
+
+    def wait(self, timeout: Optional[float] = None) -> AERMODRunResult:
+        """Block until the run has ended and return its result.
+
+        Raises:
+            TimeoutError: if ``timeout`` seconds pass first.
+        """
+        if not self._done.wait(timeout):
+            raise TimeoutError(f"AERMOD run of {self.input_file.name} still running")
+        assert self._result is not None
+        return self._result
+
+    # -- the run's thread ------------------------------------------------
+    def _launch(self) -> None:
+        _ACTIVE_RUNS.add(self)
+        self._thread.start()
+
+    def _main(self) -> None:
+        try:
+            result = self._execute()
+        except Exception as exc:  # a bug here must still end the run
+            self._runner.logger.exception("Background AERMOD run raised")
+            result = AERMODRunResult(success=False, input_file=str(self.input_file),
+                                     error_message=str(exc) or type(exc).__name__)
+        self._result = result
+        _ACTIVE_RUNS.discard(self)
+        if self._on_finish is not None:
+            try:
+                self._on_finish(result)
+            except Exception:
+                self._runner.logger.exception("on_finish callback raised")
+        self._done.set()
+
+    def _execute(self) -> AERMODRunResult:
+        runner = self._runner
+        input_path = self.input_file
+        if not input_path.exists():
+            return AERMODRunResult(success=False, input_file=str(input_path),
+                                   error_message=f"Input file not found: {input_path}")
+        work_dir = runner._work_dir_for(input_path, self.working_dir)
+        input_name = input_path.stem
+        runner.logger.info(f"Starting AERMOD in the background: {input_name}")
+
+        staged = runner._claim(input_path, work_dir)
+        if isinstance(staged, AERMODRunResult):
+            return staged
+        stdout_path = work_dir / f"{input_name}.subproc.stdout"
+        stderr_path = work_dir / f"{input_name}.subproc.stderr"
+        start_time = datetime.now()
+        prepared = False
+        try:
+            with contextlib.ExitStack() as logs:
+                # One hold of the lock from the cancel check to Popen: a
+                # run cancelled while it waited for the directory returns
+                # before it removes an earlier run's outputs or opens
+                # anything, and one cancelled later has an AERMOD to stop.
+                with self._lock:
+                    if self._cancel_at is not None:
+                        return self._never_started(input_path, start_time)
+                    prepared = True
+                    runner._prepare(input_path, work_dir, staged)
+                    stdout_fh = logs.enter_context(open(stdout_path, "wb"))
+                    stderr_fh = logs.enter_context(open(stderr_path, "wb"))
+                    env = dict(os.environ)
+                    env.setdefault("GFORTRAN_UNBUFFERED_PRECONNECTED", "y")
+                    proc = subprocess.Popen(
+                        [str(runner.executable)], cwd=str(work_dir),
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr_fh,
+                        env=env,
+                    )
+                    self._proc = proc
+                reader = threading.Thread(target=self._read_stdout,
+                                          args=(proc.stdout, stdout_fh),
+                                          name=f"aermod-stdout-{input_name}", daemon=True)
+                reader.start()
+                timed_out = self._wait_for(proc)
+                reader.join()
+            if timed_out:
+                return runner._timed_out(input_path, work_dir, start_time, self.timeout)
+            completed = subprocess.CompletedProcess(
+                args=[str(runner.executable)], returncode=proc.returncode,
+                stdout=_read_capped(stdout_path, 1_000_000),
+                stderr=_read_capped(stderr_path, 1_000_000),
+            )
+            return runner._collect(completed, input_path, work_dir, start_time,
+                                   cancelled=self._cancel_at is not None)
+        except OSError as exc:
+            runner.logger.error(f"Error running AERMOD: {exc}")
+            end_time = datetime.now()
+            return AERMODRunResult(
+                success=False, input_file=str(input_path),
+                runtime_seconds=(end_time - start_time).total_seconds(),
+                error_message=str(exc), start_time=start_time, end_time=end_time,
+            )
+        finally:
+            self._kill()                     # nothing may outlive the run
+            if prepared:
+                runner._unstage(staged)
+            else:
+                _release_dir_lock(staged.lock_fh)
+
+    def _never_started(self, input_path: Path, start_time: datetime) -> AERMODRunResult:
+        self._runner.logger.info("AERMOD run cancelled before it started")
+        return AERMODRunResult(success=False, input_file=str(input_path),
+                               error_message="Cancelled before AERMOD started",
+                               start_time=start_time, end_time=datetime.now(),
+                               runtime_seconds=0.0, cancelled=True)
+
+    def _wait_for(self, proc: subprocess.Popen) -> bool:
+        """Wait for AERMOD to exit, killing it on timeout or a lingering cancel.
+
+        Returns True when the run timed out.
+        """
+        deadline = time.monotonic() + self.timeout
+        while True:
+            try:
+                proc.wait(timeout=_POLL_SECONDS)
+                return False
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.monotonic()
+            cancel_at = self._cancel_at
+            if cancel_at is not None and now - cancel_at > CANCEL_GRACE_SECONDS:
+                proc.kill()
+            elif cancel_at is None and now > deadline:
+                proc.kill()
+                proc.wait()
+                return True
+
+    def _kill(self) -> None:
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            with contextlib.suppress(OSError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=10)
+
+    def _read_stdout(self, pipe: Any, sink: Any) -> None:
+        """Copy AERMOD's stdout to ``sink`` and report its progress lines."""
+        pending = b""
+        read = getattr(pipe, "read1", pipe.read)
+        try:
+            while True:
+                chunk = read(65536)
+                if not chunk:
+                    break
+                sink.write(chunk)
+                sink.flush()
+                *lines, pending = re.split(rb"[\r\n]", pending + chunk)
+                for raw in lines:
+                    self._progress_line(raw)
+            if pending:
+                self._progress_line(pending)
+        except (OSError, ValueError) as exc:
+            self._runner.logger.debug(f"Reading AERMOD's stdout stopped: {exc}")
+        finally:
+            with contextlib.suppress(Exception):
+                pipe.close()
+
+    def _progress_line(self, raw: bytes) -> None:
+        line = raw.decode("latin-1").strip()
+        last = self._progress or AERMODProgress(stage="setup")
+        found = parse_progress_line(line)
+        if found is not None:
+            progress = AERMODProgress(stage="day", day=found[0], year=found[1],
+                                      days_processed=last.days_processed + 1, line=line)
+        elif _SETUP_LINE.search(line):
+            progress = AERMODProgress(stage="setup", line=line)
+        elif _OUTPUT_LINE.search(line):
+            progress = AERMODProgress(stage="output", day=last.day, year=last.year,
+                                      days_processed=last.days_processed, line=line)
+        else:
+            return
+        self._progress = progress
+        if self._on_progress is not None:
+            try:
+                self._on_progress(progress)
+            except Exception:
+                self._runner.logger.exception("on_progress callback raised")
+
+
 def _acquire_dir_lock(lock_path: Path):
     """Acquire an exclusive advisory lock on a sentinel file.
 
@@ -956,6 +1414,19 @@ def _batch_worker(executable_path: str, input_file: str, timeout: int) -> "AERMO
     return runner.run(input_file, timeout=timeout)
 
 
+class _Staged(NamedTuple):
+    """A deck made ready to run by :meth:`AERMODRunner._stage`."""
+    lock_fh: Any
+    aermod_inp: Path
+    copy_marker: Path
+    in_place: bool
+
+
+def _output_files(work_dir: Path, input_name: str) -> Dict[str, Path]:
+    """The run's ``output``, ``error`` and ``summary`` files, named after the deck."""
+    return {key: work_dir / f"{input_name}{suffix}" for key, suffix in _OUTPUT_SUFFIXES.items()}
+
+
 def _rename_aermod_outputs(work_dir: Path, input_name: str) -> None:
     """Rename AERMOD's ``aermod.out``/``.err``/``.sum`` after the deck, as ``<input_name>.*``."""
     for suffix in _OUTPUT_SUFFIXES.values():
@@ -985,12 +1456,19 @@ def _is_runner_copy(aermod_inp: Path, marker: Path) -> bool:
         return False
 
 
-def _describe_signal(signum: int) -> str:
-    """Say which signal stopped AERMOD, such as ``SIGTERM (signal 15)``."""
+def _describe_signal(signum: int, unwritten: Optional[str] = None) -> str:
+    """Say which signal stopped AERMOD, such as ``SIGTERM (signal 15)``.
+
+    ``unwritten`` names the ``.out`` file when AERMOD was stopped before
+    it wrote one (a crash at setup, say), which is then what the message
+    says instead of pointing at an output that does not exist.
+    """
     try:
         name = f"{signal.Signals(signum).name} (signal {signum})"
     except ValueError:
         name = f"signal {signum}"
+    if unwritten is not None:
+        return f"AERMOD was stopped by {name} before it finished, and wrote no {unwritten}"
     return (
         f"AERMOD was stopped by {name} before it finished; "
         "its output ends where the run was cut off"

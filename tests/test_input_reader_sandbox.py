@@ -110,7 +110,10 @@ class TestSandboxCoversNewFilePaths:
     _CO = ("   SAVEFILE  {p}\n", "   INITFILE  {p}\n", "   MULTYEAR  {p}\n",
            "   MULTYEAR  ok.sav  {p}\n", "   NOX_FILE  {p}\n",
            "   NOXSECTR  0  180\n   NOX_FILE  SECT2  {p}\n",
-           "   O3SECTOR  0  180\n   OZONEFIL  SECT1  {p}\n")
+           "   O3SECTOR  0  180\n   OZONEFIL  SECT1  {p}\n",
+           # AERMOD opens the EVENTFIL file for writing (coset.f EVNTFL,
+           # STATUS='REPLACE'), with or without its option word.
+           "   EVENTFIL  {p}\n", "   EVENTFIL  {p}  DETAIL\n")
     _OU = ("   MAXDAILY  ALL  {p}\n", "   MXDYBYYR  ALL  {p}\n",
            "   MAXDCONT  ALL  8  8  {p}\n", "   MAXDCONT  ALL  8  THRESH  1.0  {p}\n")
 
@@ -134,3 +137,141 @@ class TestSandboxCoversNewFilePaths:
         inp.write_text(text)
         with pytest.raises(PathTraversalError):
             read_aermod_input(inp, sandbox=True)
+
+
+class TestSandboxReportsEveryEscape:
+    """The error lists every escaping path, so a caller can report them all."""
+
+    def test_violations_name_each_field_and_path_as_written(self, tmp_path):
+        from pyaermod.input_reader import SandboxViolation
+
+        body = _MINIMAL_INP_TMPL.format(surf="../met/stn.sfc", prof="inside.pfl").replace(
+            "OU STARTING", "OU STARTING\n   POSTFILE  1 ALL PLOT  /tmp/escape.pst")
+        inp = tmp_path / "test.inp"
+        inp.write_text(body)
+        with pytest.raises(PathTraversalError, match="surface_file") as caught:
+            read_aermod_input(inp, sandbox=True)
+        violations = caught.value.violations
+        assert [(v.field, v.path) for v in violations] == [
+            ("meteorology.surface_file", "../met/stn.sfc"),
+            ("output.postfile", "/tmp/escape.pst"),
+        ]
+        assert all(isinstance(v, SandboxViolation) for v in violations)
+        assert violations[0].resolved == (tmp_path / ".." / "met" / "stn.sfc").resolve()
+
+    def test_the_message_still_names_the_first_escape(self, tmp_path):
+        inp = _write(tmp_path, "/etc/passwd", "../../shadow")
+        with pytest.raises(PathTraversalError) as caught:
+            read_aermod_input(inp, sandbox=True)
+        message = str(caught.value)
+        assert message.startswith("meteorology.surface_file resolves to ")
+        assert "profile_file" not in message
+        assert len(caught.value.violations) == 2
+
+    def test_a_bare_error_has_no_violations(self):
+        assert PathTraversalError("somewhere").violations == ()
+
+
+def _with_lines(tmp_path: Path, **extra: str) -> Path:
+    """The minimal deck with ``extra[pathway]`` added after its STARTING line."""
+    body = _MINIMAL_INP_TMPL.format(surf="inside.sfc", prof="inside.pfl")
+    for pathway, lines in extra.items():
+        body = body.replace(f"{pathway} STARTING", f"{pathway} STARTING\n{lines}", 1)
+    inp = tmp_path / "test.inp"
+    inp.write_text(body)
+    return inp
+
+
+class TestSandboxCoversLinesKeptAsWritten:
+    """A line the reader keeps verbatim is written back as it stands, and
+    several such lines name files AERMOD opens: the sandbox checks them."""
+
+    @pytest.mark.parametrize("pathway, line, path", [
+        ("CO", "   ERRORFIL  /tmp/elsewhere/errors.out", "/tmp/elsewhere/errors.out"),
+        ("SO", "   INCLUDED  ../../sources.dat", "../../sources.dat"),
+        ("SO", "   HOUREMIS  /data/hourly.emi  S1", "/data/hourly.emi"),
+        ("SO", "   BACKGRND  HOURLY  ../bg.dat", "../bg.dat"),
+        ("RE", "   INCLUDED  /etc/receptors.dat", "/etc/receptors.dat"),
+        ("OU", "   POSTFILE  1  ALL  PLOT  in.pst\n   POSTFILE  3  ALL  PLOT  ../out.pst",
+         "../out.pst"),
+    ], ids=["errorfil", "so-included", "houremis", "backgrnd-hourly",
+            "re-included", "second-postfile"])
+    def test_an_escaping_file_on_a_kept_line_is_refused(self, tmp_path, pathway, line, path):
+        inp = _with_lines(tmp_path, **{pathway: line})
+        project = read_aermod_input(inp)                # read as it stands without
+        assert any(path in u.raw for u in project.unparsed_lines)
+        with pytest.raises(PathTraversalError) as caught:
+            read_aermod_input(inp, sandbox=True)
+        (violation,) = caught.value.violations
+        assert violation.path == path
+        kept = next(u for u in project.unparsed_lines if path in u.raw)
+        assert violation.field == f"{kept.pathway} {kept.keyword} at line {kept.lineno}"
+
+    def test_an_escaping_debugopt_file_is_refused_once(self, tmp_path):
+        """DEBUGOPT is read into ``control.debug_options`` (#29), no longer
+        kept verbatim, and its file name is refused as that field alone."""
+        inp = _with_lines(tmp_path, CO="   DEBUGOPT  MODEL  ../debug.out")
+        project = read_aermod_input(inp)
+        assert project.control.debug_files() == ["../debug.out"]
+        assert not any("DEBUGOPT" in u.raw for u in project.unparsed_lines)
+        with pytest.raises(PathTraversalError) as caught:
+            read_aermod_input(inp, sandbox=True)
+        (violation,) = caught.value.violations
+        assert (violation.field, violation.path) == ("control.debug_options", "../debug.out")
+
+    def test_a_quoted_name_with_blanks_is_read_as_one_field(self, tmp_path):
+        inp = _with_lines(tmp_path, CO='   ERRORFIL  "sub dir/../../errors.out"')
+        with pytest.raises(PathTraversalError) as caught:
+            read_aermod_input(inp, sandbox=True)
+        # One field, blanks and all (the writer joins the reader's tokens
+        # with two blanks, so the name comes back with two).
+        (violation,) = caught.value.violations
+        assert violation.path.split() == ["sub", "dir/../../errors.out"]
+
+    def test_kept_lines_inside_the_folder_are_accepted(self, tmp_path):
+        inp = _with_lines(
+            tmp_path,
+            CO="   ERRORFIL  errors.out\n   DEBUGOPT  MODEL  sub/debug.out",
+            SO="   INCLUDED  sources/../more.dat\n   ELEVUNIT  METERS",
+            ME="   SITEDATA  99999  1988  HUDSON",
+        )
+        project = read_aermod_input(inp, sandbox=True)
+        assert len(project.unparsed_lines) == 4          # DEBUGOPT is read (#29)
+        assert project.control.debug_files() == ["sub/debug.out"]
+
+    def test_the_recorded_aertest_deck_is_accepted(self, tmp_path):
+        """Numbers, IDs and option words on kept lines are not paths out."""
+        deck = (Path(__file__).parent / "fixtures" / "gui" / "aermod_recordings"
+                / "aertest" / "aertest.inp")
+        copy = tmp_path / "aertest.inp"
+        copy.write_text(deck.read_text())
+        project = read_aermod_input(copy, sandbox=True)
+        assert [u.keyword for u in project.unparsed_lines] == [
+            "ERRORFIL", "ELEVUNIT", "SITEDATA"]
+
+    def test_a_name_the_file_system_cannot_resolve_is_refused(self, tmp_path):
+        from pyaermod.input_reader import _validate_paths_within
+
+        project = read_aermod_input(_with_lines(tmp_path, CO="   ERRORFIL  errors.out"))
+        project.unparsed_lines[0].fields[0] = "bad\x00name"
+        with pytest.raises(PathTraversalError) as caught:
+            _validate_paths_within(project, tmp_path)
+        assert [v.path for v in caught.value.violations] == ["bad\x00name"]
+
+
+class TestRunstreamFields:
+    """Fields split as AERMOD's DEFINE splits them (setup.f)."""
+
+    @pytest.mark.parametrize("text, fields", [
+        ("", []),
+        ("  a   b  ", ["a", "b"]),
+        ('"My Files/a.dat"  2', ["My Files/a.dat", "2"]),
+        ('x"y  z', ['x"y', "z"]),
+        ('"unterminated name', ["unterminated name"]),
+        ('""  a', ["", "a"]),
+        ("a\tb", ["a", "b"]),
+    ])
+    def test_cases(self, text, fields):
+        from pyaermod.input_reader import runstream_fields
+
+        assert runstream_fields(text) == fields

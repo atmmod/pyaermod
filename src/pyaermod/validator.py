@@ -199,6 +199,8 @@ class Validator:
                 f"must be 'METERS' or 'FEET', got '{control.elevation_units}'"
             ))
 
+        cls._validate_urban_option(control, result)
+
         # Half-life and decay coefficient (mutually exclusive in AERMOD)
         if control.half_life is not None and control.decay_coefficient is not None:
             result.errors.append(ValidationError(
@@ -215,6 +217,32 @@ class Validator:
             result.errors.append(ValidationError(
                 pathway, "decay_coefficient",
                 f"must be >= 0, got {control.decay_coefficient}"
+            ))
+
+    @classmethod
+    def _validate_urban_option(cls, control, result: ValidationResult):
+        """The single-area URBANOPT fields: ``population [name [roughness]]``.
+
+        ``coset.f`` URBOPT reads the population from the first field, so a
+        name or a roughness without one would be written with a made-up
+        population, and the roughness is the third field, so it needs the
+        name before it. ``urban_areas``, when set, is what the deck gets.
+        """
+        if getattr(control, "urban_areas", None):
+            return
+        pathway = "ControlPathway"
+        if control.urban_roughness is not None and not control.urban_option:
+            result.errors.append(ValidationError(
+                pathway, "urban_roughness",
+                "needs urban_option (the urban area name): AERMOD reads the "
+                "roughness from the third URBANOPT field, after the name"
+            ))
+        if control.urban_population is None and (
+                control.urban_option or control.urban_roughness is not None):
+            result.errors.append(ValidationError(
+                pathway, "urban_population",
+                "must be set when urban_option or urban_roughness is: URBANOPT "
+                "starts with the urban population"
             ))
 
     @classmethod
@@ -497,6 +525,16 @@ class Validator:
                 name, "deposition",
                 "deposition parameters specified but DEPOS/DDEP/WDEP not enabled in MODELOPT",
                 severity="warning",
+            ))
+        elif (dep_enabled and not has_dep
+              and getattr(control, "gas_deposition_velocity", None) is None):
+            # soset.f SRCQA: a source with no particle categories and no gas
+            # deposition parameters under DEPOS/DDEP/WDEP is E242 (GASDEPVD
+            # supplies a gas's dry deposition velocity for every source).
+            result.errors.append(ValidationError(
+                name, "deposition",
+                "DEPOS/DDEP/WDEP is enabled in MODELOPT but the source has no "
+                "gas_deposition or particle_deposition parameters (AERMOD E242)",
             ))
 
         if gas_dep:
@@ -1945,8 +1983,9 @@ class Validator:
         periods = {str(p).upper() for p in control.averaging_periods} if control else None
         in_use = {
             "MAXIFILE": bool(output.maxi_files),
-            "POSTFILE": bool(output.postfile),
-            "PLOTFILE": bool(output.plot_file or output.plot_file_groups),
+            "POSTFILE": bool(output.postfile or (output.period_postfiles and periods)),
+            "PLOTFILE": bool(output.plot_file or output.plot_file_groups
+                             or (output.period_plot_files and periods)),
             "SEASONHR": bool(output.season_hour_files),
             "RANKFILE": bool(output.rank_files),
             "MAXDAILY": bool(output.max_daily_files),

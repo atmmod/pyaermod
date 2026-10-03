@@ -42,14 +42,24 @@ MAX_LOCATION = (519.62, -300.00)
 
 AERTEST_RECORDING = RECORDINGS / "aertest"
 
+# AERTEST's maxima as AERMOD v26135 printed them (recording aertest; the
+# same as EPA's AERTEST.SUM): (value, x, y) per averaging period.
+AERTEST_MAXIMA = {
+    "1HR": ("753.65603", "303.11", "-175.00"),
+    "3HR": ("329.96015", "433.01", "-250.00"),
+    "8HR": ("264.11481", "433.01", "-250.00"),
+    "24HR": ("88.89517", "433.01", "-250.00"),
+    "PERIOD": ("24.85173", "433.01", "-250.00"),
+}
+
 
 def enter_reference_scenario(gui, step: Optional[Callable[[str], object]] = None,
                              *, surface_file: Path = SURFACE_FILE) -> None:
     """Enter everything but the averaging periods, one step at a time.
 
-    The current GUI cannot set averaging periods (WP-G3), so journeys call
-    ``gui.project.set_averaging_periods`` themselves, inside a known gap
-    when they need anything but the default ``1 ANNUAL``.
+    Journeys choose the averaging periods themselves with
+    ``gui.project.set_averaging_periods``: J1 the reference periods, the
+    others the GUI's default ``1 ANNUAL``.
     """
     shot = step or (lambda _name: None)
     gui.project.set_titles(TITLE, TITLE_TWO)

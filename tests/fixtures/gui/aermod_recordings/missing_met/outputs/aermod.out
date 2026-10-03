@@ -1,6 +1,6 @@
 CO STARTING
    TITLEONE  Albany stack reference scenario
-   MODELOPT  CONC FLAT DFAULT
+   MODELOPT  CONC ELEV DFAULT
    AVERTIME  1 ANNUAL
    POLLUTID  SO2
    RUNORNOT  RUN
@@ -31,6 +31,10 @@ ME FINISHED
 OU STARTING
    RECTABLE  ALLAVE  1-10
    MAXTABLE  ALLAVE  10
+   PLOTFILE  1  ALL  FIRST  pyaermod_01H.plt
+   PLOTFILE  ANNUAL  ALL  pyaermod_ANNUAL.plt
+   POSTFILE  1  ALL  PLOT  pyaermod_01H.pst
+   POSTFILE  ANNUAL  ALL  PLOT  pyaermod_ANNUAL.pst
 OU FINISHED
 
 
@@ -39,7 +43,7 @@ OU FINISHED
   --------- Summary of Total Messages --------
   
  A Total of            1 Fatal Error Message(s)
- A Total of            4 Warning Message(s)
+ A Total of            3 Warning Message(s)
  A Total of            0 Informational Message(s)
   
   
@@ -47,7 +51,6 @@ OU FINISHED
  ME E500      29       MEOPEN: Fatal Error Occurs Opening the Data File of            SURFFILE
   
     ********   WARNING MESSAGES   ******** 
- CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
  CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
  RE W214      20       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
  MX W403      29       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
@@ -56,8 +59,8 @@ OU FINISHED
     *** SETUP Finishes UN-successfully ***
     **************************************
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/28/26
- *** AERMET - VERSION        ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
+ *** AERMET - VERSION        ***   ***                                                                      ***        17:14:54
                                                                                                                        PAGE   1
  *** MODELOPTs:  
 
@@ -66,7 +69,7 @@ OU FINISHED
   --------- Summary of Total Messages --------
   
  A Total of            1 Fatal Error Message(s)
- A Total of            4 Warning Message(s)
+ A Total of            3 Warning Message(s)
  A Total of            0 Informational Message(s)
   
   
@@ -74,7 +77,6 @@ OU FINISHED
  ME E500      29       MEOPEN: Fatal Error Occurs Opening the Data File of            SURFFILE
   
     ********   WARNING MESSAGES   ******** 
- CO W206       3       MODOPT: Regulatory DFAULT Overrides Non-DFAULT Option For          FLAT
  CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
  RE W214      20       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
  MX W403      29       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW

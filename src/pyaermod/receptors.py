@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List, Optional
 
+from ._fields import described
+
 
 def _fixed(number: str) -> str:
     """``number`` written out without an exponent or trailing zeros.
@@ -77,17 +79,17 @@ class CartesianGrid:
 
     Creates a regular rectangular grid of receptors.
     """
-    grid_name: str = "GRID1"
+    grid_name: str = field(default="GRID1", metadata=described(None, "Network ID, up to 8 characters"))
 
     # X-axis definition
-    x_init: float = 0.0
-    x_num: int = 10
-    x_delta: float = 100.0
+    x_init: float = field(default=0.0, metadata=described("m", "x coordinate of the first column"))
+    x_num: int = field(default=10, metadata=described("", "Number of columns"))
+    x_delta: float = field(default=100.0, metadata=described("m", "Spacing between columns"))
 
     # Y-axis definition
-    y_init: float = 0.0
-    y_num: int = 10
-    y_delta: float = 100.0
+    y_init: float = field(default=0.0, metadata=described("m", "y coordinate of the first row"))
+    y_num: int = field(default=10, metadata=described("", "Number of rows"))
+    y_delta: float = field(default=100.0, metadata=described("m", "Spacing between rows"))
 
     # One terrain elevation, hill height and flagpole height for every
     # receptor of the grid. Under elevated terrain a grid with neither
@@ -98,9 +100,9 @@ class CartesianGrid:
     # grid without grid_flags; 0 leaves them out, and AERMOD gives every
     # receptor the FLAGPOLE height (W216), as for a DiscreteReceptor.
     # See to_aermod_input.
-    z_elev: float = 0.0
-    z_hill: float = 0.0
-    z_flag: float = 0.0
+    z_elev: float = field(default=0.0, metadata=described("m", "Terrain elevation of every receptor"))
+    z_hill: float = field(default=0.0, metadata=described("m", "Hill height scale of every receptor"))
+    z_flag: float = field(default=0.0, metadata=described("m", "Flagpole height of every receptor"))
 
     # Per-receptor grid elevations from AERMAP (optional)
     # 2D arrays [row][col] where row = y-index, col = x-index
@@ -217,21 +219,21 @@ class PolarGrid:
 
     Creates receptors in polar coordinates (distance and direction from origin).
     """
-    grid_name: str = "GRID1"
+    grid_name: str = field(default="GRID1", metadata=described(None, "Network ID, up to 8 characters"))
 
     # Origin
-    x_origin: float = 0.0
-    y_origin: float = 0.0
+    x_origin: float = field(default=0.0, metadata=described("m", "x coordinate of the centre"))
+    y_origin: float = field(default=0.0, metadata=described("m", "y coordinate of the centre"))
 
     # Distance (radial)
-    dist_init: float = 100.0
-    dist_num: int = 10
-    dist_delta: float = 100.0
+    dist_init: float = field(default=100.0, metadata=described("m", "Distance of the first ring"))
+    dist_num: int = field(default=10, metadata=described("", "Number of rings"))
+    dist_delta: float = field(default=100.0, metadata=described("m", "Spacing between rings"))
 
     # Direction (degrees from north, clockwise)
-    dir_init: float = 0.0
-    dir_num: int = 36
-    dir_delta: float = 10.0
+    dir_init: float = field(default=0.0, metadata=described("deg", "First direction, clockwise from north"))
+    dir_num: int = field(default=36, metadata=described("", "Number of directions"))
+    dir_delta: float = field(default=10.0, metadata=described("deg", "Angle between directions"))
 
     # Explicit ring distances (GRIDPOLR DIST is only ever a list in
     # AERMOD: reset.f POLDST reads every field as a distance) and
@@ -244,7 +246,7 @@ class PolarGrid:
 
     # ``GRIDPOLR name ORIG srcid`` centres the network on a source
     # instead of on x_origin/y_origin (POLORG accepts either form).
-    origin_source_id: Optional[str] = None
+    origin_source_id: Optional[str] = field(default=None, metadata=described(None, "Centre the grid on this source instead (ORIG srcid)"))
 
     # Per-receptor elevations, hill heights and flagpole heights
     # (GRIDPOLR ELEV / HILL / FLAG), one row per direction, one value
@@ -314,12 +316,12 @@ class DiscreteReceptor:
     ``z_flag`` is the receptor's flagpole height; 0 means the run's
     ``CO FLAGPOLE`` default when there is one.
     """
-    x_coord: float
-    y_coord: float
-    z_elev: float = 0.0
-    z_hill: float = 0.0
-    z_flag: float = 0.0
-    label: str = ""  # Optional user-friendly name (not sent to AERMOD)
+    x_coord: float = field(metadata=described("m", "East (x) coordinate"))
+    y_coord: float = field(metadata=described("m", "North (y) coordinate"))
+    z_elev: float = field(default=0.0, metadata=described("m", "Terrain elevation"))
+    z_hill: float = field(default=0.0, metadata=described("m", "Hill height scale"))
+    z_flag: float = field(default=0.0, metadata=described("m", "Flagpole height"))
+    label: str = field(default="", metadata=described(None, "A name for your own use; AERMOD never sees it"))  # Optional user-friendly name (not sent to AERMOD)
 
     def to_aermod_input(self, elevated: Optional[bool] = None,
                         flagpole: Optional[float] = None) -> str:
