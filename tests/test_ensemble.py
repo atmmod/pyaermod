@@ -1212,6 +1212,15 @@ class TestProvenance:
         assert ensemble._aermod_version(tmp_path / "x.out") is None
         assert ensemble._aermod_version(tmp_path / "missing.out") is None
 
+    def test_version_banner_after_a_long_deck_echo(self, tmp_path):
+        # AERMOD echoes the deck before its first banner; a large receptor
+        # network puts the banner past any fixed-size head.
+        echo = "".join(f"   RE DISCCART  {i:10.2f}  {i:10.2f}\n" for i in range(12_000))
+        assert len(echo) > 400_000
+        out = tmp_path / "big.out"
+        out.write_text(echo + " *** AERMOD - VERSION 26135  ***   *** title ***\n", encoding="latin-1")
+        assert ensemble._aermod_version(out) == "26135"
+
 
 # ---------------------------------------------------------------------------
 # collect_plotfiles

@@ -134,19 +134,37 @@ def parse_aermod_version(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def read_aermod_version(path: Union[str, Path], max_bytes: int = 8192) -> Optional[str]:
-    """Parse the AERMOD version banner from the head of an output file.
+def read_aermod_version(path: Union[str, Path], max_bytes: Optional[int] = None) -> Optional[str]:
+    """Parse the AERMOD version banner from an output file.
 
-    AERMOD writes Latin-1; the file is decoded leniently so a stray byte
-    can never hide the banner. Returns ``None`` if the file cannot be
-    read or carries no banner in its first `max_bytes`.
+    AERMOD echoes the input deck before its first banner, so the banner can
+    sit well past the head of the file (EPA's ``in_urban.out`` has it at
+    byte 26,374). The file is read line by line up to the first banner, or
+    up to `max_bytes` when given. A ``Usage: AERMOD NNNNN`` line counts only
+    when no banner follows it. AERMOD writes Latin-1, which decodes every
+    byte, so a stray byte can never hide the banner. Returns ``None`` if the
+    file cannot be read or carries no version.
     """
+    usage: Optional[str] = None
+    read = 0
     try:
         with open(path, "rb") as fh:
-            head = fh.read(max_bytes)
+            for raw in fh:
+                if max_bytes is not None:
+                    if read >= max_bytes:
+                        break
+                    raw = raw[: max_bytes - read]
+                read += len(raw)
+                line = raw.decode("latin-1")
+                m = _BANNER_RE.search(line)
+                if m:
+                    return m.group(1)
+                if usage is None:
+                    u = _USAGE_RE.search(line)
+                    usage = u.group(1) if u else None
     except OSError:
         return None
-    return parse_aermod_version(head.decode("latin-1", errors="replace"))
+    return usage
 
 
 def aermod_binary_version(
