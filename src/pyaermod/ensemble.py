@@ -751,14 +751,21 @@ def _git_commit() -> Tuple[Optional[str], Optional[bool]]:
 
 
 def _aermod_version(out_path: Path) -> Optional[str]:
-    """The version in the ``*** AERMOD - VERSION nnnnn ***`` banner of an .out."""
+    """The version in the ``*** AERMOD - VERSION nnnnn ***`` banner of an .out.
+
+    AERMOD echoes the whole input deck before its first banner, so a deck
+    with a large receptor network puts the banner hundreds of kilobytes in;
+    the file is read line by line up to the first banner, however far.
+    """
     try:
-        with open(out_path, encoding="utf-8", errors="replace") as fh:
-            head = fh.read(256_000)
+        with open(out_path, encoding="latin-1") as fh:
+            for line in fh:
+                m = _VERSION_BANNER.search(line)
+                if m:
+                    return m.group(1)
     except OSError:
         return None
-    m = _VERSION_BANNER.search(head)
-    return m.group(1) if m else None
+    return None
 
 
 def _link_or_copy(src: Path, dst: Path) -> None:

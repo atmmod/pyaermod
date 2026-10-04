@@ -534,6 +534,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- **A finished run could be reported as "banner version None".** AERMOD
+  echoes the whole deck before the first `*** AERMOD - VERSION nnnnn ***`
+  banner of its .out, and both readers of that banner looked only at a
+  fixed head of the file: `ensemble` at the first 256,000 characters, so
+  a deck with a large receptor network (about 300 KB of DISCCART echo)
+  got `aermod_version=None` in its manifest row and a run checked against
+  a pinned version was flagged although its binary matched; and
+  `epa_testcases.read_aermod_version` at the first 8,192 bytes, past which
+  EPA's own `mcr.out`, `capped.out` and `in_urban.out` put their banner.
+  Both now read line by line up to the first banner, however far in.
+  `read_aermod_version`'s `max_bytes` still caps the scan when given, and
+  now defaults to no cap.
 - `input_reader.input_files`, `anchor_input_files` and the sandbox did not
   know #28's `SourcePathway.hourly_emissions`: a project that models its
   HOUREMIS cards had its hourly emission files left out of the files a

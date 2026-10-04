@@ -185,6 +185,23 @@ class TestVersionProbes:
         f.write_bytes(b"\xb0" + BANNER.encode("latin-1") + b"\xff\xfe more")
         assert read_aermod_version(f) == "26135"
 
+    def test_read_version_past_the_deck_echo(self, tmp_path):
+        # EPA's in_urban.out has its first banner at byte 26,374.
+        f = tmp_path / "run.out"
+        echo = b"".join(b"   RE DISCCART  %10.2f  %10.2f\n" % (i, i) for i in range(1_000))
+        assert len(echo) > 26_374
+        f.write_bytes(echo + BANNER.encode("latin-1"))
+        assert read_aermod_version(f) == "26135"
+        assert read_aermod_version(f, max_bytes=len(echo)) is None
+        assert read_aermod_version(f, max_bytes=len(echo) + len(BANNER)) == "26135"
+
+    def test_read_version_prefers_banner_over_usage_text(self, tmp_path):
+        f = tmp_path / "run.out"
+        f.write_text("   TITLEONE  Usage: AERMOD 24142 comparison\n" + BANNER, encoding="latin-1")
+        assert read_aermod_version(f) == "26135"
+        f.write_text(" Usage: AERMOD 26135  takes either no or one or two parameters.\n", encoding="latin-1")
+        assert read_aermod_version(f) == "26135"
+
     def test_read_version_missing_file(self, tmp_path):
         assert read_aermod_version(tmp_path / "nope.out") is None
 
