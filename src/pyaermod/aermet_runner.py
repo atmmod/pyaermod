@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Union
 
 from .aermet import _MAX_FILENAME, AERMETStage1, AERMETStage2, AERMETStage3
-from .runner import _read_capped
+from .runner import _dir_state, _files_written, _read_capped
 
 _FINISHED_SUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED SUCCESSFULLY[ \t]*$", re.MULTILINE)
 _FINISHED_UNSUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED UN-SUCCESSFULLY[ \t]*$", re.MULTILINE)
@@ -277,6 +277,7 @@ class AERMETRunner:
             f"Running AERMET stage {stage}: {inp_path} (workdir={work})"
         )
         start = datetime.now()
+        before = _dir_state(work)
         # Pipe-safe stdout/stderr handling: redirect to files instead of
         # OS pipes to avoid deadlock on chatty AERMET stages (the same
         # fix as runner.py applies to AERMOD).
@@ -329,8 +330,7 @@ class AERMETRunner:
             runtime_seconds=(end - start).total_seconds(),
             stdout=out,
             stderr=err,
-            output_files=[str(p) for p in sorted(work.glob("*"))
-                          if p.is_file() and p.stat().st_mtime >= start.timestamp()],
+            output_files=_files_written(work, before),
             start_time=start,
             end_time=end,
             messages=messages,

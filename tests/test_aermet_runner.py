@@ -159,6 +159,24 @@ class TestRunStage:
         assert result.return_code is None
         assert "timed out after 1s" in result.error_message
 
+    def test_new_file_with_an_mtime_before_the_run_is_listed(self, tmp_path):
+        # Linux stamps files from a coarse kernel clock, so a file written a
+        # few ms after ``datetime.now()`` can carry an earlier mtime; a file
+        # stamped in the past (``touch -t``) is the same case made deterministic.
+        exe = tmp_path / "aermet_backdated"
+        exe.write_text(
+            "#!/bin/bash\n"
+            "touch -t 200001010000 TEST.SFC\n"
+            "echo ' AERMET FINISHED SUCCESSFULLY'\n"
+            "exit 0\n"
+        )
+        exe.chmod(0o755)
+        deck = tmp_path / "s1.inp"
+        deck.write_text("JOB\n")
+        result = AERMETRunner(executable_path=exe).run_stage(1, deck, working_dir=tmp_path)
+        assert result.success
+        assert any(p.endswith("TEST.SFC") for p in result.output_files)
+
 
 # ---------------------------------------------------------------------------
 # The pipeline: Stage 1, then METPREP

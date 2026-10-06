@@ -534,6 +534,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- **A preprocessor run's `output_files` could miss a file it had just
+  written.** `AERSURFACERunner`, `AERMETRunner.run_stage` and
+  `AERSCREENRunner` listed `output_files` as the files whose mtime was
+  at or after `datetime.now()` taken before the program was launched.
+  `datetime.now()` reads the fine-grained realtime clock, but Linux
+  stamps files from the coarse kernel clock, which advances once per
+  tick (1 to 4 ms), so a file created within the same tick as the start
+  could carry an earlier mtime and be dropped (seen as an intermittent
+  failure of `test_aersurface_runner.py::TestRun::test_output_files_listed`
+  on CI). The same filter also listed an untouched leftover whose mtime
+  lay in the future. The three runners now record the state (mtime,
+  size, inode) of each file in the working directory before the run and
+  list the files that are new or changed afterwards, whatever the
+  clocks say. `runtime_seconds`, `start_time` and `end_time` are
+  unchanged.
 - **A finished run could be reported as "banner version None".** AERMOD
   echoes the whole deck before the first `*** AERMOD - VERSION nnnnn ***`
   banner of its .out, and both readers of that banner looked only at a
