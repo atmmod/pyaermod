@@ -87,7 +87,7 @@ Build, read, write, and validate AERMOD input files.
 
 | Module | Description |
 |---|---|
-| [gui_v2](gui_v2.md) | 7-tab NiceGUI app — browser + native desktop modes |
+| [gui_v2](gui_v2.md) | Seven-step NiceGUI app — browser + native desktop modes |
 
 ## Optional dependencies
 
@@ -97,7 +97,7 @@ Install the extras for the features you need:
 |---|---|---|
 | `viz` | `pip install pyaermod[viz]` | `visualization`, `advanced_viz` |
 | `geo` | `pip install pyaermod[geo]` | `geospatial`, `terrain`, `terrain_utils` (DEM + UTM/WGS84) |
-| `gui` | `pip install pyaermod[gui]` | `gui` (Streamlit web app — pulls in viz + geo) |
+| `gui` | `pip install pyaermod[gui]` | `gui_v2` (NiceGUI app; pulls in matplotlib for the Results map). `gui-desktop` adds pywebview for the native window |
 | `met` | `pip install pyaermod[met]` | `met_ingest` network fetchers (ISD / IGRA) |
 | `hpc` | `pip install pyaermod[hpc]` | `runner_utils` progress + SLURM |
 | `all` | `pip install pyaermod[all]` | Everything |

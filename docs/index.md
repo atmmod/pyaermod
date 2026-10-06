@@ -16,7 +16,7 @@ DataFrames, and exports results to geospatial formats.
 - **Visualization**: contour plots, interactive Folium maps, 3D surfaces, wind roses, animations
 - **Preprocessors**: AERMET (Stage 1 and METPREP runstreams), AERMAP (terrain), BPIP (building downwash)
 - **Geospatial export**: GeoTIFF, GeoPackage, Shapefile, GeoJSON
-- **Interactive GUI**: 7-page Streamlit web interface
+- **Interactive GUI**: a seven-step NiceGUI app (`pyaermod-app` in the browser, `pyaermod-desktop` as a native window)
 
 ## Getting Started
 
@@ -44,7 +44,7 @@ pip install pyaermod[viz]
 # With geospatial export
 pip install pyaermod[geo]
 
-# With Streamlit GUI
+# With the NiceGUI app (pyaermod[gui-desktop] adds the native window)
 pip install pyaermod[gui]
 
 # Everything
