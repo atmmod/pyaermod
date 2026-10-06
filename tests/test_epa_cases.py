@@ -237,6 +237,15 @@ class TestAllsrcsOutputParsing:
         assert result.max_row["group"] == "RLINEB2"
 
 
+# testpm25's 8th-highest 24-HR design value, by the directory name of the
+# 24142 set in use. EPA re-ran the 24142 set on 06/22/26 for its 2026
+# archive, and that run prints a value 1.2e-4 below the 12/03/24 archive's.
+_PM25_24HR_DV = {
+    "aermet24142_aermod24142": 20.24067,    # 2026 archive (EPA re-run 06/22/26), used by CI
+    "aermet_24142_aermod_24142": 20.24079,  # pre-2026 archive (12/03/24)
+}
+
+
 @requires_epa
 class TestDesignValueOnlyTable:
     """testpm25: RECTABLE ALLAVE eighth, so the 24-HR summary is only the
@@ -249,7 +258,9 @@ class TestDesignValueOnlyTable:
         day = results.concentrations["24HR"]
         assert day.title == ("THE SUMMARY OF MAXIMUM 8TH-HIGHEST 24-HR RESULTS "
                              "AVERAGED OVER 5 YEARS")
-        assert day.max_value == pytest.approx(20.24079, abs=1e-5)
+        if EPA_TEST_DIR.name not in _PM25_24HR_DV:
+            pytest.fail(f"no PM2.5 24-hour design value recorded for set {EPA_TEST_DIR.name}")
+        assert day.max_value == pytest.approx(_PM25_24HR_DV[EPA_TEST_DIR.name], abs=1e-5)
         assert table_qualifier(day.title) == "8th-highest, averaged over 5 years"
         assert table_qualifier(results.concentrations["ANNUAL"].title) == ""
 

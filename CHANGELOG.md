@@ -534,6 +534,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- **The EX01 deck-keyword tests read EPA's runstreams from the vendored
+  fixtures and run in every PR.** `test_stage1_matches_epa_ex01_keywords`
+  and `test_stage3_matches_epa_ex01_keywords` compared pyaermod's EX01
+  decks with EPA's `EX01_S1.INP` and `EX01_S2.INP` read from the AERMET
+  test-case download, under a module that skips only when that whole
+  directory is absent. The parity workflow prunes `EX01/` from that tree
+  before caching it, so the scheduled run restored a tree without the two
+  decks and the tests failed with `FileNotFoundError`, while the PR
+  workflow never fetched the tree and so never ran them. They now live in
+  `tests/test_aermet_status.py` and read the same two decks from
+  `tests/fixtures/aermet/ex01/`, which the repository ships, so they run
+  and pass in every PR.
+- **The PM2.5 24-hour design-value check knows the value EPA's 2026
+  re-run of the 24142 set prints.** `testpm25.out` in EPA's 2026 archive
+  of the 24142 set (re-run 06/22/26) prints a 24-HR 8th-highest value of
+  20.24067, 1.2e-4 below the 20.24079 of the pre-2026 archive, and the
+  check accepted only the latter within 1e-5. It now expects the value
+  of whichever 24142 set is resolved, by the set's directory name, so it
+  passes against both archives and still skips on a 26135 set.
+- **`cordero.pfl` is found on case-sensitive filesystems.** The AERMET
+  profile-file parser tests listed the file as `cordero.PFL`, while EPA
+  ships it as `cordero.pfl`, so two tests skipped on Linux. The entry
+  now matches the file as shipped, as the surface-file list already did.
 - **A finished run could be reported as "banner version None".** AERMOD
   echoes the whole deck before the first `*** AERMOD - VERSION nnnnn ***`
   banner of its .out, and both readers of that banner looked only at a
