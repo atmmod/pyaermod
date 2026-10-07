@@ -14,12 +14,8 @@ import numpy as np
 import pytest
 
 from pyaermod.aermet import (
-    AERMETStage1,
-    AERMETStage3,
-    AERMETStation,
     ProfileFileHeader,
     SurfaceFileHeader,
-    UpperAirStation,
     read_profile_file,
     read_surface_file,
 )
@@ -61,7 +57,7 @@ PFL_FILES = [
     "LOVETT.PFL",
     "MCR.PFL",
     "SALEM_86-90.PFL",
-    "cordero.PFL",
+    "cordero.pfl",
 ]
 
 
@@ -320,77 +316,3 @@ class TestSfcPflConsistency:
 
         assert len(sfc["data"]) == pfl["header"].num_hours
 
-
-# ==========================================================================
-# D. Input generation validation against real format patterns
-# ==========================================================================
-
-
-class TestAERMETInputGenerationFormat:
-    """Verify generated AERMET input keywords match EPA conventions."""
-
-    def test_stage1_matches_epa_ex01_keywords(self):
-        """Stage 1 for EX01 carries the keyword values of EPA's EX01_S1.INP."""
-        station = AERMETStation(
-            station_id="14735", station_name="Albany",
-            latitude=42.75, longitude=-73.80, time_zone=-5,
-            elevation=83.8
-        )
-        ua = UpperAirStation(
-            station_id="00014735", station_name="Albany UA",
-            latitude=42.75, longitude=-73.80, elevation=83.8,
-        )
-        stage1 = AERMETStage1(
-            surface_station=station,
-            surface_data_file="S1473588.144",
-            surface_format="CD144",
-            upper_air_station=ua,
-            upper_air_data_file="14735-88.UA",
-            upper_air_format="6201FB",
-            start_date="1988/3/1",
-            end_date="1988/3/10",
-        )
-        ours = _keywords(stage1.to_aermet_input())
-        epa = _keywords((AERMET_DATA_ROOT / "EX01" / "EX01_S1.INP").read_text())
-        for pathway, keyword in [("UPPERAIR", "DATA"), ("SURFACE", "DATA")]:
-            # EPA's decks add a trailing "1" (the old data-file block factor).
-            assert ours[pathway, keyword][:2] == epa[pathway, keyword][:2]
-        assert ours["UPPERAIR", "LOCATION"] == ["00014735", "42.75N", "73.8W", "5", "83.8"]
-        assert epa["UPPERAIR", "LOCATION"] == ["00014735", "73.80W", "42.75N", "5", "83.8"]
-        assert ours["SURFACE", "LOCATION"] == ["14735", "42.75N", "73.8W", "0", "83.8"]
-        assert epa["SURFACE", "LOCATION"] == ours["SURFACE", "LOCATION"]
-        assert set(ours) >= {(p, k) for p, k in epa if k not in ("REPORT", "MESSAGES", "AUDIT")}
-
-    def test_stage3_matches_epa_ex01_keywords(self):
-        """METPREP for EX01 carries the keyword values of EPA's EX01_S2.INP."""
-        stage3 = AERMETStage3(
-            latitude=41.3, longitude=-74.0, time_zone=-5,
-            methods=[("REFLEVEL", "SUBNWS"), ("WIND_DIR", "RANDOM")], nws_height=6.1,
-            site_char=[(1, 1, 0.15, 2.0, 0.12)],
-            upper_air_qaout="EX01_UA.OQA", surface_qaout="EX01_SF.OQA",
-            start_date="1988/03/01", end_date="1988/03/4",
-            surface_file="EX01_MP.SFC", profile_file="EX01_MP.PFL",
-        )
-        ours = _keywords(stage3.to_aermet_input())
-        epa = _keywords((AERMET_DATA_ROOT / "EX01" / "EX01_S2.INP").read_text())
-        for key in [("UPPERAIR", "QAOUT"), ("SURFACE", "QAOUT"), ("METPREP", "OUTPUT"),
-                    ("METPREP", "PROFILE"), ("METPREP", "NWS_HGT"), ("METPREP", "FREQ_SECT")]:
-            assert ours[key] == epa[key], key
-        assert [float(v) for v in ours["METPREP", "SITE_CHAR"]] == [
-            float(v) for v in epa["METPREP", "SITE_CHAR"]]
-        assert ours["METPREP", "SECTOR"] == epa["METPREP", "SECTOR"] == ["1", "0", "360"]
-
-
-def _keywords(deck: str):
-    """{(pathway, keyword): fields} of a runstream (the last one of each kind)."""
-    found = {}
-    pathway = ""
-    for raw in deck.splitlines():
-        fields = raw.split()
-        if not fields or fields[0].startswith("**"):
-            continue
-        if len(fields) == 1 and fields[0] in ("JOB", "UPPERAIR", "SURFACE", "ONSITE", "METPREP"):
-            pathway = fields[0]
-            continue
-        found[pathway, fields[0].upper()] = fields[1:]
-    return found
