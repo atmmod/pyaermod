@@ -398,6 +398,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
+- Docs: the GUI guide, the desktop notes and the contributing guide
+  describe the seven-step GUI (Project, Sources, Receptors, Meteorology,
+  Output, Review & Run, Results) as the code and the browser journeys
+  have it, in place of "the Run tab" and the Streamlit GUI removed in
+  v2.0: the step badges, New / Open / Import deck / Save / Save As, the
+  readiness checklist, deck preview, progress and Cancel, and Results'
+  maxima, summary tables, map, NAAQS comparison, downloads and run
+  history. The contributing guide now points at `_SOURCE_TYPES` in
+  `gui_v2/pages/sources.py` for registering a source type and at the
+  95% coverage gate CI enforces (it said 89%). The remaining Streamlit
+  mentions in the docs index, architecture page, API index and student
+  guide are fixed.
 - GUI: a new project asks for elevated terrain (`MODELOPT CONC ELEV
   DFAULT`). It asked for FLAT with DFAULT, which AERMOD drops with W206
   and runs as ELEV, and which the validator now warns about (#25), so
@@ -557,6 +569,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile-file parser tests listed the file as `cordero.PFL`, while EPA
   ships it as `cordero.pfl`, so two tests skipped on Linux. The entry
   now matches the file as shipped, as the surface-file list already did.
+- **A preprocessor run's `output_files` could miss a file it had just
+  written.** `AERSURFACERunner`, `AERMETRunner.run_stage` and
+  `AERSCREENRunner` listed `output_files` as the files whose mtime was
+  at or after `datetime.now()` taken before the program was launched.
+  `datetime.now()` reads the fine-grained realtime clock, but Linux
+  stamps files from the coarse kernel clock, which advances once per
+  tick (1 to 4 ms), so a file created within the same tick as the start
+  could carry an earlier mtime and be dropped (seen as an intermittent
+  failure of `test_aersurface_runner.py::TestRun::test_output_files_listed`
+  on CI). The same filter also listed an untouched leftover whose mtime
+  lay in the future. The three runners now record the state (mtime,
+  size, inode) of each file in the working directory before the run and
+  list the files that are new or changed afterwards, whatever the
+  clocks say. `runtime_seconds`, `start_time` and `end_time` are
+  unchanged.
 - **A finished run could be reported as "banner version None".** AERMOD
   echoes the whole deck before the first `*** AERMOD - VERSION nnnnn ***`
   banner of its .out, and both readers of that banner looked only at a

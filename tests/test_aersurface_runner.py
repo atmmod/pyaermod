@@ -109,3 +109,44 @@ class TestRun:
         result = runner.run(cfg, working_dir=work, timeout=10)
         assert result.success
         assert any(p.endswith("UTEST.SFC") for p in result.output_files)
+
+
+class TestOutputFilesByDirectoryChange:
+    """output_files is what the run created or changed, whatever the clocks say.
+
+    Linux stamps files from a coarse kernel clock, so a file written a few
+    ms after ``datetime.now()`` can carry an earlier mtime; a file stamped
+    in the past (``touch -t``) is the same case made deterministic.
+    """
+
+    def _runner(self, tmp_path, body):
+        fake = tmp_path / "fake_aersurface"
+        fake.write_text("#!/bin/bash\n" + body + "echo done\nexit 0\n")
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        return AERSURFACERunner(executable_path=fake)
+
+    def test_new_file_with_an_mtime_before_the_run_is_listed(self, tmp_path, cfg):
+        runner = self._runner(tmp_path, "touch -t 200001010000 UTEST.SFC\n")
+        result = runner.run(cfg, working_dir=tmp_path / "wd", timeout=10)
+        assert any(p.endswith("UTEST.SFC") for p in result.output_files)
+
+    def test_untouched_leftover_with_a_future_mtime_is_not_listed(self, tmp_path, cfg):
+        work = tmp_path / "wd"
+        work.mkdir()
+        old = work / "OLD.SFC"
+        old.write_text("left by an earlier run\n")
+        future = old.stat().st_mtime + 3600
+        os.utime(old, (future, future))
+        runner = self._runner(tmp_path, "touch NEW.SFC\n")
+        result = runner.run(cfg, working_dir=work, timeout=10)
+        names = [os.path.basename(p) for p in result.output_files]
+        assert "NEW.SFC" in names
+        assert "OLD.SFC" not in names
+
+    def test_rewritten_leftover_is_listed(self, tmp_path, cfg):
+        work = tmp_path / "wd"
+        work.mkdir()
+        (work / "UTEST.SFC").write_text("old\n")
+        runner = self._runner(tmp_path, "echo new-and-longer > UTEST.SFC\n")
+        result = runner.run(cfg, working_dir=work, timeout=10)
+        assert any(p.endswith("UTEST.SFC") for p in result.output_files)

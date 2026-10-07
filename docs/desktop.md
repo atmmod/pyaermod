@@ -22,12 +22,41 @@ After unzipping:
 - **macOS**: drag ``pyaermod-desktop.app`` to Applications and double-click
 - **Linux**: ``./pyaermod-desktop`` from a shell
 
-The app opens to the **Project** tab. From there:
+The app starts the NiceGUI server on a free loopback port in the
+background and opens a window on it. It opens to the **Project** step,
+with the seven steps of the [GUI User Guide](gui-guide.md) listed on the
+left:
 
-1. Edit project metadata or **Open** an existing ``.json`` project
-2. Switch to **Sources**, **Receptors**, **Meteorology**, **Output** tabs to build the configuration
-3. **Run** dispatches the AERMOD binary (must be on the system PATH)
-4. **Results** displays parsed ``.OUT`` summary + POSTFILE listings
+1. On **Project**, name the run and choose the pollutant and averaging
+   periods, **Open** a saved ``.json`` project, or **Import deck** an
+   existing AERMOD ``.inp`` file
+2. Build the run on **Sources**, **Receptors**, **Meteorology** and
+   **Output**
+3. **Review & Run** lists what still blocks the run, previews the deck
+   and runs the AERMOD binary (which must be on the system PATH) with a
+   progress bar and Cancel
+4. **Results** shows the maxima for each averaging period, every summary
+   table, the concentration map, the NAAQS comparison, the downloads and
+   the run history
+
+## What differs from the browser
+
+The desktop app is the same GUI, with native dialogs where the browser
+would upload or download a file:
+
+- **Open** and **Import deck** use a native file dialog, and the file is
+  read from where it is. A deck imported this way brings the met files
+  and other input files found beside it, with their full paths.
+- **Save as** asks where to save through a native save dialog, after
+  which **Save** writes back to that file.
+- The met file fields on the Meteorology step have a **Browse...**
+  button.
+- The project's recent files (opened or saved by path, and imported
+  decks) are listed on the Project step.
+
+Reloading the window keeps the project. Closing the window stops the
+server; unsaved changes are lost, so save first. Any AERMOD run still in
+progress is stopped when the app exits.
 
 ## Build from source
 
@@ -49,9 +78,10 @@ PyInstaller picks per-platform defaults at build time (single-file
 
 The desktop bundle does **not** ship the AERMOD Fortran binary. Install
 [AERMOD from EPA SCRAM](https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/)
-separately and ensure ``aermod`` is on your system ``PATH``. The Run
-tab surfaces a clear "no AERMOD binary" banner when the executable
-isn't found.
+separately and ensure ``aermod`` is on your system ``PATH``. When the
+executable isn't found, the Review & Run step's readiness checklist
+says "No 'aermod' binary on PATH. Install AERMOD and re-launch." and
+the Run AERMOD button stays disabled.
 
 ## Web mode
 

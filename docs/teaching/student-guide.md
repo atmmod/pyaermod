@@ -182,7 +182,7 @@ pip install pyaermod[gui]
 ```
 
 This installs the core package plus everything needed for the graphical
-interface (Streamlit, Folium maps, matplotlib plots).
+interface (NiceGUI and the matplotlib plots the Results step draws).
 
 To verify the install worked:
 

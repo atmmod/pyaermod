@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from .aersurface import AERSURFACEConfig
-from .runner import _read_capped
+from .runner import _dir_state, _files_written, _read_capped
 
 
 @dataclass
@@ -158,6 +158,7 @@ class AERSURFACERunner:
             f"Running AERSURFACE: {deck_path} (workdir={work})"
         )
         start = datetime.now()
+        before = _dir_state(work)
         stdout_path = work / "aersurface.subproc.stdout"
         stderr_path = work / "aersurface.subproc.stderr"
         # File-redirect, not OS pipes — same pipe-deadlock fix as the
@@ -198,10 +199,7 @@ class AERSURFACERunner:
         err = _read_capped(stderr_path, 1_000_000)
         # AERSURFACE sometimes exits 0 even with FATAL messages logged.
         success = proc.returncode == 0 and "FATAL" not in out.upper()
-        outputs = [
-            str(p) for p in sorted(work.glob("*"))
-            if p.is_file() and p.stat().st_mtime >= start.timestamp()
-        ]
+        outputs = _files_written(work, before)
         return AERSURFACERunResult(
             success=success,
             input_file=str(deck_path),
