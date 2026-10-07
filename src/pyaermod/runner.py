@@ -1475,6 +1475,48 @@ def _describe_signal(signum: int, unwritten: Optional[str] = None) -> str:
     )
 
 
+class _FileState(NamedTuple):
+    mtime_ns: int
+    size: int
+    ino: int
+
+
+def _dir_state(directory: Path) -> Dict[str, _FileState]:
+    """The regular files directly in ``directory``, by name, as they stand now.
+
+    Taken just before a program runs, so that :func:`_files_written` can
+    tell afterwards which files the run created or changed. Comparing
+    each file with its own earlier state, not its mtime with the wall
+    clock, matters on Linux, which stamps files from a coarse kernel
+    clock: a file written a few ms after ``datetime.now()`` can carry an
+    earlier mtime and would be missed.
+    """
+    state: Dict[str, _FileState] = {}
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return state
+    for entry in entries:
+        try:
+            if entry.is_file():
+                st = entry.stat()
+                state[entry.name] = _FileState(st.st_mtime_ns, st.st_size, st.st_ino)
+        except OSError:
+            continue
+    return state
+
+
+def _files_written(directory: Path, before: Dict[str, _FileState]) -> List[str]:
+    """The files in ``directory`` that are new or changed since ``before``, sorted.
+
+    A file rewritten in place with the same size within one tick of the
+    filesystem's timestamp clock of ``before`` being taken is not seen.
+    """
+    after = _dir_state(directory)
+    return [str(directory / name) for name in sorted(after)
+            if before.get(name) != after[name]]
+
+
 def _read_capped(path: Path, max_bytes: int = 1_000_000) -> str:
     """Read a text file, returning at most the last `max_bytes` bytes.
 

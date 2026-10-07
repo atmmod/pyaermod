@@ -303,6 +303,24 @@ class TestRun:
         assert "processed" in result.stdout
         assert "cls: not found" in result.stderr
 
+    def test_new_file_with_an_mtime_before_the_run_is_listed(self, tmp_path, cfg):
+        # Linux stamps files from a coarse kernel clock, so a file written a
+        # few ms after ``datetime.now()`` can carry an earlier mtime; a file
+        # stamped in the past (``touch -t``) is the same case made deterministic.
+        exe = _executable(tmp_path / "backdated", (
+            "#!/bin/bash\ncat > /dev/null\n"
+            "printf 'AERSCREEN Finished Successfully\\n' > aerscreen.log\n"
+            f"cat > AERSCREEN.OUT <<'EOF'\n{FAKE_OUTPUT}EOF\n"
+            "touch -t 200001010000 AERSCREEN.OUT aerscreen.log\n"
+        ))
+        r = AERSCREENRunner(executable_path=exe,
+                            aermod_path=fake_helper(tmp_path, "aermod"),
+                            makemet_path=fake_helper(tmp_path, "makemet"))
+        result = r.run(cfg, working_dir=tmp_path / "wd", timeout=10)
+        assert result.success, result.error_message
+        names = [os.path.basename(p) for p in result.output_files]
+        assert "AERSCREEN.OUT" in names and "aerscreen.log" in names
+
 
 class TestWrittenFile:
     """How the runner finds the files AERSCREEN left, on either kind of filesystem."""

@@ -57,7 +57,7 @@ from .aerscreen import (
     AERSCREENSummary,
     parse_aerscreen_output,
 )
-from .runner import _read_capped
+from .runner import _dir_state, _files_written, _read_capped
 
 #: The programs AERSCREEN spawns, and the marker file it checks for each.
 _HELPERS = {
@@ -363,6 +363,7 @@ class AERSCREENRunner:
 
         self.logger.info(f"Running AERSCREEN ({mode}): {input_path} (workdir={work})")
         start = datetime.now()
+        before = _dir_state(work)
         stdout_path = work / "aerscreen.subproc.stdout"
         stderr_path = work / "aerscreen.subproc.stderr"
         # File-redirect to avoid the OS pipe-buffer deadlock — same fix
@@ -416,10 +417,7 @@ class AERSCREENRunner:
             if log_path else ""
         finished = "AERSCREEN Finished Successfully" in log_text
         success = proc.returncode == 0 and finished and output_path is not None
-        outputs = [
-            str(p) for p in sorted(work.glob("*"))
-            if p.is_file() and p.stat().st_mtime >= start.timestamp()
-        ]
+        outputs = _files_written(work, before)
         summary: Optional[AERSCREENSummary] = None
         if success and output_path is not None:
             try:
