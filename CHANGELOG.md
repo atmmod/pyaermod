@@ -398,6 +398,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
+- Docs: the GUI guide, the desktop notes and the contributing guide
+  describe the seven-step GUI (Project, Sources, Receptors, Meteorology,
+  Output, Review & Run, Results) as the code and the browser journeys
+  have it, in place of "the Run tab" and the Streamlit GUI removed in
+  v2.0: the step badges, New / Open / Import deck / Save / Save As, the
+  readiness checklist, deck preview, progress and Cancel, and Results'
+  maxima, summary tables, map, NAAQS comparison, downloads and run
+  history. The contributing guide now points at `_SOURCE_TYPES` in
+  `gui_v2/pages/sources.py` for registering a source type and at the
+  95% coverage gate CI enforces (it said 89%). The remaining Streamlit
+  mentions in the docs index, architecture page, API index and student
+  guide are fixed.
 - GUI: a new project asks for elevated terrain (`MODELOPT CONC ELEV
   DFAULT`). It asked for FLAT with DFAULT, which AERMOD drops with W206
   and runs as ELEV, and which the validator now warns about (#25), so

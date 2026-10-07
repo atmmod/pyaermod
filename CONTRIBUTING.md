@@ -72,11 +72,14 @@ pytest -k "test_point_source"
 pytest -m "not slow"
 ```
 
-The project targets **89%+ code coverage**. New features should include
-tests that maintain or improve this threshold. Library code must log, not
-print: `import pyaermod` is asserted silent by `tests/test_import_silence.py`,
-and the NiceGUI GUI is smoke-tested headlessly in `tests/test_gui_v2_smoke.py`
-(requires the `[gui]` extra and `pytest-asyncio`).
+CI gates coverage at **95%** (`--cov-fail-under=95` in
+`.github/workflows/tests.yml`). New features should include tests that
+maintain or improve this threshold. Library code must log, not print:
+`import pyaermod` is asserted silent by `tests/test_import_silence.py`,
+and the NiceGUI GUI is tested headlessly in the `tests/test_gui_v2_*.py`
+files (requires the `[gui]` extra and `pytest-asyncio`) and in the
+browser journeys under `tests/e2e/` (`make test-gui-e2e`, requires the
+`[e2e]` extra and a Playwright Chromium).
 
 ## Code Style
 
@@ -115,17 +118,27 @@ benchmarks/            # Performance benchmarks
 - **Validation** uses `isinstance` dispatch in `validator.py`
 - **Optional dependencies** use `try/except ImportError` with `HAS_*` flags
   and `_require_*()` guard functions
-- **GUI** uses Streamlit with `st.session_state` for state management
+- **GUI** (`src/pyaermod/gui_v2/`) is a NiceGUI app: one
+  `Session` per browser tab owns the project, its runs and change events
+  (`session.py`, no UI), and the step pages under `gui_v2/pages/` rebuild
+  from it. Editors are generated from the dataclasses by `_form.py`.
 
 ## Adding a New Source Type
 
-1. Define the dataclass in `src/pyaermod/input_generator.py` following
-   existing patterns (e.g., `PointSource`)
+1. Define the dataclass in `src/pyaermod/sources.py` following existing
+   patterns (e.g., `PointSource`); `input_generator.py` re-exports it
 2. Implement `to_aermod_input()` to generate valid AERMOD keywords
 3. Add validation rules in `src/pyaermod/validator.py`
-4. Add the type to `SourceFormFactory.SOURCE_TYPES` in `gui.py`
+4. Register the type for the GUI: add it to the `_SOURCE_TYPES` dict in
+   `src/pyaermod/gui_v2/pages/sources.py`, give its required fields
+   placeholder values in that module's `_DEFAULTS` so the editor opens
+   cleanly, and list any field that does not belong on the LOCATION and
+   SRCPARAM cards in `ADVANCED_FIELDS`. The editor itself is generated
+   from the dataclass; the badge logic in `gui_v2/steps.py` already
+   files every `*Source` validator message under the Sources step
 5. Update `__init__.py` exports and `__all__`
-6. Add tests in `tests/test_input_generator.py` and `tests/test_gui.py`
+6. Add tests in `tests/test_input_generator.py` and
+   `tests/test_gui_v2_sources.py`
 7. Update documentation in `docs/quickstart.md`
 
 ## Submitting Changes

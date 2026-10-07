@@ -465,7 +465,7 @@ pyaermod/
 │   ├── bpip.py                # Building downwash (BPIP) calculations
 │   ├── prime.py               # GEP stack height, cavity region, project-level BPIP
 │   ├── cli.py                 # pyaermod command-line interface
-│   └── gui.py                 # 7-page Streamlit web application
+│   └── gui_v2/                # Seven-step NiceGUI app (browser + pywebview desktop window)
 ├── tests/                     # 1590+ tests across 30+ files
 ├── docs/                      # MkDocs documentation site
 │   ├── quickstart.md
