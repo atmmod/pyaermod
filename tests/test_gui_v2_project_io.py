@@ -279,7 +279,7 @@ def _deposition_project():
                     particle_deposition=ParticleDepositionParams(
                         diameters=[1.0, 2.5, 6.0, 10.0, 20.0, 40.0],
                         mass_fractions=[0.05, 0.1, 0.2, 0.25, 0.25, 0.15],
-                        densities=[2.6] * 6,
+                        densities=[2.6] * 6, diameter_convention="stokes",
                     ),
                 ),
                 PointSource(
@@ -320,6 +320,7 @@ class TestEverythingRoundTrips:
         pit = reopened.sources.sources[0]
         assert isinstance(pit.particle_deposition, ParticleDepositionParams)
         assert pit.particle_deposition.diameters == [1.0, 2.5, 6.0, 10.0, 20.0, 40.0]
+        assert pit.particle_deposition.diameter_convention == "stokes"
         assert pit.emission_rate == 1.5e-6
         assert reopened.control.pollutant_id == "TSP"
         assert reopened.sources.background.sector_values == {(1, "ANNUAL"): 12.0,

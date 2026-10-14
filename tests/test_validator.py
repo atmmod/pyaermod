@@ -1175,6 +1175,55 @@ class TestDepositionValidation:
                       if "particle_deposition" in e.field]
         assert len(dep_errors) == 0
 
+    @pytest.mark.parametrize("convention, densities, expect_warning", [
+        ("aerodynamic", [2.5, 2.5, 2.5], True),
+        ("aerodynamic", [1.0, 1.0, 2.5], True),
+        ("aerodynamic", [1.0, 1.0, 1.0], False),
+        ("stokes", [2.5, 2.5, 2.5], False),
+        (None, [2.5, 2.5, 2.5], False),
+    ])
+    def test_aerodynamic_diameters_beside_a_density_other_than_one_warn(
+            self, convention, densities, expect_warning):
+        """soset.f VDP1 settles PARTDIAM as the physical diameter of a
+        particle of PARTDENS, so aerodynamic diameters belong beside a
+        density of 1. AERMOD has no code for it; the convention is known
+        only when to_deposition_params recorded it."""
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0, 10.0], mass_fractions=[0.3, 0.5, 0.2],
+                densities=densities, diameter_convention=convention,
+            ),
+        ))
+        warnings = [e for e in result.errors
+                    if e.field == "particle_deposition.diameters" and e.severity == "warning"]
+        assert result.is_valid
+        if expect_warning:
+            assert len(warnings) == 1
+            assert "aerodynamic" in warnings[0].message and "[2.5]" in warnings[0].message
+            assert "aerodynamic_to_stokes" in warnings[0].message
+        else:
+            assert warnings == []
+
+    def test_unknown_diameter_convention_is_an_error(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0, 10.0], mass_fractions=[0.3, 0.5, 0.2],
+                densities=[2.5] * 3, diameter_convention="physical",
+            ),
+        ))
+        errors = [e for e in result.errors if e.field == "particle_deposition.diameter_convention"]
+        assert len(errors) == 1 and errors[0].severity == "error"
+        assert "'physical'" in errors[0].message
+
+    def test_converted_size_distribution_passes_without_warning(self):
+        from pyaermod.psd import SizeDistribution
+
+        dist = SizeDistribution((1.0, 2.5, 10.0), (0.3, 0.7))
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=dist.to_deposition_params(density=2.65),
+        ))
+        assert not [e for e in result.errors if "particle_deposition" in e.field], result
+
     def test_particle_mismatched_lengths(self):
         result = Validator.validate(self._project_with_deposition(
             particle_dep=ParticleDepositionParams(

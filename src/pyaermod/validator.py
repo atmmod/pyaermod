@@ -602,6 +602,29 @@ class Validator:
                 f"densities {low} are <= 0.1 g/cm^3, which AERMOD flags as possibly "
                 "out of range (AERMOD W334)", "warning")
 
+        # soset.f VDP1 settles each category by Stokes' law from PARTDIAM
+        # and PARTDENS together, so PARTDIAM is the physical diameter of a
+        # particle of PARTDENS. Aerodynamic diameters (emission factors,
+        # impactors) only settle as intended beside a density of 1; beside
+        # a higher density AERMOD settles every category that many times
+        # too fast. AERMOD itself cannot tell the two apart, so there is
+        # no message code; the convention is known only when
+        # SizeDistribution.to_deposition_params recorded it.
+        convention = getattr(particle_dep, "diameter_convention", None)
+        if convention not in (None, "aerodynamic", "stokes"):
+            add("particle_deposition.diameter_convention",
+                f"must be 'aerodynamic', 'stokes' or None, got {convention!r}")
+        elif convention == "aerodynamic":
+            heavy = sorted({r for r in densities if r != 1.0})
+            if heavy:
+                add("particle_deposition.diameters",
+                    f"the diameters are aerodynamic but the densities include {heavy} g/cm^3: "
+                    "AERMOD reads PARTDIAM as the Stokes diameter of a particle of PARTDENS, "
+                    "so these categories settle about that many times faster than their "
+                    "aerodynamic size says. Convert them with pyaermod.psd.aerodynamic_to_stokes "
+                    "(SizeDistribution.to_deposition_params does by default) or use a density "
+                    "of 1.0", "warning")
+
     @staticmethod
     def _particle_values_as_written(particle_dep):
         """PARTDIAM, MASSFRAX and PARTDENS read back from the lines the

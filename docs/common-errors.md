@@ -54,6 +54,27 @@ them, and which pyaermod helper catches them earlier.
   accepted, as 1000.
 - **Fix:** `Validator.validate(project)` reports each with AERMOD's code.
 
+### Particle categories: aerodynamic diameters beside a density above 1
+
+- **Cause:** `PARTDIAM` values that are aerodynamic diameters (what
+  AP-42 size multipliers and impactors report) written beside a
+  `PARTDENS` other than 1. AERMOD settles each category by Stokes' law
+  from the diameter and the density together (`soset.f` VDP1), so it reads
+  `PARTDIAM` as the physical diameter of a particle of `PARTDENS`: an
+  aerodynamic 10 µm at 2.65 g/cm³ settles about 2.65 times faster than a
+  10 µm aerodynamic particle does. AERMOD has no message code for it,
+  because it cannot tell the two kinds of diameter apart. Earlier
+  pyaermod releases wrote this by default when
+  `SizeDistribution.to_deposition_params(density=2.65)` was called
+  without `stokes=True`.
+- **Fix:** `to_deposition_params(density=...)` now converts to Stokes
+  diameters whenever the density is not 1 and records
+  `diameter_convention="stokes"` on the result; the validator warns when
+  the convention is `"aerodynamic"` and any density is not 1. For
+  hand-built categories, convert with `pyaermod.psd.aerodynamic_to_stokes`
+  or use a density of 1.0 beside aerodynamic diameters. See
+  [Particle size distributions](psd.md#what-aermod-does-with-the-diameter).
+
 ### DFAULT with FLAT terrain (W206)
 
 - **Cause:** `ControlPathway` defaults to `terrain_type=FLAT` with
