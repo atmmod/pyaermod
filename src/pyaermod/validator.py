@@ -323,6 +323,38 @@ class Validator:
         cls._validate_psd_groups(sources, control, result)
         cls._validate_unit_conversions(sources, control, result)
         cls._validate_solid_barriers(sources, control, result)
+        cls._validate_line_deposition(sources, control, result)
+
+    @classmethod
+    def _validate_line_deposition(cls, sources, control, result: ValidationResult):
+        """Deposition with RLINE, RLINEXT or BUOYLINE is E251.
+
+        soset.f SRCQA (v24142, lines 1660-1669): with DEPOS, DDEP or WDEP
+        set, a deck with any BUOYLINE source, or else any RLINE or
+        RLINEXT source, is refused with E251 "Deposition (DEPOS, DDEP,
+        WDEP) incompatible with" BUOYLINE or RLINE/RLINEXT. The source
+        dataclasses carry the deposition fields, so the error is reported
+        here, on every such source, before AERMOD runs. LINE, AREA and
+        VOLUME sources take deposition.
+        """
+        from pyaermod.input_generator import BuoyLineSource, RLineExtSource, RLineSource
+
+        if not (control.calculate_deposition or control.calculate_dry_deposition
+                or control.calculate_wet_deposition):
+            return
+        for src in sources.sources:
+            if isinstance(src, BuoyLineSource):
+                kind = "BUOYLINE"
+            elif isinstance(src, (RLineSource, RLineExtSource)):
+                kind = "RLINE/RLINEXT"
+            else:
+                continue
+            result.errors.append(ValidationError(
+                f"{type(src).__name__}({src.source_id})", "deposition",
+                f"AERMOD refuses deposition (DEPOS, DDEP or WDEP in MODELOPT) with a {kind} "
+                "source (AERMOD E251, soset.f SRCQA); turn deposition off or model the "
+                "source as LINE, AREA or VOLUME",
+            ))
 
     @classmethod
     def _validate_background(cls, background, result: ValidationResult):
