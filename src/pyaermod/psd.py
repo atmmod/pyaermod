@@ -65,7 +65,8 @@ from __future__ import annotations
 import bisect
 import math
 import types
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple
 
@@ -339,6 +340,13 @@ class LogLinearCDF:
         """``F`` above the last knot."""
         return self._f[-1]
 
+    @property
+    def top_knot(self) -> float:
+        """The largest knot diameter. The CDF is flat above it, which says
+        nothing about the mass there: :func:`bins_from_cdf` reports
+        ``truncated_above`` as unknown for bins that reach it."""
+        return self._d[-1]
+
     def __call__(self, diameter: float) -> float:
         if not diameter >= 0:
             raise ValueError(f"diameter must be 0 or above, got {diameter!r}")
@@ -392,6 +400,71 @@ class LognormalCDF:
         return 0.5 * math.erfc(-z / math.sqrt(2.0))
 
 
+@dataclass(frozen=True)
+class _PowerLawCDF:
+    """Cumulative mass ``d ** exponent``: the Gates-Gaudin-Schuhmann form
+    for crushed material, unbounded above."""
+
+    exponent: float
+
+    @property
+    def lower_limit(self) -> float:
+        return 0.0
+
+    @property
+    def upper_limit(self) -> float:
+        return math.inf
+
+    def __call__(self, diameter: float) -> float:
+        return float(diameter) ** self.exponent
+
+
+@dataclass(frozen=True)
+class _ContinuedCDF:
+    """``base`` up to ``top``, then ``tail`` scaled to agree with it there:
+    ``F(d) = base(top) * tail(d) / tail(top)`` for ``d > top``."""
+
+    base: CumulativeMassDistribution
+    top: float
+    tail: CumulativeMassDistribution
+
+    def __post_init__(self) -> None:
+        if not self.tail(self.top) > 0:
+            raise ValueError(
+                f"the tail distribution has no mass below the last cut point {self.top:g}, "
+                "so it cannot be scaled to continue from there"
+            )
+
+    @property
+    def lower_limit(self) -> float:
+        return self.base.lower_limit
+
+    @property
+    def upper_limit(self) -> float:
+        return self.base(self.top) * self.tail.upper_limit / self.tail(self.top)
+
+    def __call__(self, diameter: float) -> float:
+        if diameter <= self.top:
+            return self.base(diameter)
+        return self.base(self.top) * self.tail(diameter) / self.tail(self.top)
+
+
+def _tail_cdf(tail: object) -> CumulativeMassDistribution:
+    """The continuation ``tail=`` of :func:`bins_from_cut_points` names."""
+    if isinstance(tail, bool) or not isinstance(tail, (int, float)):
+        if all(hasattr(tail, a) for a in ("lower_limit", "upper_limit", "__call__")):
+            return tail  # type: ignore[return-value]
+        raise ValueError(
+            "tail must be 'zero', a power-law exponent above 0, or a cumulative mass "
+            f"distribution (LognormalCDF or one with the same interface), got {tail!r}"
+        )
+    if not (math.isfinite(tail) and tail > 0):
+        raise ValueError(
+            f"a power-law tail needs an exponent above 0, got {tail!r}; use tail='zero' for no mass"
+        )
+    return _PowerLawCDF(float(tail))
+
+
 # ============================================================================
 # Binned distributions
 # ============================================================================
@@ -431,16 +504,18 @@ class SizeDistribution:
         not lost but spread over the bins. Mass between the last edge and
         an anchor beyond it *is* lost, and lowers the ratio. 1 when the
         last edge is the anchor.
-    truncated_below, truncated_above : float
+    truncated_below, truncated_above : float or None
         Fractions of the whole distribution that lie below the first edge
-        and above the last edge, and so are not modelled.
+        and above the last edge, and so are not modelled. ``None`` when
+        the distribution does not say: cut points say nothing above the
+        largest of them, and a power-law tail has no upper limit.
     """
 
     edges: Tuple[float, ...]
     mass_fractions: Tuple[float, ...]
     anchor_ratio: float = 1.0
-    truncated_below: float = 0.0
-    truncated_above: float = 0.0
+    truncated_below: Optional[float] = 0.0
+    truncated_above: Optional[float] = 0.0
 
     def __post_init__(self) -> None:
         edges = _check_edges(self.edges)
@@ -457,6 +532,8 @@ class SizeDistribution:
             raise ValueError(f"mass fractions must sum to 1, they sum to {total!r}")
         for name in ("anchor_ratio", "truncated_below", "truncated_above"):
             value = getattr(self, name)
+            if value is None and name != "anchor_ratio":
+                continue
             if not (math.isfinite(value) and value >= 0):
                 raise ValueError(f"{name} must be finite and 0 or above, got {value!r}")
         object.__setattr__(self, "edges", edges)
@@ -569,6 +646,10 @@ def bins_from_cdf(cdf: CumulativeMassDistribution, edges: Sequence[float], *,
     The mass below the first edge and above the last is dropped
     (``truncated_below`` and ``truncated_above`` report it as fractions of
     the whole distribution) and the rest is renormalised to sum to 1.
+    ``truncated_above`` is ``None`` when the bins reach the last knot of a
+    :class:`LogLinearCDF`, which is flat there and so says nothing about
+    the mass above it; both are ``None`` when the distribution has no
+    upper limit (a power-law tail).
 
     Parameters
     ----------
@@ -598,18 +679,32 @@ def bins_from_cdf(cdf: CumulativeMassDistribution, edges: Sequence[float], *,
     if not anchor_mass > 0:
         raise ValueError(f"the distribution has no mass between {e[0]} and the anchor {anchor_d}")
     whole = cdf.upper_limit - cdf.lower_limit
+    below: Optional[float]
+    above: Optional[float]
+    if f[0] == cdf.lower_limit:
+        below = 0.0
+    elif math.isfinite(whole):
+        below = (f[0] - cdf.lower_limit) / whole
+    else:
+        below = None
+    top_knot = getattr(cdf, "top_knot", None)
+    if not math.isfinite(whole) or (top_knot is not None and e[-1] >= top_knot):
+        above = None
+    else:
+        above = (cdf.upper_limit - f[-1]) / whole
     return SizeDistribution(
         edges=e,
         mass_fractions=tuple(r / total for r in raw),
         anchor_ratio=total / anchor_mass,
-        truncated_below=(f[0] - cdf.lower_limit) / whole,
-        truncated_above=(cdf.upper_limit - f[-1]) / whole,
+        truncated_below=below,
+        truncated_above=above,
     )
 
 
 def bins_from_cut_points(cut_points: Mapping[float, float], edges: Sequence[float], *,
                          lower: Optional[float] = None,
-                         anchor: Optional[float] = None) -> SizeDistribution:
+                         anchor: Optional[float] = None,
+                         tail: object = None) -> SizeDistribution:
     """Bins from cumulative mass at cut points, log-linear in between.
 
     Parameters
@@ -627,8 +722,25 @@ def bins_from_cut_points(cut_points: Mapping[float, float], edges: Sequence[floa
         point must lie above it.
     anchor : float, optional
         The diameter the emission rate refers to; defaults to the largest
-        cut point. See :func:`bins_from_cdf`. Mass above the largest cut
-        point is not modelled, so bins above it get 0.
+        cut point. See :func:`bins_from_cdf`.
+    tail : ``"zero"``, float or cumulative distribution, optional
+        What lies above the largest cut point, needed when the edges
+        reach beyond it: the cut points say nothing there (AP-42's
+        multipliers stop at 30 microns), so ``truncated_above`` is
+        ``None`` unless the tail says. ``"zero"`` puts no mass above it
+        (``truncated_above`` 0). A number is a power-law exponent ``m``:
+        the cumulative mass continues as ``F(top) * (d / top) ** m``
+        (the Gates-Gaudin-Schuhmann form for crushed material), unbounded,
+        so ``truncated_above`` and ``truncated_below`` are ``None``. A
+        :class:`LognormalCDF`, or any object with the
+        :class:`CumulativeMassDistribution` interface, continues the
+        distribution with its own shape, scaled to agree at the largest
+        cut point: ``F(d) = F(top) * tail(d) / tail(top)``. In every case
+        the mass added above the largest cut point raises ``anchor_ratio``
+        with the default anchor, so the anchor's emission rate is scaled
+        up for it. Left out with edges beyond the largest cut point, the
+        bins there get no mass and a ``FutureWarning`` names the choices;
+        a future release will require ``tail`` there.
     """
     e = _check_edges(edges)
     low = e[0] if lower is None else float(lower)
@@ -640,7 +752,25 @@ def bins_from_cut_points(cut_points: Mapping[float, float], edges: Sequence[floa
         raise ValueError(f"every cut point must lie above the lower diameter {low}")
     knots = {low: 0.0, **{float(d): float(v) for d, v in cut_points.items()}}
     top = max(float(d) for d in cut_points)
-    return bins_from_cdf(LogLinearCDF(knots), e, anchor=top if anchor is None else anchor)
+    cdf: CumulativeMassDistribution = LogLinearCDF(knots)
+    zero_tail = isinstance(tail, str) and tail == "zero"
+    if tail is not None and not zero_tail:
+        tail_cdf = _tail_cdf(tail)
+        if e[-1] > top:
+            cdf = _ContinuedCDF(cdf, top, tail_cdf)
+    elif tail is None and e[-1] > top:
+        warnings.warn(
+            f"the bins reach {e[-1]:g} microns but the cut points stop at {top:g}, and the "
+            "bins above get no mass. Pass tail='zero' to keep that, a power-law exponent "
+            "to continue the cumulative mass as F(top) * (d / top) ** m, or a LognormalCDF "
+            "(or other cumulative distribution) to continue it with that shape; a future "
+            "release will require tail= here",
+            FutureWarning, stacklevel=2,
+        )
+    dist = bins_from_cdf(cdf, e, anchor=top if anchor is None else anchor)
+    if zero_tail:
+        dist = replace(dist, truncated_above=0.0)
+    return dist
 
 
 def bins_from_lognormal(mass_median_diameter: float, geometric_std: float,

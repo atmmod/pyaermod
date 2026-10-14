@@ -111,13 +111,15 @@ surfcoal = SizeDistribution(edges=(0, 1, 2.5, 5, 10),
 
 ### From cut points
 
-`bins_from_cut_points(cut_points, edges, lower=None, anchor=None)` takes
-the cumulative mass below each cut point, in any consistent units (AP-42's
-`k` values work as they are). Between cut points the cumulative mass is
-linear in `ln d`. Below the first cut point the mass is spread
-log-linearly down to `lower` (the first edge by default), where it is 0;
-nothing is modelled below `lower`, and nothing above the largest cut
-point.
+`bins_from_cut_points(cut_points, edges, lower=None, anchor=None,
+tail=None)` takes the cumulative mass below each cut point, in any
+consistent units (AP-42's `k` values work as they are). Between cut
+points the cumulative mass is linear in `ln d`. Below the first cut point
+the mass is spread log-linearly down to `lower` (the first edge by
+default), where it is 0; nothing is modelled below `lower`. Above the
+largest cut point the cut points say nothing, so `truncated_above` is
+`None` and bins that reach beyond it need `tail=` (see [AP-42 stops at
+30 microns](#ap-42-stops-at-30-microns)).
 
 ### From a lognormal
 
@@ -163,7 +165,10 @@ rate. The two ends are treated differently:
   `anchor_ratio` 0.48/0.74 = 0.649 with the default anchor, 30 microns.
 
 `truncated_below` and `truncated_above` report both, as fractions of the
-whole distribution, whatever the anchor.
+whole distribution, whatever the anchor. `truncated_above` is `None`
+when the distribution does not say what lies above the last edge: bins
+that reach the largest cut point, or a power-law tail, which has no upper
+limit (then `truncated_below` is `None` too, unless it is exactly 0).
 
 ```python
 # Cumulative mass relative to PM30, with 25% more mass between 30 and 50 um.
@@ -173,6 +178,54 @@ dist.anchor_ratio      # 1.25
 q_pm30 = 2.0e-5        # g/(s m²), from the emission factor
 q_model = q_pm30 * dist.anchor_ratio
 ```
+
+## AP-42 stops at 30 microns
+
+AP-42's particle size multipliers end at PM30: the 13.2.4 table says what
+fraction of the emission lies below 30 µm and nothing about the mass
+above it, which for a coarse source such as crushed or dropped material
+may not be small. Cut points therefore cannot tell `bins_from_cut_points`
+what to put in bins above the largest of them, and it does not guess:
+
+- With edges that stop at the largest cut point, nothing is asked;
+  `truncated_above` is `None`, because the mass above is unknown.
+- With edges beyond it, `tail=` says what lies there. Left out, the bins
+  above get no mass and a `FutureWarning` names the choices; a future
+  release will require `tail=` there.
+
+```python
+from pyaermod.psd import LognormalCDF, bins_from_cut_points
+
+k = {2.5: 0.053, 5: 0.20, 10: 0.35, 15: 0.48, 30: 0.74}
+edges = [0.5, 1, 1.6, 2.5, 3.5, 5, 7, 10, 12.5, 15, 20, 25, 30, 40, 50, 62.5, 75]
+
+# No mass above 30 um: the bins above get 0, truncated_above is 0.
+zero = bins_from_cut_points(k, edges, tail="zero")
+
+# A power law: the cumulative mass continues as F(30) * (d / 30) ** m,
+# the Gates-Gaudin-Schuhmann form for crushed material. With m = 1 the
+# mass between 30 and 75 um is 1.5 times the mass below 30, so
+# anchor_ratio is 2.5: the PM30 emission rate times 2.5 is the rate that
+# goes with the bins. The power law has no upper limit, so
+# truncated_above is None.
+power = bins_from_cut_points(k, edges, tail=1.0)
+power.anchor_ratio   # 2.5
+
+# A lognormal continuation: above 30 um the cumulative mass follows the
+# lognormal's shape, scaled to agree with the cut points at 30 um,
+# F(d) = F(30) * L(d) / L(30). Its upper limit is known, so
+# truncated_above is the lognormal's mass above 75 um.
+coarse = bins_from_cut_points(k, edges, tail=LognormalCDF(30.0, 2.5))
+
+# Any object with the CumulativeMassDistribution interface works the
+# same way, scaled to agree at the largest cut point.
+```
+
+Whichever tail is chosen, the mass it adds above 30 µm raises
+`anchor_ratio` with the default anchor, so an emission factor stated for
+PM30 is scaled up for the tail, and the fractions still sum to 1. The
+choice is the modeller's: AP-42 gives no basis for it, and the deposited
+mass near the source depends on it.
 
 ## Method 1 or Method 2
 
