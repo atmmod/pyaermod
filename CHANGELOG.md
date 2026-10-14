@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`OpenPitSource.from_area(area, depth=... | volume=...)` turns a
+  rectangular AREA stand-in into the OPENPIT source, and
+  `AreaSource.depth_hint` makes the validator advise one.** An AREA
+  source with a pit's footprint models a flat release in which nothing
+  settles inside the pit; AERMOD's OPENPIT source adds the escape
+  fraction `1 / (1 + Vg / (0.029 Uref))` per particle category
+  (pitarea.f ESCAPE, run whenever the source has particle categories),
+  a release with σz0 = depth / 4.3 from an effective area on the upwind
+  side (soset.f OPARM, pitarea.f PITEFF) and the in-pit receptor skip
+  (calc1.f PITCALC). `from_area` carries the corner, sides, angle,
+  emission rate, groups, urban flag, NO2 ratio and deposition fields
+  over, takes the depth or the volume (`volume = depth * Xinit *
+  Yinit`), drops `initial_sigma_z` (OPENPIT sets its own) and refuses
+  building downwash (OPENPIT has none); on EPA's `openpits` deck it
+  rebuilds each OPENPIT source's cards from the matching AREA.
+  `depth_hint` (m) is written nowhere, because AREA has no depth; the
+  validator reports a warning naming `from_area` when it is set and
+  deposition is on or the source has particle categories, and an error
+  when it is not above 0. The GUI shows it under Advanced.
+  `docs/common-errors.md` gains "an AREA source used for a pit".
 - **Ten Common AERMOD Jobs (`docs/use-cases.md`).** A docs page with
   ten end-to-end scripts in `examples/use_cases/`: a single stack, a
   facility with source groups, BPIP-PRIME downwash, fugitive area and
