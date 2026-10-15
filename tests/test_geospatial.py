@@ -920,3 +920,28 @@ class TestGeoDataFrameFactoryFromResults:
 
         assert len(gdf) == 3
         assert "concentration" in gdf.columns
+
+
+class TestGeoTIFFPixelsCentredOnReceptors:
+    """export_geotiff treated receptor centres as pixel edges: a 100 m grid
+    from -2000 to 2000 came out as 41 pixels of 97.6 m, shifted half a cell."""
+
+    def test_100m_grid_gives_100m_pixels_centred_on_receptors(self, transformer, tmp_path):
+        rasterio = pytest.importorskip("rasterio")
+        xs = np.arange(-2000.0, 2000.1, 100.0)
+        X, Y = np.meshgrid(xs, xs)
+        df = pd.DataFrame({"x": X.ravel(), "y": Y.ravel(),
+                           "concentration": (X + 2 * Y).ravel()})
+        out = RasterExporter(transformer).export_geotiff(df, tmp_path / "g.tif",
+                                                         method="linear")
+        with rasterio.open(out) as src:
+            assert (src.width, src.height) == (41, 41)
+            assert src.res == pytest.approx((100.0, 100.0))
+            assert (src.bounds.left, src.bounds.top) == pytest.approx((-2050.0, 2050.0))
+            band = src.read(1)
+            # the centre of pixel (row, col) is the receptor there
+            for x, y in ((-2000.0, 2000.0), (0.0, 0.0), (1500.0, -700.0)):
+                row, col = src.index(x, y)
+                cx, cy = src.xy(row, col)
+                assert (cx, cy) == pytest.approx((x, y))
+                assert band[row, col] == pytest.approx(x + 2 * y, abs=1e-3)

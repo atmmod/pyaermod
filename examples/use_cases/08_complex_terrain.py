@@ -8,14 +8,11 @@ with TERRAIN ELEV and FLAT. Writes 08_complex_terrain.png: annual SO2 of both ru
 
 import copy
 import os
-import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import rasterio
 from matplotlib.colors import LightSource, LogNorm
-from rasterio.merge import merge
 
 from pyaermod import (
     AERMAPOutputParser,
@@ -51,26 +48,11 @@ BUFFER = 3000.0    # extra terrain AERMAP searches for hill heights, m
 # DEM bounding box (west, south, east, north), degrees: grid + buffer, with margin.
 BBOX = (-74.08, 41.18, -73.88, 41.34)
 
-# 1. DEM, cached per bounding box. The TNM API lists every dated version of each
-#    1x1-degree tile, so keep the newest per tile (its date sorts last). USGS ships
-#    LZW-compressed tiles, which AERMAP cannot read (E455, TIFF tag 259), so merge
-#    them, crop to the box and write one uncompressed GeoTIFF for AERMAP.
-site_dem = WORK / "dem" / ("site_" + "_".join(f"{v:g}" for v in BBOX) + ".tif")
-if not site_dem.exists():
-    dem = DEMDownloader(cache_dir=WORK / "dem", dataset="National Elevation Dataset (NED) 1 arc-second")
-    newest = {}
-    for tile in sorted(dem.find_tiles(BBOX), key=lambda t: t.download_url):
-        m = re.search(r"_(n\d+w\d+)_\d{8}\.tif$", tile.download_url)
-        if m:
-            newest[m.group(1)] = tile
-    srcs = [rasterio.open(dem.download_tile(t)) for t in newest.values()]
-    print("DEM tiles:", ", ".join(Path(s.name).name for s in srcs))
-    mosaic, transform = merge(srcs, bounds=BBOX)
-    profile = {**srcs[0].profile, "height": mosaic.shape[1], "width": mosaic.shape[2],
-               "transform": transform, "compress": None, "tiled": False}
-    profile.pop("blockxsize"), profile.pop("blockysize")
-    with rasterio.open(site_dem, "w", **profile) as dst:
-        dst.write(mosaic)
+# 1. DEM: the newest USGS 3DEP 1 arc-second version of each tile in BBOX, rewritten
+#    uncompressed for AERMAP (USGS ships LZW tiles, which AERMAP cannot read).
+dem = DEMDownloader(cache_dir=WORK / "dem", dataset="National Elevation Dataset (NED) 1 arc-second")
+dem_files = dem.download_dem(BBOX)
+print("DEM tiles:", ", ".join(p.name for p in dem_files))
 
 # 2. The AERMOD project; base and receptor elevations come from AERMAP below.
 control = ControlPathway(
@@ -104,7 +86,7 @@ project = AERMODProject(control, sources, receptors, met,
 # 3. AERMAP: write the deck, run it and copy every elevation into the project.
 TerrainProcessor().process(
     project, bounds=BBOX, working_dir=WORK / "aermap", utm_zone=UTM_ZONE, datum="NAD83",
-    skip_download=True, dem_files=[str(site_dem.resolve())], domain_buffer=BUFFER,
+    skip_download=True, dem_files=dem_files, domain_buffer=BUFFER,
 )
 elev = np.array(receptors.cartesian_grids[0].grid_elevations)
 hill = np.array(receptors.cartesian_grids[0].grid_hills)

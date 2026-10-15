@@ -660,8 +660,14 @@ def naaqs_compliance_report(
 
     - x, y: receptor coords
     - design_value: numeric DV
-    - naaqs_level, units, cfr_reference
-    - exceeds: bool
+    - naaqs_level, units, cfr_reference: the standard as 40 CFR 50 sets
+      it (ppb for SO2, NO2 and O3)
+    - naaqs_level_ugm3: the level in µg/m³, the unit AERMOD reports
+    - exceeds: bool, ``design_value > naaqs_level_ugm3``
+
+    The design value is in AERMOD's µg/m³, so ``exceeds`` compares it
+    with the level converted to µg/m³ (75 ppb of SO2 is 196.4 µg/m³),
+    never with a level in ppb.
 
     Supported pollutants: PM2.5 (24-hour), PM10, NO2 (1-hour), SO2,
     O3, plus annual forms via ``pollutant="PM2.5_annual"`` /
@@ -708,7 +714,8 @@ def naaqs_compliance_report(
     out["naaqs_level"] = std.level
     out["units"] = std.units
     out["cfr_reference"] = std.cfr_reference
-    out["exceeds"] = out["design_value"] > std.level
+    out["naaqs_level_ugm3"] = std.level_ugm3
+    out["exceeds"] = out["design_value"] > std.level_ugm3
     return out
 
 

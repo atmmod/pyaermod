@@ -126,9 +126,9 @@ polys = ContourGenerator(CoordinateTransformer(zone, hemi)).generate_contours_la
 contours = [ContourPolygon(r.level_min, list(p.exterior.coords), f">= {r.level_min:g}")
             for r in polys.itertuples()
             for p in getattr(r.geometry, "geoms", [r.geometry])]
-# to_kmz colours polygons by position, so give each ring its level's colour (KML aabbggrr)
-kml = ["b0" + "".join(f"{round(255 * c):02x}" for c in cmap(levels.index(c.level))[2::-1])
-       for c in contours]
+# One KML colour (aabbggrr) per contour level, lowest first, as on the map
+kml = ["b0" + "".join(f"{round(255 * c):02x}" for c in cmap(levels.index(lv))[2::-1])
+       for lv in sorted({c.level for c in contours})]
 files.append(to_kmz(WORK / "chiq_annual.kmz", sources=sources.sources, contours=contours,
                     utm_zone=zone, palette=kml, title="Annual chi/Q, (ug/m3)/(g/s)"))
 print("GIS files:", ", ".join(f.name for f in files))

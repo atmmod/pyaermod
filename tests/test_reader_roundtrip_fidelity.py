@@ -1037,15 +1037,34 @@ class TestOutputFidelity:
         assert result.n_records == 1
         assert result.header.file_type == "RANKFILE"
 
-    def test_plotfile_with_a_lower_rank_is_kept_verbatim(self):
-        # surfcoal.inp asks for 1ST..8TH; the model has no rank field and
-        # wrote FIRST eight times (OU E203).
+    def test_plotfile_with_a_lower_rank_keeps_its_rank(self):
+        # surfcoal.inp asks for 1ST..8TH; the model once had no rank field
+        # and wrote FIRST eight times (OU E203). A line with a unit is
+        # still kept verbatim.
         ou = ("   RECTABLE  ALLAVE  FIRST-SECOND\n   PLOTFILE  24 ALL 1ST  p1.dat\n"
               "   PLOTFILE  24 ALL 2ND  p2.dat\n   PLOTFILE  1  ALL FIRST p3.dat  31\n")
         project = parse(ou_body=ou)
         assert project.output.plot_file == "p1.dat"
+        assert project.output.plot_file_rank == "FIRST"
+        assert project.output.plot_file_groups == [("24", "ALL", "p2.dat", "2ND")]
         assert [u.fields for u in project.unparsed_lines] == [
-            ["24", "ALL", "2ND", "p2.dat"], ["1", "ALL", "FIRST", "p3.dat", "31"]]
+            ["1", "ALL", "FIRST", "p3.dat", "31"]]
+        text = project.output.to_aermod_input()
+        assert "PLOTFILE  24  ALL  2ND  p2.dat" in text
+
+    def test_lone_plotfile_with_a_lower_rank(self):
+        ou = "   RECTABLE  ALLAVE  1-8\n   PLOTFILE  24 ALL EIGHTH  p8.dat\n"
+        project = parse(ou_body=ou)
+        assert project.output.plot_file == "p8.dat"
+        assert project.output.plot_file_rank == "EIGHTH"
+        assert not project.unparsed_lines
+        assert "PLOTFILE  24  ALL  EIGHTH  p8.dat" in project.output.to_aermod_input()
+
+    def test_plotfile_rank_aermod_cannot_read_is_kept_verbatim(self):
+        ou = "   RECTABLE  ALLAVE  1-8\n   PLOTFILE  24 ALL H8H  p8.dat\n"
+        project = parse(ou_body=ou)
+        assert project.output.plot_file is None
+        assert [u.fields for u in project.unparsed_lines] == [["24", "ALL", "H8H", "p8.dat"]]
 
     def test_second_postfile_is_kept_verbatim(self):
         ou = ("   RECTABLE  ALLAVE  FIRST\n   POSTFILE  1  ALL  PLOT  a.pst\n"

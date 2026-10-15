@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from ._fields import described
 
@@ -1093,16 +1093,90 @@ def period_file_name(stem: str, averaging: str, suffix: str) -> str:
     return f"{stem}_{label}{suffix}"
 
 
-def _plotfile_fields(averaging: str, source_group: str, filename: str) -> str:
+#: AERMOD's names for the ranks 1-10 of a short-term PLOTFILE (NCHR1 and
+#: NCHR2 in ouset.f OUPLOT); a rank may also be given as a number.
+PLOT_RANK_WORDS = ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH",
+                   "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH")
+PLOT_RANK_ORDINALS = ("1ST", "2ND", "3RD", "4TH", "5TH",
+                      "6TH", "7TH", "8TH", "9TH", "10TH")
+
+
+def plot_rank_number(rank: Union[int, str]) -> int:
+    """The rank (1 = highest) of a PLOTFILE's high value.
+
+    Takes what OUPLOT takes, a number, ``FIRST``...``TENTH`` or
+    ``1ST``...``10TH``, and also the ``H2H`` / ``H8H`` shorthand for the
+    highest-second-high and highest-eighth-high. Raises ``ValueError``
+    for anything else.
+    """
+    if isinstance(rank, bool):
+        raise ValueError(f"invalid PLOTFILE rank {rank!r}")
+    if isinstance(rank, int):
+        number = rank
+    else:
+        token = str(rank).strip().upper()
+        m = re.fullmatch(r"H(\d+)H", token)
+        if m:
+            number = int(m.group(1))
+        elif token.isdigit():
+            number = int(token)
+        elif token in PLOT_RANK_WORDS:
+            number = PLOT_RANK_WORDS.index(token) + 1
+        elif token in PLOT_RANK_ORDINALS:
+            number = PLOT_RANK_ORDINALS.index(token) + 1
+        else:
+            raise ValueError(
+                f"invalid PLOTFILE rank {rank!r}: use a number, FIRST-TENTH, "
+                "1ST-10TH or H<n>H")
+    if number < 1:
+        raise ValueError(f"invalid PLOTFILE rank {rank!r}: ranks start at 1")
+    return number
+
+
+def plot_rank_token(rank: Union[int, str]) -> str:
+    """``rank`` as written on a PLOTFILE card: ``1ST``...``10TH``, else the number.
+
+    ``FIRST`` stays ``FIRST``, the spelling pyaermod has always written.
+    """
+    if isinstance(rank, str) and rank.strip().upper() in PLOT_RANK_WORDS:
+        return rank.strip().upper()
+    number = plot_rank_number(rank)
+    return PLOT_RANK_ORDINALS[number - 1] if number <= 10 else str(number)
+
+
+def _is_period_average(averaging: str) -> bool:
+    return str(averaging).strip().upper() in ("PERIOD", "ANNUAL")
+
+
+def _plotfile_fields(averaging: str, source_group: str, filename: str,
+                     rank: Union[int, str] = "FIRST") -> str:
     """PLOTFILE parameters for one averaging period.
 
     The period forms (PERIOD / ANNUAL) take no rank; the short-term
-    forms take one. AERMOD counts fields, so an extra token is fatal
-    rather than ignored.
+    forms take one (``rank``, FIRST by default; H2H and H8H are given as
+    2 or ``"2ND"`` and 8 or ``"8TH"``). AERMOD counts fields, so an extra
+    token is fatal rather than ignored.
     """
-    if str(averaging).strip().upper() in ("PERIOD", "ANNUAL"):
+    if _is_period_average(averaging):
         return f"{averaging}  {source_group}  {filename}"
-    return f"{averaging}  {source_group}  FIRST  {filename}"
+    return f"{averaging}  {source_group}  {plot_rank_token(rank)}  {filename}"
+
+
+def plot_file_group_fields(entry: Sequence) -> Tuple[str, str, str, Union[int, str]]:
+    """``(averaging, group, filename, rank)`` of a ``plot_file_groups`` entry.
+
+    An entry is ``(averaging, group, filename)``, for the highest value,
+    or ``(averaging, group, filename, rank)``.
+    """
+    if len(entry) == 3:
+        avg, grp, name = entry
+        return str(avg), str(grp), str(name), "FIRST"
+    if len(entry) == 4:
+        avg, grp, name, rank = entry
+        return str(avg), str(grp), str(name), rank
+    raise ValueError(
+        "a plot_file_groups entry is (averaging, group, filename) or "
+        f"(averaging, group, filename, rank), not {entry!r}")
 
 
 @dataclass
@@ -1342,6 +1416,12 @@ class OutputPathway:
     # There is no filename-only form: see MaxiFile.
     maxi_files: List[MaxiFile] = field(default_factory=list)
     plot_file_averaging: str = field(default="ANNUAL", metadata=described(None, "Averaging period of that plot file"))  # Averaging period for default PLOTFILE
+    # The high value a short-term PLOTFILE holds, for plot_file and the
+    # period_plot_files: FIRST (the highest), or 1ST-10TH, H<n>H ("H2H"
+    # for the highest-second-high, "H8H") or a number (an int works too). AERMOD
+    # takes only a rank its RECTABLE prints (E203 HIVALU otherwise).
+    plot_file_rank: str = field(default="FIRST", metadata=described(
+        None, "Rank of the short-term plot files' value: FIRST, 2ND (H2H), 8TH (H8H), ..."))
 
     # POSTFILE outputs
     postfile: Optional[str] = field(default=None, metadata=described(None, "POSTFILE for one averaging period (below); blank for none"))  # Output file path
@@ -1350,12 +1430,15 @@ class OutputPathway:
     postfile_format: str = field(default="PLOT", metadata=described(None, "PLOT (text) or UNFORM (binary)"))  # PLOT (formatted) or UNFORM (unformatted/binary)
 
     # Per-group plot files: list of (averaging_period, source_group, filename)
-    plot_file_groups: List[Tuple[str, str, str]] = field(default_factory=list)
+    # or (averaging_period, source_group, filename, rank); the rank of a
+    # short-term period defaults to FIRST (see plot_file_rank).
+    plot_file_groups: List[Tuple] = field(default_factory=list)
 
     # A PLOTFILE and a POSTFILE for every averaging period of the run,
     # named by period_file_name(): "<stem>_01H.plt", "<stem>_PERIOD.plt",
     # "<stem>_01H.pst". The plot files hold each receptor's highest value
-    # (FIRST for the short-term periods) for source group ALL, which is
+    # (plot_file_rank, FIRST by default, for the short-term periods) for
+    # source group ALL, which is
     # what a concentration map is drawn from; the POSTFILEs hold every
     # averaged value, in postfile_format. None writes none. The periods
     # are the control pathway's: AERMODProject.to_aermod_input passes them.
@@ -1486,13 +1569,14 @@ class OutputPathway:
         # fatal "Too Many Parameters" (PERPLT/OUPLOT in AERMOD's ouset.f).
         if self.plot_file:
             lines.append(
-                f"   PLOTFILE  {_plotfile_fields(self.plot_file_averaging, 'ALL', self.plot_file)}"
+                f"   PLOTFILE  {_plotfile_fields(self.plot_file_averaging, 'ALL', self.plot_file, self.plot_file_rank)}"
             )
 
         # Per-group plot files
-        for avg_period, src_group, filename in self.plot_file_groups:
+        for entry in self.plot_file_groups:
+            avg_period, src_group, filename, rank = plot_file_group_fields(entry)
             lines.append(
-                f"   PLOTFILE  {_plotfile_fields(avg_period, src_group, filename)}"
+                f"   PLOTFILE  {_plotfile_fields(avg_period, src_group, filename, rank)}"
             )
 
         # Postfile:
@@ -1509,7 +1593,7 @@ class OutputPathway:
 
         # One plot file and one POSTFILE per averaging period, group ALL.
         for ave, name in self.period_plot_file_names(periods).items():
-            lines.append(f"   PLOTFILE  {_plotfile_fields(ave, 'ALL', name)}")
+            lines.append(f"   PLOTFILE  {_plotfile_fields(ave, 'ALL', name, self.plot_file_rank)}")
         for ave, name in self.period_postfile_names(periods).items():
             lines.append(f"   POSTFILE  {ave}  ALL  {self.postfile_format}  {name}")
 
