@@ -21,6 +21,7 @@ DataFrames, and exports results to geospatial formats.
 ## Getting Started
 
 - [Quick Start Guide](quickstart.md) -- your first AERMOD run in Python
+- [Ten Common AERMOD Jobs](use-cases.md) -- runnable, tested scripts for permitting, downwash, roads, NO2, terrain, deposition and air toxics
 - [GUI User Guide](gui-guide.md) -- using the interactive web interface
 - [API Reference](api/index.md) -- module-by-module documentation
 - [Architecture](architecture.md) -- technical design overview
