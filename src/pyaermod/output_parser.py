@@ -27,6 +27,8 @@ class ModelRunInfo:
     """Metadata about the AERMOD run"""
     version: str
     jobname: str
+    #: The deck's TITLEONE, from the page banner AERMOD prints.
+    title: Optional[str] = None
     run_date: Optional[str] = None
     run_time: Optional[str] = None
     model_options: List[str] = field(default_factory=list)
@@ -304,6 +306,14 @@ class AERMODOutputParser:
                     ", ".join(VALIDATED_AERMOD_VERSIONS),
                 )
 
+        # TITLEONE, from the page banner (FORMAT 9028 of output.f HEADER):
+        # " *** AERMOD - VERSION 26135  ***   ***  title  ***  10/15/26"
+        title_match = re.search(
+            r'\*\*\*\s*AERMOD\s*-\s*VERSION\s*\S+\s*\*\*\*\s*\*\*\*(.*?)\*\*\*',
+            self.content)
+        if title_match and title_match.group(1).strip():
+            run_info.title = title_match.group(1).strip()
+
         # Job name
         jobname_match = re.search(r'Jobname:\s*(.+)', self.content)
         if jobname_match:
@@ -349,10 +359,20 @@ class AERMODOutputParser:
             # Parse periods like "1-HR", "24-HR", "ANNUAL"
             run_info.averaging_periods = [p.strip() for p in periods_str.split()]
 
+        # The page banner's MODELOPTs line (" *** MODELOPTs:  NonDFAULT  CONC
+        # FLAT  RURAL"), which every AERMOD .out carries
+        modelopt_match = re.search(r'\*\*\*\s*MODELOPTs:\s*(.+)', self.content)
+        if modelopt_match and not run_info.model_options:
+            run_info.model_options = modelopt_match.group(1).split()
+
         # Terrain type
         if 'FLAT' in run_info.model_options:
             run_info.terrain_type = 'FLAT'
-        elif 'ELEVATED' in run_info.model_options:
+        elif {'ELEVATED', 'ELEV'} & set(run_info.model_options):
+            run_info.terrain_type = 'ELEVATED'
+        elif re.search(r'Receptors\s+on\s+FLAT\s+Terrain', self.content):
+            run_info.terrain_type = 'FLAT'
+        elif re.search(r'Receptors\s+on\s+ELEV', self.content, re.IGNORECASE):
             run_info.terrain_type = 'ELEVATED'
 
         # Modeling period
@@ -994,7 +1014,15 @@ class AERMODResults:
 
     def get_concentrations(self, averaging_period: str = 'ANNUAL') -> Optional[pd.DataFrame]:
         """
-        Get concentration DataFrame for specific averaging period
+        Get the summary-table rows for one averaging period
+
+        These are the rows of AERMOD's summary tables in the .out file (the
+        highest values, typically ten receptors), not the value at every
+        receptor. For a map or contour of the whole grid, request a PLOTFILE
+        (``OutputPathway.period_plot_files``) and read it with
+        :func:`pyaermod.aermod_outputs.read_plotfile`, or pass it to
+        :meth:`pyaermod.visualization.AERMODVisualizer.plot_contours` as
+        ``plotfile``.
 
         Args:
             averaging_period: Averaging period (e.g., 'ANNUAL', '24HR', '1HR')
@@ -1105,7 +1133,10 @@ class AERMODResults:
         lines.append("AERMOD Results Summary")
         lines.append("=" * 70)
         lines.append(f"Version: {self.run_info.version}")
-        lines.append(f"Job: {self.run_info.jobname}")
+        if self.run_info.jobname != "Unknown" or not self.run_info.title:
+            lines.append(f"Job: {self.run_info.jobname}")
+        if self.run_info.title:
+            lines.append(f"Title: {self.run_info.title}")
 
         if self.run_info.run_date:
             lines.append(f"Run Date: {self.run_info.run_date}")
@@ -1113,8 +1144,10 @@ class AERMODResults:
         lines.append(f"Pollutant: {self.run_info.pollutant_id or 'Unknown'}")
         lines.append(f"Terrain: {self.run_info.terrain_type or 'Unknown'}")
         lines.append("")
-        lines.append(f"Sources: {len(self.sources)}")
-        lines.append(f"Receptors: {len(self.receptors)}")
+        # AERMOD's .out lists receptors only with RE pathway echo tables;
+        # the "This Run Includes" counts are always there.
+        lines.append(f"Sources: {len(self.sources) or self.run_info.num_sources}")
+        lines.append(f"Receptors: {len(self.receptors) or self.run_info.num_receptors}")
         lines.append("")
         lines.append("Concentration Results:")
 
@@ -1123,7 +1156,7 @@ class AERMODResults:
             lines.append(f"  {period}:")
             lines.append(f"    Maximum: {result.max_value:.4f} {result.units}")
             lines.append(f"    Location: ({result.max_location[0]:.2f}, {result.max_location[1]:.2f})")
-            lines.append(f"    Points: {len(result.data)}")
+            lines.append(f"    Summary rows: {len(result.data)}")
 
         lines.append("=" * 70)
         return "\n".join(lines)
