@@ -616,6 +616,8 @@ PyAERMOD includes comprehensive testing validated against official EPA data:
 
 ## Next Steps
 
+- Work through [Ten Common AERMOD Jobs](use-cases.md): complete scripts,
+  run against AERMOD, for the analyses AERMOD is most often used for
 - Try the [GUI User Guide](gui-guide.md) for a no-code modeling experience
 - Browse the [API Reference](api/index.md) for detailed module documentation
 - Check the [examples/](https://github.com/atmmod/pyaermod/tree/main/examples)

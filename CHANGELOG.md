@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Ten Common AERMOD Jobs (`docs/use-cases.md`).** A docs page with
+  ten end-to-end scripts in `examples/use_cases/`: a single stack, a
+  facility with source groups, BPIP-PRIME downwash, fugitive area and
+  volume sources, an RLINE roadway, NO2 with ARM2/OLM/PVMRM, the 1-hour
+  SO2 design value, AERMAP terrain from USGS 3DEP, particle deposition,
+  and unit-emission air-toxics screening with GIS export. The page
+  includes each script verbatim and shows the figure it drew on
+  AERMOD 26135 with EPA's LOVETT (and, for wet deposition, HOUSTON)
+  test-case meteorology. `tests/test_use_cases.py` runs them when
+  `aermod` and the met files are available.
 - **`ControlPathway.debug_options` writes `CO DEBUGOPT`.** AERMOD's debug
   output (the per-hour AREA.DBG of an open pit, PDEP.DAT and DEPOS.DBG of
   a deposition run, MODEL, METEOR, PRIME, ...) could only be had by

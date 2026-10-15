@@ -153,6 +153,7 @@ docs/                    # Architecture and quickstart guides
 ## Documentation
 
 - [Quick Start Guide](docs/quickstart.md)
+- [Ten Common AERMOD Jobs](docs/use-cases.md)
 - [GUI User Guide](docs/gui-guide.md)
 - [Architecture](docs/architecture.md)
 - [API Reference](https://atmmod.github.io/pyaermod/api/)

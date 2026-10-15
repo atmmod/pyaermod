@@ -32,6 +32,7 @@ theme:
 nav:
   - Home: index.md
   - Quick Start: quickstart.md
+  - Ten Common AERMOD Jobs: use-cases.md
   - GUI User Guide: gui-guide.md
   - Guides:
       - AERMET Tuning: aermet-tuning-guide.md
