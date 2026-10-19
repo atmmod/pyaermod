@@ -72,6 +72,7 @@ output = OutputPathway(
     receptor_table=True,
     max_table=True,
     summary_file="results.sum",
+    period_plot_files="conc",  # one PLOTFILE per period: the value at every receptor
 )
 
 # 6. Create project and write input file
@@ -109,18 +110,35 @@ print(f"Output: {result.output_file}")
 from pyaermod.output_parser import parse_aermod_output
 
 results = parse_aermod_output(result.output_file)
-df = results.get_concentrations("ANNUAL")
+print(results.summary())
+df = results.get_concentrations("ANNUAL")   # the .out summary table's rows
 print(f"Max concentration: {df['concentration'].max():.4g}")
 ```
 
+`get_concentrations` returns the rows of AERMOD's summary tables, the
+highest ten or so receptors, not the whole grid. The value at every
+receptor is in the PLOTFILEs that `period_plot_files` asked for:
+
+```python
+from pyaermod.aermod_outputs import read_plotfile
+
+plot_names = output.period_plot_file_names(control.averaging_periods)
+grid = read_plotfile(plot_names["ANNUAL"]).to_dataframe()   # X, Y, AVERAGE_CONC, ...
+```
+
 ## Visualization
+
+Contour the grid from the period's PLOTFILE:
 
 ```python
 from pyaermod.visualization import AERMODVisualizer
 
 viz = AERMODVisualizer(results)
-fig = viz.plot_contours(averaging_period="ANNUAL")
+fig = viz.plot_contours(averaging_period="ANNUAL", plotfile=plot_names["ANNUAL"])
 ```
+
+Without `plotfile=`, `plot_contours` can only contour the summary
+table's few rows, and warns that it is doing so.
 
 ## Common Patterns
 

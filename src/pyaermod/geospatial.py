@@ -653,6 +653,8 @@ class RasterExporter:
             Destination ``.tif`` file.
         resolution : float, optional
             Pixel size in meters. If None, auto-detected from data spacing.
+            The receptors are the pixel centres, so a 100 m grid gives
+            100 m pixels whose edges lie 50 m beyond the outer receptors.
         method : str
             Interpolation method for ``scipy.interpolate.griddata``.
         nodata : float
@@ -677,14 +679,17 @@ class RasterExporter:
             else:
                 resolution = 100.0  # fallback
 
-        # Build regular grid
+        # Build a regular grid whose pixel centres are the receptors: a
+        # grid from x_min to x_max at spacing ``resolution`` has
+        # (x_max - x_min) / resolution + 1 centres, and its pixels reach
+        # half a pixel beyond the outermost receptors.
         x_min, x_max = x.min(), x.max()
         y_min, y_max = y.min(), y.max()
-        ncols = max(1, int(np.ceil((x_max - x_min) / resolution)) + 1)
-        nrows = max(1, int(np.ceil((y_max - y_min) / resolution)) + 1)
+        ncols = max(1, int(np.ceil((x_max - x_min) / resolution - 1e-9)) + 1)
+        nrows = max(1, int(np.ceil((y_max - y_min) / resolution - 1e-9)) + 1)
 
-        xi = np.linspace(x_min, x_max, ncols)
-        yi = np.linspace(y_min, y_max, nrows)
+        xi = x_min + resolution * np.arange(ncols)
+        yi = y_min + resolution * np.arange(nrows)
         xi_grid, yi_grid = np.meshgrid(xi, yi)
 
         # Interpolate
@@ -705,8 +710,10 @@ class RasterExporter:
         # Flip so row 0 is the top (northernmost)
         zi = np.flipud(zi)
 
-        # Build affine transform
-        transform = from_bounds(x_min, y_min, x_max, y_max, ncols, nrows)
+        # Affine transform from the top-left pixel's outer corner
+        half = resolution / 2.0
+        transform = from_bounds(x_min - half, y_min - half,
+                                xi[-1] + half, yi[-1] + half, ncols, nrows)
 
         # Write GeoTIFF
         output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -100,7 +100,7 @@ The annual average peaks at 0.431 µg/m³, 450 m east-southeast of the stack at 
 !!! tip "Adapting it"
     - Change the `PointSource` stack parameters and `emission_rate` (g/s), and size the `CartesianGrid` so the maximum is well inside it. Here it is within 500 m of a 40 m stack.
     - Under the regulatory `DFAULT` option, AERMOD ignores `MODELOPT FLAT` and runs with elevated terrain, logging warning W206. That is why this example sets `regulatory_default=False`. For a regulatory run, keep `DFAULT` and give receptors real elevations from AERMAP. On flat ground with zero elevations both give the same numbers here.
-    - `OutputPathway` plot files always write the highest (`FIRST`) short-term value. Read the 8th-highest from the `.out` summary tables (`results.summaries`), as the script does, or add `max_daily_files` (MAXDAILY) for NAAQS work. The design value needs five years of met: the 24-hour H8H and the annual average, each averaged over those years.
+    - Short-term plot files write the highest (`FIRST`) value by default. For a map of the 8th-highest, set `OutputPathway(plot_file_rank=8)` (or `"H8H"`), with `receptor_table_rank` at least 8. The script reads the 8th-highest from the `.out` summary tables (`results.summaries`); `max_daily_files` (MAXDAILY) is the route for NAAQS work. The design value needs five years of met: the 24-hour H8H and the annual average, each averaged over those years.
     - Put your own AERMET `.SFC`/`.PFL` in `MET_DIR`. Then set `surface_station_id`, `upper_air_station_id` and `data_start_year` from the surface file's header, and `profile_base_elevation` to the station's base elevation (m MSL).
 
 ---
@@ -124,7 +124,7 @@ The two short process stacks (18 m and 25 m) dominate the impact even though the
 !!! tip "Adapting it"
     - Edit the `STACKS` table and the `GROUPS` mapping. Group IDs are at most 8 characters, and a source may belong to several groups. Don't define `ALL` yourself: pyaermod writes `SRCGROUP ALL`.
     - Set the polar grid's `dist_init`/`dist_delta`/`dist_num` so the innermost ring sits at or just beyond the fence line. Polar grids are coarse far out (the ring at 1 km has receptors 175 m apart), so add a Cartesian or discrete grid where the maximum lands.
-    - `plot_file_groups` takes `(averaging period, group, filename)`. A short-term period writes the highest (`FIRST`) value per receptor.
+    - `plot_file_groups` takes `(averaging period, group, filename)`, or `(averaging period, group, filename, rank)` for a lower rank such as `"H2H"`. A short-term period writes the highest (`FIRST`) value per receptor unless a rank is given.
     - To get each source's contribution to one specific modelled event, rather than to the long-term average, use an EVENT run (`ControlPathway.eventfil`).
 
 ---
@@ -148,7 +148,7 @@ GEP for this building is 65.0 m, so the 30 m stack is subject to downwash. BPIP 
 !!! tip "Adapting it"
     - Replace `corners` (any polygon of three or more vertices, in the same coordinates as the sources) and `height` with your building, and move the stack. `set_building_from_bpip` also works on `AreaSource` and `VolumeSource`.
     - `set_building_from_bpip` takes one building. With several buildings, EPA BPIP picks the controlling building for each direction. [`apply_bpip_to_project`](api/prime.md) instead uses the single nearest building within 5L for each source. Multi-tier buildings are approximated (a warning says so). For a regulatory submittal, check the arrays against EPA BPIP-PRIME.
-    - A short-term `PLOTFILE ... FIRST` needs a `RECTABLE` for that period. Without it AERMOD stops with `E203 OUPLOT ... HIVALU`, which pyaermod's validator does not catch. Keep `receptor_table=True`.
+    - A short-term `PLOTFILE ... FIRST` needs a `RECTABLE` for that period. Without it AERMOD stops with `E203 OUPLOT ... HIVALU`, and `Validator` reports it. Keep `receptor_table=True`.
     - Under `DFAULT`, AERMOD overrides `MODELOPT FLAT` (warning W206). This example keeps the regulatory default and uses `ELEV` with every elevation at 0 m, which gives the same result on flat ground.
 
 ---
@@ -172,8 +172,8 @@ The haul road is split into 30 volume sources, 14 m apart, and the pile covers 4
 !!! tip "Adapting it"
     - Set `ROAD` to your road's vertices and `WIDTH` to the road width + 6 m. For other truck heights, set the release height to half of 1.7 × the truck height and σz0 to 1.7 × the truck height ÷ 2.15. Divide the road's total g/s evenly among the volumes. Area sources take g/s/m², so divide each total by its footprint area.
     - Area sources are slow. This deck (about 570 receptors, one year) takes about 4 minutes. Receptor count drives the runtime, so use a coarse grid to explore and refine it near the maximum. An `AreaCircSource` is modelled as a 20-sided polygon and was the slowest type in a timing test. Lower `num_vertices` if you use one.
-    - For PM10, the NAAQS compares the H6H over five years, or the H2H for one year, with 150 µg/m³. pyaermod's `OutputPathway.plot_file` always writes the `FIRST` rank, so the map shows H1H. Take the H2H from the summary table, as the script does.
-    - Under `DFAULT`, AERMOD overrides `MODELOPT FLAT` (warning W206). This example keeps `DFAULT` and uses `ELEV` with all elevations at 0 m. A `PLOTFILE` rank needs a `RECTABLE` at least that deep, or AERMOD stops with E203.
+    - For PM10, the NAAQS compares the H6H over five years, or the H2H for one year, with 150 µg/m³. The map shows the H1H, and the script takes the H2H from the summary table. To map the H2H instead, set `OutputPathway(plot_file_rank="H2H")`.
+    - Under `DFAULT`, AERMOD overrides `MODELOPT FLAT` (warning W206). This example keeps `DFAULT` and uses `ELEV` with all elevations at 0 m. A `PLOTFILE` rank needs a `RECTABLE` at least that deep, or AERMOD stops with E203; `Validator` checks it.
 
 ---
 
@@ -219,7 +219,7 @@ With 40 g/s NOx, 40 ppb ozone and an in-stack ratio of 0.1, the highest daily-ma
 
 !!! tip "Adapting it"
     - Replace the uniform `OzoneData(uniform_value=...)` with an hourly file (`ozone_file=`, `OZONEFIL`) from a representative monitor. Missing hours then fall back to the uniform value. Use the same ozone for every Tier 3 method you compare.
-    - ARM2 takes no ozone and no in-stack ratio. AERMOD stops with E600 if `OZONEVAL` or `NO2STACK` appears with ARM2, and `Validator` does not catch the `OZONEVAL` case. The script therefore passes `ozone_data=None` for ARM2. ARM2's ratio bounds default to 0.5 to 0.9 (`ControlPathway.arm2_ratios`).
+    - ARM2 takes no ozone and no in-stack ratio. AERMOD stops with E600 if `OZONEVAL` or `NO2STACK` appears with ARM2. pyaermod never writes `NO2STACK` for ARM2, and `Validator` rejects `ozone_data` with it, so the script passes `ozone_data=None` for ARM2. ARM2's ratio bounds default to 0.5 to 0.9 (`ControlPathway.arm2_ratios`).
     - Use a measured or source-category `NO2STACK` (0.1 here, typical of gas-fired boilers; diesel engines can be 0.2 to 0.5). Set `no2_ratio=` on a source to override it per stack.
     - PVMRM is the slowest of the three: most of the ~3 min run time is the PVMRM pass on this 1,681-receptor grid. Check the grid with ARM2 first.
 
@@ -243,7 +243,7 @@ The highest design value is 264.8 µg/m³ at (400, -200) m, about 150 m downwind
 
 !!! tip "Adapting it"
     - This uses one year of met data. A regulatory run uses 5 years of NWS data (or 1 to 3 years of site-specific data). Pass `n_years=` to match, and the design value becomes the multi-year mean of the annual 4th-highest values.
-    - `naaqs_compliance_report` returns `naaqs_level` in the standard's own units (75 **ppb**), while AERMOD reports µg/m³. Compare against `get_naaqs("SO2", "1-hour").level_ugm3` (196.4 µg/m³), as the script does. Don't use the report's `exceeds` column for SO2, NO2 or O3.
+    - `naaqs_compliance_report` gives the standard in its own units (`naaqs_level`, 75 ppb) and in AERMOD's (`naaqs_level_ugm3`, 196.4 µg/m³). Its `exceeds` column compares the design value with the µg/m³ level.
     - A uniform `background=` is the simplest form. `add_background` also takes an hourly series keyed by YYMMDDHH, for temporally varying monitor data.
     - `terrain_type="FLAT"` together with the default `DFAULT` is dropped by AERMOD (W206). The script uses `ELEVATED` with all elevations at 0 m. Run AERMAP for real terrain.
 
@@ -267,7 +267,7 @@ AERMAP put the stack base at 5.2 m on the riverbank. It gave the 3,721 receptors
 
 !!! tip "Adapting it"
     - Change `STACK_X`, `STACK_Y` and `UTM_ZONE` to your site, and widen `BBOX` (degrees) so that it covers the receptor grid plus `BUFFER` with some margin. Otherwise AERMAP stops with `E310 Domain Coordinate is NOT Inside a DEM File`. The `BUFFER` must take in every hill that rises above a 10 % slope from any receptor.
-    - USGS tiles come LZW-compressed, and AERMAP 24142 cannot read compressed GeoTIFFs: it stops with `E455 ... TiffTag: 259`. That is why the script merges the tiles, crops them and rewrites them uncompressed before AERMAP runs. The TNM API also lists every dated version of each tile, so the script keeps only the newest of each.
+    - USGS tiles come LZW-compressed, and AERMAP 24142 cannot read compressed GeoTIFFs: it stops with `E455 ... TiffTag: 259`. `DEMDownloader.download_dem` rewrites each tile uncompressed (this needs `rasterio`), and of the dated versions the TNM API lists for each tile it downloads only the newest. Relative `dem_files` paths are fine: `TerrainProcessor.process` writes them to the AERMAP deck as absolute paths.
     - DFAULT overrides `TerrainType.FLAT` with elevated terrain (`W206`), so the FLAT run has to set `regulatory_default=False`.
     - Check the extremes AERMAP returns. Here the 3DEP surface goes down to -54 m in a depression south-west of the stack. Receptors over water or in pits may need their elevations reviewed before a real study.
 
@@ -315,6 +315,7 @@ The highest annual χ/Q is 0.5 (µg/m³)/(g/s) and the highest 1-hour χ/Q is 26
 
 !!! tip "Adapting it"
     - Edit `TOXICS`: emission rates in g/s, and your agency's annual and 1-hour guideline concentrations. **The levels in the script are illustrative placeholders, not regulatory values.**
-    - Use the PLOTFILEs (or POSTFILEs) for maps and GIS. `parse_aermod_output(...).get_concentrations()` returns AERMOD's summary tables (the top-N values), not the value at every receptor.
+    - Use the PLOTFILEs (or POSTFILEs) for maps and GIS. `parse_aermod_output(...).get_concentrations()` returns AERMOD's summary tables (the top-N values), not the value at every receptor; `AERMODVisualizer.plot_contours(plotfile=...)` contours a plot file directly.
+    - `to_kmz` takes one `palette` colour per contour level, lowest first, and gives every ring of a level that colour.
     - χ/Q scaling holds only for pollutants modelled the same way: the same release, no deposition, decay or chemistry. Particle-phase metals with deposition need their own runs.
     - Set the UTM zone and datum to your site (`latlon_to_utm` picks the zone for you). The GIS files are in EPSG:32618 (WGS 84 / UTM 18N), and the KMZ is in lon/lat.

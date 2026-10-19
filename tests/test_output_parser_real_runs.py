@@ -134,3 +134,27 @@ class TestSummaryRows:
         assert first["date"] == "88030111" and first["flag"] == ""
         assert (first["receptor_type"], first["grid_id"]) == ("GP", "GRID1")
         assert one.title == "THE SUMMARY OF HIGHEST 1-HR RESULTS"
+
+
+class TestRunSummaryOfA26135Run:
+    """summary() read a v26135 .out as Job Unknown, Terrain Unknown and 0
+    receptors: AERMOD prints no Jobname line and no receptor echo, so the
+    title, MODELOPTs line and "This Run Includes" counts must be used."""
+
+    def test_header_fields(self):
+        info = _parse("so2_8th_only").run_info
+        # *** AERMOD - VERSION 26135  ***   ***  Albany stack over a repeated year ...
+        assert info.title == "Albany stack over a repeated year of met data"
+        # *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+        assert info.model_options[:3] == ["RegDFAULT", "CONC", "ELEV"]
+        assert info.terrain_type == "ELEVATED"
+        # This Run Includes: 1 Source(s); 1 Source Group(s); and 72 Receptor(s)
+        assert (info.num_sources, info.num_receptors) == (1, 72)
+
+    def test_summary_text(self):
+        text = _parse("so2_8th_only").summary()
+        assert "Title: Albany stack over a repeated year of met data" in text
+        assert "Job: Unknown" not in text
+        assert "Terrain: ELEVATED" in text
+        assert "Receptors: 72" in text
+        assert "Summary rows:" in text

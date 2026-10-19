@@ -57,9 +57,11 @@ def example_1_single_road():
         y_end=0.0,
         base_elevation=10.0,
         release_height=0.5,  # Vehicle exhaust height
-        initial_lateral_dimension=3.0,  # Half of lane width (6m total)
+        initial_lateral_dimension=6.0,  # Full road width, m (two 3 m lanes)
         initial_vertical_dimension=1.5,  # Initial vertical mixing
-        emission_rate=0.001,  # g/s/m (1000 vehicles/day, 10g/km each)
+        # RLINE takes g/(s·m²), which AERMOD multiplies by the width:
+        # 0.001 g/s per metre of road spread over 6 m
+        emission_rate=0.001 / 6.0,
         source_groups=["ALL", "MOBILE"]
     ))
 
@@ -99,8 +101,8 @@ def example_1_single_road():
     print(f"✓ Created: {filename}")
     print(f"  Road: 1000m long (E-W orientation)")
     print(f"  Release height: 0.5m (vehicle exhaust)")
-    print(f"  Lane width: 6m (σy = 3.0m)")
-    print(f"  Emission rate: 0.001 g/s/m")
+    print(f"  Road width: 6m (two lanes)")
+    print(f"  Emission rate: {0.001 / 6.0:.3g} g/(s·m²) = 0.001 g/s per metre of road")
     print()
 
 
@@ -132,9 +134,9 @@ def example_2_highway_interchange():
         y_end=800.0,
         base_elevation=10.0,
         release_height=0.5,
-        initial_lateral_dimension=6.0,  # 4 lanes (12m total width)
+        initial_lateral_dimension=12.0,  # Full width, m: 4 lanes of 3 m
         initial_vertical_dimension=1.5,
-        emission_rate=0.003,  # Higher traffic volume
+        emission_rate=0.003 / 12.0,  # g/(s·m²): 0.003 g/s per metre of road
         source_groups=["ALL", "HIGHWAY"]
     ))
 
@@ -146,9 +148,9 @@ def example_2_highway_interchange():
         y_end=0.0,
         base_elevation=10.0,
         release_height=0.5,
-        initial_lateral_dimension=6.0,
+        initial_lateral_dimension=12.0,
         initial_vertical_dimension=1.5,
-        emission_rate=0.003,
+        emission_rate=0.003 / 12.0,
         source_groups=["ALL", "HIGHWAY"]
     ))
 
@@ -161,9 +163,9 @@ def example_2_highway_interchange():
         y_end=0.0,
         base_elevation=10.0,
         release_height=0.5,
-        initial_lateral_dimension=4.0,  # 2 lanes (8m total)
+        initial_lateral_dimension=8.0,  # Full width, m: 2 lanes of 4 m
         initial_vertical_dimension=1.5,
-        emission_rate=0.0015,
+        emission_rate=0.0015 / 8.0,  # g/(s·m²): 0.0015 g/s per metre of road
         source_groups=["ALL", "ARTERIAL"]
     ))
 
@@ -175,15 +177,16 @@ def example_2_highway_interchange():
         y_end=0.0,
         base_elevation=10.0,
         release_height=0.5,
-        initial_lateral_dimension=4.0,
+        initial_lateral_dimension=8.0,
         initial_vertical_dimension=1.5,
-        emission_rate=0.0015,
+        emission_rate=0.0015 / 8.0,
         source_groups=["ALL", "ARTERIAL"]
     ))
 
     print(f"✓ Defined {len(sources.sources)} road segments:")
     for src in sources.sources:
-        print(f"  - {src.source_id:10s}: Q={src.emission_rate:.4f} g/s/m")
+        print(f"  - {src.source_id:10s}: Q={src.emission_rate:.3g} g/(s·m²) "
+              f"x {src.initial_lateral_dimension:g} m wide")
 
     # Receptor grid covering interchange
     receptors = ReceptorPathway()
@@ -260,8 +263,8 @@ def example_3_conveyor_belt():
         y_end=y_end,
         base_elevation=5.0,
         release_height=8.0,  # Elevated conveyor
-        initial_lateral_dimension=1.0,  # Narrow lateral dispersion
-        emission_rate=0.0001,  # g/s/m fugitive dust
+        initial_lateral_dimension=1.0,  # Width of the line, m
+        emission_rate=0.0001,  # g/(s·m²) fugitive dust: 0.0001 g/s per metre over 1 m
         source_groups=["ALL", "FUGITIVE"]
     ))
 
@@ -303,7 +306,7 @@ def example_3_conveyor_belt():
     print(f"  Start: ({x_start:.1f}, {y_start:.1f})")
     print(f"  End: ({x_end:.1f}, {y_end:.1f})")
     print(f"  Release height: 8.0m")
-    print(f"  Emission rate: 0.0001 g/s/m")
+    print(f"  Emission rate: 0.0001 g/(s·m²) over a 1 m width")
     print()
 
 
@@ -344,14 +347,14 @@ def example_4_property_fence_line():
             y_end=float(y2),
             base_elevation=10.0,
             release_height=1.0,  # Low-level emissions
-            initial_lateral_dimension=0.5,  # Narrow source
-            emission_rate=0.00005,  # g/s/m
+            initial_lateral_dimension=0.5,  # Width of the line, m
+            emission_rate=0.00005 / 0.5,  # g/(s·m²): 0.00005 g/s per metre
             source_groups=["ALL", "BOUNDARY"]
         ))
 
     print(f"✓ Defined {len(sources.sources)} fence line segments")
     print(f"  Property: 800m × 600m")
-    print(f"  Emission rate: 0.00005 g/s/m per fence segment")
+    print(f"  Emission rate: 0.0001 g/(s·m²) over 0.5 m (0.00005 g/s per metre of fence)")
 
     # Receptor grid inside and outside boundary
     receptors = ReceptorPathway()
@@ -432,9 +435,9 @@ def example_5_mixed_sources():
         y_end=0.0,
         base_elevation=10.0,
         release_height=0.5,
-        initial_lateral_dimension=3.0,
+        initial_lateral_dimension=6.0,  # Full road width, m
         initial_vertical_dimension=1.5,
-        emission_rate=0.0005,  # g/s/m
+        emission_rate=0.0005 / 6.0,  # g/(s·m²): 0.0005 g/s per metre of road
         source_groups=["ALL", "ROADS"]
     ))
 
@@ -447,8 +450,8 @@ def example_5_mixed_sources():
         y_end=150.0,
         base_elevation=10.0,
         release_height=1.0,
-        initial_lateral_dimension=2.0,
-        emission_rate=0.001,  # g/s/m - higher due to unpaved
+        initial_lateral_dimension=2.0,  # Width, m
+        emission_rate=0.001 / 2.0,  # g/(s·m²): 0.001 g/s per metre, higher due to unpaved
         source_groups=["ALL", "ROADS", "FUGITIVE"]
     ))
 
@@ -458,7 +461,7 @@ def example_5_mixed_sources():
         if hasattr(src, 'stack_height'):
             print(f"  - {src.source_id:10s} (POINT): Q={src.emission_rate:.3f} g/s")
         else:
-            print(f"  - {src.source_id:10s} ({src_type[:4]}): Q={src.emission_rate:.4f} g/s/m")
+            print(f"  - {src.source_id:10s} ({src_type[:4]}): Q={src.emission_rate:.3g} g/(s·m²)")
 
     # Receptor grid
     receptors = ReceptorPathway()
@@ -518,10 +521,11 @@ def main():
     print("=" * 70)
     print()
     print("Key concepts:")
-    print("  • Emission rate in g/s/m (per unit length)")
+    print("  • Emission rate in g/(s·m²) (per unit area); AERMOD multiplies it")
+    print("    by the width, so a rate per metre of road is divided by the width")
     print("  • Two coordinate pairs define line start and end")
     print("  • Release height = elevation above ground")
-    print("  • Initial σy = perpendicular dispersion width")
+    print("  • initial_lateral_dimension = the full width of the line or road")
     print()
     print("When to use LINE vs RLINE:")
     print("  • LINE: General linear sources (conveyors, pipelines, fences)")

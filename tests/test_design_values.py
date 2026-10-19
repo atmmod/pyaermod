@@ -15,6 +15,7 @@ from pyaermod.design_values import (
     pm25_24hr_design_value,
     so2_1hr_design_value,
 )
+from pyaermod.naaqs import get_naaqs
 
 
 def _hourly_postfile(years=(2018, 2019, 2020),
@@ -194,10 +195,31 @@ class TestNaaqsComplianceReport:
         assert (~rpt["exceeds"]).all()
 
     def test_so2_compliance_at_limit(self):
-        df = _hourly_postfile(concentration_value=75.0)
+        # 75 ppb of SO2 is 196.4 ug/m3; a design value equal to it does
+        # not exceed (strict >)
+        level = get_naaqs("SO2", "1-hour").level_ugm3
+        df = _hourly_postfile(concentration_value=level)
         rpt = naaqs_compliance_report("SO2", df)
-        # equal to standard does not exceed (strict >)
+        assert rpt["naaqs_level_ugm3"].iloc[0] == pytest.approx(196.4, abs=0.05)
         assert (~rpt["exceeds"]).all()
+
+    @pytest.mark.parametrize("pollutant, ugm3", [
+        ("SO2", 100.0),   # > 75 "ppb" but < 196.4 ug/m3
+        ("NO2", 150.0),   # > 100 "ppb" but < 188.0 ug/m3
+        ("O3", 100.0),    # > 70 "ppb" but < 137 ug/m3
+    ])
+    def test_gas_design_value_compared_in_ugm3(self, pollutant, ugm3):
+        # AERMOD reports ug/m3; comparing with the ppb level flagged
+        # 1324 of 1681 receptors on a real SO2 run instead of 7
+        df = _hourly_postfile(concentration_value=ugm3)
+        rpt = naaqs_compliance_report(pollutant, df)
+        assert (~rpt["exceeds"]).all()
+        assert (rpt["naaqs_level_ugm3"] > rpt["naaqs_level"]).all()
+
+    def test_so2_exceeds_above_ugm3_level(self):
+        df = _hourly_postfile(concentration_value=200.0)
+        rpt = naaqs_compliance_report("SO2", df)
+        assert rpt["exceeds"].all()
 
     def test_unsupported_pollutant_raises(self):
         df = _hourly_postfile(concentration_value=1.0)

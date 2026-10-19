@@ -1096,7 +1096,7 @@ class RLineSource:
 
     # Roadway parameters
     release_height: float = field(default=0.0, metadata=described("m", "Release height above ground"))  # meters above ground (typically vehicle exhaust height)
-    initial_lateral_dimension: float = field(default=3.0, metadata=described("m", "Width of the road"))  # meters (lane width / 2)
+    initial_lateral_dimension: float = field(default=3.0, metadata=described("m", "Width of the road"))  # SRCPARAM Width: the full road width (soset.f RLPARM), not half a lane
     initial_vertical_dimension: float = field(default=1.5, metadata=described("m", "Initial vertical dispersion σz0"))  # meters (initial mixing height)
 
     # Emission parameters

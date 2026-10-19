@@ -175,3 +175,22 @@ class TestKmzStructure:
         to_kmz(out, contours=contours)
         # Should not raise
         assert out.exists()
+
+
+class TestContourColourByLevel:
+    """to_kmz coloured contour polygons by list position, so a level drawn
+    as several rings took several colours and the next level a shifted one."""
+
+    def test_each_level_takes_one_colour(self, tmp_path):
+        ring = [(0.0, 0.0), (0.001, 0.0), (0.001, 0.001), (0.0, 0.0)]
+        contours = [ContourPolygon(0.5, ring), ContourPolygon(0.1, ring),
+                    ContourPolygon(0.1, ring), ContourPolygon(0.2, ring),
+                    ContourPolygon(0.1, ring)]
+        out = to_kmz(tmp_path / "c.kmz", contours=contours,
+                     palette=["ff000001", "ff000002", "ff000003"])
+        root = _open_kml(out)
+        styles = {}
+        for pm in root.findall(".//k:Folder/k:Placemark", _KML_NS):
+            level = float(pm.find("k:description", _KML_NS).text.split(":")[1])
+            styles.setdefault(level, set()).add(pm.find("k:styleUrl", _KML_NS).text)
+        assert styles == {0.1: {"#contour-0"}, 0.2: {"#contour-1"}, 0.5: {"#contour-2"}}
