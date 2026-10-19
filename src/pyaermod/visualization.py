@@ -534,6 +534,7 @@ def quick_plot(results,
         plotfile: The period's PLOTFILE, contoured at every receptor (see
             :meth:`AERMODVisualizer.plot_contours`)
         zflag: Flagpole height to contour when the PLOTFILE has several
+            heights (see :meth:`AERMODVisualizer.plot_contours`)
 
     Returns:
         matplotlib Figure object
