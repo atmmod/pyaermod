@@ -17,6 +17,78 @@ RE STARTING
    GRIDPOLR  GRID1    ORIG        0.00       0.00
    GRIDPOLR  GRID1    DIST  100  200  300  400  500  600  700  800  900  1000
    GRIDPOLR  GRID1    GDIR  36  0  10
+   GRIDPOLR  GRID1    ELEV      1  10*0
+   GRIDPOLR  GRID1    ELEV      2  10*0
+   GRIDPOLR  GRID1    ELEV      3  10*0
+   GRIDPOLR  GRID1    ELEV      4  10*0
+   GRIDPOLR  GRID1    ELEV      5  10*0
+   GRIDPOLR  GRID1    ELEV      6  10*0
+   GRIDPOLR  GRID1    ELEV      7  10*0
+   GRIDPOLR  GRID1    ELEV      8  10*0
+   GRIDPOLR  GRID1    ELEV      9  10*0
+   GRIDPOLR  GRID1    ELEV     10  10*0
+   GRIDPOLR  GRID1    ELEV     11  10*0
+   GRIDPOLR  GRID1    ELEV     12  10*0
+   GRIDPOLR  GRID1    ELEV     13  10*0
+   GRIDPOLR  GRID1    ELEV     14  10*0
+   GRIDPOLR  GRID1    ELEV     15  10*0
+   GRIDPOLR  GRID1    ELEV     16  10*0
+   GRIDPOLR  GRID1    ELEV     17  10*0
+   GRIDPOLR  GRID1    ELEV     18  10*0
+   GRIDPOLR  GRID1    ELEV     19  10*0
+   GRIDPOLR  GRID1    ELEV     20  10*0
+   GRIDPOLR  GRID1    ELEV     21  10*0
+   GRIDPOLR  GRID1    ELEV     22  10*0
+   GRIDPOLR  GRID1    ELEV     23  10*0
+   GRIDPOLR  GRID1    ELEV     24  10*0
+   GRIDPOLR  GRID1    ELEV     25  10*0
+   GRIDPOLR  GRID1    ELEV     26  10*0
+   GRIDPOLR  GRID1    ELEV     27  10*0
+   GRIDPOLR  GRID1    ELEV     28  10*0
+   GRIDPOLR  GRID1    ELEV     29  10*0
+   GRIDPOLR  GRID1    ELEV     30  10*0
+   GRIDPOLR  GRID1    ELEV     31  10*0
+   GRIDPOLR  GRID1    ELEV     32  10*0
+   GRIDPOLR  GRID1    ELEV     33  10*0
+   GRIDPOLR  GRID1    ELEV     34  10*0
+   GRIDPOLR  GRID1    ELEV     35  10*0
+   GRIDPOLR  GRID1    ELEV     36  10*0
+   GRIDPOLR  GRID1    HILL      1  10*0
+   GRIDPOLR  GRID1    HILL      2  10*0
+   GRIDPOLR  GRID1    HILL      3  10*0
+   GRIDPOLR  GRID1    HILL      4  10*0
+   GRIDPOLR  GRID1    HILL      5  10*0
+   GRIDPOLR  GRID1    HILL      6  10*0
+   GRIDPOLR  GRID1    HILL      7  10*0
+   GRIDPOLR  GRID1    HILL      8  10*0
+   GRIDPOLR  GRID1    HILL      9  10*0
+   GRIDPOLR  GRID1    HILL     10  10*0
+   GRIDPOLR  GRID1    HILL     11  10*0
+   GRIDPOLR  GRID1    HILL     12  10*0
+   GRIDPOLR  GRID1    HILL     13  10*0
+   GRIDPOLR  GRID1    HILL     14  10*0
+   GRIDPOLR  GRID1    HILL     15  10*0
+   GRIDPOLR  GRID1    HILL     16  10*0
+   GRIDPOLR  GRID1    HILL     17  10*0
+   GRIDPOLR  GRID1    HILL     18  10*0
+   GRIDPOLR  GRID1    HILL     19  10*0
+   GRIDPOLR  GRID1    HILL     20  10*0
+   GRIDPOLR  GRID1    HILL     21  10*0
+   GRIDPOLR  GRID1    HILL     22  10*0
+   GRIDPOLR  GRID1    HILL     23  10*0
+   GRIDPOLR  GRID1    HILL     24  10*0
+   GRIDPOLR  GRID1    HILL     25  10*0
+   GRIDPOLR  GRID1    HILL     26  10*0
+   GRIDPOLR  GRID1    HILL     27  10*0
+   GRIDPOLR  GRID1    HILL     28  10*0
+   GRIDPOLR  GRID1    HILL     29  10*0
+   GRIDPOLR  GRID1    HILL     30  10*0
+   GRIDPOLR  GRID1    HILL     31  10*0
+   GRIDPOLR  GRID1    HILL     32  10*0
+   GRIDPOLR  GRID1    HILL     33  10*0
+   GRIDPOLR  GRID1    HILL     34  10*0
+   GRIDPOLR  GRID1    HILL     35  10*0
+   GRIDPOLR  GRID1    HILL     36  10*0
    GRIDPOLR  GRID1    END
 RE FINISHED
 
@@ -43,7 +115,7 @@ OU FINISHED
   --------- Summary of Total Messages --------
   
  A Total of            0 Fatal Error Message(s)
- A Total of            3 Warning Message(s)
+ A Total of            2 Warning Message(s)
  A Total of            0 Informational Message(s)
   
   
@@ -53,15 +125,14 @@ OU FINISHED
   
     ********   WARNING MESSAGES   ******** 
  CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
- RE W214      20       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
- MX W403      29       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+ MX W403     101       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
 
  ***********************************
  *** SETUP Finishes Successfully ***
  ***********************************
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   1
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -128,8 +199,8 @@ OU FINISHED
  **Input Runstream File:          aermod.inp                                                                                      
  **Output Print File:             aermod.out                                                                                      
 
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   2
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -142,8 +213,8 @@ OU FINISHED
  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
  STACK1           0   0.10000E+03       0.0       0.0     0.0    65.00   425.00    18.00     3.00    NO      NO    NO         
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   3
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -155,8 +226,8 @@ OU FINISHED
 
 
   ALL        STACK1      ,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   4
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -180,8 +251,8 @@ OU FINISHED
           100.0,     110.0,     120.0,     130.0,     140.0,     150.0,     160.0,     170.0,     180.0,     190.0,
           200.0,     210.0,     220.0,     230.0,     240.0,     250.0,     260.0,     270.0,     280.0,     290.0,
           300.0,     310.0,     320.0,     330.0,     340.0,     350.0,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   5
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -229,8 +300,8 @@ OU FINISHED
       330.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       340.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       350.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   6
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -278,8 +349,8 @@ OU FINISHED
       330.00 |          0.00
       340.00 |          0.00
       350.00 |          0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   7
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -327,8 +398,8 @@ OU FINISHED
       330.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       340.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
       350.00 |          0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00         0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   8
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -376,8 +447,8 @@ OU FINISHED
       330.00 |          0.00
       340.00 |          0.00
       350.00 |          0.00
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE   9
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -401,8 +472,8 @@ OU FINISHED
                                                             (METERS/SEC)
 
                                                  1.54,   3.09,   5.14,   8.23,  10.80,
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE  10
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -452,8 +523,8 @@ OU FINISHED
  ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
 
  F indicates top of profile (=1) or below (=0)
- *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        09/30/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:14:53
+ *** AERMOD - VERSION 26135  ***   ***  Albany stack reference scenario                                     ***        10/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        14:10:39
                                                                                                                        PAGE  11
  *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 
@@ -462,7 +533,7 @@ OU FINISHED
   --------- Summary of Total Messages --------
   
  A Total of            1 Fatal Error Message(s)
- A Total of            4 Warning Message(s)
+ A Total of            3 Warning Message(s)
  A Total of            0 Informational Message(s)
 
  A Total of           96 Hours Were Processed
@@ -477,8 +548,7 @@ OU FINISHED
   
     ********   WARNING MESSAGES   ******** 
  CO W361       7       COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 require MULTYEAR Opt
- RE W214      20       REPOLR: ELEV Input Inconsistent With Option: Defaults Used        GRID1
- MX W403      29       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
+ MX W403     101       PFLCNV: Turbulence data is being used w/o ADJ_U* option     SigA & SigW
  MX W481      97         MAIN: Data Remaining After End of Year. Number of Hours=           96
 
     ***************************************

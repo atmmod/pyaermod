@@ -609,6 +609,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   averaging period writes (`per_01H.plt`, `post_PERIOD.pst`) is checked
   against the 200-character limit and the duplicate-name check, and is
   listed under `PLOTFILE` and `POSTFILE` in the manifest.
+- **Polar receptor networks got no ELEV/HILL rows under elevated
+  terrain.** `PolarGrid.to_aermod_input` took no terrain context, so a
+  GRIDPOLR network in an `ELEV` run, or a `DFAULT` one (which forces
+  ELEV), was written without ELEV and HILL rows: AERMOD printed W214
+  for it and used zero for every elevation and hill height, as it did
+  not for GRIDCART and DISCCART. `PolarGrid.to_aermod_input` now takes
+  `elevated` and `flagpole` like `CartesianGrid`, and
+  `ReceptorPathway.to_aermod_input` passes them; a network with neither
+  `elevations` nor `hills` gets one row per direction of the new
+  `z_elev` and `z_hill` (0 by default), and with `CO FLAGPOLE` a
+  non-zero new `z_flag` fills FLAG rows. Rows given are written as
+  before, and without the options (`None`) the output is unchanged. A
+  test confirms `TerrainProcessor.process` leaves every network's and
+  receptor's flagpole heights alone.
 - **Receptor lookups no longer merge flagpole heights silently.** With
   `CO FLAGPOLE` and one GRIDCART per height, receptors share (x, y) at
   several `zflag`. `PostfileResult.get_max_by_receptor()` grouped by
