@@ -226,3 +226,89 @@ class TestFillingInTheProject:
         assert seg.base_elevation == 120.0
         assert missing.base_elevation is None
         assert by_id["BLG"].base_elevation == 120.0
+
+
+class TestFlagpolesSurviveTerrainProcessing:
+    """AERMAP never reads flagpole heights, so processing must not touch them."""
+
+    RECEPTORS = """** AERMAP receptor output
+RE ELEVUNIT METERS
+   DISCCART     500100.00   4000100.00     105.00     105.00
+   GRIDCART  LOW      STA
+   GRIDCART  LOW      XYINC     500100.00     2     100.00    4000200.00     2     100.00
+   GRIDCART LOW      ELEV    1    108.0    110.0
+   GRIDCART LOW      ELEV    2    111.0    113.0
+   GRIDCART LOW      HILL    1    108.0    110.0
+   GRIDCART LOW      HILL    2    111.0    113.0
+   GRIDCART  LOW      END
+   GRIDCART  HIGH     STA
+   GRIDCART  HIGH     XYINC     500100.00     2     100.00    4000200.00     2     100.00
+   GRIDCART HIGH     ELEV    1    108.0    110.0
+   GRIDCART HIGH     ELEV    2    111.0    113.0
+   GRIDCART HIGH     HILL    1    108.0    110.0
+   GRIDCART HIGH     HILL    2    111.0    113.0
+   GRIDCART  HIGH     END
+   GRIDPOLR  RING     STA
+   GRIDPOLR  RING     ORIG     500300.00   4000300.00
+   GRIDPOLR  RING     DIST  100.00 200.00
+   GRIDPOLR  RING     GDIR  2 0.00 90.00
+   GRIDPOLR RING     ELEV    1    118.0    121.0
+   GRIDPOLR RING     ELEV    2    117.0    119.0
+   GRIDPOLR RING     HILL    1    118.0    121.0
+   GRIDPOLR RING     HILL    2    117.0    119.0
+   GRIDPOLR  RING     END
+"""
+
+    @staticmethod
+    def _project():
+        grid = dict(x_init=500100.0, x_num=2, x_delta=100.0, y_init=4000200.0, y_num=2, y_delta=100.0)
+        return AERMODProject(
+            control=ControlPathway(title_one="flagpoles", flag_pole_height=1.5),
+            sources=SourcePathway(sources=[PointSource("STK", 500200.0, 4000300.0)]),
+            receptors=ReceptorPathway(
+                cartesian_grids=[
+                    CartesianGrid(grid_name="LOW", z_flag=1.5, **grid),
+                    CartesianGrid(grid_name="HIGH", z_flag=10.0, grid_flags=[[10.0, 11.0], [12.0, 13.0]], **grid),
+                ],
+                polar_grids=[PolarGrid(grid_name="RING", x_origin=500300.0, y_origin=4000300.0,
+                                       dist_num=2, dir_num=2, dir_delta=90.0, z_flag=6.0,
+                                       flags=[[6.0, 7.0], [8.0, 9.0]])],
+                discrete_receptors=[DiscreteReceptor(500100.0, 4000100.0, z_flag=4.5)],
+            ),
+            meteorology=MeteorologyPathway(surface_file="a.sfc", profile_file="a.pfl"),
+            output=OutputPathway(),
+        )
+
+    def test_flags_are_unchanged_and_every_network_gets_its_elevations(self, tmp_path):
+        from unittest.mock import patch
+
+        from pyaermod.terrain import AERMAPRunner, AERMAPRunResult
+
+        (tmp_path / "aermap_receptors.out").write_text(self.RECEPTORS)
+        ok = AERMAPRunResult(success=True, input_file=str(tmp_path / "aermap.inp"),
+                             return_code=0, runtime_seconds=0.1)
+        project = self._project()
+        with patch.object(AERMAPRunner, "__init__", return_value=None), \
+             patch.object(AERMAPRunner, "run", return_value=ok):
+            TerrainProcessor().process(
+                project, bounds=(-88.0, 40.0, -87.0, 41.0), aermap_exe="/fake/aermap",
+                working_dir=str(tmp_path), skip_download=True, dem_files=["dem.tif"],
+            )
+
+        low, high = project.receptors.cartesian_grids
+        ring = project.receptors.polar_grids[0]
+        (disc,) = project.receptors.discrete_receptors
+        # Flagpole heights are untouched, per network and per receptor.
+        assert (low.z_flag, low.grid_flags) == (1.5, None)
+        assert (high.z_flag, high.grid_flags) == (10.0, [[10.0, 11.0], [12.0, 13.0]])
+        assert (ring.z_flag, ring.flags) == (6.0, [[6.0, 7.0], [8.0, 9.0]])
+        assert disc.z_flag == 4.5
+        # The elevations land on each network, and the discrete receptor.
+        assert low.grid_elevations == high.grid_elevations == [[108.0, 110.0], [111.0, 113.0]]
+        assert ring.elevations == [[118.0, 121.0], [117.0, 119.0]]
+        assert disc.z_elev == 105.0
+        # The written RE pathway keeps each network's own FLAG rows.
+        text = project.receptors.to_aermod_input(elevated=True, flagpole=1.5)
+        assert "GRIDCART  LOW      FLAG      1  2*1.5" in text
+        assert "GRIDCART  HIGH     FLAG      2      12.0     13.0" in text
+        assert "GRIDPOLR  RING     FLAG      2       8.0      9.0" in text

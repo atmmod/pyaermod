@@ -32,12 +32,20 @@ binary. Hand-written `.out` text is not allowed in new GUI tests
   two W206 lines, so each scenario has one warning fewer; every
   concentration in the plot files and POSTFILEs, and the maxima, are
   unchanged.
+  The three Albany scenarios again on 2026-10-19, with the same binary,
+  when `PolarGrid` learned to write ELEV and HILL rows under elevated
+  terrain: the GUI's polar grid now carries 36 rows of each (zeros), so
+  `aermod.inp` gains those 72 lines, W214 is gone and each scenario has
+  one warning fewer. Every concentration in the plot files and POSTFILEs,
+  and the maxima, are unchanged; the other `.out` differences are the
+  dates and the line numbers of the messages the longer deck pushes down.
+  `aertest` imports EPA's deck unchanged and stands.
 
 ## Scenarios
 
 | Directory | Deck | What AERMOD did |
 |---|---|---|
-| `albany_success` | The reference scenario of PLAN-gui.md ("Albany stack") with averaging periods 1, 3, 24 and PERIOD | Finished successfully: 0 fatal errors, 5 warnings. Maxima 76.07952 (1-hour), 59.57654 (3-hour), 16.85665 (24-hour) and 5.40459 µg/m³ (PERIOD), all at (519.62, −300.00). |
+| `albany_success` | The reference scenario of PLAN-gui.md ("Albany stack") with averaging periods 1, 3, 24 and PERIOD | Finished successfully: 0 fatal errors, 4 warnings. Maxima 76.07952 (1-hour), 59.57654 (3-hour), 16.85665 (24-hour) and 5.40459 µg/m³ (PERIOD), all at (519.62, −300.00). |
 | `albany_e480` | The same scenario with the GUI's default averaging periods, 1 and ANNUAL | Processed all 96 hours, then stopped with fatal error E480 (less than a year of data for ANNUAL). Exit code 0. |
 | `missing_met` | The same scenario with the default periods and a surface file, `MISSING.SFC`, that does not exist | Stopped during setup with fatal error E500. Exit code 0. |
 | `aertest` | EPA's `tests/fixtures/epa_official/aertest.inp` with its paths flattened as `tests/test_real_aermod.py` does (`aertest.inp` here), imported with `read_aermod_input` and written back (`aermod.inp`) | Finished successfully. Its `AERTEST_01H.PLT` equals EPA's published reference for all 144 receptors. |

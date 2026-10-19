@@ -29,7 +29,7 @@ from pyaermod.input_generator import (
     SourcePathway,
 )
 from pyaermod.pathways import ChemistryMethod, ChemistryOptions, ControlPathway, TerrainType
-from pyaermod.receptors import CartesianGrid, DiscreteReceptor, ReceptorPathway
+from pyaermod.receptors import CartesianGrid, DiscreteReceptor, PolarGrid, ReceptorPathway
 from pyaermod.sources import AreaSource, OpenPitSource, ParticleDepositionParams, PointSource
 
 from .test_source_deck_acceptance import (
@@ -87,6 +87,8 @@ def _messages(work: Path) -> set[str]:
 def _receptors() -> ReceptorPathway:
     return ReceptorPathway(
         cartesian_grids=[CartesianGrid(**GRID, z_elev=12.5, z_hill=40.25)],
+        polar_grids=[PolarGrid(grid_name="POL1", dist_init=250.0, dist_num=3, dist_delta=250.0,
+                               dir_num=4, dir_delta=90.0, z_elev=8.0, z_hill=30.0)],
         discrete_receptors=[DiscreteReceptor(1000.0, 0.0),
                             DiscreteReceptor(0.0, 1000.0, 5.0, 30.0, 4.0)],
     )
@@ -115,10 +117,22 @@ def test_receptor_fields_are_read_without_defaults(label, control, flags, tmp_pa
         # A grid's FLAG rows are written from a non-zero z_flag (W216
         # otherwise, with the FLAGPOLE height -- the same numbers).
         receptors.cartesian_grids[0].z_flag = 2.0
+        receptors.polar_grids[0].z_flag = 2.0
     deck = _deck(control, receptors)
     errors = run_setup_check(deck, tmp_path)
     assert not errors, f"{label}: " + "\n  ".join(errors) + f"\n\ndeck:\n{deck}"
     assert not (_messages(tmp_path) & UNWANTED), f"{label}:\n{deck}"
+
+
+def test_polar_grid_without_terrain_context_still_warns(tmp_path):
+    """The same network written without the run's options is W214 again."""
+    deck = _deck(_ctl(terrain_type=TerrainType.FLAT, regulatory_default=True),
+                 ReceptorPathway(polar_grids=[PolarGrid(grid_name="POL1", dist_num=2, dir_num=4,
+                                                        dir_delta=90.0)]))
+    assert "GRIDPOLR  POL1     ELEV" in deck
+    stripped = "\n".join(ln for ln in deck.splitlines() if " ELEV " not in ln and " HILL " not in ln)
+    run_setup_check(stripped, tmp_path)
+    assert "W214" in _messages(tmp_path)
 
 
 def test_debugopt_area_depos_deck_needs_no_text_patch(tmp_path):

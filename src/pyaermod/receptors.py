@@ -248,6 +248,17 @@ class PolarGrid:
     # instead of on x_origin/y_origin (POLORG accepts either form).
     origin_source_id: Optional[str] = field(default=None, metadata=described(None, "Centre the grid on this source instead (ORIG srcid)"))
 
+    # One terrain elevation, hill height and flagpole height for every
+    # receptor of the network, used as for CartesianGrid: under elevated
+    # terrain a network with neither ``elevations`` nor ``hills`` gets
+    # GRIDPOLR ELEV and HILL rows of z_elev and z_hill (reset.f REPOLR
+    # otherwise warns W214 and uses zero), and with CO FLAGPOLE a
+    # non-zero z_flag fills FLAG rows for a network without ``flags``.
+    # See to_aermod_input.
+    z_elev: float = field(default=0.0, metadata=described("m", "Terrain elevation of every receptor"))
+    z_hill: float = field(default=0.0, metadata=described("m", "Hill height scale of every receptor"))
+    z_flag: float = field(default=0.0, metadata=described("m", "Flagpole height of every receptor"))
+
     # Per-receptor elevations, hill heights and flagpole heights
     # (GRIDPOLR ELEV / HILL / FLAG), one row per direction, one value
     # per ring distance.
@@ -271,7 +282,13 @@ class PolarGrid:
     def receptor_count(self) -> int:
         return len(self.ring_distances()) * len(self.direction_angles())
 
-    def to_aermod_input(self) -> str:
+    def _filled(self, value: float) -> List[List[float]]:
+        """One row per direction, one ``value`` per ring distance."""
+        n_rings = len(self.ring_distances())
+        return [[value] * n_rings for _ in self.direction_angles()]
+
+    def to_aermod_input(self, elevated: Optional[bool] = None,
+                        flagpole: Optional[float] = None) -> str:
         """Generate AERMOD RE pathway text.
 
         AERMOD requires GRIDPOLR blocks wrapped in STA/END. The field
@@ -281,6 +298,16 @@ class PolarGrid:
         writer emitted ``DIST init num delta`` and ``GDIR init num
         delta``; AERMOD read the former as three rings and the latter
         as zero directions, so the network had no receptors (RE E185).
+
+        ``elevated`` and ``flagpole`` are the run's terrain and
+        flagpole options, with the same effect as for
+        :meth:`CartesianGrid.to_aermod_input`: under elevated terrain a
+        network with neither ``elevations`` nor ``hills`` gets ELEV and
+        HILL rows (one per direction) of ``z_elev`` and ``z_hill``; a
+        network with only one of the two is written as given; with a
+        flagpole height a network without ``flags`` gets FLAG rows of a
+        non-zero ``z_flag``. Without that context (``None``, the
+        default) only the rows given are written.
         """
         name = self.grid_name
         lines = [f"   GRIDPOLR  {name:<8} STA"]
@@ -299,12 +326,15 @@ class PolarGrid:
                 f"   GRIDPOLR  {name:<8} GDIR  "
                 f"{self.dir_num:d}  {_num(self.dir_init)}  {_num(self.dir_delta)}"
             )
-        if self.elevations is not None:
-            lines += _row_lines("GRIDPOLR", name, "ELEV", self.elevations)
-        if self.hills is not None:
-            lines += _row_lines("GRIDPOLR", name, "HILL", self.hills)
-        if self.flags is not None:
-            lines += _row_lines("GRIDPOLR", name, "FLAG", self.flags)
+        elevations, hills, flags = self.elevations, self.hills, self.flags
+        if elevated and elevations is None and hills is None:
+            elevations = self._filled(self.z_elev)
+            hills = self._filled(self.z_hill)
+        if flagpole is not None and flags is None and self.z_flag != 0.0:
+            flags = self._filled(self.z_flag)
+        for sub, rows in (("ELEV", elevations), ("HILL", hills), ("FLAG", flags)):
+            if rows is not None:
+                lines += _row_lines("GRIDPOLR", name, sub, rows)
         lines.append(f"   GRIDPOLR  {name:<8} END")
         return "\n".join(lines)
 
@@ -388,7 +418,7 @@ class ReceptorPathway:
         options (:attr:`ControlPathway.elevated_terrain`,
         :attr:`ControlPathway.flag_pole_height`), which decide the
         elevation fields AERMOD reads; :meth:`AERMODProject.to_aermod_input`
-        passes them. Without them the Cartesian grids and discrete
+        passes them. Without them the Cartesian and polar grids and discrete
         receptors are written as earlier releases wrote them.
         """
         lines = ["RE STARTING"]
@@ -403,7 +433,7 @@ class ReceptorPathway:
 
         # Polar grids
         for grid in self.polar_grids:
-            lines.append(grid.to_aermod_input())
+            lines.append(grid.to_aermod_input(elevated=elevated, flagpole=flagpole))
 
         # Discrete receptors
         for receptor in self.discrete_receptors:
