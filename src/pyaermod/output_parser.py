@@ -9,6 +9,7 @@ Based on AERMOD version 26135 output format specifications (validated against
 import contextlib
 import logging
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -1061,15 +1062,25 @@ class AERMODResults:
 
     def get_concentration_at_point(self, x: float, y: float,
                                    averaging_period: str = 'ANNUAL',
-                                   tolerance: float = 1.0) -> Optional[float]:
+                                   tolerance: float = 1.0,
+                                   zflag: Optional[float] = None) -> Optional[float]:
         """
         Get concentration at specific point (within tolerance)
+
+        A flagpole run (``CO FLAGPOLE`` with one network per height) has
+        several receptors at the same (x, y), one per flagpole height. Pass
+        ``zflag`` to pick one height.
 
         Args:
             x: X coordinate
             y: Y coordinate
             averaging_period: Averaging period
-            tolerance: Distance tolerance for matching receptors
+            tolerance: Distance tolerance for matching receptors, and for
+                matching ``zflag`` when it is given
+            zflag: Flagpole height of the receptor. When it is None and
+                receptors at several heights lie within ``tolerance``, the
+                first match is returned, as before, with a
+                :class:`UserWarning` naming the heights.
 
         Returns:
             Concentration value or None if no receptor found
@@ -1078,11 +1089,27 @@ class AERMODResults:
         if df is None:
             return None
 
+        has_heights = 'zflag' in df.columns
+        if zflag is not None and has_heights:
+            df = df[(df['zflag'] - zflag).abs() <= tolerance]
+            if df.empty:
+                return None
+
         # Find closest receptor
         distances = np.sqrt((df['x'] - x)**2 + (df['y'] - y)**2)
+        if distances.empty:
+            return None
         min_dist_idx = distances.idxmin()
 
         if distances[min_dist_idx] <= tolerance:
+            if zflag is None and has_heights:
+                heights = sorted(df.loc[distances <= tolerance, 'zflag'].dropna().unique())
+                if len(heights) > 1:
+                    warnings.warn(
+                        f"the receptor near ({x}, {y}) has values at several flagpole "
+                        f"heights ({', '.join(str(float(z)) for z in heights)}); "
+                        "pass zflag= to choose one",
+                        UserWarning, stacklevel=2)
             return df.loc[min_dist_idx, 'concentration']
 
         return None

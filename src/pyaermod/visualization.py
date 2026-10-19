@@ -32,13 +32,21 @@ except ImportError:
     logger.debug("folium not installed; interactive maps unavailable (pip install 'pyaermod[viz]')")
 
 
-def plotfile_frame(plotfile: Any):
+def plotfile_frame(plotfile: Any, zflag: Optional[float] = None):
     """A PLOTFILE's values at every receptor as ``x``, ``y``, ``concentration``.
 
     ``plotfile`` is a path to an AERMOD PLOTFILE, the result of
     :func:`pyaermod.aermod_outputs.read_plotfile`, or a DataFrame with
     ``x``/``y``/``concentration`` (or the PLOTFILE's ``X``/``Y`` and
     concentration column) already in it.
+
+    A flagpole run (``CO FLAGPOLE`` with one network per height) puts
+    receptors at the same (x, y) at several heights (``ZFLAG``), and a
+    contour of mixed heights means nothing. Pass ``zflag`` to keep the
+    receptors at that flagpole height; when the file holds several heights
+    and ``zflag`` is None a :class:`ValueError` asks for one. A file with a
+    single height needs no ``zflag``, and a DataFrame without a ``zflag``
+    column is taken as one height.
     """
     import pandas as pd
 
@@ -64,6 +72,20 @@ def plotfile_frame(plotfile: Any):
         raise TypeError(
             "plotfile must be a path, a read_plotfile() result or a DataFrame, "
             f"not {type(plotfile).__name__}")
+    height = next((c for c in df.columns if str(c).lower() == "zflag"), None)
+    if height is not None:
+        heights = sorted(pd.to_numeric(df[height], errors="coerce").dropna().unique())
+        if zflag is None and len(heights) > 1:
+            raise ValueError(
+                "the PLOTFILE holds receptors at several flagpole heights "
+                f"({', '.join(str(float(z)) for z in heights)}); contouring "
+                "mixed heights is not meaningful, so pass zflag= to choose one")
+        if zflag is not None:
+            if not any(abs(z - zflag) <= 1e-6 for z in heights):
+                raise ValueError(
+                    f"no receptors at flagpole height {zflag}; the PLOTFILE has "
+                    f"{', '.join(str(float(z)) for z in heights) or 'none'}")
+            df = df[(pd.to_numeric(df[height], errors="coerce") - zflag).abs() <= 1e-6]
     df = df[["x", "y", "concentration"]].copy()
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -97,7 +119,8 @@ class AERMODVisualizer:
                      figsize: Tuple[int, int] = (12, 10),
                      save_path: Optional[Union[str, Path]] = None,
                      dpi: int = 300,
-                     plotfile: Any = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+                     plotfile: Any = None,
+                     zflag: Optional[float] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
         """
         Create concentration contour plot
 
@@ -122,6 +145,9 @@ class AERMODVisualizer:
             plotfile: The period's PLOTFILE (a path, a
                 :func:`~pyaermod.aermod_outputs.read_plotfile` result or a
                 DataFrame); its values at every receptor are contoured.
+            zflag: Flagpole height to contour, for a ``plotfile`` from a
+                ``CO FLAGPOLE`` run with receptors at several heights
+                (:func:`plotfile_frame` raises ``ValueError`` without it).
 
         Returns:
             matplotlib Figure object
@@ -131,7 +157,7 @@ class AERMODVisualizer:
 
         # Get concentration data
         if plotfile is not None:
-            df = plotfile_frame(plotfile)
+            df = plotfile_frame(plotfile, zflag=zflag)
         else:
             df = self.results.get_concentrations(averaging_period)
         if df is None or df.empty:
@@ -496,7 +522,8 @@ class AERMODVisualizer:
 def quick_plot(results,
               averaging_period: str = 'ANNUAL',
               save_path: Optional[str] = None,
-              plotfile: Any = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+              plotfile: Any = None,
+              zflag: Optional[float] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
     """
     Quick contour plot with default settings
 
@@ -506,13 +533,14 @@ def quick_plot(results,
         save_path: Optional save path
         plotfile: The period's PLOTFILE, contoured at every receptor (see
             :meth:`AERMODVisualizer.plot_contours`)
+        zflag: Flagpole height to contour when the PLOTFILE has several
 
     Returns:
         matplotlib Figure object
     """
     viz = AERMODVisualizer(results)
     return viz.plot_contours(averaging_period=averaging_period, save_path=save_path,
-                             plotfile=plotfile)
+                             plotfile=plotfile, zflag=zflag)
 
 
 def quick_map(results,

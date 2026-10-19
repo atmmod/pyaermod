@@ -36,6 +36,7 @@ and 24142; see :mod:`pyaermod.versions`).
 
 import re
 import struct
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
@@ -223,11 +224,26 @@ class PostfileResult:
         """
         return self.data[self.data["date"] == date].copy()
 
+    @property
+    def flagpole_heights(self) -> List[float]:
+        """The distinct flagpole heights (``zflag``) in the file, ascending."""
+        if self.data.empty or "zflag" not in self.data.columns:
+            return []
+        return [float(z) for z in sorted(self.data["zflag"].dropna().unique())]
+
     def get_receptor(
-        self, x: float, y: float, tolerance: float = 1.0
+        self,
+        x: float,
+        y: float,
+        tolerance: float = 1.0,
+        zflag: Optional[float] = None,
     ) -> pd.DataFrame:
         """
         Get all data rows for a specific receptor location.
+
+        A flagpole run (``CO FLAGPOLE`` with one network per height) has
+        several receptors at the same (x, y), one per ``zflag``. Pass
+        ``zflag`` to pick one height.
 
         Parameters
         ----------
@@ -236,7 +252,12 @@ class PostfileResult:
         y : float
             Y coordinate of the receptor.
         tolerance : float
-            Distance tolerance for matching receptor coordinates.
+            Distance tolerance for matching receptor coordinates, and for
+            matching ``zflag`` when it is given.
+        zflag : float, optional
+            Flagpole height of the receptor. When it is *None* and the rows
+            found span several heights, all of them are returned, as before,
+            with a :class:`UserWarning` naming the heights.
 
         Returns
         -------
@@ -248,21 +269,47 @@ class PostfileResult:
         ) & (
             (self.data["y"] - y).abs() <= tolerance
         )
-        return self.data[mask].copy()
+        if zflag is not None and "zflag" in self.data.columns:
+            mask &= (self.data["zflag"] - zflag).abs() <= tolerance
+        found = self.data[mask].copy()
+        if zflag is None and "zflag" in found.columns:
+            heights = sorted(found["zflag"].dropna().unique())
+            if len(heights) > 1:
+                warnings.warn(
+                    f"the receptor at ({x}, {y}) has rows at several flagpole "
+                    f"heights ({', '.join(str(float(z)) for z in heights)}); "
+                    "pass zflag= to choose one",
+                    UserWarning, stacklevel=2)
+        return found
 
     def get_max_by_receptor(self) -> pd.DataFrame:
         """
-        Get the maximum of the first output type at each receptor location.
+        Get the maximum of the first output type at each receptor.
+
+        A receptor is an (x, y) location, or an (x, y, zflag) location when
+        the file holds more than one flagpole height (``CO FLAGPOLE`` with a
+        network per height): receptors at the same (x, y) but different
+        heights stay separate rows.
 
         Returns
         -------
         pd.DataFrame
             DataFrame with columns x, y and the first output type's column
-            (``concentration`` whenever the file holds CONC).
+            (``concentration`` whenever the file holds CONC). With several
+            flagpole heights it also has ``zflag``, ``zelev`` and ``zhill``.
         """
         column = self._primary_column
         if self.data.empty:
             return pd.DataFrame(columns=["x", "y", column])
+        if len(self.flagpole_heights) > 1:
+            keys = ["x", "y", "zflag"]
+            extra = {c: "first" for c in ("zelev", "zhill") if c in self.data.columns}
+            return (
+                self.data.groupby(keys, dropna=False)
+                .agg({**extra, column: "max"})
+                .reset_index()
+                [keys + list(extra) + [column]]
+            )
         return (
             self.data.groupby(["x", "y"])[column]
             .max()
