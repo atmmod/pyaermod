@@ -26,6 +26,7 @@ from pyaermod.aermod_outputs import (
 )
 from pyaermod.design_values import read_maxdaily
 from pyaermod.ensemble import MANIFEST_NAME, EnsembleManifest, EnsembleManifestEntry, collect_plotfiles
+from pyaermod.epa_testcases import aermod_binary_version
 from pyaermod.input_reader import parse_aermod_input, read_aermod_input
 from pyaermod.output_parser import AERMODOutputParser, parse_aermod_output
 from pyaermod.pathways import EventPeriod
@@ -52,6 +53,10 @@ HOUR_20_FAR = [
 THREE_DIGIT = re.compile(r"\d\.\d+[-+]\d{3}(?!\d)")
 
 AERMOD_EXE = shutil.which("aermod")
+
+#: The version of that binary. 24142 prints an event's GROUP VALUE in fixed
+#: point (``0.00000`` for 0.782577-103); 26135 prints it with its exponent.
+AERMOD_VERSION = aermod_binary_version(AERMOD_EXE) if AERMOD_EXE else None
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +390,11 @@ def _run_aermod(deck: str, work: Path) -> str:
 
 @pytest.mark.skipif(AERMOD_EXE is None, reason="aermod not on PATH; build with scripts/build_aermod.sh")
 class TestEventDeckRewrite:
+    @pytest.mark.skipif(
+        AERMOD_VERSION != "26135",
+        reason=f"needs AERMOD 26135 (aermod on PATH is {AERMOD_VERSION}); "
+        "24142 prints these event values as 0.00000",
+    )
     def test_rewritten_eventfil_runs(self, tmp_path):
         """AERMOD reads its own 0.282465-103 as a negative number and
         so skips its EVENTPER check; pyaermod writes 0.00000, which

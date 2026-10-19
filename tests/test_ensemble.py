@@ -388,6 +388,53 @@ class TestRewriteOutputNames:
         with pytest.raises(ValueError, match="both be written"):
             rewrite_output_names(project)
 
+    def test_period_file_stems_are_output_slots(self):
+        """period_plot_files / period_postfiles name one file per
+        averaging period; the stems lose their directories and the
+        expanded names are the outputs."""
+        project = self._project()
+        project.output.period_plot_files = "../out/per"
+        project.output.period_postfiles = "/abs/dir/post"
+        names = rewrite_output_names(project)
+        assert names == {
+            "PLOTFILE": ["pit.plt", "pit_1h.plt", "per_01H.plt", "per_PERIOD.plt"],
+            "POSTFILE": ["post_01H.pst", "post_PERIOD.pst"],
+        }
+        assert project.output.period_plot_files == "per"
+        assert project.output.period_postfiles == "post"
+        text = project.to_aermod_input()
+        assert "../out" not in text and "/abs/dir" not in text
+        assert "per_PERIOD.plt" in text and "post_01H.pst" in text
+
+    def test_period_file_stems_take_the_prefix(self):
+        project = self._project()
+        project.output.period_plot_files = "d/per"
+        names = rewrite_output_names(project, prefix="r1_")
+        assert names["PLOTFILE"][2:] == ["r1_per_01H.plt", "r1_per_PERIOD.plt"]
+        assert project.output.period_plot_files == "r1_per"
+
+    def test_period_file_stems_are_left_alone_without_periods_or_stems(self):
+        project = self._project()
+        assert project.output.period_plot_files is None
+        assert rewrite_output_names(project) == {"PLOTFILE": ["pit.plt", "pit_1h.plt"]}
+        project.output.period_plot_files = "d/per"
+        project.control.averaging_periods = []
+        assert rewrite_output_names(project) == {"PLOTFILE": ["pit.plt", "pit_1h.plt"]}
+
+    def test_period_file_names_that_collide_raise(self):
+        project = self._project()
+        project.output.plot_file_groups = [("1", "ALL", "a/PER_01h.plt")]
+        project.output.period_plot_files = "b/per"
+        with pytest.raises(ValueError, match="both be written"):
+            rewrite_output_names(project)
+
+    def test_period_file_name_longer_than_aermod_reads_raises(self):
+        """The stem is short enough; the name it expands to is not."""
+        project = self._project()
+        project.output.period_postfiles = "p" * 195
+        with pytest.raises(ValueError, match="200 characters"):
+            rewrite_output_names(project)
+
     def test_name_without_a_file_part_raises(self):
         project = self._project()
         project.output.plot_file = "out/"
@@ -1153,6 +1200,94 @@ class TestDebugFiles:
         for run in result.values():
             assert run.entry.status == "failed"
             assert run.entry.outputs["DEBUGOPT"] == ["area.dbg", "met.dbg", "model.dbg"]
+
+
+#: A fake AERMOD that answers every deck with the first recording's
+#: output and also writes the per-period files (period_plot_files
+#: "per", period_postfiles "post" over the periods 1 and PERIOD).
+_PERIODIC = """#!/bin/bash
+rec="{recordings}/d2p5_rho1"
+n=$(awk 'END {{ print NR }}' "$rec/aermod.inp")
+awk 1 aermod.inp > aermod.out
+tail -n +$((n + 1)) "$rec/aermod.out" >> aermod.out
+cat "$rec/stdout.txt"
+cp "$rec"/outputs/* .
+cp pit_1h.plt per_01H.plt
+cp pit.plt per_PERIOD.plt
+echo post > post_01H.pst
+echo post > post_PERIOD.pst
+basename "$PWD" >> "{bindir}/calls.log"
+exit 0
+"""
+
+
+@posix_only
+class TestPeriodFiles:
+    @pytest.fixture()
+    def periodic_bin(self, tmp_path):
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        exe = bindir / "aermod"
+        exe.write_text(_PERIODIC.format(recordings=FIXTURES, bindir=bindir))
+        exe.chmod(0o755)
+        return bindir
+
+    @staticmethod
+    def _build(factors):
+        project = design.build(factors)
+        project.output.period_plot_files = "../out/per"
+        project.output.period_postfiles = "/nonexistent-pyaermod-dir/post"
+        return project
+
+    def _run(self, bindir, root, n_workers=2):
+        return run_design(design.ROWS[:2], self._build, root, n_workers=n_workers,
+                          executable=bindir / "aermod")
+
+    def test_manifest_records_the_per_period_files(self, periodic_bin, tmp_path):
+        result = self._run(periodic_bin, tmp_path / "d")
+        assert result.all_succeeded, [r.entry.error_message for r in result.values()]
+        for run in result.values():
+            deck = (run.run_dir / DECK_NAME).read_text()
+            assert "../out" not in deck and "nonexistent-pyaermod-dir" not in deck
+            assert run.entry.outputs == {
+                "PLOTFILE": ["pit.plt", "pit_1h.plt", "per_01H.plt", "per_PERIOD.plt"],
+                "POSTFILE": ["post_01H.pst", "post_PERIOD.pst"],
+            }
+            for name in ("per_01H.plt", "per_PERIOD.plt", "post_01H.pst", "post_PERIOD.pst"):
+                assert (run.run_dir / name).exists()
+        manifest = EnsembleManifest.load(tmp_path / "d" / "manifest.json")
+        assert all(e.outputs["POSTFILE"] == ["post_01H.pst", "post_PERIOD.pst"]
+                   for e in manifest.entries.values())
+        assert not (tmp_path / "out").exists() and not (tmp_path / "d" / "out").exists()
+
+    def test_collect_plotfiles_reads_the_per_period_files(self, periodic_bin, tmp_path):
+        root = tmp_path / "d"
+        self._run(periodic_bin, root)
+        table = collect_plotfiles(root, out_stem=None)
+        assert set(table["plotfile"]) == {"pit.plt", "pit_1h.plt", "per_01H.plt", "per_PERIOD.plt"}
+        assert len(table) == 2 * 4 * 72
+
+    def test_resume_checks_the_per_period_files(self, periodic_bin, tmp_path):
+        root = tmp_path / "d"
+        first = self._run(periodic_bin, root)
+        assert self._run(periodic_bin, root).n_skipped == 2
+        victim = next(iter(first.values()))
+        (victim.run_dir / "post_PERIOD.pst").unlink()
+        third = self._run(periodic_bin, root)
+        assert third.n_run == 1 and third[victim.run_id].skipped is False
+        assert (victim.run_dir / "post_PERIOD.pst").exists()
+
+    def test_a_stem_that_expands_onto_another_postfile_is_refused(self, periodic_bin, tmp_path):
+        def build(factors):
+            project = design.build(factors)
+            project.control.averaging_periods = ["1"]
+            project.output.period_postfiles = "run"
+            project.output.postfile = "x/run_01H.pst"
+            return project
+
+        with pytest.raises(ValueError, match="both be written"):
+            run_design(design.ROWS[:1], build, tmp_path / "d",
+                       executable=periodic_bin / "aermod")
 
 
 # ---------------------------------------------------------------------------

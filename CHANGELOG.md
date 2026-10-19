@@ -598,6 +598,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distribution); the next release will raise `ValueError` there.
 
 ### Fixed
+- **`run_design` dropped the per-period PLOTFILEs and POSTFILEs.**
+  `OutputPathway.period_plot_files` and `period_postfiles` were not among
+  the output names `rewrite_output_names` rewrites, so a run that used
+  them succeeded but left `outputs` in the manifest empty of those
+  files, `collect_plotfiles` returned an empty table, resuming did not
+  check that the files existed, and a stem with a directory in it
+  (`"../out/per"`) was not moved into the run directory. The stems are
+  now output names: a directory is stripped, and the file each
+  averaging period writes (`per_01H.plt`, `post_PERIOD.pst`) is checked
+  against the 200-character limit and the duplicate-name check, and is
+  listed under `PLOTFILE` and `POSTFILE` in the manifest.
 - **Polar receptor networks got no ELEV/HILL rows under elevated
   terrain.** `PolarGrid.to_aermod_input` took no terrain context, so a
   GRIDPOLR network in an `ELEV` run, or a `DFAULT` one (which forces
