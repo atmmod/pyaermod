@@ -23,6 +23,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (a path, a `read_plotfile` result or a DataFrame, through the new
   `visualization.plotfile_frame`) gives the value at every receptor; the
   maximum is marked from it too.
+- **`OpenPitSource.from_area(area, depth=... | volume=...)` turns a
+  rectangular AREA stand-in into the OPENPIT source, and
+  `AreaSource.depth_hint` makes the validator advise one.** An AREA
+  source with a pit's footprint models a flat release in which nothing
+  settles inside the pit; AERMOD's OPENPIT source adds the escape
+  fraction `1 / (1 + Vg / (0.029 Uref))` per particle category
+  (pitarea.f ESCAPE, run whenever the source has particle categories),
+  a release with σz0 = depth / 4.3 from an effective area on the upwind
+  side (soset.f OPARM, pitarea.f PITEFF) and the in-pit receptor skip
+  (calc1.f PITCALC). `from_area` carries the corner, sides, angle,
+  emission rate, groups, urban flag, NO2 ratio and deposition fields
+  over, takes the depth or the volume (`volume = depth * Xinit *
+  Yinit`), drops `initial_sigma_z` (OPENPIT sets its own) and refuses
+  building downwash (OPENPIT has none); on EPA's `openpits` deck it
+  rebuilds each OPENPIT source's cards from the matching AREA.
+  `depth_hint` (m) is written nowhere, because AREA has no depth; the
+  validator reports a warning naming `from_area` when it is set and
+  deposition is on or the source has particle categories, and an error
+  when it is not above 0. The GUI shows it under Advanced.
+  `docs/common-errors.md` gains "an AREA source used for a pit".
 - **Ten Common AERMOD Jobs (`docs/use-cases.md`).** A docs page with
   ten end-to-end scripts in `examples/use_cases/`: a single stack, a
   facility with source groups, BPIP-PRIME downwash, fugitive area and
@@ -570,6 +590,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     before. So is a renamed file name longer than AERMOD's 200
     characters (E291).
 
+### Deprecated
+- **`bins_from_cut_points` without `tail=` when the edges reach beyond
+  the largest cut point.** The bins above still get no mass, as before,
+  but a `FutureWarning` now names the choices (`tail="zero"`, a
+  power-law exponent, a `LognormalCDF` or another cumulative
+  distribution); the next release will raise `ValueError` there.
+
 ### Fixed
 - **`run_design` dropped the per-period PLOTFILEs and POSTFILEs.**
   `OutputPathway.period_plot_files` and `period_postfiles` were not among
@@ -646,6 +673,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says so. `examples/use_cases` no longer works around any of the above:
   use case 7 reads `exceeds` from the report, 8 downloads with
   `download_dem` alone, and 10 passes one KMZ colour per level.
+- **`SizeDistribution.to_deposition_params(density=...)` converts to
+  Stokes diameters whenever the density is not 1.** AERMOD reads
+  `PARTDIAM` as the physical diameter of a particle of `PARTDENS`
+  (soset.f VDP1), while a `SizeDistribution` holds aerodynamic
+  diameters; the method converted only on `stokes=True`, so its default
+  wrote aerodynamic diameters beside the given density and AERMOD
+  settled every category about that many times too fast (2.65 times at
+  2.65 g/cm³, the `AERO265` source of `tests/fixtures/psd/` against its
+  `AERO1`). The default now converts with `aerodynamic_to_stokes` when
+  the density is not 1 and reproduces the fixture's `STOKES` deck;
+  `stokes=True` keeps its meaning; `convert=False` (or the old
+  `stokes=False`) writes the aerodynamic diameters unchanged and warns;
+  `diameter_convention="stokes"` passes a distribution already measured
+  as physical diameters through unconverted. `ParticleDepositionParams`
+  gains `diameter_convention` (`"stokes"`, `"aerodynamic"` or `None` when
+  unknown, as for a deck read from a file), set by the method and saved
+  in the project file, and the validator warns on a source whose
+  categories are aerodynamic beside any density other than 1 (AERMOD
+  has no message code for it). The desktop GUI shows Method 1 categories
+  read-only, so no form changes; `docs/psd.md` and `docs/common-errors.md`
+  describe the convention.
+- **`bins_from_cut_points` no longer reports the mass above the largest
+  cut point as 0.** Cut points say nothing above the largest of them
+  (AP-42's particle size multipliers stop at 30 µm), but the log-linear
+  CDF is flat there, so bins reaching beyond it silently got no mass and
+  `truncated_above` was reported as 0, hiding the tail. `truncated_above`
+  (and `truncated_below`) are now `Optional[float]` and `None` when the
+  distribution does not say: `bins_from_cdf` reports `None` for bins
+  that reach a `LogLinearCDF`'s last knot (`top_knot`), and for any
+  distribution with no upper limit. `bins_from_cut_points` takes
+  `tail=`: `"zero"` (no mass above, `truncated_above` 0), a power-law
+  exponent `m` (the cumulative mass continues as
+  `F(top) * (d / top) ** m`, unbounded), or a `LognormalCDF` or any
+  `CumulativeMassDistribution`, continued with its own shape scaled to
+  agree at the largest cut point; the mass a tail adds raises
+  `anchor_ratio` with the default anchor, so a PM30 rate is scaled up for
+  it (2.5 for the AP-42 13.2.4 multipliers on bins to 75 µm with
+  `tail=1.0`). `docs/psd.md` gains "AP-42 stops at 30 microns".
+- **The validator reports E251: deposition with an RLINE, RLINEXT or
+  BUOYLINE source.** AERMOD refuses a deck with DEPOS, DDEP or WDEP in
+  MODELOPT and any BUOYLINE source, or else any RLINE or RLINEXT source
+  (soset.f SRCQA, E251), while `RLineSource`, `RLineExtSource` and
+  `BuoyLineSource` carry deposition fields and the validator let such a
+  project through to the run. `Validator.validate` now reports an error
+  on each such source when any of `ControlPathway.calculate_deposition`,
+  `calculate_dry_deposition` or `calculate_wet_deposition` is set; LINE,
+  AREA and VOLUME sources are unaffected. `docs/common-errors.md` gains
+  the entry.
 - **The EX01 deck-keyword tests read EPA's runstreams from the vendored
   fixtures and run in every PR.** `test_stage1_matches_epa_ex01_keywords`
   and `test_stage3_matches_epa_ex01_keywords` compared pyaermod's EX01

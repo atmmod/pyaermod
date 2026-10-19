@@ -30,7 +30,9 @@ Conventions
 Every diameter this module takes or returns is in microns. Distributions
 are held in *aerodynamic* diameter; bin edges, cut points and lognormal
 medians are aerodynamic. :meth:`SizeDistribution.to_deposition_params`
-converts to Stokes diameters only when asked.
+converts them to Stokes diameters whenever the density it is given is
+not 1, because that is the diameter AERMOD reads, and records which kind
+it wrote in ``ParticleDepositionParams.diameter_convention``.
 
 A bin's representative diameter is, by default, the mean-mass diameter
 ``((d1^3 + d1^2 d2 + d1 d2^2 + d2^3)/4)^(1/3)`` (:func:`mean_mass_diameter`),
@@ -65,7 +67,8 @@ from __future__ import annotations
 import bisect
 import math
 import types
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Iterable, List, Mapping, Optional, Protocol, Sequence, Tuple
 
@@ -107,6 +110,7 @@ _RHOAIR = 1.2e-3         # density of air, g/cm^3
 _G = 9.80616             # m/s^2
 
 _REPRESENTATIVES = ("mean_mass", "settling_equivalent")
+_CONVENTIONS = ("aerodynamic", "stokes")
 
 
 # ============================================================================
@@ -339,6 +343,13 @@ class LogLinearCDF:
         """``F`` above the last knot."""
         return self._f[-1]
 
+    @property
+    def top_knot(self) -> float:
+        """The largest knot diameter. The CDF is flat above it, which says
+        nothing about the mass there: :func:`bins_from_cdf` reports
+        ``truncated_above`` as unknown for bins that reach it."""
+        return self._d[-1]
+
     def __call__(self, diameter: float) -> float:
         if not diameter >= 0:
             raise ValueError(f"diameter must be 0 or above, got {diameter!r}")
@@ -392,6 +403,71 @@ class LognormalCDF:
         return 0.5 * math.erfc(-z / math.sqrt(2.0))
 
 
+@dataclass(frozen=True)
+class _PowerLawCDF:
+    """Cumulative mass ``d ** exponent``: the Gates-Gaudin-Schuhmann form
+    for crushed material, unbounded above."""
+
+    exponent: float
+
+    @property
+    def lower_limit(self) -> float:
+        return 0.0
+
+    @property
+    def upper_limit(self) -> float:
+        return math.inf
+
+    def __call__(self, diameter: float) -> float:
+        return float(diameter) ** self.exponent
+
+
+@dataclass(frozen=True)
+class _ContinuedCDF:
+    """``base`` up to ``top``, then ``tail`` scaled to agree with it there:
+    ``F(d) = base(top) * tail(d) / tail(top)`` for ``d > top``."""
+
+    base: CumulativeMassDistribution
+    top: float
+    tail: CumulativeMassDistribution
+
+    def __post_init__(self) -> None:
+        if not self.tail(self.top) > 0:
+            raise ValueError(
+                f"the tail distribution has no mass below the last cut point {self.top:g}, "
+                "so it cannot be scaled to continue from there"
+            )
+
+    @property
+    def lower_limit(self) -> float:
+        return self.base.lower_limit
+
+    @property
+    def upper_limit(self) -> float:
+        return self.base(self.top) * self.tail.upper_limit / self.tail(self.top)
+
+    def __call__(self, diameter: float) -> float:
+        if diameter <= self.top:
+            return self.base(diameter)
+        return self.base(self.top) * self.tail(diameter) / self.tail(self.top)
+
+
+def _tail_cdf(tail: object) -> CumulativeMassDistribution:
+    """The continuation ``tail=`` of :func:`bins_from_cut_points` names."""
+    if isinstance(tail, bool) or not isinstance(tail, (int, float)):
+        if all(hasattr(tail, a) for a in ("lower_limit", "upper_limit", "__call__")):
+            return tail  # type: ignore[return-value]
+        raise ValueError(
+            "tail must be 'zero', a power-law exponent above 0, or a cumulative mass "
+            f"distribution (LognormalCDF or one with the same interface), got {tail!r}"
+        )
+    if not (math.isfinite(tail) and tail > 0):
+        raise ValueError(
+            f"a power-law tail needs an exponent above 0, got {tail!r}; use tail='zero' for no mass"
+        )
+    return _PowerLawCDF(float(tail))
+
+
 # ============================================================================
 # Binned distributions
 # ============================================================================
@@ -431,16 +507,18 @@ class SizeDistribution:
         not lost but spread over the bins. Mass between the last edge and
         an anchor beyond it *is* lost, and lowers the ratio. 1 when the
         last edge is the anchor.
-    truncated_below, truncated_above : float
+    truncated_below, truncated_above : float or None
         Fractions of the whole distribution that lie below the first edge
-        and above the last edge, and so are not modelled.
+        and above the last edge, and so are not modelled. ``None`` when
+        the distribution does not say: cut points say nothing above the
+        largest of them, and a power-law tail has no upper limit.
     """
 
     edges: Tuple[float, ...]
     mass_fractions: Tuple[float, ...]
     anchor_ratio: float = 1.0
-    truncated_below: float = 0.0
-    truncated_above: float = 0.0
+    truncated_below: Optional[float] = 0.0
+    truncated_above: Optional[float] = 0.0
 
     def __post_init__(self) -> None:
         edges = _check_edges(self.edges)
@@ -457,6 +535,8 @@ class SizeDistribution:
             raise ValueError(f"mass fractions must sum to 1, they sum to {total!r}")
         for name in ("anchor_ratio", "truncated_below", "truncated_above"):
             value = getattr(self, name)
+            if value is None and name != "anchor_ratio":
+                continue
             if not (math.isfinite(value) and value >= 0):
                 raise ValueError(f"{name} must be finite and 0 or above, got {value!r}")
         object.__setattr__(self, "edges", edges)
@@ -503,30 +583,59 @@ class SizeDistribution:
 
     def to_deposition_params(self, density: float = 1.0, *,
                              representative: str = "mean_mass",
-                             stokes: bool = False,
+                             convert: Optional[bool] = None,
+                             stokes: Optional[bool] = None,
                              slip: bool = True,
-                             drop_empty: bool = False) -> ParticleDepositionParams:
+                             drop_empty: bool = False,
+                             diameter_convention: str = "aerodynamic") -> ParticleDepositionParams:
         """Build the ``PARTDIAM``/``MASSFRAX``/``PARTDENS`` lists for a source.
+
+        AERMOD reads ``PARTDIAM`` as the physical (Stokes) diameter of a
+        particle of density ``PARTDENS`` (``soset.f`` VDP1), while this
+        class holds aerodynamic diameters. With a ``density`` other than
+        1 the diameters are therefore converted with
+        :func:`aerodynamic_to_stokes` before they are written, so that
+        each bin settles in AERMOD as its aerodynamic size says. The
+        result's ``diameter_convention`` records what was written.
 
         Parameters
         ----------
         density : float
-            Particle density (g/cm^3) for every bin.
+            Particle density (g/cm^3) for every bin, written to ``PARTDENS``.
         representative : str
             ``"mean_mass"`` or ``"settling_equivalent"``; see :meth:`diameters`.
-        stokes : bool
-            ``False`` (the default) writes the aerodynamic diameters with
-            ``density``: with the default ``density=1.0`` AERMOD then
-            settles each bin as its aerodynamic size says. ``True``
-            converts each diameter with :func:`aerodynamic_to_stokes` for
-            ``density``, so the physical particles of that density settle
-            at the same speed.
+        convert : bool, optional
+            Whether to convert the aerodynamic diameters to Stokes
+            diameters for ``density``. By default they are converted
+            whenever ``density`` is not 1 (at 1 the two are the same).
+            ``False`` writes the aerodynamic diameters unchanged beside
+            ``density``: with a density other than 1 that makes AERMOD
+            settle every bin about ``density`` times faster than its
+            aerodynamic size says, so this method warns and the validator
+            warns again on the source.
+        stokes : bool, optional
+            The older spelling of ``convert``: ``True`` converts and
+            ``False`` does not. Earlier releases defaulted to ``False`` and
+            so wrote aerodynamic diameters beside whatever density was
+            given.
         slip : bool
-            Passed to :func:`aerodynamic_to_stokes` when ``stokes`` is set.
+            Passed to :func:`aerodynamic_to_stokes`. ``True`` (the default)
+            solves AERMOD's own settling equation, slip factor included,
+            so the converted bin settles exactly as the aerodynamic one
+            does; ``False`` is the textbook ``d_a / sqrt(rho)``, which
+            AERMOD settles up to about 11 % too fast for the finest bins
+            (``tests/fixtures/psd/``).
         drop_empty : bool
             Leave out bins whose mass fraction is 0. AERMOD accepts them
             (E332 allows 0), and keeping them keeps every source on the
             same bins.
+        diameter_convention : str
+            What the distribution's edges are: ``"aerodynamic"`` (the
+            default, this class's convention) or ``"stokes"`` for a
+            distribution measured as physical diameters of particles of
+            ``density`` (a sieve or laser-diffraction analysis). Stokes
+            edges are written as they are, with no conversion and no
+            warning.
 
         Raises
         ------
@@ -534,14 +643,41 @@ class SizeDistribution:
             If a diameter, rounded to the four significant digits the
             source writer puts on ``PARTDIAM``, falls outside AERMOD's
             accepted range, above 0.001 and up to 1000 microns (E335), or
-            ``density`` is not above 0 (E334). The diameters returned are
-            not rounded.
+            ``density`` is not above 0 (E334), or ``convert`` and
+            ``stokes`` disagree. The diameters returned are not rounded.
         """
         if not (math.isfinite(density) and density > 0):
             raise ValueError(f"density must be above 0 (AERMOD E334), got {density!r}")
+        if diameter_convention not in _CONVENTIONS:
+            raise ValueError(
+                f"diameter_convention must be one of {_CONVENTIONS}, got {diameter_convention!r}"
+            )
+        if stokes is not None:
+            if convert is not None and convert != stokes:
+                raise ValueError(f"convert={convert!r} and stokes={stokes!r} disagree")
+            convert = stokes
         diameters = self.diameters(representative)
-        if stokes:
+        if diameter_convention == "stokes":
+            if convert:
+                raise ValueError("a distribution in Stokes diameters is written as it is; "
+                                 "convert=True would convert it twice")
+            written = "stokes"
+        elif density == 1.0:
+            # Aerodynamic and Stokes diameters coincide at unit density.
+            written = "aerodynamic"
+        elif convert is None or convert:
             diameters = [aerodynamic_to_stokes(d, density, slip=slip) for d in diameters]
+            written = "stokes"
+        else:
+            warnings.warn(
+                f"aerodynamic diameters written beside a density of {density:g} g/cm^3: "
+                "AERMOD reads PARTDIAM as the Stokes diameter of a particle of PARTDENS, "
+                f"so every bin will settle about {density:g} times faster than its "
+                "aerodynamic size says. Leave convert unset to convert the diameters, "
+                "or use density=1.0",
+                stacklevel=2,
+            )
+            written = "aerodynamic"
         keep = [i for i, f in enumerate(self.mass_fractions) if f > 0 or not drop_empty]
         diameters = [diameters[i] for i in keep]
         # INPPDM checks the number on the card, so check the diameter as
@@ -559,6 +695,7 @@ class SizeDistribution:
             diameters=diameters,
             mass_fractions=fractions,
             densities=[float(density)] * len(keep),
+            diameter_convention=written,
         )
 
 
@@ -569,6 +706,10 @@ def bins_from_cdf(cdf: CumulativeMassDistribution, edges: Sequence[float], *,
     The mass below the first edge and above the last is dropped
     (``truncated_below`` and ``truncated_above`` report it as fractions of
     the whole distribution) and the rest is renormalised to sum to 1.
+    ``truncated_above`` is ``None`` when the bins reach the last knot of a
+    :class:`LogLinearCDF`, which is flat there and so says nothing about
+    the mass above it; both are ``None`` when the distribution has no
+    upper limit (a power-law tail).
 
     Parameters
     ----------
@@ -598,18 +739,32 @@ def bins_from_cdf(cdf: CumulativeMassDistribution, edges: Sequence[float], *,
     if not anchor_mass > 0:
         raise ValueError(f"the distribution has no mass between {e[0]} and the anchor {anchor_d}")
     whole = cdf.upper_limit - cdf.lower_limit
+    below: Optional[float]
+    above: Optional[float]
+    if f[0] == cdf.lower_limit:
+        below = 0.0
+    elif math.isfinite(whole):
+        below = (f[0] - cdf.lower_limit) / whole
+    else:
+        below = None
+    top_knot = getattr(cdf, "top_knot", None)
+    if not math.isfinite(whole) or (top_knot is not None and e[-1] >= top_knot):
+        above = None
+    else:
+        above = (cdf.upper_limit - f[-1]) / whole
     return SizeDistribution(
         edges=e,
         mass_fractions=tuple(r / total for r in raw),
         anchor_ratio=total / anchor_mass,
-        truncated_below=(f[0] - cdf.lower_limit) / whole,
-        truncated_above=(cdf.upper_limit - f[-1]) / whole,
+        truncated_below=below,
+        truncated_above=above,
     )
 
 
 def bins_from_cut_points(cut_points: Mapping[float, float], edges: Sequence[float], *,
                          lower: Optional[float] = None,
-                         anchor: Optional[float] = None) -> SizeDistribution:
+                         anchor: Optional[float] = None,
+                         tail: object = None) -> SizeDistribution:
     """Bins from cumulative mass at cut points, log-linear in between.
 
     Parameters
@@ -627,8 +782,25 @@ def bins_from_cut_points(cut_points: Mapping[float, float], edges: Sequence[floa
         point must lie above it.
     anchor : float, optional
         The diameter the emission rate refers to; defaults to the largest
-        cut point. See :func:`bins_from_cdf`. Mass above the largest cut
-        point is not modelled, so bins above it get 0.
+        cut point. See :func:`bins_from_cdf`.
+    tail : ``"zero"``, float or cumulative distribution, optional
+        What lies above the largest cut point, needed when the edges
+        reach beyond it: the cut points say nothing there (AP-42's
+        multipliers stop at 30 microns), so ``truncated_above`` is
+        ``None`` unless the tail says. ``"zero"`` puts no mass above it
+        (``truncated_above`` 0). A number is a power-law exponent ``m``:
+        the cumulative mass continues as ``F(top) * (d / top) ** m``
+        (the Gates-Gaudin-Schuhmann form for crushed material), unbounded,
+        so ``truncated_above`` and ``truncated_below`` are ``None``. A
+        :class:`LognormalCDF`, or any object with the
+        :class:`CumulativeMassDistribution` interface, continues the
+        distribution with its own shape, scaled to agree at the largest
+        cut point: ``F(d) = F(top) * tail(d) / tail(top)``. In every case
+        the mass added above the largest cut point raises ``anchor_ratio``
+        with the default anchor, so the anchor's emission rate is scaled
+        up for it. Left out with edges beyond the largest cut point, the
+        bins there get no mass and a ``FutureWarning`` names the choices;
+        a future release will require ``tail`` there.
     """
     e = _check_edges(edges)
     low = e[0] if lower is None else float(lower)
@@ -640,7 +812,25 @@ def bins_from_cut_points(cut_points: Mapping[float, float], edges: Sequence[floa
         raise ValueError(f"every cut point must lie above the lower diameter {low}")
     knots = {low: 0.0, **{float(d): float(v) for d, v in cut_points.items()}}
     top = max(float(d) for d in cut_points)
-    return bins_from_cdf(LogLinearCDF(knots), e, anchor=top if anchor is None else anchor)
+    cdf: CumulativeMassDistribution = LogLinearCDF(knots)
+    zero_tail = isinstance(tail, str) and tail == "zero"
+    if tail is not None and not zero_tail:
+        tail_cdf = _tail_cdf(tail)
+        if e[-1] > top:
+            cdf = _ContinuedCDF(cdf, top, tail_cdf)
+    elif tail is None and e[-1] > top:
+        warnings.warn(
+            f"the bins reach {e[-1]:g} microns but the cut points stop at {top:g}, and the "
+            "bins above get no mass. Pass tail='zero' to keep that, a power-law exponent "
+            "to continue the cumulative mass as F(top) * (d / top) ** m, or a LognormalCDF "
+            "(or other cumulative distribution) to continue it with that shape; a future "
+            "release will require tail= here",
+            FutureWarning, stacklevel=2,
+        )
+    dist = bins_from_cdf(cdf, e, anchor=top if anchor is None else anchor)
+    if zero_tail:
+        dist = replace(dist, truncated_above=0.0)
+    return dist
 
 
 def bins_from_lognormal(mass_median_diameter: float, geometric_std: float,

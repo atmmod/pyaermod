@@ -1989,25 +1989,25 @@ def _parse_output(block: _PathwayBlock,
                 fname = toks[2] if is_period else (
                     toks[3] if len(toks) >= 4 else None
                 )
-                rank = None if is_period else toks[2].upper()
+                plot_rank = "" if is_period else toks[2].upper()
                 # OUPLOT reads a number, FIRST-TENTH or 1ST-10TH
                 rank_ok = is_period or (
-                    (rank.isdigit() and int(rank) >= 1)
-                    or rank in PLOT_RANK_WORDS or rank in PLOT_RANK_ORDINALS)
+                    (plot_rank.isdigit() and int(plot_rank) >= 1)
+                    or plot_rank in PLOT_RANK_WORDS or plot_rank in PLOT_RANK_ORDINALS)
                 expected = 3 if is_period else 4
                 if fname is None or not rank_ok or len(toks) != expected:
                     _drop(dropped, ln)
                     continue
-                is_first = is_period or plot_rank_number(rank) == 1
+                is_first = is_period or plot_rank_number(plot_rank) == 1
                 if group.upper() == "ALL" and plot_file is None:
                     plot_file = fname
                     plot_file_averaging = period
                     if not is_first:
-                        plot_file_rank = rank
+                        plot_file_rank = plot_rank
                 elif is_first:
                     plot_file_groups.append((period, group, fname))
                 else:
-                    plot_file_groups.append((period, group, fname, rank))
+                    plot_file_groups.append((period, group, fname, plot_rank))
             else:
                 _drop(dropped, ln)
         elif kw == "POSTFILE" and len(toks) == 4 and postfile is None:
@@ -2412,8 +2412,8 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         _check(f"output.eval_files[{ef.source_id}]", ef.filename)
     for tf in out.toxx_files:
         _check(f"output.toxx_files[{tf.averaging_period}]", tf.filename)
-    for entry in (out.plot_file_groups or []):
-        period, group, fname, _rank = plot_file_group_fields(entry)
+    for group_entry in (out.plot_file_groups or []):
+        period, group, fname, _rank = plot_file_group_fields(group_entry)
         _check(f"output.plot_file_groups[{group}/{period}]", fname)
     for label, entries in (("max_daily_files", out.max_daily_files),
                            ("max_daily_by_year_files", out.max_daily_by_year_files),
