@@ -165,3 +165,43 @@ def test_debug_files_on_two_workers(tmp_path):
     again = run_design(rows, build, root, n_workers=2)
     assert again.n_run == 1 and not again[runs[1].run_id].skipped
     assert (runs[1].run_dir / "met.dbg").stat().st_size > 0
+
+
+def test_period_files_on_two_workers(tmp_path):
+    """OutputPathway.period_plot_files and period_postfiles name one file
+    per averaging period (here 1 hour and PERIOD) outside the run
+    directory: each run writes them in its own directory, the manifest
+    records them, collect_plotfiles reads the plot files, and a run whose
+    POSTFILE is removed is made again."""
+    def build(factors):
+        project = design.build(factors)
+        # AERMOD takes one PLOTFILE per group and period, so these replace
+        # the design's own
+        project.output.plot_file = None
+        project.output.plot_file_groups = []
+        project.output.period_plot_files = "../out/per"
+        project.output.period_postfiles = "/nonexistent-pyaermod-dir/post"
+        return project
+
+    root = tmp_path / "design"
+    rows = design.ROWS[:2]
+    result = run_design(rows, build, root, n_workers=2)
+    assert result.all_succeeded, [r.entry.error_message for r in result.values()]
+    runs = list(result.values())
+    plots = ["per_01H.plt", "per_PERIOD.plt"]
+    posts = ["post_01H.pst", "post_PERIOD.pst"]
+    for run in runs:
+        assert run.entry.outputs == {"PLOTFILE": plots, "POSTFILE": posts}
+        for name in plots + posts:
+            assert (run.run_dir / name).stat().st_size > 0
+    for run in runs:
+        assert len(read_plotfile(run.run_dir / "per_PERIOD.plt").records) == 72
+    table = collect_plotfiles(root, out_stem=None)
+    assert set(table["plotfile"]) == set(plots) and len(table) == 2 * 2 * 72
+    assert not (tmp_path / "out").exists() and not (root / "out").exists()
+
+    assert run_design(rows, build, root, n_workers=2).n_skipped == 2
+    (runs[1].run_dir / "post_PERIOD.pst").unlink()
+    again = run_design(rows, build, root, n_workers=2)
+    assert again.n_run == 1 and not again[runs[1].run_id].skipped
+    assert (runs[1].run_dir / "post_PERIOD.pst").stat().st_size > 0

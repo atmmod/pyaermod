@@ -58,6 +58,17 @@ GAP_TIMEOUT_MS = 1_500
 SERVER_START_TIMEOUT_S = 60
 
 TRACEBACK = "Traceback (most recent call last):"
+# The line Python prints between two tracebacks of one chained exception.
+CHAINED = re.compile(r"^(The above exception was the direct cause of the following "
+                     r"exception:|During handling of the above exception, another "
+                     r"exception occurred:)$", re.M)
+# Starlette's BaseHTTPMiddleware when the browser drops a request before the
+# app answers (a page closed or navigated away mid-fetch): the request's
+# stream ends inside call_next, which then gives up with "No response
+# returned.". Uvicorn logs the pair as one chained traceback. It says
+# nothing about the app, so the journeys ignore exactly this pair.
+_IN_CALL_NEXT = re.compile(r'starlette[/\\]middleware[/\\]base\.py", line \d+, in call_next')
+CLIENT_DISCONNECT = ("anyio.EndOfStream", "RuntimeError: No response returned.")
 
 
 def free_port() -> int:
@@ -210,14 +221,27 @@ class GuiServer:
         return len(self.log_text())
 
     def tracebacks(self, start: int = 0, end: Optional[int] = None) -> List[str]:
-        """Each traceback in the log between two offsets, with its last line."""
+        """Each traceback in the log between two offsets, by its last line.
+
+        A dropped browser request (``CLIENT_DISCONNECT``) is left out.
+        """
         text = self.log_text()[start:end]
-        found = []
+        # One logged exception: its traceback, then one more per chained cause.
+        exceptions: List[List[str]] = []
+        chained = False
         for chunk in text.split(TRACEBACK)[1:]:
-            lines = [ln for ln in chunk.splitlines() if ln.strip()]
-            # The exception line is the first unindented line after the frames.
-            tail = next((ln for ln in lines if not ln.startswith(" ")), "")
-            found.append(tail)
+            if chained:
+                exceptions[-1].append(chunk)
+            else:
+                exceptions.append([chunk])
+            chained = CHAINED.search(chunk) is not None
+        found = []
+        for chunks in exceptions:
+            tails = [_exception_line(c) for c in chunks]
+            if tuple(tails) == CLIENT_DISCONNECT and all(
+                    _IN_CALL_NEXT.search(c) for c in chunks):
+                continue
+            found.extend(tails)
         return found
 
     def fake_events(self, kind: Optional[str] = None) -> List[dict]:
@@ -226,6 +250,12 @@ class GuiServer:
         events = [json.loads(ln) for ln in
                   self.fake_log.read_text(encoding="utf-8").splitlines() if ln]
         return [e for e in events if kind is None or e["event"] == kind]
+
+
+def _exception_line(chunk: str) -> str:
+    """The exception line of one traceback: the first unindented line after the frames."""
+    lines = [ln for ln in chunk.splitlines() if ln.strip()]
+    return next((ln for ln in lines if not ln.startswith(" ")), "")
 
 
 @dataclass

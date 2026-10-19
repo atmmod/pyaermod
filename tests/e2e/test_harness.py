@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -22,6 +23,9 @@ from .fake_aermod import deck_diff, normalize_deck
 from .harness import (
     RECORDINGS,
     REPO,
+    TRACEBACK,
+    GuiServer,
+    Journey,
     KnownGap,
     PlaywrightTimeoutError,
     install_fake_aermod,
@@ -194,6 +198,63 @@ def test_recording_manifest_names_version_and_outputs(scenario):
     expected = {"albany_success": (0, True), "albany_e480": (1, False),
                 "missing_met": (1, False), "aertest": (0, True)}[scenario]
     assert (manifest["fatal_errors"], manifest["finishes_successfully"]) == expected
+
+
+# -- server-log tracebacks -------------------------------------------------------
+
+# The server log of a j05 run on CI (2026-10-19) whose only traceback is the
+# browser dropping a request when the journey's tab closed.
+DISCONNECT_LOG = (REPO / "tests" / "fixtures" / "gui"
+                  / "server_log_client_disconnect.log").read_text()
+
+REAL_TRACEBACK = """\
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/src/pyaermod/gui_v2/pages/results.py", line 445, in draw
+    src = await run.io_bound(_map_src, current, units, sources)
+ValueError: no plot file
+"""
+
+
+def _server_with_log(tmp_path, text):
+    server = GuiServer(tmp_path, recording=None, delay=0)
+    server.log_path.write_text(text)
+    return server
+
+
+def _hidden_problems(server):
+    journey = types.SimpleNamespace(server=server, gap_hit=None, browser_errors=[])
+    return Journey.hidden_problems(journey)
+
+
+def test_a_dropped_browser_request_is_not_a_hidden_problem(tmp_path):
+    server = _server_with_log(tmp_path, DISCONNECT_LOG)
+    assert DISCONNECT_LOG.count(TRACEBACK) == 2
+    assert server.tracebacks() == []
+    assert _hidden_problems(server) == []
+
+
+@pytest.mark.parametrize("real_first", [True, False])
+def test_a_real_traceback_beside_a_dropped_request_is_still_reported(tmp_path, real_first):
+    log = REAL_TRACEBACK + DISCONNECT_LOG if real_first else DISCONNECT_LOG + REAL_TRACEBACK
+    server = _server_with_log(tmp_path, log)
+    assert server.tracebacks() == ["ValueError: no plot file"]
+    problems = _hidden_problems(server)
+    assert len(problems) == 1
+    assert "1 Python traceback(s): ValueError: no plot file" in problems[0]
+
+
+@pytest.mark.parametrize("edit", [
+    # Half the pair: the stream ended, but nothing chained to it.
+    lambda log: log[:log.index("The above exception")],
+    # The same two exceptions, but not raised in Starlette's call_next.
+    lambda log: log.replace("in call_next", "in receive"),
+    # Another error chained to the ended stream.
+    lambda log: log.replace("RuntimeError: No response returned.", "KeyError: 'client'"),
+])
+def test_only_the_whole_disconnect_pair_is_ignored(tmp_path, edit):
+    server = _server_with_log(tmp_path, edit(DISCONNECT_LOG))
+    assert server.tracebacks() != []
 
 
 # -- known gaps -------------------------------------------------------------------
