@@ -22,7 +22,7 @@ from pyaermod.input_generator import (
     SourcePathway,
 )
 from pyaermod.input_reader import parse_aermod_input
-from pyaermod.pathways import OutputPathway, period_file_name
+from pyaermod.pathways import OutputPathway, period_file_name, plot_rank_token
 from pyaermod.validator import Validator
 
 
@@ -101,3 +101,47 @@ def test_noheader_counts_period_files_as_in_use():
     project.output.period_plot_files = "p"
     project.output.period_postfiles = "p"
     assert "no_header" not in {e.field for e in Validator.validate(project).errors}
+
+
+@pytest.mark.parametrize("rank, token", [
+    ("FIRST", "FIRST"), (1, "1ST"), (2, "2ND"), ("H2H", "2ND"), ("h8h", "8TH"),
+    ("8TH", "8TH"), ("EIGHTH", "EIGHTH"), ("4", "4TH"), (12, "12"),
+])
+def test_plot_rank_token(rank, token):
+    assert plot_rank_token(rank) == token
+
+
+@pytest.mark.parametrize("rank", ["H0H", 0, "11TH", "BEST", True, -2])
+def test_plot_rank_rejects(rank):
+    with pytest.raises(ValueError):
+        plot_rank_token(rank)
+
+
+def test_short_term_plot_files_take_another_rank():
+    # The 24-hour PM2.5 NAAQS reads the H8H and the 1-hour SO2 the H4H;
+    # every short-term PLOTFILE used to be written FIRST.
+    out = OutputPathway(period_plot_files="run", plot_file_rank="H8H",
+                        plot_file="a.plt", plot_file_averaging="24",
+                        plot_file_groups=[("1", "G1", "g1.plt"),
+                                          ("1", "G2", "g2.plt", 2),
+                                          ("ANNUAL", "G2", "g2a.plt", 2)])
+    lines = [ln.split() for ln in out.to_aermod_input(averaging_periods=["24", "ANNUAL"])
+             .splitlines()]
+    assert ["PLOTFILE", "24", "ALL", "8TH", "run_24H.plt"] in lines
+    assert ["PLOTFILE", "ANNUAL", "ALL", "run_ANNUAL.plt"] in lines
+    assert ["PLOTFILE", "24", "ALL", "8TH", "a.plt"] in lines
+    assert ["PLOTFILE", "1", "G1", "FIRST", "g1.plt"] in lines
+    assert ["PLOTFILE", "1", "G2", "2ND", "g2.plt"] in lines
+    assert ["PLOTFILE", "ANNUAL", "G2", "g2a.plt"] in lines
+
+
+def test_ranked_plot_files_read_back():
+    project = _albany_project(["1", "24", "PERIOD"], "AERMET2.SFC")
+    project.output.receptor_table_rank = 8
+    project.output.period_plot_files = "p"
+    project.output.plot_file_rank = 8
+    deck = project.to_aermod_input(validate=False)
+    again = parse_aermod_input(deck)
+    assert again.output.plot_file_rank == "8TH"
+    assert not again.unparsed_lines
+    assert again.to_aermod_input(validate=False).count("8TH") == 2

@@ -791,3 +791,170 @@ class TestTerrainProcessorProcess:
                 dem_files=None,
                 working_dir=str(tmp_path),
             )
+
+
+# ============================================================================
+# DEM versions, TNM retries, uncompressed tiles, relative DEM paths
+# ============================================================================
+
+
+class TestDEMTileVersions:
+    """The TNM API lists every dated version of a tile; all were downloaded."""
+
+    @pytest.fixture
+    def mock_requests(self):
+        with patch("pyaermod.terrain.requests") as mock_req, patch("pyaermod.terrain.HAS_REQUESTS", True):
+            yield mock_req
+
+    @staticmethod
+    def _response(items, status=200):
+        r = MagicMock()
+        r.status_code = status
+        r.json.return_value = {"items": items}
+        return r
+
+    ITEMS = [
+        {"title": "n42w074 2022", "publicationDate": "2022-08-01",
+         "downloadURL": "https://x/historical/n42w074/USGS_1_n42w074_20220801.tif"},
+        {"title": "n42w075", "publicationDate": "2021-01-01",
+         "downloadURL": "https://x/historical/n42w075/USGS_1_n42w075_20210101.tif"},
+        {"title": "n42w074 2023", "publicationDate": "2023-03-14",
+         "downloadURL": "https://x/historical/n42w074/USGS_1_n42w074_20230314.tif"},
+        {"title": "n42w074 2019", "publicationDate": "2019-05-01",
+         "downloadURL": "https://x/historical/n42w074/USGS_1_n42w074_20190501.tif"},
+    ]
+
+    def test_newest_version_of_each_tile(self, mock_requests, tmp_path):
+        mock_requests.get.return_value = self._response(self.ITEMS)
+        tiles = DEMDownloader(cache_dir=tmp_path).find_tiles((-74.1, 41.1, -73.8, 41.4))
+        assert [t.title for t in tiles] == ["n42w074 2023", "n42w075"]
+        assert [t.date for t in tiles] == ["20230314", "20210101"]
+
+    def test_every_version_on_request(self, mock_requests, tmp_path):
+        mock_requests.get.return_value = self._response(self.ITEMS)
+        tiles = DEMDownloader(cache_dir=tmp_path).find_tiles(
+            (-74.1, 41.1, -73.8, 41.4), newest_only=False)
+        assert len(tiles) == 4
+
+    def test_publication_date_when_the_name_has_none(self):
+        from pyaermod.terrain import DEMTileInfo, newest_tiles
+        old = DEMTileInfo("a", "https://x/USGS_13_n42w074.tif", date="20200101")
+        new = DEMTileInfo("b", "https://y/USGS_13_n42w074.tif", date="20240101")
+        assert newest_tiles([old, new]) == [new]
+
+    def test_retries_a_504(self, mock_requests, tmp_path):
+        mock_requests.get.side_effect = [self._response([], 504), self._response([], 503),
+                                         self._response(self.ITEMS[:1])]
+        with patch("pyaermod.terrain.time.sleep") as sleep:
+            tiles = DEMDownloader(cache_dir=tmp_path).find_tiles((-74.1, 41.1, -73.8, 41.4))
+        assert len(tiles) == 1
+        assert [c.args[0] for c in sleep.call_args_list] == [5.0, 10.0]
+
+    def test_retries_a_dropped_connection(self, mock_requests, tmp_path):
+        mock_requests.get.side_effect = [ConnectionError("reset"), self._response(self.ITEMS[:1])]
+        with patch("pyaermod.terrain.time.sleep"):
+            tiles = DEMDownloader(cache_dir=tmp_path).find_tiles((0, 0, 1, 1), backoff=0.1)
+        assert len(tiles) == 1
+
+    def test_gives_up_after_the_retries(self, mock_requests, tmp_path):
+        final = self._response([], 504)
+        final.raise_for_status.side_effect = RuntimeError("504 Gateway Time-out")
+        mock_requests.get.side_effect = [self._response([], 504), final]
+        with patch("pyaermod.terrain.time.sleep"), pytest.raises(RuntimeError, match="504"):
+            DEMDownloader(cache_dir=tmp_path).find_tiles((0, 0, 1, 1), retries=1)
+        assert mock_requests.get.call_count == 2
+
+
+class TestUncompressedGeoTIFF:
+    """AERMAP 24142 stops on USGS's LZW tiles (E455, TiffTag 259)."""
+
+    def _lzw_tile(self, path):
+        rasterio = pytest.importorskip("rasterio")
+        import numpy as np
+        from rasterio.transform import from_origin
+        data = np.arange(64 * 64, dtype="float32").reshape(1, 64, 64)
+        with rasterio.open(path, "w", driver="GTiff", width=64, height=64, count=1,
+                           dtype="float32", crs="EPSG:4269", compress="lzw", tiled=True,
+                           blockxsize=32, blockysize=32,
+                           transform=from_origin(-74.0, 42.0, 1 / 3600, 1 / 3600)) as dst:
+            dst.write(data)
+        return data
+
+    def test_lzw_tile_is_rewritten_plain(self, tmp_path):
+        import rasterio
+
+        from pyaermod.terrain import write_uncompressed_geotiff
+        path = tmp_path / "USGS_1_n42w074_20230314.tif"
+        data = self._lzw_tile(path)
+        assert write_uncompressed_geotiff(path) is True
+        with rasterio.open(path) as src:
+            assert src.compression is None
+            assert not src.profile.get("tiled", False)
+            assert (src.read() == data).all()
+            assert src.crs.to_epsg() == 4269
+        assert write_uncompressed_geotiff(path) is False   # already plain
+
+    def test_download_tile_rewrites_a_cached_tile(self, tmp_path):
+        import rasterio
+        path = tmp_path / "USGS_1_n42w074_20230314.tif"
+        self._lzw_tile(path)
+        with patch("pyaermod.terrain.HAS_REQUESTS", True), patch("pyaermod.terrain.requests"):
+            out = DEMDownloader(cache_dir=tmp_path).download_tile(
+                DEMTileInfo("t", "https://x/USGS_1_n42w074_20230314.tif"))
+        with rasterio.open(out) as src:
+            assert src.compression is None
+
+    def test_not_a_raster_is_left_alone(self, tmp_path):
+        pytest.importorskip("rasterio")
+        from pyaermod.terrain import write_uncompressed_geotiff
+        path = tmp_path / "junk.tif"
+        path.write_bytes(b"not a tiff")
+        assert write_uncompressed_geotiff(path) is False
+        assert path.read_bytes() == b"not a tiff"
+
+
+class TestRelativeDEMPaths:
+    """AERMAP runs in working_dir, so a relative DEM path was E500 there."""
+
+    def test_dem_files_are_written_absolute(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "dem").mkdir()
+        (tmp_path / "dem" / "site.tif").write_bytes(b"")
+        sources = SourcePathway()
+        sources.add_source(PointSource(
+            source_id="S1", x_coord=500000.0, y_coord=4500000.0, stack_height=20.0,
+            stack_temp=350.0, exit_velocity=10.0, stack_diameter=1.0, emission_rate=5.0))
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(DiscreteReceptor(x_coord=500100.0, y_coord=4500000.0))
+        project = AERMODProject(
+            control=ControlPathway(title_one="t"), sources=sources, receptors=receptors,
+            meteorology=MeteorologyPathway(surface_file="t.sfc", profile_file="t.pfl"),
+            output=OutputPathway())
+        seen = {}
+
+        def fake_run(self, input_file, working_dir=None, timeout=None):
+            seen["deck"] = Path(input_file).read_text()
+            seen["cwd"] = working_dir
+            return AERMAPRunResult(success=False, input_file=input_file,
+                                   error_message="stop here")
+
+        with patch.object(AERMAPRunner, "__init__", return_value=None), \
+             patch.object(AERMAPRunner, "run", fake_run), \
+             pytest.raises(RuntimeError, match="stop here"):
+            TerrainProcessor().process(project, bounds=(0, 0, 1, 1), working_dir="work",
+                                       skip_download=True, dem_files=["dem/site.tif"])
+        expected = str((tmp_path / "dem" / "site.tif").resolve())
+        assert expected in seen["deck"]
+        assert Path(seen["cwd"]).is_absolute()
+
+    def test_a_dem_file_in_working_dir_is_found_there(self, tmp_path, monkeypatch):
+        from pyaermod.terrain import _dem_path
+        monkeypatch.chdir(tmp_path)
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "big.dem").write_bytes(b"")
+        assert _dem_path("big.dem", work) == (work / "big.dem").resolve()
+        # not in working_dir: relative to the current directory
+        assert _dem_path("other.dem", work) == (tmp_path / "other.dem").resolve()
+        # absolute paths are kept
+        assert _dem_path(str(tmp_path / "x.dem"), work) == (tmp_path / "x.dem").resolve()

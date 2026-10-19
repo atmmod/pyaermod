@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Short-term PLOTFILEs take a rank other than FIRST.**
+  `OutputPathway.plot_file_rank` sets the high value that `plot_file`
+  and the `period_plot_files` write for the short-term periods (FIRST by
+  default; `2`, `"2ND"`, `"SECOND"` or `"H2H"` for the highest-second-high,
+  `8` or `"H8H"` for the H8H), and a `plot_file_groups` entry may carry a
+  fourth item, its rank. The writer used to put FIRST on every
+  short-term PLOTFILE. The reader keeps a deck's lower-rank PLOTFILEs in
+  these fields instead of in `unparsed_lines`. `pathways.plot_rank_number`
+  and `plot_rank_token` read and write a rank as AERMOD's OUPLOT takes it
+  (a number, FIRST-TENTH or 1ST-10TH).
+- **`AERMODVisualizer.plot_contours(plotfile=...)` and
+  `quick_plot(..., plotfile=...)` contour a PLOTFILE.** The plot file
+  (a path, a `read_plotfile` result or a DataFrame, through the new
+  `visualization.plotfile_frame`) gives the value at every receptor; the
+  maximum is marked from it too.
 - **`OpenPitSource.from_area(area, depth=... | volume=...)` turns a
   rectangular AREA stand-in into the OPENPIT source, and
   `AreaSource.depth_hint` makes the validator advise one.** An AREA
@@ -583,6 +598,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distribution); the next release will raise `ValueError` there.
 
 ### Fixed
+- **`naaqs_compliance_report` compared µg/m³ with ppb.** The design
+  value is in AERMOD's µg/m³, but `exceeds` compared it with
+  `NAAQSStandard.level`, which is in ppb for SO2, NO2 and O3: on a real
+  1-hour SO2 run 1324 of 1681 receptors were flagged instead of the 7
+  above 196.4 µg/m³. `exceeds` now compares with the level in µg/m³,
+  which the report also gives as the new `naaqs_level_ugm3` column
+  (`naaqs_level` and `units` keep the standard as 40 CFR 50 sets it).
+  `test_so2_compliance_at_limit`, which pinned the old comparison with
+  a 75 µg/m³ design value, now sits at 196.4 µg/m³.
+- **Contour plots were drawn from about ten points.**
+  `AERMODResults.get_concentrations` returns the rows of AERMOD's
+  summary tables, the highest values only, and `plot_contours` and
+  `quick_plot` contoured those (the quickstart's Visualization section
+  showed exactly that). Both now take the period's PLOTFILE (see Added),
+  warn when they contour a summary table smaller than the run's receptor
+  count, and `get_concentrations` and the quickstart say where the
+  value at every receptor is.
+- **`AERMODResults.summary()` of a v26135 .out printed "Job: Unknown",
+  "Terrain: Unknown" and "Receptors: 0".** AERMOD prints no Jobname line
+  and no receptor echo. The parser now reads the title from the page
+  banner (`ModelRunInfo.title`), the model options and terrain from the
+  `MODELOPTs:` line, and the summary falls back to the "This Run
+  Includes" source and receptor counts. Its "Points" line, the number of
+  summary rows, is now called "Summary rows".
+- **The validator missed two fatal errors.** A short-term PLOTFILE
+  without a RECTABLE, or past the RECTABLE's range, stops AERMOD with
+  `E203 OUPLOT ... HIVALU` (checked against the v26135 binary); ARM2
+  with `ozone_data` writes OZONEVAL, which coset.f rejects with E600.
+  Both are now validation errors.
+- **`DEMDownloader` downloaded every dated version of each tile.** The
+  TNM API lists them all (seven versions of `n42w074`/`n42w075` at
+  1 arc-second); `find_tiles` now keeps the newest of each
+  (`newest_only=False` for all), by the date in the file name or the
+  API's `publicationDate`, which `DEMTileInfo.date` holds.
+- **AERMAP could not read the downloaded tiles.** USGS ships them
+  LZW-compressed and tiled, and AERMAP 24142 stops with E455 (TiffTag
+  259). `download_tile` and `download_dem` now rewrite each tile
+  uncompressed and striped (`write_uncompressed_geotiff`, needs
+  rasterio; `uncompressed=False` keeps the file as downloaded).
+- **`find_tiles` gave up on the first 504.** The TNM API answers 502,
+  503 or 504 under load; it now asks again (`retries=3`, backoff
+  doubling from 5 s) after those, a 429 or 500, or a dropped connection.
+- **Relative `dem_files` broke AERMAP.** `TerrainProcessor.process`
+  runs AERMAP in `working_dir` and wrote the paths as given, so a path
+  relative to the current directory was E500 there. The DEM paths and
+  the working directory are now written absolute; a relative path names
+  a file in `working_dir` when one is there (as before), else one
+  relative to the current directory.
+- **`RasterExporter.export_geotiff` shifted the raster half a cell.**
+  It took the outermost receptors as the raster's edges, so a 100 m grid
+  from -2000 to 2000 m became 41 pixels of 97.6 m. The receptors are
+  now the pixel centres: 100 m pixels reaching 50 m past the grid.
+- **`to_kmz` coloured contours by list position.** A level drawn as
+  several rings took several colours. The palette is now one colour per
+  level, lowest first, and every ring of a level takes it.
+- **`examples/line_sources.py` gave RLINE and LINE rates in g/s/m and
+  the RLINE width as half a lane.** AERMOD reads both rates in
+  g/(s·m²) and multiplies them by the full width, so the example's roads
+  emitted the stated rate times the width. The rates are now per area
+  (the rate per metre divided by the width), the widths are full road
+  widths, and the comment on `RLineSource.initial_lateral_dimension`
+  says so. `examples/use_cases` no longer works around any of the above:
+  use case 7 reads `exceeds` from the report, 8 downloads with
+  `download_dem` alone, and 10 passes one KMZ colour per level.
 - **`SizeDistribution.to_deposition_params(density=...)` converts to
   Stokes diameters whenever the density is not 1.** AERMOD reads
   `PARTDIAM` as the physical diameter of a particle of `PARTDENS`

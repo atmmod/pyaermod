@@ -8,9 +8,11 @@ Requires: pip install pyaermod[terrain]
 """
 
 import logging
+import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +22,7 @@ from ._optional import optional_import, require
 
 requests = optional_import("requests")
 HAS_REQUESTS = requests is not None
+rasterio = optional_import("rasterio")
 
 
 def _require_requests():
@@ -33,12 +36,88 @@ def _require_requests():
 
 @dataclass
 class DEMTileInfo:
-    """Metadata for a single DEM tile from USGS."""
+    """Metadata for a single DEM tile from USGS.
+
+    ``date`` is the tile version's date, ``YYYYMMDD``: the one in the file
+    name (``USGS_1_n42w074_20230314.tif``), else the TNM API's
+    ``publicationDate``.
+    """
     title: str
     download_url: str
     format: str = "GeoTIFF"
     size_bytes: Optional[int] = None
     bounds: Optional[Tuple[float, float, float, float]] = None
+    date: Optional[str] = None
+
+    @property
+    def tile_key(self) -> str:
+        """The tile's file name without its version date, the same for
+        every dated version of one tile (``USGS_1_n42w074.tif``)."""
+        return _TILE_DATE.sub(r"\2", Path(self.download_url).name)
+
+
+#: A version date before the extension of a USGS tile's file name.
+_TILE_DATE = re.compile(r"_(\d{8})(\.[A-Za-z0-9]+)$")
+
+#: TNM API answers worth asking again: gateway errors and overload.
+_RETRY_STATUS = (429, 500, 502, 503, 504)
+
+
+def _tile_date(url: str, publication_date: Optional[str]) -> Optional[str]:
+    m = _TILE_DATE.search(Path(url).name)
+    if m:
+        return m.group(1)
+    digits = re.sub(r"\D", "", publication_date or "")[:8]
+    return digits if len(digits) == 8 else None
+
+
+def newest_tiles(tiles: List[DEMTileInfo]) -> List[DEMTileInfo]:
+    """The newest version of each tile, in the order the tiles first appear.
+
+    The TNM API lists every dated version of a 3DEP tile
+    (``USGS_1_n42w074_20220801.tif``, ``..._20230314.tif``); mosaicking
+    them all is slow and gives AERMAP overlapping DEM files. A version
+    with no date counts as older than any dated one.
+    """
+    best: Dict[str, DEMTileInfo] = {}
+    for tile in tiles:
+        key = tile.tile_key
+        kept = best.get(key)
+        if kept is None or (tile.date or "") > (kept.date or ""):
+            best[key] = tile
+    order = list(dict.fromkeys(t.tile_key for t in tiles))
+    return [best[k] for k in order]
+
+
+def write_uncompressed_geotiff(path: Union[str, Path]) -> bool:
+    """Rewrite a compressed GeoTIFF in place as an uncompressed, striped one.
+
+    USGS ships 3DEP tiles LZW-compressed (TIFF tag 259 = 5) and tiled;
+    AERMAP 24142 reads neither and stops with E455 ("TiffTag 259"). Returns
+    True when the file was rewritten, False when it was already plain or
+    is not a raster rasterio can open. Needs ``rasterio``.
+    """
+    rio = require(rasterio, "rasterio", pip_extra="geo")
+    path = Path(path)
+    try:
+        with rio.open(path) as src:
+            compression = src.compression
+            tiled = src.profile.get("tiled", False)
+            if compression is None and not tiled:
+                return False
+            profile = src.profile
+            data = src.read()
+    except Exception as exc:  # not a raster (or not one rasterio reads)
+        logging.getLogger(__name__).debug("not rewriting %s: %s", path, exc)
+        return False
+    for key in ("compress", "blockxsize", "blockysize", "predictor"):
+        profile.pop(key, None)
+    profile["tiled"] = False
+    tmp = path.with_name(path.name + ".tmp")
+    with rio.open(tmp, "w", **profile) as dst:
+        dst.write(data)
+    os.replace(tmp, path)
+    return True
 
 
 class DEMDownloader:
@@ -70,6 +149,9 @@ class DEMDownloader:
     def find_tiles(
         self,
         bounds: Tuple[float, float, float, float],
+        newest_only: bool = True,
+        retries: int = 3,
+        backoff: float = 5.0,
     ) -> List[DEMTileInfo]:
         """Find DEM tiles covering a bounding box.
 
@@ -77,6 +159,15 @@ class DEMDownloader:
         ----------
         bounds : tuple
             (west, south, east, north) in decimal degrees (WGS84).
+        newest_only : bool
+            Keep only the newest version of each tile (see
+            :func:`newest_tiles`); False returns every version the API lists.
+        retries : int
+            How many more times to ask after a gateway error (502/503/504,
+            which the TNM API gives under load), a 429/500, or a failed
+            connection.
+        backoff : float
+            Seconds to wait before the first retry; doubled each time.
 
         Returns
         -------
@@ -90,7 +181,7 @@ class DEMDownloader:
             "max": 50,
         }
         self.logger.info(f"Querying USGS TNM API for tiles covering {bounds}")
-        response = requests.get(self.TNM_API_URL, params=params, timeout=60)
+        response = self._get_with_retries(params, retries, backoff)
         response.raise_for_status()
         data = response.json()
 
@@ -101,17 +192,42 @@ class DEMDownloader:
                 download_url=item.get("downloadURL", ""),
                 format=item.get("format", "GeoTIFF"),
                 size_bytes=item.get("sizeInBytes"),
+                date=_tile_date(item.get("downloadURL", ""), item.get("publicationDate")),
             )
             if tile.download_url:
                 tiles.append(tile)
 
         self.logger.info(f"Found {len(tiles)} DEM tiles")
+        if newest_only:
+            tiles = newest_tiles(tiles)
+            self.logger.info(f"Keeping the newest version of each: {len(tiles)} tiles")
         return tiles
+
+    def _get_with_retries(self, params: dict, retries: int, backoff: float):
+        """GET the TNM API, asking again after a gateway error or lost connection."""
+        delay = backoff
+        for attempt in range(retries + 1):
+            last = attempt == retries
+            try:
+                response = requests.get(self.TNM_API_URL, params=params, timeout=60)
+            except OSError as exc:   # requests' ConnectionError and Timeout
+                if last:
+                    raise
+                self.logger.warning(f"TNM API request failed ({exc}); retrying in {delay:g} s")
+            else:
+                if response.status_code not in _RETRY_STATUS or last:
+                    return response
+                self.logger.warning(
+                    f"TNM API answered {response.status_code}; retrying in {delay:g} s")
+            time.sleep(delay)
+            delay *= 2
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def download_tile(
         self,
         tile: DEMTileInfo,
         output_dir: Optional[Path] = None,
+        uncompressed: bool = True,
     ) -> Path:
         """Download a single DEM tile.
 
@@ -121,12 +237,18 @@ class DEMDownloader:
             Tile to download.
         output_dir : Path, optional
             Where to save. Defaults to cache_dir.
+        uncompressed : bool
+            Rewrite the tile uncompressed and striped
+            (:func:`write_uncompressed_geotiff`), the layout AERMAP reads;
+            USGS's LZW-compressed tiles stop AERMAP 24142 with E455. Needs
+            ``rasterio``; without it the tile is left as downloaded, with
+            a warning.
 
         Returns
         -------
         Path to downloaded file.
         """
-        output_dir = output_dir or self.cache_dir
+        output_dir = Path(output_dir or self.cache_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = Path(tile.download_url).name
@@ -134,6 +256,8 @@ class DEMDownloader:
 
         if output_path.exists():
             self.logger.info(f"Using cached tile: {output_path}")
+            if uncompressed:
+                self._uncompress(output_path)
             return output_path
 
         self.logger.info(f"Downloading: {tile.title} -> {output_path}")
@@ -145,14 +269,26 @@ class DEMDownloader:
                 f.write(chunk)
 
         self.logger.info(f"Downloaded: {output_path} ({output_path.stat().st_size} bytes)")
+        if uncompressed:
+            self._uncompress(output_path)
         return output_path
+
+    def _uncompress(self, path: Path) -> None:
+        if rasterio is None:
+            self.logger.warning(
+                f"{path.name} may be LZW-compressed, which AERMAP cannot read (E455); "
+                "install rasterio (pip install 'pyaermod[geo]') to rewrite it uncompressed")
+            return
+        if write_uncompressed_geotiff(path):
+            self.logger.info(f"Rewrote {path.name} uncompressed for AERMAP")
 
     def download_dem(
         self,
         bounds: Tuple[float, float, float, float],
         output_dir: Optional[Union[str, Path]] = None,
+        uncompressed: bool = True,
     ) -> List[Path]:
-        """Download all DEM tiles covering a bounding box.
+        """Download the newest version of every DEM tile covering a bounding box.
 
         Parameters
         ----------
@@ -160,6 +296,9 @@ class DEMDownloader:
             (west, south, east, north) in decimal degrees (WGS84).
         output_dir : Path or str, optional
             Directory to save tiles. Defaults to cache_dir.
+        uncompressed : bool
+            Rewrite each tile uncompressed for AERMAP (see
+            :meth:`download_tile`).
 
         Returns
         -------
@@ -173,7 +312,7 @@ class DEMDownloader:
 
         paths = []
         for tile in tiles:
-            path = self.download_tile(tile, output_path)
+            path = self.download_tile(tile, output_path, uncompressed=uncompressed)
             paths.append(path)
 
         return paths
@@ -678,6 +817,16 @@ class AERMAPOutputParser:
 # ============================================================================
 
 
+def _dem_path(name: Union[str, Path], work_dir: Path) -> Path:
+    """``name`` as an absolute path: a relative name is looked up in
+    ``work_dir`` first (where earlier releases had AERMAP open it), then
+    in the current directory."""
+    path = Path(name)
+    if not path.is_absolute() and (work_dir / path).exists():
+        return (work_dir / path).resolve()
+    return path.resolve()
+
+
 class TerrainProcessor:
     """High-level terrain processing pipeline.
 
@@ -764,7 +913,10 @@ class TerrainProcessor:
         skip_download : bool
             Skip DEM download (use dem_files instead).
         dem_files : list of str, optional
-            Pre-existing DEM files.
+            Pre-existing DEM files. A relative path names a file in
+            ``working_dir`` (where AERMAP runs) when one is there, else a
+            file relative to the current directory; either way it is
+            written to the AERMAP deck as an absolute path.
         timeout : int
             AERMAP execution timeout in seconds.
         domain_buffer : float, optional
@@ -781,7 +933,10 @@ class TerrainProcessor:
             elevations and hill heights of every discrete receptor and of
             every Cartesian and polar grid.
         """
-        work_dir = Path(working_dir) if working_dir else Path.cwd() / "aermap_work"
+        # AERMAP runs in work_dir and opens the DEM files from there, so
+        # every path written to its deck is absolute (a relative one is
+        # E500 "Error opening DEM file").
+        work_dir = (Path(working_dir) if working_dir else Path.cwd() / "aermap_work").resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
 
         # Step 1: Download DEM
@@ -793,7 +948,7 @@ class TerrainProcessor:
         else:
             if dem_files is None:
                 raise ValueError("dem_files required when skip_download=True")
-            dem_files_list = list(dem_files)
+            dem_files_list = [str(_dem_path(f, work_dir)) for f in dem_files]
 
         if not dem_files_list:
             raise RuntimeError("No DEM files available for AERMAP processing")

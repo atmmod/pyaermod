@@ -2348,3 +2348,59 @@ class TestRestartAndGasDepositionEdges:
         control = ControlPathway(title_one="t", pollutant_id=PollutantType.SO2, alpha=True,
                                  regulatory_default=False, gas_deposition_velocity=0.0)
         assert any("> 0" in e.message for e in _errors(_make_valid_project(control=control), "gas_deposition_velocity"))
+
+
+class TestOzoneDataNeedsAnOzoneMethod:
+    """ARM2 with ozone_data wrote OZONEVAL, which coset.f rejects (E600)."""
+
+    def _project(self, method):
+        from pyaermod.input_generator import OzoneData
+        chem = ChemistryOptions(method=method, ozone_data=OzoneData(uniform_value=40.0))
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.NO2,
+                                 averaging_periods=["1"], chemistry=chem)
+        return _make_valid_project(control=control)
+
+    def test_arm2_with_ozone_is_e600(self):
+        errs = _errors(self._project(ChemistryMethod.ARM2), "ozone_data")
+        assert any("E600" in e.message for e in errs)
+
+    @pytest.mark.parametrize("method", [ChemistryMethod.OLM, ChemistryMethod.PVMRM,
+                                        ChemistryMethod.GRSM])
+    def test_ozone_methods_take_it(self, method):
+        errs = _errors(self._project(method), "ozone_data")
+        assert not any("E600" in e.message for e in errs)
+
+
+class TestShortTermPlotfileNeedsRectable:
+    """A short-term PLOTFILE without RECTABLE stops AERMOD (E203 HIVALU)."""
+
+    def _project(self, periods=("1", "ANNUAL"), **output):
+        control = ControlPathway(title_one="t", pollutant_id=PollutantType.SO2,
+                                 averaging_periods=list(periods))
+        return _make_valid_project(control=control, output=OutputPathway(**output))
+
+    def test_period_plot_files_without_rectable(self):
+        errs = _errors(self._project(receptor_table=False, period_plot_files="p"),
+                       "plot_file_rank")
+        assert len(errs) == 1 and "E203" in errs[0].message
+
+    def test_annual_only_needs_no_rectable(self):
+        p = self._project(periods=("ANNUAL",), receptor_table=False, period_plot_files="p",
+                          plot_file="a.plt", plot_file_averaging="ANNUAL")
+        assert _errors(p, "plot_file") == []
+
+    def test_plot_file_and_groups_without_rectable(self):
+        p = self._project(receptor_table=False, plot_file="a.plt", plot_file_averaging="1",
+                          plot_file_groups=[("1", "ALL", "g.plt")])
+        assert _errors(p, "plot_file_rank") and _errors(p, "plot_file_groups")
+
+    def test_rank_past_rectable_range(self):
+        p = self._project(receptor_table_rank=4, period_plot_files="p", plot_file_rank="H8H")
+        errs = _errors(p, "plot_file_rank")
+        assert len(errs) == 1 and "1-4" in errs[0].message
+        p = self._project(receptor_table_rank=8, period_plot_files="p", plot_file_rank="H8H")
+        assert _errors(p, "plot_file_rank") == []
+
+    def test_invalid_rank(self):
+        p = self._project(period_plot_files="p", plot_file_rank="BEST")
+        assert _errors(p, "plot_file_rank")

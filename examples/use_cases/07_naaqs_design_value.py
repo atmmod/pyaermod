@@ -94,8 +94,7 @@ with warnings.catch_warnings():
     aermod_dv = mxdybyyr_design_value(read_mxdybyyr(WORK / "so2_mxdybyyr.dat"), rank=4)
 
 std = get_naaqs("SO2", "1-hour")
-naaqs = std.level_ugm3            # 75 ppb -> 196.4 ug/m3 (AERMOD reports ug/m3)
-report["exceeds"] = report["design_value"] > naaqs  # compare in ug/m3, not ppb
+naaqs = std.level_ugm3            # 75 ppb -> 196.4 ug/m3, the level "exceeds" is checked against
 top = report.nlargest(10, "design_value").reset_index(drop=True)
 best = top.iloc[0]
 print(f"Days in met year: {daily['date'].str[:6].nunique()}")

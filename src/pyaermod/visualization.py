@@ -5,8 +5,9 @@ Create publication-ready plots and interactive maps for AERMOD results.
 """
 
 import logging
+import warnings
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -29,6 +30,44 @@ try:
 except ImportError:
     HAS_FOLIUM = False
     logger.debug("folium not installed; interactive maps unavailable (pip install 'pyaermod[viz]')")
+
+
+def plotfile_frame(plotfile: Any):
+    """A PLOTFILE's values at every receptor as ``x``, ``y``, ``concentration``.
+
+    ``plotfile`` is a path to an AERMOD PLOTFILE, the result of
+    :func:`pyaermod.aermod_outputs.read_plotfile`, or a DataFrame with
+    ``x``/``y``/``concentration`` (or the PLOTFILE's ``X``/``Y`` and
+    concentration column) already in it.
+    """
+    import pandas as pd
+
+    from .aermod_outputs import AERMODAuxResult, read_plotfile
+
+    if isinstance(plotfile, (str, Path)):
+        plotfile = read_plotfile(plotfile)
+    if isinstance(plotfile, AERMODAuxResult):
+        column = plotfile.concentration_column
+        if column is None:
+            raise ValueError("the PLOTFILE has no concentration column")
+        df = plotfile.to_dataframe().rename(
+            columns={"X": "x", "Y": "y", column: "concentration"})
+    elif isinstance(plotfile, pd.DataFrame):
+        df = plotfile.rename(columns={"X": "x", "Y": "y"})
+        if "concentration" not in df:
+            conc = next((c for c in df.columns
+                         if c.upper() in ("CONC", "AVERAGE_CONC")), None)
+            if conc is None:
+                raise ValueError("the DataFrame has no concentration column")
+            df = df.rename(columns={conc: "concentration"})
+    else:
+        raise TypeError(
+            "plotfile must be a path, a read_plotfile() result or a DataFrame, "
+            f"not {type(plotfile).__name__}")
+    df = df[["x", "y", "concentration"]].copy()
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.dropna().reset_index(drop=True)
 
 
 class AERMODVisualizer:
@@ -57,9 +96,17 @@ class AERMODVisualizer:
                      units: str = 'ug/m³',
                      figsize: Tuple[int, int] = (12, 10),
                      save_path: Optional[Union[str, Path]] = None,
-                     dpi: int = 300) -> 'matplotlib.figure.Figure':  # noqa: F821
+                     dpi: int = 300,
+                     plotfile: Any = None) -> 'matplotlib.figure.Figure':  # noqa: F821
         """
         Create concentration contour plot
+
+        :meth:`AERMODResults.get_concentrations` returns the rows of AERMOD's
+        summary tables (the top ten or so receptors of each period), too few
+        points to contour a grid. Pass the period's PLOTFILE as ``plotfile``
+        to contour the value at every receptor; without it the plot is drawn
+        from the summary rows, with a warning when they cover fewer
+        receptors than the run has.
 
         Args:
             averaging_period: Averaging period to plot
@@ -72,6 +119,9 @@ class AERMODVisualizer:
             figsize: Figure size (width, height)
             save_path: Path to save figure (optional)
             dpi: Resolution for saved figure
+            plotfile: The period's PLOTFILE (a path, a
+                :func:`~pyaermod.aermod_outputs.read_plotfile` result or a
+                DataFrame); its values at every receptor are contoured.
 
         Returns:
             matplotlib Figure object
@@ -80,13 +130,30 @@ class AERMODVisualizer:
             raise ImportError("matplotlib required for static plots. Install with: pip install matplotlib")
 
         # Get concentration data
-        df = self.results.get_concentrations(averaging_period)
+        if plotfile is not None:
+            df = plotfile_frame(plotfile)
+        else:
+            df = self.results.get_concentrations(averaging_period)
         if df is None or df.empty:
             fig, ax = plt.subplots(figsize=figsize)
             ax.text(0.5, 0.5, "No concentration data available",
                     ha="center", va="center", transform=ax.transAxes)
             return fig
-        max_info = self.results.get_max_concentration(averaging_period)
+        run_info = getattr(self.results, "run_info", None)
+        n_receptors = getattr(run_info, "num_receptors", 0) or 0
+        if plotfile is None and len(df) < n_receptors:
+            warnings.warn(
+                f"contouring the {len(df)} rows of the .out file's "
+                f"{averaging_period} summary table, not the run's {n_receptors} "
+                "receptors; pass "
+                "the period's PLOTFILE as plotfile= to contour the full grid",
+                UserWarning, stacklevel=2)
+        if plotfile is None:
+            max_info = self.results.get_max_concentration(averaging_period)
+        else:
+            peak = df.loc[df["concentration"].idxmax()]
+            max_info = {"value": float(peak["concentration"]),
+                        "x": float(peak["x"]), "y": float(peak["y"])}
 
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
@@ -428,7 +495,8 @@ class AERMODVisualizer:
 
 def quick_plot(results,
               averaging_period: str = 'ANNUAL',
-              save_path: Optional[str] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+              save_path: Optional[str] = None,
+              plotfile: Any = None) -> 'matplotlib.figure.Figure':  # noqa: F821
     """
     Quick contour plot with default settings
 
@@ -436,12 +504,15 @@ def quick_plot(results,
         results: AERMODResults object
         averaging_period: Averaging period to plot
         save_path: Optional save path
+        plotfile: The period's PLOTFILE, contoured at every receptor (see
+            :meth:`AERMODVisualizer.plot_contours`)
 
     Returns:
         matplotlib Figure object
     """
     viz = AERMODVisualizer(results)
-    return viz.plot_contours(averaging_period=averaging_period, save_path=save_path)
+    return viz.plot_contours(averaging_period=averaging_period, save_path=save_path,
+                             plotfile=plotfile)
 
 
 def quick_map(results,

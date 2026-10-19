@@ -199,8 +199,9 @@ def to_kmz(
     title
         Document title written to the KMZ.
     palette
-        Optional list of KML AABBGGRR color codes for contour levels.
-        Defaults to a 6-level cyan-to-magenta palette; cycles when
+        Optional list of KML AABBGGRR color codes, one per contour level
+        from the lowest up; every polygon of a level takes that level's
+        colour. Defaults to a 6-level cyan-to-magenta palette; cycles when
         more levels are present.
 
     Returns
@@ -276,8 +277,11 @@ def to_kmz(
         ct_folder = ET.SubElement(doc, "Folder")
         ET.SubElement(ct_folder, "name").text = "Contours"
         ct_list = sorted(contours, key=lambda c: c.level)
-        for i, contour in enumerate(ct_list):
-            style = f"contour-{i % len(palette)}"
+        # One colour per level, not per polygon: a level drawn as several
+        # rings gives every ring that level's colour.
+        level_index = {lv: i for i, lv in enumerate(sorted({c.level for c in ct_list}))}
+        for contour in ct_list:
+            style = f"contour-{level_index[contour.level] % len(palette)}"
             label = contour.label or f"{contour.level:g}"
             _placemark_polygon(
                 ct_folder, label, contour.coordinates, style,

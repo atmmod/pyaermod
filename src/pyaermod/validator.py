@@ -1660,6 +1660,19 @@ class Validator:
                 f"ozone data required for {chemistry.method.value} method"
             ))
 
+        # The ozone keywords (OZONEVAL, OZONEFIL, O3VALUES, ...) are read
+        # only under OLM, PVMRM, GRSM or TTRM; with ARM2 coset.f stops
+        # with E600.
+        from .pathways import NO2STACK_METHODS
+        if (chemistry.ozone_data is not None
+                and chemistry.method.value not in NO2STACK_METHODS):
+            result.errors.append(ValidationError(
+                pathway, "ozone_data",
+                f"{chemistry.method.value} takes no ozone data; AERMOD reads "
+                "OZONEVAL/OZONEFIL/O3VALUES only with OLM, PVMRM, GRSM or TTRM "
+                "and stops with E600 (set ozone_data=None)"
+            ))
+
         # Validate ozone data values
         if chemistry.ozone_data is not None:
             oz = chemistry.ozone_data
@@ -2068,7 +2081,62 @@ class Validator:
                 f"must be one of {valid_output_types}, got '{output.output_type}'"
             ))
 
+        cls._validate_plot_file_ranks(output, result, control)
         cls._validate_output_files(output, result, control, sources)
+
+    @classmethod
+    def _validate_plot_file_ranks(cls, output, result: ValidationResult, control=None):
+        """A short-term PLOTFILE asks for a high value RECTABLE prints.
+
+        ouset.f OUPLOT takes the rank (FIRST, 2ND, ...) only if RECTABLE
+        asked for it for that period (NHIAVE); without a RECTABLE, or past
+        its range, AERMOD stops with E203 HIVALU. The period forms (PERIOD,
+        ANNUAL) take no rank and need no RECTABLE.
+        """
+        from .pathways import _is_period_average, plot_file_group_fields, plot_rank_number
+
+        pathway = "OutputPathway"
+        entries = []
+        if output.plot_file:
+            entries.append(("plot_file_rank", output.plot_file_averaging,
+                            output.plot_file_rank))
+        for entry in output.plot_file_groups:
+            try:
+                avg, grp, _name, rank = plot_file_group_fields(entry)
+            except ValueError as exc:
+                result.errors.append(ValidationError(pathway, "plot_file_groups", str(exc)))
+                continue
+            entries.append((f"plot_file_groups[{grp}/{avg}]", avg, rank))
+        periods = list(getattr(control, "averaging_periods", None) or [])
+        for ave in output.period_plot_file_names(periods):
+            entries.append(("plot_file_rank", ave, output.plot_file_rank))
+
+        n_ranks = output.receptor_table_rank if output.receptor_table else 0
+        reported = set()
+        for where, avg, rank in entries:
+            if _is_period_average(avg):
+                continue
+            try:
+                number = plot_rank_number(rank)
+            except ValueError as exc:
+                key = (where, "invalid")
+                if key not in reported:
+                    reported.add(key)
+                    result.errors.append(ValidationError(pathway, where, str(exc)))
+                continue
+            if not output.receptor_table:
+                message = (f"a PLOTFILE for the {avg}-hour average needs RECTABLE "
+                           "(receptor_table=True) to rank its high values; AERMOD "
+                           "stops with E203 HIVALU")
+            elif number > n_ranks:
+                message = (f"the {avg}-hour PLOTFILE asks for rank {number}, past "
+                           f"the RECTABLE range (1-{n_ranks}); raise "
+                           "receptor_table_rank (AERMOD E203 HIVALU)")
+            else:
+                continue
+            if (where, message) not in reported:
+                reported.add((where, message))
+                result.errors.append(ValidationError(pathway, where, message))
 
     @classmethod
     def _validate_output_files(cls, output, result: ValidationResult, control=None,

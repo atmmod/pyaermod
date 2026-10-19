@@ -131,7 +131,15 @@ from .input_generator import (
     VegetativeBarrier,
     VolumeSource,
 )
-from .pathways import NOHEADER_FILE_TYPES, TEMPORAL_FLAG_COUNTS, TURBULENCE_OPTIONS
+from .pathways import (
+    NOHEADER_FILE_TYPES,
+    PLOT_RANK_ORDINALS,
+    PLOT_RANK_WORDS,
+    TEMPORAL_FLAG_COUNTS,
+    TURBULENCE_OPTIONS,
+    plot_file_group_fields,
+    plot_rank_number,
+)
 from .unparsed import UnparsedLine, unparsed_summary
 
 logger = logging.getLogger(__name__)
@@ -1899,15 +1907,6 @@ def _parse_meteorology(block: _PathwayBlock,
     )
 
 
-def _rank_value(tok: str) -> Optional[int]:
-    """The rank a RECTABLE/PLOTFILE token names: 8, 8TH, EIGHTH -> 8."""
-    up = tok.upper()
-    if up in _ORDINAL_WORDS:
-        return _ORDINAL_WORDS[up]
-    digits = _LEADING_DIGITS_RE.match(up)
-    return int(digits.group()) if digits else None
-
-
 def _parse_output(block: _PathwayBlock,
                   dropped: Optional[List[int]] = None) -> OutputPathway:
     receptor_table = False
@@ -1919,7 +1918,8 @@ def _parse_output(block: _PathwayBlock,
     maxi_files: List[MaxiFile] = []
     plot_file: Optional[str] = None
     plot_file_averaging = "ANNUAL"
-    plot_file_groups: List[Tuple[str, str, str]] = []
+    plot_file_groups: List[Tuple] = []
+    plot_file_rank: str = "FIRST"
     postfile: Optional[str] = None
     postfile_averaging: Optional[str] = None
     postfile_source_group = "ALL"
@@ -1979,25 +1979,35 @@ def _parse_output(block: _PathwayBlock,
             # The period forms carry no rank, so the filename is one
             # field earlier; taking a fixed position reads the rank as
             # the filename.
-            # The model holds no rank and no unit: a short-term line
-            # whose rank is not the highest value, or any line with a
-            # trailing unit, is kept verbatim instead.
+            # The model holds the rank (plot_file_rank, or the fourth
+            # item of a plot_file_groups entry) but no unit: a line with
+            # a trailing unit, or a rank AERMOD would not read, is kept
+            # verbatim instead.
             if len(toks) >= 3:
                 period, group = toks[0], toks[1]
                 is_period = period.strip().upper() in ("PERIOD", "ANNUAL")
                 fname = toks[2] if is_period else (
                     toks[3] if len(toks) >= 4 else None
                 )
-                rank_ok = is_period or _rank_value(toks[2]) == 1
+                plot_rank = "" if is_period else toks[2].upper()
+                # OUPLOT reads a number, FIRST-TENTH or 1ST-10TH
+                rank_ok = is_period or (
+                    (plot_rank.isdigit() and int(plot_rank) >= 1)
+                    or plot_rank in PLOT_RANK_WORDS or plot_rank in PLOT_RANK_ORDINALS)
                 expected = 3 if is_period else 4
                 if fname is None or not rank_ok or len(toks) != expected:
                     _drop(dropped, ln)
                     continue
+                is_first = is_period or plot_rank_number(plot_rank) == 1
                 if group.upper() == "ALL" and plot_file is None:
                     plot_file = fname
                     plot_file_averaging = period
-                else:
+                    if not is_first:
+                        plot_file_rank = plot_rank
+                elif is_first:
                     plot_file_groups.append((period, group, fname))
+                else:
+                    plot_file_groups.append((period, group, fname, plot_rank))
             else:
                 _drop(dropped, ln)
         elif kw == "POSTFILE" and len(toks) == 4 and postfile is None:
@@ -2096,6 +2106,7 @@ def _parse_output(block: _PathwayBlock,
         plot_file=plot_file,
         plot_file_averaging=plot_file_averaging,
         plot_file_groups=plot_file_groups,
+        plot_file_rank=plot_file_rank,
         postfile=postfile,
         postfile_averaging=postfile_averaging,
         postfile_source_group=postfile_source_group,
@@ -2401,7 +2412,8 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
         _check(f"output.eval_files[{ef.source_id}]", ef.filename)
     for tf in out.toxx_files:
         _check(f"output.toxx_files[{tf.averaging_period}]", tf.filename)
-    for period, group, fname in (out.plot_file_groups or []):
+    for group_entry in (out.plot_file_groups or []):
+        period, group, fname, _rank = plot_file_group_fields(group_entry)
         _check(f"output.plot_file_groups[{group}/{period}]", fname)
     for label, entries in (("max_daily_files", out.max_daily_files),
                            ("max_daily_by_year_files", out.max_daily_by_year_files),
