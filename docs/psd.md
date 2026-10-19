@@ -58,12 +58,24 @@ speed. There are two ways to give them to AERMOD, and they settle the
 same:
 
 1. **Aerodynamic diameters with `PARTDENS 1.0`.** This is what
-   `to_deposition_params()` does by default.
+   `to_deposition_params()` does with its default density of 1.
 2. **Stokes diameters with the real density.**
-   `to_deposition_params(density=2.65, stokes=True)` converts each
-   diameter with `aerodynamic_to_stokes`, which solves AERMOD's own
-   settling equation, so that `(d_s, 2.65)` settles exactly like
-   `(d_a, 1.0)`.
+   `to_deposition_params(density=2.65)` converts each diameter with
+   `aerodynamic_to_stokes`, which solves AERMOD's own settling equation,
+   so that `(d_s, 2.65)` settles exactly like `(d_a, 1.0)`. Any density
+   other than 1 converts; `stokes=True`, the older spelling, still does
+   the same.
+
+The `ParticleDepositionParams` that comes back records which kind it
+holds in `diameter_convention` (`"stokes"` after a conversion,
+`"aerodynamic"` at density 1), and the validator reads it: aerodynamic
+diameters beside a density other than 1 draw a warning, because AERMOD
+would settle every category about that many times too fast. A deck read
+from a file has `diameter_convention=None` (unknown) and draws nothing.
+A distribution measured as physical diameters (a sieve or laser
+diffraction analysis) is passed as
+`to_deposition_params(density=2.65, diameter_convention="stokes")`: its
+diameters are written as they are, with no conversion.
 
 The textbook conversion `d_s = d_a / sqrt(rho)` (`slip=False`) ignores
 the slip factor. The smaller Stokes diameter slips more than the
@@ -81,9 +93,13 @@ Two cautions:
 - Only gravitational settling is matched. AERMOD's Brownian diffusion
   term depends on the physical diameter, so the two ways deposit fine
   particles at different rates, as real particles of those sizes would.
-- Writing an aerodynamic diameter with a density above 1 (without
-  `stokes=True`) models a *larger* particle: the same diameter at 2.65
-  g/cm³ settles 2.65 times faster in AERMOD.
+- Writing an aerodynamic diameter with a density above 1 models a
+  *larger* particle: the same diameter at 2.65 g/cm³ settles 2.65 times
+  faster in AERMOD (the recorded run's `AERO265` source against its
+  `AERO1`). Earlier pyaermod releases wrote exactly that unless
+  `stokes=True` was passed. `to_deposition_params(density=2.65,
+  convert=False)` still does, for a deck that must reproduce an existing
+  one; it warns, and so does the validator.
 
 ## Representative diameter of a bin
 
@@ -111,13 +127,15 @@ surfcoal = SizeDistribution(edges=(0, 1, 2.5, 5, 10),
 
 ### From cut points
 
-`bins_from_cut_points(cut_points, edges, lower=None, anchor=None)` takes
-the cumulative mass below each cut point, in any consistent units (AP-42's
-`k` values work as they are). Between cut points the cumulative mass is
-linear in `ln d`. Below the first cut point the mass is spread
-log-linearly down to `lower` (the first edge by default), where it is 0;
-nothing is modelled below `lower`, and nothing above the largest cut
-point.
+`bins_from_cut_points(cut_points, edges, lower=None, anchor=None,
+tail=None)` takes the cumulative mass below each cut point, in any
+consistent units (AP-42's `k` values work as they are). Between cut
+points the cumulative mass is linear in `ln d`. Below the first cut point
+the mass is spread log-linearly down to `lower` (the first edge by
+default), where it is 0; nothing is modelled below `lower`. Above the
+largest cut point the cut points say nothing, so `truncated_above` is
+`None` and bins that reach beyond it need `tail=` (see [AP-42 stops at
+30 microns](#ap-42-stops-at-30-microns)).
 
 ### From a lognormal
 
@@ -163,7 +181,10 @@ rate. The two ends are treated differently:
   `anchor_ratio` 0.48/0.74 = 0.649 with the default anchor, 30 microns.
 
 `truncated_below` and `truncated_above` report both, as fractions of the
-whole distribution, whatever the anchor.
+whole distribution, whatever the anchor. `truncated_above` is `None`
+when the distribution does not say what lies above the last edge: bins
+that reach the largest cut point, or a power-law tail, which has no upper
+limit (then `truncated_below` is `None` too, unless it is exactly 0).
 
 ```python
 # Cumulative mass relative to PM30, with 25% more mass between 30 and 50 um.
@@ -173,6 +194,54 @@ dist.anchor_ratio      # 1.25
 q_pm30 = 2.0e-5        # g/(s m²), from the emission factor
 q_model = q_pm30 * dist.anchor_ratio
 ```
+
+## AP-42 stops at 30 microns
+
+AP-42's particle size multipliers end at PM30: the 13.2.4 table says what
+fraction of the emission lies below 30 µm and nothing about the mass
+above it, which for a coarse source such as crushed or dropped material
+may not be small. Cut points therefore cannot tell `bins_from_cut_points`
+what to put in bins above the largest of them, and it does not guess:
+
+- With edges that stop at the largest cut point, nothing is asked;
+  `truncated_above` is `None`, because the mass above is unknown.
+- With edges beyond it, `tail=` says what lies there. Left out, the bins
+  above get no mass and a `FutureWarning` names the choices; a future
+  release will require `tail=` there.
+
+```python
+from pyaermod.psd import LognormalCDF, bins_from_cut_points
+
+k = {2.5: 0.053, 5: 0.20, 10: 0.35, 15: 0.48, 30: 0.74}
+edges = [0.5, 1, 1.6, 2.5, 3.5, 5, 7, 10, 12.5, 15, 20, 25, 30, 40, 50, 62.5, 75]
+
+# No mass above 30 um: the bins above get 0, truncated_above is 0.
+zero = bins_from_cut_points(k, edges, tail="zero")
+
+# A power law: the cumulative mass continues as F(30) * (d / 30) ** m,
+# the Gates-Gaudin-Schuhmann form for crushed material. With m = 1 the
+# mass between 30 and 75 um is 1.5 times the mass below 30, so
+# anchor_ratio is 2.5: the PM30 emission rate times 2.5 is the rate that
+# goes with the bins. The power law has no upper limit, so
+# truncated_above is None.
+power = bins_from_cut_points(k, edges, tail=1.0)
+power.anchor_ratio   # 2.5
+
+# A lognormal continuation: above 30 um the cumulative mass follows the
+# lognormal's shape, scaled to agree with the cut points at 30 um,
+# F(d) = F(30) * L(d) / L(30). Its upper limit is known, so
+# truncated_above is the lognormal's mass above 75 um.
+coarse = bins_from_cut_points(k, edges, tail=LognormalCDF(30.0, 2.5))
+
+# Any object with the CumulativeMassDistribution interface works the
+# same way, scaled to agree at the largest cut point.
+```
+
+Whichever tail is chosen, the mass it adds above 30 µm raises
+`anchor_ratio` with the default anchor, so an emission factor stated for
+PM30 is scaled up for the tail, and the fractions still sum to 1. The
+choice is the modeller's: AP-42 gives no basis for it, and the deposited
+mass near the source depends on it.
 
 ## Method 1 or Method 2
 
@@ -187,12 +256,16 @@ is a bin edge.
 |---|---|---|
 | `density` | 1.0 | `PARTDENS` for every bin |
 | `representative` | `"mean_mass"` | Or `"settling_equivalent"` |
-| `stokes` | `False` | Convert to Stokes diameters for `density` |
-| `slip` | `True` | With `stokes`, solve AERMOD's settling equation; `False` uses `d_a / sqrt(rho)` |
+| `convert` | unset | Convert the aerodynamic diameters to Stokes diameters for `density`; unset converts whenever `density` is not 1. `False` writes them unchanged and warns when `density` is not 1 |
+| `stokes` | unset | The older spelling of `convert` (`True` converts) |
+| `slip` | `True` | When converting, solve AERMOD's settling equation; `False` uses `d_a / sqrt(rho)` |
 | `drop_empty` | `False` | Leave out bins with no mass (AERMOD accepts a 0 fraction) |
+| `diameter_convention` | `"aerodynamic"` | `"stokes"` when the distribution's edges are already physical diameters of particles of `density`: written as they are |
 
-It raises `ValueError` for a density at or below 0 (E334) or a diameter
-AERMOD would reject (E335). The diameter is checked as the source writer
+It raises `ValueError` for a density at or below 0 (E334), a diameter
+AERMOD would reject (E335), or `convert` and `stokes` that disagree.
+The desktop GUI shows a source's Method 1 categories read-only; build
+them in Python and load the project file. The diameter is checked as the source writer
 will print it, to four significant digits, because that is the number
 `INPPDM` reads: a mean-mass diameter of 0.00100006 microns is written as
 0.001 and rejected, and 1000.04 is written as 1000 and accepted.
