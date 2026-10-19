@@ -1,5 +1,5 @@
-* AERMOD (26135 ):  Albany stack reference scenario                                         09/30/26
-* AERMET ( 26135):                                                                          17:14:53
+* AERMOD (26135 ):  Albany stack reference scenario                                         10/19/26
+* AERMET ( 26135):                                                                          14:10:38
 * MODELING OPTIONS USED:   RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
 *         PLOT FILE OF PERIOD VALUES AVERAGED ACROSS   0 YEARS FOR SOURCE GROUP: ALL     
 *         FOR A TOTAL OF   360 RECEPTORS.

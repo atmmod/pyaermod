@@ -2046,7 +2046,7 @@ class TestReviewAndRun:
         await _open_albany(gui, tmp_path, ["1", "ANNUAL"])
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Failed: E480")
-        await gui.user.should_see("AERMOD reported 1 fatal error, 4 warnings and 0 "
+        await gui.user.should_see("AERMOD reported 1 fatal error, 3 warnings and 0 "
                                   "informational messages.")
         await gui.user.should_see("AERMOD messages")
         await gui.user.should_see("Less than 1yr for MULTYEAR, MAXDCONT or ANNUAL Ave NUMYRS=0")
@@ -2205,7 +2205,7 @@ class TestReviewAndRun:
         await gui.user.should_not_see("Before you run")      # no ANNUAL, no warning
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Succeeded in")
-        await gui.user.should_see("AERMOD reported 0 fatal errors, 5 warnings and 0 "
+        await gui.user.should_see("AERMOD reported 0 fatal errors, 4 warnings and 0 "
                                   "informational messages.")
         await gui.user.should_see("AERMOD finished")
         await gui.user.should_see("Output file: pyaermod_gui.out",    # Results followed

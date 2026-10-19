@@ -21,12 +21,13 @@ from pyaermod.input_generator import (
 )
 from pyaermod.input_reader import parse_aermod_input
 from pyaermod.pathways import ControlPathway, TerrainType
-from pyaermod.receptors import CartesianGrid, DiscreteReceptor, ReceptorPathway
+from pyaermod.receptors import CartesianGrid, DiscreteReceptor, PolarGrid, ReceptorPathway
 from pyaermod.sources import PointSource
 
 from .test_control_debug_depletion import _ctl, _deck, _lines
 
 GRID = dict(x_init=-500.0, x_num=3, x_delta=500.0, y_init=-500.0, y_num=2, y_delta=500.0)
+POLAR = dict(dist_init=100.0, dist_num=3, dist_delta=100.0, dir_init=0.0, dir_num=2, dir_delta=90.0)
 
 
 def _project(control: ControlPathway, receptors: ReceptorPathway) -> AERMODProject:
@@ -120,6 +121,82 @@ class TestCartesianGridRows:
 
 
 # ---------------------------------------------------------------------------
+# GRIDPOLR ELEV / HILL / FLAG rows
+# ---------------------------------------------------------------------------
+
+class TestPolarGridRows:
+    """One row per direction, one value per ring (reset.f TERHGT / HILHGT)."""
+
+    def test_elevated_grid_gets_elev_and_hill_rows(self):
+        text = PolarGrid(**POLAR, z_elev=12.5, z_hill=40.25).to_aermod_input(elevated=True)
+        assert _lines(text, "GRIDPOLR")[-5:] == [
+            "GRID1    ELEV      1  3*12.5",
+            "GRID1    ELEV      2  3*12.5",
+            "GRID1    HILL      1  3*40.25",
+            "GRID1    HILL      2  3*40.25",
+            "GRID1    END",
+        ]
+
+    def test_default_grid_gets_zero_rows(self):
+        text = PolarGrid(**POLAR).to_aermod_input(elevated=True)
+        assert "GRID1    ELEV      1  3*0" in text and "GRID1    HILL      2  3*0" in text
+
+    def test_one_row_per_explicit_direction(self):
+        text = PolarGrid(dist_num=2, directions=[0.0, 90.0, 180.0], z_elev=5.0).to_aermod_input(elevated=True)
+        assert [ln for ln in _lines(text, "GRIDPOLR") if ln.startswith("GRID1    ELEV")] == [
+            "GRID1    ELEV      1  2*5", "GRID1    ELEV      2  2*5", "GRID1    ELEV      3  2*5"]
+
+    def test_given_rows_are_kept(self):
+        rows = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        text = PolarGrid(**POLAR, z_elev=9.0, elevations=rows, hills=rows).to_aermod_input(elevated=True)
+        assert "9" not in "".join(ln for ln in text.splitlines() if "ELEV" in ln or "HILL" in ln)
+        assert "GRID1    ELEV      2       4.0      5.0      6.0" in text
+
+    def test_one_given_set_is_not_completed_from_the_grid_wide_value(self):
+        rows = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        text = PolarGrid(**POLAR, z_hill=7.0, elevations=rows).to_aermod_input(elevated=True)
+        assert "ELEV" in text and "HILL" not in text
+        text = PolarGrid(**POLAR, z_elev=7.0, hills=rows).to_aermod_input(elevated=True)
+        assert "HILL" in text and "ELEV" not in text
+
+    @pytest.mark.parametrize("elevated", [False, None])
+    def test_flat_or_unknown_writes_only_given_rows(self, elevated):
+        grid = PolarGrid(**POLAR, z_elev=5.0, z_hill=9.0)
+        text = grid.to_aermod_input(elevated=elevated)
+        assert "ELEV" not in text and "HILL" not in text
+        assert text == grid.to_aermod_input()
+
+    def test_default_call_is_unchanged(self):
+        assert PolarGrid(**POLAR, elevations=[[1.0] * 3] * 2).to_aermod_input() == (
+            PolarGrid(**POLAR, elevations=[[1.0] * 3] * 2).to_aermod_input(elevated=None))
+
+    def test_flag_rows_from_a_nonzero_z_flag_with_flagpole(self):
+        text = PolarGrid(**POLAR, z_flag=2.0).to_aermod_input(elevated=False, flagpole=1.5)
+        assert "GRID1    FLAG      2  3*2" in text
+
+    def test_zero_z_flag_leaves_the_flagpole_default(self):
+        assert "FLAG" not in PolarGrid(**POLAR).to_aermod_input(elevated=False, flagpole=1.5)
+        assert "FLAG" not in PolarGrid(**POLAR, z_flag=2.0).to_aermod_input(elevated=False)
+
+    def test_given_flag_rows_are_still_written(self):
+        text = PolarGrid(**POLAR, flags=[[1.0] * 3] * 2).to_aermod_input()
+        assert "GRID1    FLAG      1  3*1" in text
+
+    def test_uniform_rows_read_back_to_the_same_values(self):
+        grid = PolarGrid(**POLAR, z_elev=123.456, z_hill=0.5)
+        project = _project(_ctl(), ReceptorPathway(polar_grids=[grid]))
+        back = parse_aermod_input(project.to_aermod_input(validate=False)).receptors.polar_grids[0]
+        assert back.elevations == [[123.456] * 3] * 2
+        assert back.hills == [[0.5] * 3] * 2
+
+    def test_pathway_hands_the_run_options_to_polar_grids(self):
+        pathway = ReceptorPathway(polar_grids=[PolarGrid(**POLAR, z_flag=2.0)])
+        text = pathway.to_aermod_input(elevated=True, flagpole=1.5)
+        assert "GRIDPOLR  GRID1    ELEV      1  3*0" in text
+        assert "GRIDPOLR  GRID1    FLAG      1  3*2" in text
+
+
+# ---------------------------------------------------------------------------
 # DISCCART fields
 # ---------------------------------------------------------------------------
 
@@ -159,9 +236,11 @@ class TestProjectContext:
     def test_elevated_deck(self):
         control = _ctl(terrain_type=TerrainType.FLAT, regulatory_default=True)
         receptors = ReceptorPathway(cartesian_grids=[CartesianGrid(**GRID)],
+                                    polar_grids=[PolarGrid(grid_name="POL1", **POLAR)],
                                     discrete_receptors=[DiscreteReceptor(1000.0, 0.0)])
         text = _project(control, receptors).to_aermod_input(validate=False)
         assert "GRID1    ELEV      2  3*0" in text and "GRID1    HILL      2  3*0" in text
+        assert "GRIDPOLR  POL1     ELEV      2  3*0" in text
         assert _lines(text, "DISCCART") == ["1000.0000       0.0000     0.00     0.00"]
 
     def test_flat_flagpole_deck_reads_back(self):

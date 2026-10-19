@@ -208,8 +208,21 @@ def unaccounted_lines(text: str, project) -> list[str]:
     return out
 
 
+# Decks whose RE pathway leaves a network without ELEV/HILL rows under
+# AERMOD's default elevated terrain (W214 in AERMOD, which then uses
+# zeros). The writer states those zeros, so the rewrite gains the rows
+# and the deck's first rewrite is the one that must round-trip unchanged.
+ZERO_TERRAIN_ROWS_ADDED = {"bg_no2_olm_ppb.inp"}
+
+
 def assert_roundtrip(path: Path) -> int:
     text = path.read_text(encoding="latin-1")
+    if path.name in ZERO_TERRAIN_ROWS_ADDED:
+        original = parse_aermod_input(text)
+        text = original.to_aermod_input(validate=False)
+        (grid,) = parse_aermod_input(text).receptors.polar_grids
+        assert not original.receptors.polar_grids[0].elevations
+        assert grid.elevations == [[0.0, 0.0]] * 36 and grid.hills == grid.elevations
     first = parse_aermod_input(text)
     written = first.to_aermod_input(validate=False)
     second = parse_aermod_input(written)
