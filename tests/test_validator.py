@@ -380,6 +380,67 @@ class TestAreaSourceValidation:
         result = Validator.validate(self._project_with_area(release_height=-1.0))
         assert any("release_height" in e.field for e in result.errors)
 
+    @staticmethod
+    def _hint_findings(result):
+        return [e for e in result.errors if e.field == "depth_hint"]
+
+    def _deposition_control(self):
+        return ControlPathway(title_one="T", pollutant_id="OTHER", averaging_periods=["ANNUAL"],
+                              calculate_dry_deposition=True, alpha=True,
+                              regulatory_default=False)
+
+    def test_depth_hint_with_deposition_on_advises_an_openpit(self):
+        """pitarea.f ESCAPE, soset.f OPARM and calc1.f PITCALC act on an
+        OPENPIT source and not on the AREA standing in for a pit."""
+        sources = SourcePathway()
+        sources.add_source(AreaSource(
+            source_id="PITAREA", x_coord=0.0, y_coord=0.0, emission_rate=1e-5,
+            initial_lateral_dimension=400.0, initial_vertical_dimension=250.0,
+            depth_hint=43.0,
+            particle_deposition=ParticleDepositionParams([1.0, 10.0], [0.5, 0.5], [2.5, 2.5]),
+        ))
+        result = Validator.validate(_make_valid_project(
+            control=self._deposition_control(), sources=sources))
+        findings = self._hint_findings(result)
+        assert len(findings) == 1 and findings[0].severity == "warning"
+        assert findings[0].pathway == "AreaSource(PITAREA)"
+        assert "43 m deep with deposition on" in findings[0].message
+        assert "OpenPitSource.from_area(source, depth=43)" in findings[0].message
+        assert "ESCAPE" in findings[0].message and "PITCALC" in findings[0].message
+        assert result.is_valid
+
+    def test_depth_hint_with_particle_categories_advises_without_deposition(self):
+        """AERMOD applies the escape fraction whenever an OPENPIT source has
+        particle categories (calc1.f OCALC), deposition on or not."""
+        result = Validator.validate(self._project_with_area(
+            depth_hint=43.0,
+            particle_deposition=ParticleDepositionParams([1.0, 10.0], [0.5, 0.5], [2.5, 2.5]),
+        ))
+        findings = self._hint_findings(result)
+        assert len(findings) == 1
+        assert "with particle categories" in findings[0].message
+
+    def test_depth_hint_alone_is_silent(self):
+        result = Validator.validate(self._project_with_area(depth_hint=43.0))
+        assert self._hint_findings(result) == []
+
+    def test_area_without_hint_draws_nothing_under_deposition(self):
+        sources = SourcePathway()
+        sources.add_source(AreaSource(
+            source_id="AREA1", x_coord=0.0, y_coord=0.0, emission_rate=1e-5,
+            particle_deposition=ParticleDepositionParams([1.0, 10.0], [0.5, 0.5], [2.5, 2.5]),
+        ))
+        result = Validator.validate(_make_valid_project(
+            control=self._deposition_control(), sources=sources))
+        assert self._hint_findings(result) == []
+
+    @pytest.mark.parametrize("hint", [0.0, -5.0, float("nan")])
+    def test_non_positive_depth_hint_is_an_error(self, hint):
+        result = Validator.validate(self._project_with_area(depth_hint=hint))
+        findings = self._hint_findings(result)
+        assert len(findings) == 1 and findings[0].severity == "error"
+        assert "above 0 m" in findings[0].message
+
 
 # ---------------------------------------------------------------------------
 # E251: deposition with RLINE, RLINEXT or BUOYLINE
@@ -1269,6 +1330,55 @@ class TestDepositionValidation:
         dep_errors = [e for e in result.errors
                       if "particle_deposition" in e.field]
         assert len(dep_errors) == 0
+
+    @pytest.mark.parametrize("convention, densities, expect_warning", [
+        ("aerodynamic", [2.5, 2.5, 2.5], True),
+        ("aerodynamic", [1.0, 1.0, 2.5], True),
+        ("aerodynamic", [1.0, 1.0, 1.0], False),
+        ("stokes", [2.5, 2.5, 2.5], False),
+        (None, [2.5, 2.5, 2.5], False),
+    ])
+    def test_aerodynamic_diameters_beside_a_density_other_than_one_warn(
+            self, convention, densities, expect_warning):
+        """soset.f VDP1 settles PARTDIAM as the physical diameter of a
+        particle of PARTDENS, so aerodynamic diameters belong beside a
+        density of 1. AERMOD has no code for it; the convention is known
+        only when to_deposition_params recorded it."""
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0, 10.0], mass_fractions=[0.3, 0.5, 0.2],
+                densities=densities, diameter_convention=convention,
+            ),
+        ))
+        warnings = [e for e in result.errors
+                    if e.field == "particle_deposition.diameters" and e.severity == "warning"]
+        assert result.is_valid
+        if expect_warning:
+            assert len(warnings) == 1
+            assert "aerodynamic" in warnings[0].message and "[2.5]" in warnings[0].message
+            assert "aerodynamic_to_stokes" in warnings[0].message
+        else:
+            assert warnings == []
+
+    def test_unknown_diameter_convention_is_an_error(self):
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=ParticleDepositionParams(
+                diameters=[1.0, 5.0, 10.0], mass_fractions=[0.3, 0.5, 0.2],
+                densities=[2.5] * 3, diameter_convention="physical",
+            ),
+        ))
+        errors = [e for e in result.errors if e.field == "particle_deposition.diameter_convention"]
+        assert len(errors) == 1 and errors[0].severity == "error"
+        assert "'physical'" in errors[0].message
+
+    def test_converted_size_distribution_passes_without_warning(self):
+        from pyaermod.psd import SizeDistribution
+
+        dist = SizeDistribution((1.0, 2.5, 10.0), (0.3, 0.7))
+        result = Validator.validate(self._project_with_deposition(
+            particle_dep=dist.to_deposition_params(density=2.65),
+        ))
+        assert not [e for e in result.errors if "particle_deposition" in e.field], result
 
     def test_particle_mismatched_lengths(self):
         result = Validator.validate(self._project_with_deposition(

@@ -529,6 +529,9 @@ class Validator:
         # Deposition validation for all source types
         cls._validate_deposition_params(source, control, result)
 
+        if isinstance(source, AreaSource):
+            cls._validate_area_depth_hint(source, control, result)
+
         # Per-source NO2/NOx ratio (NO2RATIO applies to any source type;
         # soset.f NO2RAT rejects values outside 0-1 with E336)
         ratio = getattr(source, "no2_ratio", None)
@@ -633,6 +636,29 @@ class Validator:
             add("particle_deposition.densities",
                 f"densities {low} are <= 0.1 g/cm^3, which AERMOD flags as possibly "
                 "out of range (AERMOD W334)", "warning")
+
+        # soset.f VDP1 settles each category by Stokes' law from PARTDIAM
+        # and PARTDENS together, so PARTDIAM is the physical diameter of a
+        # particle of PARTDENS. Aerodynamic diameters (emission factors,
+        # impactors) only settle as intended beside a density of 1; beside
+        # a higher density AERMOD settles every category that many times
+        # too fast. AERMOD itself cannot tell the two apart, so there is
+        # no message code; the convention is known only when
+        # SizeDistribution.to_deposition_params recorded it.
+        convention = getattr(particle_dep, "diameter_convention", None)
+        if convention not in (None, "aerodynamic", "stokes"):
+            add("particle_deposition.diameter_convention",
+                f"must be 'aerodynamic', 'stokes' or None, got {convention!r}")
+        elif convention == "aerodynamic":
+            heavy = sorted({r for r in densities if r != 1.0})
+            if heavy:
+                add("particle_deposition.diameters",
+                    f"the diameters are aerodynamic but the densities include {heavy} g/cm^3: "
+                    "AERMOD reads PARTDIAM as the Stokes diameter of a particle of PARTDENS, "
+                    "so these categories settle about that many times faster than their "
+                    "aerodynamic size says. Convert them with pyaermod.psd.aerodynamic_to_stokes "
+                    "(SizeDistribution.to_deposition_params does by default) or use a density "
+                    "of 1.0", "warning")
 
     @staticmethod
     def _particle_values_as_written(particle_dep):
@@ -779,6 +805,48 @@ class Validator:
                     name, field_name,
                     f"must have exactly 36 values (one per 10° sector), got {len(val)}"
                 ))
+
+    @classmethod
+    def _validate_area_depth_hint(cls, src, control, result: ValidationResult):
+        """An AREA source that stands in for a pit (``depth_hint`` set).
+
+        AERMOD's OPENPIT algorithm does three things an AREA release
+        cannot (v24142): ESCAPE (pitarea.f 1175-1210) lets each particle
+        category out of the pit with the fraction
+        ``1 / (1 + Vg / (0.029 Uref))``, the rest settling inside, and
+        OCALC runs it whenever the source has particle categories
+        (calc1.f 4921-4935), deposition on or not; OPARM releases the
+        plume with ``sigma-z0 = depth / 4.3`` (soset.f 3558-3561) from an
+        effective area on the upwind side sized by the relative depth
+        (PDEPTH, PTFRAC, PITEFF); and PITCALC skips receptors inside the
+        pit. The hint is written nowhere: AREA has no depth.
+        """
+        hint = src.depth_hint
+        if hint is None:
+            return
+        name = f"AreaSource({src.source_id})"
+        if not (isinstance(hint, (int, float)) and math.isfinite(hint) and hint > 0):
+            result.errors.append(ValidationError(
+                name, "depth_hint", f"must be above 0 m, got {hint!r}"))
+            return
+        dep_enabled = (control.calculate_deposition or control.calculate_dry_deposition
+                       or control.calculate_wet_deposition)
+        particles = (getattr(src, "particle_deposition", None) is not None
+                     or getattr(src, "method_2", None) is not None)
+        if not (dep_enabled or particles):
+            return
+        why = "deposition on" if dep_enabled else "particle categories"
+        result.errors.append(ValidationError(
+            name, "depth_hint",
+            f"stands in for a pit {hint:g} m deep with {why}: an AREA source releases "
+            "at the surface and nothing settles inside the pit. AERMOD's OPENPIT source "
+            "adds the escape fraction 1 / (1 + Vg / (0.029 Uref)) per particle category "
+            "(pitarea.f ESCAPE), a release with sigma-z0 = depth / 4.3 from an effective "
+            "area on the upwind side (soset.f OPARM, pitarea.f PITEFF) and skips receptors "
+            "inside the pit (calc1.f PITCALC). Build one with "
+            f"OpenPitSource.from_area(source, depth={hint:g})",
+            severity="warning",
+        ))
 
     @classmethod
     def _validate_area_circ_source(cls, src, result: ValidationResult):
