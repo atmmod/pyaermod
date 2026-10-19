@@ -443,6 +443,101 @@ class TestAreaSourceValidation:
 
 
 # ---------------------------------------------------------------------------
+# E251: deposition with RLINE, RLINEXT or BUOYLINE
+# ---------------------------------------------------------------------------
+
+class TestLineDepositionE251:
+    """soset.f SRCQA refuses DEPOS/DDEP/WDEP with BUOYLINE or RLINE/RLINEXT."""
+
+    _PARTICLES = ParticleDepositionParams([1.0, 10.0], [0.5, 0.5], [1.0, 1.0])
+
+    @staticmethod
+    def _rline():
+        return RLineSource(source_id="RL1", x_start=0.0, y_start=0.0, x_end=100.0, y_end=0.0,
+                           emission_rate=0.001, particle_deposition=TestLineDepositionE251._PARTICLES)
+
+    @staticmethod
+    def _rlinext():
+        return RLineExtSource(source_id="RLX1", x_start=0.0, y_start=0.0, z_start=0.5,
+                              x_end=100.0, y_end=0.0, z_end=0.5, emission_rate=0.001,
+                              dcl=0.0, road_width=30.0, init_sigma_z=1.5,
+                              particle_deposition=TestLineDepositionE251._PARTICLES)
+
+    @staticmethod
+    def _buoyline():
+        return BuoyLineSource(
+            source_id="BLP1", avg_line_length=100.0, avg_building_height=15.0,
+            avg_building_width=20.0, avg_line_width=5.0, avg_building_separation=10.0,
+            avg_buoyancy_parameter=0.5,
+            line_segments=[BuoyLineSegment("BL01", 0, 0, 100, 0, emission_rate=1.0,
+                                           release_height=10.0)],
+            particle_deposition=TestLineDepositionE251._PARTICLES,
+        )
+
+    @staticmethod
+    def _project(source, **control_flags):
+        control = ControlPathway(title_one="T", pollutant_id="OTHER", averaging_periods=["ANNUAL"],
+                                 alpha=True, regulatory_default=False, **control_flags)
+        sources = SourcePathway()
+        sources.add_source(source)
+        return _make_valid_project(control=control, sources=sources)
+
+    @staticmethod
+    def _e251(result):
+        return [e for e in result.errors if "E251" in e.message]
+
+    @pytest.mark.parametrize("flag", ["calculate_deposition", "calculate_dry_deposition",
+                                      "calculate_wet_deposition"])
+    @pytest.mark.parametrize("make, kind", [
+        (_rline.__func__, "RLINE/RLINEXT"),
+        (_rlinext.__func__, "RLINE/RLINEXT"),
+        (_buoyline.__func__, "BUOYLINE"),
+    ])
+    def test_deposition_with_a_line_source_is_an_error(self, make, kind, flag):
+        source = make()
+        result = Validator.validate(self._project(source, **{flag: True}))
+        errors = self._e251(result)
+        assert len(errors) == 1 and errors[0].severity == "error"
+        assert errors[0].pathway == f"{type(source).__name__}({source.source_id})"
+        assert errors[0].field == "deposition"
+        assert kind in errors[0].message and "soset.f SRCQA" in errors[0].message
+        assert not result.is_valid
+
+    @pytest.mark.parametrize("make", [_rline.__func__, _rlinext.__func__, _buoyline.__func__])
+    def test_without_deposition_there_is_no_e251(self, make):
+        """The deposition fields alone draw the existing MODELOPT warning, not E251."""
+        result = Validator.validate(self._project(make()))
+        assert self._e251(result) == []
+
+    def test_every_offending_source_is_named(self):
+        control = ControlPathway(title_one="T", pollutant_id="OTHER", averaging_periods=["ANNUAL"],
+                                 alpha=True, regulatory_default=False, calculate_dry_deposition=True)
+        sources = SourcePathway()
+        for src in (self._rline(), self._buoyline(), LineSource(
+                source_id="LN1", x_start=0.0, y_start=0.0, x_end=100.0, y_end=0.0,
+                emission_rate=0.001, initial_lateral_dimension=10.0,
+                particle_deposition=self._PARTICLES)):
+            sources.add_source(src)
+        result = Validator.validate(_make_valid_project(control=control, sources=sources))
+        assert sorted(e.pathway for e in self._e251(result)) == [
+            "BuoyLineSource(BLP1)", "RLineSource(RL1)"]
+
+    def test_line_area_and_volume_take_deposition(self):
+        for src in (
+            LineSource(source_id="LN1", x_start=0.0, y_start=0.0, x_end=100.0, y_end=0.0,
+                       emission_rate=0.001, initial_lateral_dimension=10.0,
+                       particle_deposition=self._PARTICLES),
+            AreaSource(source_id="AR1", x_coord=0.0, y_coord=0.0, emission_rate=1e-5,
+                       particle_deposition=self._PARTICLES),
+            VolumeSource(source_id="VOL1", x_coord=0.0, y_coord=0.0, emission_rate=1.0,
+                         release_height=2.0, initial_lateral_dimension=5.0,
+                         initial_vertical_dimension=2.0, particle_deposition=self._PARTICLES),
+        ):
+            result = Validator.validate(self._project(src, calculate_dry_deposition=True))
+            assert self._e251(result) == [], result
+
+
+# ---------------------------------------------------------------------------
 # AreaCircSource validation
 # ---------------------------------------------------------------------------
 

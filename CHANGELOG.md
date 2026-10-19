@@ -621,6 +621,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anchor_ratio` with the default anchor, so a PM30 rate is scaled up for
   it (2.5 for the AP-42 13.2.4 multipliers on bins to 75 µm with
   `tail=1.0`). `docs/psd.md` gains "AP-42 stops at 30 microns".
+- **The validator reports E251: deposition with an RLINE, RLINEXT or
+  BUOYLINE source.** AERMOD refuses a deck with DEPOS, DDEP or WDEP in
+  MODELOPT and any BUOYLINE source, or else any RLINE or RLINEXT source
+  (soset.f SRCQA, E251), while `RLineSource`, `RLineExtSource` and
+  `BuoyLineSource` carry deposition fields and the validator let such a
+  project through to the run. `Validator.validate` now reports an error
+  on each such source when any of `ControlPathway.calculate_deposition`,
+  `calculate_dry_deposition` or `calculate_wet_deposition` is set; LINE,
+  AREA and VOLUME sources are unaffected. `docs/common-errors.md` gains
+  the entry.
 - **The EX01 deck-keyword tests read EPA's runstreams from the vendored
   fixtures and run in every PR.** `test_stage1_matches_epa_ex01_keywords`
   and `test_stage3_matches_epa_ex01_keywords` compared pyaermod's EX01

@@ -99,6 +99,19 @@ them, and which pyaermod helper catches them earlier.
   or use a density of 1.0 beside aerodynamic diameters. See
   [Particle size distributions](psd.md#what-aermod-does-with-the-diameter).
 
+### Deposition with RLINE, RLINEXT or BUOYLINE (E251)
+
+- **Cause:** `DEPOS`, `DDEP` or `WDEP` in `MODELOPT` (any of
+  `ControlPathway.calculate_deposition`, `calculate_dry_deposition`,
+  `calculate_wet_deposition`) in a deck with an `RLineSource`,
+  `RLineExtSource` or `BuoyLineSource`. AERMOD refuses the deck at setup
+  (`soset.f` SRCQA, E251 "Deposition (DEPOS, DDEP, WDEP) incompatible
+  with" BUOYLINE or RLINE/RLINEXT), although pyaermod's dataclasses for
+  those sources carry `gas_deposition` and `particle_deposition` fields.
+- **Fix:** `Validator.validate(project)` reports an error on each such
+  source. Turn deposition off, or model the road or line as a `LINE`,
+  `AREA` or `VOLUME` source, which take deposition.
+
 ### DFAULT with FLAT terrain (W206)
 
 - **Cause:** `ControlPathway` defaults to `terrain_type=FLAT` with
