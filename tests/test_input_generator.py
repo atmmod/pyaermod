@@ -692,6 +692,112 @@ class TestOpenPitSource:
         assert "123456.00" in output
 
 
+class TestOpenPitFromArea:
+    """OpenPitSource.from_area: the OPENPIT with an AREA stand-in's footprint."""
+
+    def _area(self, **overrides):
+        fields = dict(
+            source_id="PITAREA", x_coord=100.0, y_coord=200.0, base_elevation=12.0,
+            emission_rate=2.5e-6, release_height=0.0,
+            initial_lateral_dimension=400.0, initial_vertical_dimension=250.0,
+            angle=15.0, initial_sigma_z=10.0, source_groups=["PITS"], no2_ratio=0.5,
+            particle_deposition=ParticleDepositionParams(
+                diameters=[1.0, 10.0], mass_fractions=[0.5, 0.5], densities=[2.5, 2.5]),
+        )
+        fields.update(overrides)
+        return AreaSource(**fields)
+
+    def test_depth_gives_the_volume_and_carries_the_footprint(self):
+        area = self._area()
+        pit = OpenPitSource.from_area(area, depth=43.0)
+        assert isinstance(pit, OpenPitSource)
+        assert (pit.source_id, pit.x_coord, pit.y_coord, pit.base_elevation) == (
+            "PITAREA", 100.0, 200.0, 12.0)
+        assert (pit.x_dimension, pit.y_dimension, pit.angle) == (400.0, 250.0, 15.0)
+        assert pit.pit_volume == pytest.approx(43.0 * 400.0 * 250.0)
+        assert pit.effective_depth == pytest.approx(43.0)
+        assert pit.emission_rate == 2.5e-6 and pit.release_height == 0.0
+        assert pit.no2_ratio == 0.5
+        text = pit.to_aermod_input()
+        assert "OPENPIT" in text and "PARTDIAM" in text and "NO2RATIO" in text
+
+    def test_volume_gives_the_depth(self):
+        pit = OpenPitSource.from_area(self._area(), volume=4.0e6)
+        assert pit.pit_volume == 4.0e6
+        assert pit.effective_depth == pytest.approx(4.0e6 / (400.0 * 250.0))
+
+    def test_nested_fields_are_copies(self):
+        area = self._area()
+        pit = OpenPitSource.from_area(area, depth=43.0)
+        assert pit.particle_deposition == area.particle_deposition
+        assert pit.particle_deposition is not area.particle_deposition
+        assert pit.source_groups == ["PITS"] and pit.source_groups is not area.source_groups
+
+    def test_depth_hint_is_the_default_depth(self):
+        pit = OpenPitSource.from_area(self._area(depth_hint=30.0))
+        assert pit.effective_depth == pytest.approx(30.0)
+        # An explicit depth wins over the hint.
+        assert OpenPitSource.from_area(self._area(depth_hint=30.0), depth=20.0).effective_depth \
+            == pytest.approx(20.0)
+
+    def test_overrides(self):
+        pit = OpenPitSource.from_area(self._area(), depth=43.0, release_height=5.0,
+                                      source_id="PIT1")
+        assert pit.release_height == 5.0 and pit.source_id == "PIT1"
+
+    @pytest.mark.parametrize("kwargs, match", [
+        ({}, "depth= or volume="),
+        ({"depth": 10.0, "volume": 1e6}, "not both"),
+        ({"depth": 0.0}, "depth must be above 0"),
+        ({"depth": -5.0}, "depth must be above 0"),
+        ({"volume": 0.0}, "volume must be above 0"),
+    ])
+    def test_depth_and_volume_are_checked(self, kwargs, match):
+        with pytest.raises(ValueError, match=match):
+            OpenPitSource.from_area(self._area(), **kwargs)
+
+    def test_zero_side_rejected(self):
+        with pytest.raises(ValueError, match="sides must be above 0"):
+            OpenPitSource.from_area(self._area(initial_lateral_dimension=0.0), depth=10.0)
+
+    def test_building_downwash_refused(self):
+        with pytest.raises(ValueError, match="building_height"):
+            OpenPitSource.from_area(self._area(building_height=10.0), depth=10.0)
+
+    def test_depth_hint_is_not_written(self):
+        area = self._area(depth_hint=43.0)
+        assert area.to_aermod_input() == self._area().to_aermod_input()
+
+    def test_rebuilds_epa_openpits_deck(self):
+        """Each OPENPIT of EPA's openpits deck, read back and rebuilt from
+        the AREA with the same footprint, writes the same cards."""
+        from pathlib import Path
+
+        from pyaermod.epa_testcases import find_epa_testcase_set
+        from pyaermod.input_reader import read_aermod_input
+
+        case_set = find_epa_testcase_set(Path(__file__).resolve().parents[1] / "test_cases")
+        if case_set is None or not (case_set.inputs / "openpits.inp").exists():
+            pytest.skip("EPA test-case set not present")
+        project = read_aermod_input(case_set.inputs / "openpits.inp")
+        pits = [s for s in project.sources.sources if isinstance(s, OpenPitSource)]
+        assert len(pits) >= 3
+        for pit in pits:
+            area = AreaSource(
+                source_id=pit.source_id, x_coord=pit.x_coord, y_coord=pit.y_coord,
+                base_elevation=pit.base_elevation, emission_rate=pit.emission_rate,
+                release_height=pit.release_height,
+                initial_lateral_dimension=pit.x_dimension,
+                initial_vertical_dimension=pit.y_dimension, angle=pit.angle,
+                initial_sigma_z=pit.effective_depth / 4.3,
+                particle_deposition=pit.particle_deposition, method_2=pit.method_2,
+            )
+            rebuilt = OpenPitSource.from_area(area, volume=pit.pit_volume)
+            assert rebuilt.to_aermod_input() == pit.to_aermod_input(), pit.source_id
+            by_depth = OpenPitSource.from_area(area, depth=pit.effective_depth)
+            assert by_depth.pit_volume == pytest.approx(pit.pit_volume)
+
+
 class TestBackgroundConcentration:
     """Test background concentration keyword generation."""
 

@@ -468,8 +468,90 @@ class TestSizeDistribution:
         for d_a, d_s in zip(dist.diameters(), params.diameters):
             assert d_s == pytest.approx(aerodynamic_to_stokes(d_a, 2.65), rel=1e-15)
         assert params.densities == [2.65, 2.65]
+        assert params.diameter_convention == "stokes"
         naive = dist.to_deposition_params(density=2.65, stokes=True, slip=False)
         assert naive.diameters[0] == pytest.approx(dist.diameters()[0] / math.sqrt(2.65))
+
+    def test_density_other_than_one_converts_by_default(self):
+        """The default writes what AERMOD reads: Stokes diameters for the density."""
+        dist = SizeDistribution((1.0, 2.0, 4.0), (0.5, 0.5))
+        params = dist.to_deposition_params(density=2.65)
+        assert params == dist.to_deposition_params(density=2.65, stokes=True)
+        assert params == dist.to_deposition_params(density=2.65, convert=True)
+        assert params.diameter_convention == "stokes"
+        for d_a, d_s in zip(dist.diameters(), params.diameters):
+            assert d_s < d_a
+            assert stokes_to_aerodynamic(d_s, 2.65) == pytest.approx(d_a, rel=1e-12)
+
+    def test_unit_density_writes_aerodynamic_diameters(self):
+        dist = SizeDistribution((1.0, 2.0, 4.0), (0.5, 0.5))
+        params = dist.to_deposition_params()
+        assert params.diameters == dist.diameters()
+        assert params.diameter_convention == "aerodynamic"
+        assert dist.to_deposition_params(density=1.0, convert=True) == params
+
+    @pytest.mark.parametrize("opt_out", [{"convert": False}, {"stokes": False}])
+    def test_opting_out_of_the_conversion_warns(self, opt_out):
+        """convert=False (the old stokes=False) writes aerodynamic diameters
+        beside the density, the input AERMOD settles too fast, and says so."""
+        dist = SizeDistribution((1.0, 2.0, 4.0), (0.5, 0.5))
+        with pytest.warns(UserWarning, match=r"2\.65 times faster"):
+            params = dist.to_deposition_params(density=2.65, **opt_out)
+        assert params.diameters == dist.diameters()
+        assert params.densities == [2.65, 2.65]
+        assert params.diameter_convention == "aerodynamic"
+
+    def test_opting_out_at_unit_density_is_silent(self):
+        dist = SizeDistribution((1.0, 2.0, 4.0), (0.5, 0.5))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            params = dist.to_deposition_params(density=1.0, convert=False)
+        assert params.diameter_convention == "aerodynamic"
+
+    def test_stokes_edges_are_written_as_they_are(self):
+        """A distribution measured as physical diameters needs no conversion."""
+        dist = SizeDistribution((1.0, 2.0, 4.0), (0.5, 0.5))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            params = dist.to_deposition_params(density=2.65, diameter_convention="stokes")
+        assert params.diameters == dist.diameters()
+        assert params.densities == [2.65, 2.65]
+        assert params.diameter_convention == "stokes"
+        with pytest.raises(ValueError, match="twice"):
+            dist.to_deposition_params(density=2.65, diameter_convention="stokes", convert=True)
+        with pytest.raises(ValueError, match="diameter_convention"):
+            dist.to_deposition_params(diameter_convention="physical")
+
+    def test_convert_and_stokes_must_agree(self):
+        dist = SizeDistribution((1.0, 2.0, 4.0), (0.5, 0.5))
+        with pytest.raises(ValueError, match="disagree"):
+            dist.to_deposition_params(density=2.65, convert=True, stokes=False)
+        assert (dist.to_deposition_params(density=2.65, convert=True, stokes=True)
+                == dist.to_deposition_params(density=2.65))
+
+    def test_deck_written_both_ways(self):
+        """The same AP-42 bins at 2.65 g/cm3: converted (the default) and
+        not (convert=False) differ only on PARTDIAM, and the converted
+        diameters are the smaller ones."""
+        dist = _ap42_bins()
+
+        def cards(params):
+            src = AreaSource(source_id="PILE", x_coord=0.0, y_coord=0.0, emission_rate=1e-5,
+                             particle_deposition=params)
+            return {ln.split()[0]: ln.split()[2:] for ln in src.to_aermod_input().splitlines()
+                    if ln.split() and ln.split()[0] in ("PARTDIAM", "MASSFRAX", "PARTDENS")}
+
+        converted = cards(dist.to_deposition_params(density=2.65))
+        with pytest.warns(UserWarning):
+            unconverted = cards(dist.to_deposition_params(density=2.65, convert=False))
+        assert converted["MASSFRAX"] == unconverted["MASSFRAX"]
+        assert converted["PARTDENS"] == unconverted["PARTDENS"] == ["2.65"] * 16
+        assert [float(x) for x in unconverted["PARTDIAM"]] == [
+            float(f"{d:.4g}") for d in dist.diameters()]
+        assert all(float(a) < float(b)
+                   for a, b in zip(converted["PARTDIAM"], unconverted["PARTDIAM"]))
+        assert float(converted["PARTDIAM"][0]) == pytest.approx(
+            aerodynamic_to_stokes(dist.diameters()[0], 2.65), rel=1e-3)
 
     def test_diameter_outside_aermod_range_rejected(self):
         dist = SizeDistribution((0.0, 0.0015), (1.0,))
@@ -598,6 +680,23 @@ class TestAgainstAERMOD:
         assert order == list(expected)
         for sid, diameters in expected.items():
             assert cats[sid]["PARTDIAM"] == [float(f"{d:.6g}") for d in diameters], sid
+
+    def test_default_conversion_reproduces_the_recorded_decks(self):
+        """to_deposition_params(density=2.65) writes the STOKES source's
+        PARTDIAM list, which AERMOD settled like AERO1; convert=False writes
+        AERO265's, which AERMOD settled 2.65 times faster."""
+        order, cats = _deck_categories()
+        dist = SizeDistribution(tuple(EDGES), tuple([1 / 16] * 16))
+        converted = dist.to_deposition_params(density=2.65)
+        assert [float(f"{d:.6g}") for d in converted.diameters] == cats["STOKES"]["PARTDIAM"]
+        with pytest.warns(UserWarning):
+            unconverted = dist.to_deposition_params(density=2.65, convert=False)
+        assert [float(f"{d:.6g}") for d in unconverted.diameters] == cats["AERO265"]["PARTDIAM"]
+        vg = _recorded_vg()
+        stokes_i, aero265_i, aero1_i = (order.index(s) + 1 for s in ("STOKES", "AERO265", "AERO1"))
+        for icat in range(1, 17):
+            assert vg[(stokes_i, icat)] == pytest.approx(vg[(aero1_i, icat)], rel=1e-5)
+            assert vg[(aero265_i, icat)] / vg[(aero1_i, icat)] == pytest.approx(2.65, rel=2e-3)
 
     def test_stokes_diameters_settle_like_aerodynamic_ones_in_aermod(self):
         """(aerodynamic_to_stokes(d, 2.65), 2.65) settles like (d, 1.0) in AERMOD."""

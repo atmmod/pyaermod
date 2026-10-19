@@ -168,6 +168,7 @@ ADVANCED_FIELDS = frozenset({
     "platform", "street_canyon", "vegetative_barriers",
     "barrier_height_1", "barrier_dcl_1", "barrier_height_2", "barrier_dcl_2",
     "depression_depth", "depression_wtop", "depression_wbottom", "num_vertices",
+    "depth_hint",
     # receptors
     "z_elev", "z_hill", "z_flag", "grid_elevations", "grid_hills", "grid_flags",
     "x_points", "y_points", "distances", "directions", "origin_source_id",

@@ -30,7 +30,9 @@ Conventions
 Every diameter this module takes or returns is in microns. Distributions
 are held in *aerodynamic* diameter; bin edges, cut points and lognormal
 medians are aerodynamic. :meth:`SizeDistribution.to_deposition_params`
-converts to Stokes diameters only when asked.
+converts them to Stokes diameters whenever the density it is given is
+not 1, because that is the diameter AERMOD reads, and records which kind
+it wrote in ``ParticleDepositionParams.diameter_convention``.
 
 A bin's representative diameter is, by default, the mean-mass diameter
 ``((d1^3 + d1^2 d2 + d1 d2^2 + d2^3)/4)^(1/3)`` (:func:`mean_mass_diameter`),
@@ -108,6 +110,7 @@ _RHOAIR = 1.2e-3         # density of air, g/cm^3
 _G = 9.80616             # m/s^2
 
 _REPRESENTATIVES = ("mean_mass", "settling_equivalent")
+_CONVENTIONS = ("aerodynamic", "stokes")
 
 
 # ============================================================================
@@ -580,30 +583,59 @@ class SizeDistribution:
 
     def to_deposition_params(self, density: float = 1.0, *,
                              representative: str = "mean_mass",
-                             stokes: bool = False,
+                             convert: Optional[bool] = None,
+                             stokes: Optional[bool] = None,
                              slip: bool = True,
-                             drop_empty: bool = False) -> ParticleDepositionParams:
+                             drop_empty: bool = False,
+                             diameter_convention: str = "aerodynamic") -> ParticleDepositionParams:
         """Build the ``PARTDIAM``/``MASSFRAX``/``PARTDENS`` lists for a source.
+
+        AERMOD reads ``PARTDIAM`` as the physical (Stokes) diameter of a
+        particle of density ``PARTDENS`` (``soset.f`` VDP1), while this
+        class holds aerodynamic diameters. With a ``density`` other than
+        1 the diameters are therefore converted with
+        :func:`aerodynamic_to_stokes` before they are written, so that
+        each bin settles in AERMOD as its aerodynamic size says. The
+        result's ``diameter_convention`` records what was written.
 
         Parameters
         ----------
         density : float
-            Particle density (g/cm^3) for every bin.
+            Particle density (g/cm^3) for every bin, written to ``PARTDENS``.
         representative : str
             ``"mean_mass"`` or ``"settling_equivalent"``; see :meth:`diameters`.
-        stokes : bool
-            ``False`` (the default) writes the aerodynamic diameters with
-            ``density``: with the default ``density=1.0`` AERMOD then
-            settles each bin as its aerodynamic size says. ``True``
-            converts each diameter with :func:`aerodynamic_to_stokes` for
-            ``density``, so the physical particles of that density settle
-            at the same speed.
+        convert : bool, optional
+            Whether to convert the aerodynamic diameters to Stokes
+            diameters for ``density``. By default they are converted
+            whenever ``density`` is not 1 (at 1 the two are the same).
+            ``False`` writes the aerodynamic diameters unchanged beside
+            ``density``: with a density other than 1 that makes AERMOD
+            settle every bin about ``density`` times faster than its
+            aerodynamic size says, so this method warns and the validator
+            warns again on the source.
+        stokes : bool, optional
+            The older spelling of ``convert``: ``True`` converts and
+            ``False`` does not. Earlier releases defaulted to ``False`` and
+            so wrote aerodynamic diameters beside whatever density was
+            given.
         slip : bool
-            Passed to :func:`aerodynamic_to_stokes` when ``stokes`` is set.
+            Passed to :func:`aerodynamic_to_stokes`. ``True`` (the default)
+            solves AERMOD's own settling equation, slip factor included,
+            so the converted bin settles exactly as the aerodynamic one
+            does; ``False`` is the textbook ``d_a / sqrt(rho)``, which
+            AERMOD settles up to about 11 % too fast for the finest bins
+            (``tests/fixtures/psd/``).
         drop_empty : bool
             Leave out bins whose mass fraction is 0. AERMOD accepts them
             (E332 allows 0), and keeping them keeps every source on the
             same bins.
+        diameter_convention : str
+            What the distribution's edges are: ``"aerodynamic"`` (the
+            default, this class's convention) or ``"stokes"`` for a
+            distribution measured as physical diameters of particles of
+            ``density`` (a sieve or laser-diffraction analysis). Stokes
+            edges are written as they are, with no conversion and no
+            warning.
 
         Raises
         ------
@@ -611,14 +643,41 @@ class SizeDistribution:
             If a diameter, rounded to the four significant digits the
             source writer puts on ``PARTDIAM``, falls outside AERMOD's
             accepted range, above 0.001 and up to 1000 microns (E335), or
-            ``density`` is not above 0 (E334). The diameters returned are
-            not rounded.
+            ``density`` is not above 0 (E334), or ``convert`` and
+            ``stokes`` disagree. The diameters returned are not rounded.
         """
         if not (math.isfinite(density) and density > 0):
             raise ValueError(f"density must be above 0 (AERMOD E334), got {density!r}")
+        if diameter_convention not in _CONVENTIONS:
+            raise ValueError(
+                f"diameter_convention must be one of {_CONVENTIONS}, got {diameter_convention!r}"
+            )
+        if stokes is not None:
+            if convert is not None and convert != stokes:
+                raise ValueError(f"convert={convert!r} and stokes={stokes!r} disagree")
+            convert = stokes
         diameters = self.diameters(representative)
-        if stokes:
+        if diameter_convention == "stokes":
+            if convert:
+                raise ValueError("a distribution in Stokes diameters is written as it is; "
+                                 "convert=True would convert it twice")
+            written = "stokes"
+        elif density == 1.0:
+            # Aerodynamic and Stokes diameters coincide at unit density.
+            written = "aerodynamic"
+        elif convert is None or convert:
             diameters = [aerodynamic_to_stokes(d, density, slip=slip) for d in diameters]
+            written = "stokes"
+        else:
+            warnings.warn(
+                f"aerodynamic diameters written beside a density of {density:g} g/cm^3: "
+                "AERMOD reads PARTDIAM as the Stokes diameter of a particle of PARTDENS, "
+                f"so every bin will settle about {density:g} times faster than its "
+                "aerodynamic size says. Leave convert unset to convert the diameters, "
+                "or use density=1.0",
+                stacklevel=2,
+            )
+            written = "aerodynamic"
         keep = [i for i, f in enumerate(self.mass_fractions) if f > 0 or not drop_empty]
         diameters = [diameters[i] for i in keep]
         # INPPDM checks the number on the card, so check the diameter as
@@ -636,6 +695,7 @@ class SizeDistribution:
             diameters=diameters,
             mass_fractions=fractions,
             densities=[float(density)] * len(keep),
+            diameter_convention=written,
         )
 
 
