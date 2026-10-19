@@ -84,10 +84,25 @@ class GasDepositionParams:
 
 @dataclass
 class ParticleDepositionParams:
-    """Particle deposition parameters for PARTDIAM/MASSFRAX/PARTDENS keywords."""
-    diameters: List[float] = field(default_factory=list)
-    mass_fractions: List[float] = field(default_factory=list)
-    densities: List[float] = field(default_factory=list)
+    """Particle deposition parameters for PARTDIAM/MASSFRAX/PARTDENS keywords.
+
+    AERMOD reads each ``PARTDIAM`` value as the physical (Stokes)
+    diameter of a particle of the matching ``PARTDENS`` (soset.f VDP1
+    settles it by Stokes' law with that density). ``diameter_convention``
+    records which kind of diameter the list holds: ``"stokes"`` when the
+    diameters are physical diameters of particles of ``densities``,
+    ``"aerodynamic"`` when they are aerodynamic diameters (what emission
+    factors and impactors report), ``None`` when it is not known (a deck
+    read from a file). Aerodynamic diameters settle as AERMOD intends only
+    beside a density of 1; written beside a higher density they make
+    AERMOD settle every category that many times too fast, and the
+    validator warns. :meth:`pyaermod.psd.SizeDistribution.to_deposition_params`
+    sets the field; nothing is written to the deck for it.
+    """
+    diameters: List[float] = field(default_factory=list, metadata=described("µm", "PARTDIAM: one diameter per size category"))
+    mass_fractions: List[float] = field(default_factory=list, metadata=described("", "MASSFRAX: the mass fraction of each category, summing to 1"))
+    densities: List[float] = field(default_factory=list, metadata=described("g/cm³", "PARTDENS: the particle density of each category"))
+    diameter_convention: Optional[str] = field(default=None, metadata=described(None, "What the diameters are: 'stokes' (physical diameters of particles of these densities, what AERMOD reads), 'aerodynamic' (needs density 1), or unset when unknown"))
 
 
 @dataclass

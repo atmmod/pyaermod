@@ -58,12 +58,24 @@ speed. There are two ways to give them to AERMOD, and they settle the
 same:
 
 1. **Aerodynamic diameters with `PARTDENS 1.0`.** This is what
-   `to_deposition_params()` does by default.
+   `to_deposition_params()` does with its default density of 1.
 2. **Stokes diameters with the real density.**
-   `to_deposition_params(density=2.65, stokes=True)` converts each
-   diameter with `aerodynamic_to_stokes`, which solves AERMOD's own
-   settling equation, so that `(d_s, 2.65)` settles exactly like
-   `(d_a, 1.0)`.
+   `to_deposition_params(density=2.65)` converts each diameter with
+   `aerodynamic_to_stokes`, which solves AERMOD's own settling equation,
+   so that `(d_s, 2.65)` settles exactly like `(d_a, 1.0)`. Any density
+   other than 1 converts; `stokes=True`, the older spelling, still does
+   the same.
+
+The `ParticleDepositionParams` that comes back records which kind it
+holds in `diameter_convention` (`"stokes"` after a conversion,
+`"aerodynamic"` at density 1), and the validator reads it: aerodynamic
+diameters beside a density other than 1 draw a warning, because AERMOD
+would settle every category about that many times too fast. A deck read
+from a file has `diameter_convention=None` (unknown) and draws nothing.
+A distribution measured as physical diameters (a sieve or laser
+diffraction analysis) is passed as
+`to_deposition_params(density=2.65, diameter_convention="stokes")`: its
+diameters are written as they are, with no conversion.
 
 The textbook conversion `d_s = d_a / sqrt(rho)` (`slip=False`) ignores
 the slip factor. The smaller Stokes diameter slips more than the
@@ -81,9 +93,13 @@ Two cautions:
 - Only gravitational settling is matched. AERMOD's Brownian diffusion
   term depends on the physical diameter, so the two ways deposit fine
   particles at different rates, as real particles of those sizes would.
-- Writing an aerodynamic diameter with a density above 1 (without
-  `stokes=True`) models a *larger* particle: the same diameter at 2.65
-  g/cm³ settles 2.65 times faster in AERMOD.
+- Writing an aerodynamic diameter with a density above 1 models a
+  *larger* particle: the same diameter at 2.65 g/cm³ settles 2.65 times
+  faster in AERMOD (the recorded run's `AERO265` source against its
+  `AERO1`). Earlier pyaermod releases wrote exactly that unless
+  `stokes=True` was passed. `to_deposition_params(density=2.65,
+  convert=False)` still does, for a deck that must reproduce an existing
+  one; it warns, and so does the validator.
 
 ## Representative diameter of a bin
 
@@ -187,12 +203,16 @@ is a bin edge.
 |---|---|---|
 | `density` | 1.0 | `PARTDENS` for every bin |
 | `representative` | `"mean_mass"` | Or `"settling_equivalent"` |
-| `stokes` | `False` | Convert to Stokes diameters for `density` |
-| `slip` | `True` | With `stokes`, solve AERMOD's settling equation; `False` uses `d_a / sqrt(rho)` |
+| `convert` | unset | Convert the aerodynamic diameters to Stokes diameters for `density`; unset converts whenever `density` is not 1. `False` writes them unchanged and warns when `density` is not 1 |
+| `stokes` | unset | The older spelling of `convert` (`True` converts) |
+| `slip` | `True` | When converting, solve AERMOD's settling equation; `False` uses `d_a / sqrt(rho)` |
 | `drop_empty` | `False` | Leave out bins with no mass (AERMOD accepts a 0 fraction) |
+| `diameter_convention` | `"aerodynamic"` | `"stokes"` when the distribution's edges are already physical diameters of particles of `density`: written as they are |
 
-It raises `ValueError` for a density at or below 0 (E334) or a diameter
-AERMOD would reject (E335). The diameter is checked as the source writer
+It raises `ValueError` for a density at or below 0 (E334), a diameter
+AERMOD would reject (E335), or `convert` and `stokes` that disagree.
+The desktop GUI shows a source's Method 1 categories read-only; build
+them in Python and load the project file. The diameter is checked as the source writer
 will print it, to four significant digits, because that is the number
 `INPPDM` reads: a mean-mass diameter of 0.00100006 microns is written as
 0.001 and rejected, and 1000.04 is written as 1000 and accepted.

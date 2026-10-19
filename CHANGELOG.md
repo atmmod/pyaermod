@@ -556,6 +556,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     characters (E291).
 
 ### Fixed
+- **`SizeDistribution.to_deposition_params(density=...)` converts to
+  Stokes diameters whenever the density is not 1.** AERMOD reads
+  `PARTDIAM` as the physical diameter of a particle of `PARTDENS`
+  (soset.f VDP1), while a `SizeDistribution` holds aerodynamic
+  diameters; the method converted only on `stokes=True`, so its default
+  wrote aerodynamic diameters beside the given density and AERMOD
+  settled every category about that many times too fast (2.65 times at
+  2.65 g/cm³, the `AERO265` source of `tests/fixtures/psd/` against its
+  `AERO1`). The default now converts with `aerodynamic_to_stokes` when
+  the density is not 1 and reproduces the fixture's `STOKES` deck;
+  `stokes=True` keeps its meaning; `convert=False` (or the old
+  `stokes=False`) writes the aerodynamic diameters unchanged and warns;
+  `diameter_convention="stokes"` passes a distribution already measured
+  as physical diameters through unconverted. `ParticleDepositionParams`
+  gains `diameter_convention` (`"stokes"`, `"aerodynamic"` or `None` when
+  unknown, as for a deck read from a file), set by the method and saved
+  in the project file, and the validator warns on a source whose
+  categories are aerodynamic beside any density other than 1 (AERMOD
+  has no message code for it). The desktop GUI shows Method 1 categories
+  read-only, so no form changes; `docs/psd.md` and `docs/common-errors.md`
+  describe the convention.
 - **The EX01 deck-keyword tests read EPA's runstreams from the vendored
   fixtures and run in every PR.** `test_stage1_matches_epa_ex01_keywords`
   and `test_stage3_matches_epa_ex01_keywords` compared pyaermod's EX01
