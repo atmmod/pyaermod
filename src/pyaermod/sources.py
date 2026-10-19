@@ -13,6 +13,8 @@ or :mod:`pyaermod.api`.
 
 from __future__ import annotations
 
+import copy
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -641,6 +643,13 @@ class AreaSource:
     # OPENPIT algorithm does. Kept last so positional construction of the
     # older fields is unchanged.
     initial_sigma_z: float = field(default=0.0, metadata=described("m", "Szinit: initial vertical dispersion σz0"))
+
+    # The depth of the pit this AREA stands in for, when it stands in for
+    # one. AREA has no depth, so nothing is written for it; the validator
+    # reads it to advise an OPENPIT source (which adds the escape fraction,
+    # the effective-depth release and the in-pit receptor skip an AREA
+    # lacks), and OpenPitSource.from_area takes it as the default depth.
+    depth_hint: Optional[float] = field(default=None, metadata=described("m", "Depth of the pit this AREA source stands in for, if any: written nowhere; the validator then advises an OPENPIT source, and OpenPitSource.from_area builds one"))
 
     def set_building_from_bpip(self, building) -> None:
         """Populate building downwash fields from a Building object."""
@@ -1497,6 +1506,97 @@ class OpenPitSource:
         if self.x_dimension > 0 and self.y_dimension > 0:
             return self.pit_volume / (self.x_dimension * self.y_dimension)
         return 0.0
+
+    #: Building-downwash fields an AREA may carry; OPENPIT has no downwash.
+    _AREA_DOWNWASH_FIELDS: ClassVar[Tuple[str, ...]] = (
+        "building_height", "building_width", "building_length",
+        "building_x_offset", "building_y_offset",
+    )
+
+    @classmethod
+    def from_area(cls, area: AreaSource, *,
+                  depth: Optional[float] = None,
+                  volume: Optional[float] = None,
+                  release_height: Optional[float] = None,
+                  source_id: Optional[str] = None) -> OpenPitSource:
+        """The OPENPIT source with the footprint and emissions of ``area``.
+
+        A rectangular AREA source is sometimes used to stand in for a pit:
+        the same south-west corner, sides, angle and emission rate per
+        unit area, often with ``initial_sigma_z`` set to depth / 4.3 as the
+        OPENPIT algorithm would. AERMOD then models a flat release in
+        which nothing settles inside the pit. An OPENPIT source adds what
+        the AREA cannot (v24142 ``pitarea.f``, ``soset.f``, ``calc1.f``):
+        each particle category leaves the pit with the escape fraction
+        ``1 / (1 + Vg / (0.029 Uref))`` (ESCAPE; 1 for a gas) and the rest
+        settles in the pit; the plume is released with
+        ``sigma-z0 = depth / 4.3`` from an effective area on the upwind
+        side of the pit, sized by the pit's relative depth (OPARM, PDEPTH,
+        PTFRAC, PITEFF); and receptors inside the pit are skipped
+        (PITCALC).
+
+        Parameters
+        ----------
+        area : AreaSource
+            The stand-in. Its corner, sides, angle, base elevation, flat
+            flag, emission rate, source groups, urban flag, NO2 ratio and
+            deposition fields (gas, particle, Method 2) carry over, the
+            nested ones as copies. ``initial_sigma_z`` is dropped, because
+            OPENPIT sets its own, and the building-downwash fields must be
+            unset, because OPENPIT has no downwash.
+        depth, volume : float, optional
+            The pit's effective depth (m) or its volume (m^3); exactly one,
+            related by ``volume = depth * Xinit * Yinit``. With neither,
+            ``area.depth_hint`` is the depth.
+        release_height : float, optional
+            ``Hs``, the average release height above the pit floor;
+            defaults to the AREA's release height.
+        source_id : str, optional
+            Defaults to the AREA's.
+
+        Raises
+        ------
+        ValueError
+            With both or neither of ``depth`` and ``volume`` (and no
+            ``depth_hint``), a depth or volume that is not above 0, a
+            side that is not above 0, or a building-downwash field set.
+        """
+        if depth is None and volume is None:
+            depth = area.depth_hint
+            if depth is None:
+                raise ValueError("give depth= or volume=, or set depth_hint on the AREA source")
+        elif depth is not None and volume is not None:
+            raise ValueError("give depth= or volume=, not both")
+        x_dim, y_dim = area.initial_lateral_dimension, area.initial_vertical_dimension
+        if not (x_dim > 0 and y_dim > 0):
+            raise ValueError(f"the AREA's sides must be above 0, got {x_dim} and {y_dim}")
+        if volume is None:
+            if not (isinstance(depth, (int, float)) and math.isfinite(depth) and depth > 0):
+                raise ValueError(f"depth must be above 0 m, got {depth!r}")
+            volume = float(depth) * x_dim * y_dim
+        elif not (isinstance(volume, (int, float)) and math.isfinite(volume) and volume > 0):
+            raise ValueError(f"volume must be above 0 m^3, got {volume!r}")
+        downwash = [f for f in cls._AREA_DOWNWASH_FIELDS if getattr(area, f, None) is not None]
+        if downwash:
+            raise ValueError(
+                f"OPENPIT has no building downwash; clear {', '.join(downwash)} on the AREA first"
+            )
+        return cls(
+            source_id=area.source_id if source_id is None else source_id,
+            x_coord=area.x_coord, y_coord=area.y_coord,
+            base_elevation=area.base_elevation, flat_source=area.flat_source,
+            emission_rate=area.emission_rate,
+            release_height=area.release_height if release_height is None else release_height,
+            x_dimension=x_dim, y_dimension=y_dim,
+            pit_volume=float(volume), angle=area.angle,
+            source_groups=list(area.source_groups),
+            is_urban=area.is_urban, urban_area_name=area.urban_area_name,
+            no2_ratio=area.no2_ratio,
+            gas_deposition=copy.deepcopy(area.gas_deposition),
+            particle_deposition=copy.deepcopy(area.particle_deposition),
+            deposition_method=copy.deepcopy(area.deposition_method),
+            method_2=copy.deepcopy(area.method_2),
+        )
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""

@@ -41,6 +41,30 @@ them, and which pyaermod helper catches them earlier.
   pit and the first few of their coordinates. Drop those receptors, or
   read their values as "not modelled" rather than "clean air".
 
+### Open pit: an AREA source used for a pit
+
+- **Cause:** a rectangular `AreaSource` with the pit's footprint and
+  emission rate stands in for the pit, often with `initial_sigma_z` set
+  to depth / 4.3, the OPENPIT algorithm's own σz0. AERMOD then models a
+  flat release at the surface: nothing settles inside the pit and every
+  receptor over the footprint is modelled. An `OPENPIT` source adds
+  three things (v24142 `pitarea.f`, `soset.f`, `calc1.f`): each particle
+  category leaves the pit with the escape fraction
+  `1 / (1 + Vg / (0.029 U_ref))` (`ESCAPE`, 1 for a gas), the rest
+  settling inside, and this runs whenever the source has particle
+  categories, deposition on or not; the plume is released with
+  σz0 = effective depth / 4.3 from an effective area on the upwind side
+  of the pit, sized by the relative depth (`OPARM`, `PDEPTH`, `PTFRAC`,
+  `PITEFF`); and receptors inside the pit are skipped (`PITCALC`, the
+  entry above). The two sources therefore deposit different amounts
+  outside the pit whenever the categories are coarse enough to settle.
+- **Fix:** `OpenPitSource.from_area(area, depth=...)` (or `volume=`)
+  builds the OPENPIT with the AREA's corner, sides, angle, emission rate
+  and deposition fields; the effective depth is `volume / (Xinit *
+  Yinit)`. Set `AreaSource.depth_hint` on an AREA that stands in for a
+  pit: it is written nowhere, and the validator then advises the OPENPIT
+  whenever deposition is on or the source has particle categories.
+
 ### Particle categories: E335, E332, E334, W334, W330
 
 - **Cause:** `ParticleDepositionParams` values AERMOD rejects: a diameter
