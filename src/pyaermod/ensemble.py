@@ -74,7 +74,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
-from .pathways import DEBUG_OPTIONS
+from .pathways import DEBUG_OPTIONS, period_file_name
 from .runner import AERMODRunner, AERMODRunResult, _batch_worker
 from .runner_utils import ProgressReporter, RunManifest, RunManifestEntry, _output_is_valid
 
@@ -284,6 +284,21 @@ class _Slot:
             setattr(self.obj, self.attr, name)
 
 
+class _StemSlot(_Slot):
+    """The stem of a family of per-period files
+    (``OutputPathway.period_plot_files``): AERMOD writes one file per
+    averaging period, ``<stem>_<period><suffix>``."""
+
+    def __init__(self, keyword: str, obj: Any, attr: str, periods: List[str], suffix: str):
+        super().__init__(keyword, obj, attr)
+        self.periods = periods
+        self.suffix = suffix
+
+    def names(self, stem: str) -> List[str]:
+        """The file names ``stem`` expands to, one per averaging period."""
+        return [period_file_name(stem, p, self.suffix) for p in self.periods]
+
+
 class _ItemSlot:
     """One file name that is an item of a list of strings
     (``ControlPathway.debug_options``)."""
@@ -381,7 +396,7 @@ def _unparsed_slots(project: Any, rules: Mapping[Tuple[str, str], _FieldRule]
                 yield _FieldSlot(keyword, line, index)
 
 
-def _output_slots(project: Any) -> Iterator[Union[_Slot, _ItemSlot, _FieldSlot]]:
+def _output_slots(project: Any) -> Iterator[Union[_Slot, _StemSlot, _ItemSlot, _FieldSlot]]:
     """Every field of ``project`` that names a file AERMOD writes, then
     every such field of the lines kept verbatim."""
     out = project.output
@@ -390,6 +405,10 @@ def _output_slots(project: Any) -> Iterator[Union[_Slot, _ItemSlot, _FieldSlot]]
         yield _Slot(keyword, out, attr)
     for i in range(len(out.plot_file_groups)):
         yield _Slot("PLOTFILE", out.plot_file_groups, i)
+    periods = [str(p) for p in project.control.averaging_periods]
+    if periods:
+        yield _StemSlot("PLOTFILE", out, "period_plot_files", periods, ".plt")
+        yield _StemSlot("POSTFILE", out, "period_postfiles", periods, ".pst")
     for keyword, entries in (
         ("MAXIFILE", out.maxi_files), ("RANKFILE", out.rank_files),
         ("SEASONHR", out.season_hour_files), ("EVALFILE", out.eval_files),
@@ -463,6 +482,12 @@ def rewrite_output_names(project: Any, prefix: str = "") -> Dict[str, List[str]]
     beside the deck. ``project`` is changed in place. Returns the new
     names by keyword, such as ``{"PLOTFILE": ["pit.plt"]}``.
 
+    The per-period stems ``OutputPathway.period_plot_files`` and
+    ``period_postfiles`` are renamed the same way, and the files they
+    stand for (one per ``ControlPathway.averaging_periods`` entry, such as
+    ``per_01H.plt``) are listed under ``PLOTFILE`` and ``POSTFILE`` beside
+    the others; the length and duplicate checks apply to those names.
+
     The names in the lines :mod:`pyaermod.input_reader` keeps verbatim
     (:attr:`~pyaermod.input_generator.AERMODProject.unparsed_lines`) are
     renamed too: a PLOTFILE with a rank below FIRST or with a unit, a
@@ -493,20 +518,23 @@ def rewrite_output_names(project: Any, prefix: str = "") -> Dict[str, List[str]]
         if not _basename(old):
             raise ValueError(f"{slot.keyword} file name {old!r} has no file name part")
         new = prefix + _basename(old)
-        if len(new) > MAX_FILENAME_LENGTH:
-            raise ValueError(
-                f"{slot.keyword} file name {new!r} is longer than AERMOD's "
-                f"{MAX_FILENAME_LENGTH} characters"
-            )
-        key = new.lower()  # AERMOD's files may land on a case-insensitive disk
-        if key in seen:
-            raise ValueError(
-                f"{slot.keyword} {old!r} and {seen[key]} would both be written "
-                f"as {new!r} in the run directory; give them different file names"
-            )
-        seen[key] = f"{slot.keyword} {old!r}"
+        # A stem stands for one file per averaging period
+        written = slot.names(new) if isinstance(slot, _StemSlot) else [new]
+        for name in written:
+            if len(name) > MAX_FILENAME_LENGTH:
+                raise ValueError(
+                    f"{slot.keyword} file name {name!r} is longer than AERMOD's "
+                    f"{MAX_FILENAME_LENGTH} characters"
+                )
+            key = name.lower()  # AERMOD's files may land on a case-insensitive disk
+            if key in seen:
+                raise ValueError(
+                    f"{slot.keyword} {old!r} and {seen[key]} would both be written "
+                    f"as {name!r} in the run directory; give them different file names"
+                )
+            seen[key] = f"{slot.keyword} {old!r}"
         slot.set(new)
-        names.setdefault(slot.keyword, []).append(new)
+        names.setdefault(slot.keyword, []).extend(written)
     return names
 
 
