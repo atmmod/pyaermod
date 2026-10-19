@@ -1573,10 +1573,10 @@ class OutputPathway:
             )
 
         # Per-group plot files
-        for entry in self.plot_file_groups:
-            avg_period, src_group, filename, rank = plot_file_group_fields(entry)
+        for group_entry in self.plot_file_groups:
+            avg_period, src_group, filename, group_rank = plot_file_group_fields(group_entry)
             lines.append(
-                f"   PLOTFILE  {_plotfile_fields(avg_period, src_group, filename, rank)}"
+                f"   PLOTFILE  {_plotfile_fields(avg_period, src_group, filename, group_rank)}"
             )
 
         # Postfile:

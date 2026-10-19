@@ -97,10 +97,10 @@ def write_uncompressed_geotiff(path: Union[str, Path]) -> bool:
     True when the file was rewritten, False when it was already plain or
     is not a raster rasterio can open. Needs ``rasterio``.
     """
-    require(rasterio, "rasterio", pip_extra="geo")
+    rio = require(rasterio, "rasterio", pip_extra="geo")
     path = Path(path)
     try:
-        with rasterio.open(path) as src:
+        with rio.open(path) as src:
             compression = src.compression
             tiled = src.profile.get("tiled", False)
             if compression is None and not tiled:
@@ -114,7 +114,7 @@ def write_uncompressed_geotiff(path: Union[str, Path]) -> bool:
         profile.pop(key, None)
     profile["tiled"] = False
     tmp = path.with_name(path.name + ".tmp")
-    with rasterio.open(tmp, "w", **profile) as dst:
+    with rio.open(tmp, "w", **profile) as dst:
         dst.write(data)
     os.replace(tmp, path)
     return True
