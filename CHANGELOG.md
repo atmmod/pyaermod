@@ -23,6 +23,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (a path, a `read_plotfile` result or a DataFrame, through the new
   `visualization.plotfile_frame`) gives the value at every receptor; the
   maximum is marked from it too.
+- **`OpenPitSource.from_area(area, depth=... | volume=...)` turns a
+  rectangular AREA stand-in into the OPENPIT source, and
+  `AreaSource.depth_hint` makes the validator advise one.** An AREA
+  source with a pit's footprint models a flat release in which nothing
+  settles inside the pit; AERMOD's OPENPIT source adds the escape
+  fraction `1 / (1 + Vg / (0.029 Uref))` per particle category
+  (pitarea.f ESCAPE, run whenever the source has particle categories),
+  a release with σz0 = depth / 4.3 from an effective area on the upwind
+  side (soset.f OPARM, pitarea.f PITEFF) and the in-pit receptor skip
+  (calc1.f PITCALC). `from_area` carries the corner, sides, angle,
+  emission rate, groups, urban flag, NO2 ratio and deposition fields
+  over, takes the depth or the volume (`volume = depth * Xinit *
+  Yinit`), drops `initial_sigma_z` (OPENPIT sets its own) and refuses
+  building downwash (OPENPIT has none); on EPA's `openpits` deck it
+  rebuilds each OPENPIT source's cards from the matching AREA.
+  `depth_hint` (m) is written nowhere, because AREA has no depth; the
+  validator reports a warning naming `from_area` when it is set and
+  deposition is on or the source has particle categories, and an error
+  when it is not above 0. The GUI shows it under Advanced.
+  `docs/common-errors.md` gains "an AREA source used for a pit".
 - **Ten Common AERMOD Jobs (`docs/use-cases.md`).** A docs page with
   ten end-to-end scripts in `examples/use_cases/`: a single stack, a
   facility with source groups, BPIP-PRIME downwash, fugitive area and
@@ -635,6 +655,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says so. `examples/use_cases` no longer works around any of the above:
   use case 7 reads `exceeds` from the report, 8 downloads with
   `download_dem` alone, and 10 passes one KMZ colour per level.
+- **`SizeDistribution.to_deposition_params(density=...)` converts to
+  Stokes diameters whenever the density is not 1.** AERMOD reads
+  `PARTDIAM` as the physical diameter of a particle of `PARTDENS`
+  (soset.f VDP1), while a `SizeDistribution` holds aerodynamic
+  diameters; the method converted only on `stokes=True`, so its default
+  wrote aerodynamic diameters beside the given density and AERMOD
+  settled every category about that many times too fast (2.65 times at
+  2.65 g/cm³, the `AERO265` source of `tests/fixtures/psd/` against its
+  `AERO1`). The default now converts with `aerodynamic_to_stokes` when
+  the density is not 1 and reproduces the fixture's `STOKES` deck;
+  `stokes=True` keeps its meaning; `convert=False` (or the old
+  `stokes=False`) writes the aerodynamic diameters unchanged and warns;
+  `diameter_convention="stokes"` passes a distribution already measured
+  as physical diameters through unconverted. `ParticleDepositionParams`
+  gains `diameter_convention` (`"stokes"`, `"aerodynamic"` or `None` when
+  unknown, as for a deck read from a file), set by the method and saved
+  in the project file, and the validator warns on a source whose
+  categories are aerodynamic beside any density other than 1 (AERMOD
+  has no message code for it). The desktop GUI shows Method 1 categories
+  read-only, so no form changes; `docs/psd.md` and `docs/common-errors.md`
+  describe the convention.
 - **The EX01 deck-keyword tests read EPA's runstreams from the vendored
   fixtures and run in every PR.** `test_stage1_matches_epa_ex01_keywords`
   and `test_stage3_matches_epa_ex01_keywords` compared pyaermod's EX01
