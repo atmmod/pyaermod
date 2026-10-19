@@ -575,6 +575,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     before. So is a renamed file name longer than AERMOD's 200
     characters (E291).
 
+### Deprecated
+- **`bins_from_cut_points` without `tail=` when the edges reach beyond
+  the largest cut point.** The bins above still get no mass, as before,
+  but a `FutureWarning` now names the choices (`tail="zero"`, a
+  power-law exponent, a `LognormalCDF` or another cumulative
+  distribution); the next release will raise `ValueError` there.
+
 ### Fixed
 - **`SizeDistribution.to_deposition_params(density=...)` converts to
   Stokes diameters whenever the density is not 1.** AERMOD reads
@@ -597,6 +604,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has no message code for it). The desktop GUI shows Method 1 categories
   read-only, so no form changes; `docs/psd.md` and `docs/common-errors.md`
   describe the convention.
+- **`bins_from_cut_points` no longer reports the mass above the largest
+  cut point as 0.** Cut points say nothing above the largest of them
+  (AP-42's particle size multipliers stop at 30 µm), but the log-linear
+  CDF is flat there, so bins reaching beyond it silently got no mass and
+  `truncated_above` was reported as 0, hiding the tail. `truncated_above`
+  (and `truncated_below`) are now `Optional[float]` and `None` when the
+  distribution does not say: `bins_from_cdf` reports `None` for bins
+  that reach a `LogLinearCDF`'s last knot (`top_knot`), and for any
+  distribution with no upper limit. `bins_from_cut_points` takes
+  `tail=`: `"zero"` (no mass above, `truncated_above` 0), a power-law
+  exponent `m` (the cumulative mass continues as
+  `F(top) * (d / top) ** m`, unbounded), or a `LognormalCDF` or any
+  `CumulativeMassDistribution`, continued with its own shape scaled to
+  agree at the largest cut point; the mass a tail adds raises
+  `anchor_ratio` with the default anchor, so a PM30 rate is scaled up for
+  it (2.5 for the AP-42 13.2.4 multipliers on bins to 75 µm with
+  `tail=1.0`). `docs/psd.md` gains "AP-42 stops at 30 microns".
 - **The EX01 deck-keyword tests read EPA's runstreams from the vendored
   fixtures and run in every PR.** `test_stage1_matches_epa_ex01_keywords`
   and `test_stage3_matches_epa_ex01_keywords` compared pyaermod's EX01

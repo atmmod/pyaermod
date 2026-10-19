@@ -63,7 +63,8 @@ SURFCOAL_FRACTIONS = [0.03, 0.07, 0.20, 0.70]
 
 
 def _ap42_bins():
-    return bins_from_cut_points(AP42_1324_K, EDGES)
+    # The bins reach 75 um and the multipliers stop at 30: no mass above.
+    return bins_from_cut_points(AP42_1324_K, EDGES, tail="zero")
 
 
 # ----------------------------------------------------------------------------
@@ -163,7 +164,111 @@ class TestCutPoints:
         dist = _ap42_bins()
         assert dist.anchor_ratio == pytest.approx(1.0, abs=1e-15)
         assert dist.truncated_below == 0.0
+        assert dist.truncated_above == 0.0  # tail="zero" says so
+
+    def test_bins_to_the_largest_cut_point_do_not_know_the_mass_above(self):
+        """AP-42 stops at 30 um: with edges to 30 nothing is asked and
+        nothing is known about the mass above."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            dist = bins_from_cut_points(AP42_1324_K, EDGES[:13])
+        assert dist.edges[-1] == 30.0
+        assert dist.truncated_above is None
+        assert dist.truncated_below == 0.0
+        assert dist.anchor_ratio == pytest.approx(1.0, abs=1e-15)
+        assert [round(f, 4) for f in dist.mass_fractions] == AP42_FRACTIONS[:12]
+
+    def test_bins_above_the_largest_cut_point_warn_until_tail_is_given(self):
+        with pytest.warns(FutureWarning, match=r"stop at 30.*tail='zero'.*power-law.*LognormalCDF"):
+            dist = bins_from_cut_points(AP42_1324_K, EDGES)
+        # The old behaviour, minus the false 0: no mass above, and unknown.
+        assert dist.mass_fractions[12:] == (0.0, 0.0, 0.0, 0.0)
+        assert dist.mass_fractions == _ap42_bins().mass_fractions
+        assert dist.truncated_above is None
+
+    def test_tail_zero(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            dist = bins_from_cut_points(AP42_1324_K, EDGES, tail="zero")
+        assert dist.mass_fractions[12:] == (0.0, 0.0, 0.0, 0.0)
         assert dist.truncated_above == 0.0
+        assert dist.anchor_ratio == pytest.approx(1.0, abs=1e-15)
+
+    def test_tail_power_law(self):
+        """F(d) = F(30) (d / 30) ** m above 30 um; m = 1 puts 1.5 times the
+        PM30 mass between 30 and 75 um."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            dist = bins_from_cut_points(AP42_1324_K, EDGES, tail=1.0)
+        total = 0.74 * 75 / 30
+        assert dist.anchor_ratio == pytest.approx(total / 0.74, rel=1e-14)  # 2.5
+        widths = [10, 10, 12.5, 12.5]
+        for frac, width in zip(dist.mass_fractions[12:], widths):
+            assert frac == pytest.approx(0.74 * width / 30 / total, rel=1e-14)
+        # The bins below 30 um keep their AP-42 shape, scaled by the new total.
+        for frac, ap42 in zip(dist.mass_fractions[:12], AP42_FRACTIONS[:12]):
+            assert round(frac * dist.anchor_ratio, 4) == ap42
+        assert dist.truncated_above is None  # no upper limit
+        assert dist.truncated_below == 0.0   # F(0.5) = 0 exactly
+        assert math.fsum(dist.mass_fractions) == pytest.approx(1.0, abs=1e-12)
+
+    def test_power_law_with_mass_below_the_first_edge_is_unknown_below_too(self):
+        dist = bins_from_cut_points({2.5: 0.2, 10: 1.0}, [1.0, 2.5, 10.0, 20.0], lower=0.5,
+                                    tail=0.5)
+        assert dist.truncated_below is None and dist.truncated_above is None
+
+    def test_tail_lognormal(self):
+        """Above 30 um the cumulative mass follows the lognormal's shape,
+        scaled to agree at 30: F(d) = F(30) L(d) / L(30)."""
+        coarse = LognormalCDF(30.0, 2.5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            dist = bins_from_cut_points(AP42_1324_K, EDGES, tail=coarse)
+        scale = 0.74 / coarse(30.0)
+        expected = [scale * (coarse(b) - coarse(a)) for a, b in pairwise(EDGES[12:])]
+        total = 0.74 + sum(expected)
+        for frac, mass in zip(dist.mass_fractions[12:], expected):
+            assert frac == pytest.approx(mass / total, rel=1e-12)
+        assert dist.anchor_ratio == pytest.approx(total / 0.74, rel=1e-12)
+        # The lognormal has an upper limit, so the mass above 75 um is known.
+        assert dist.truncated_above == pytest.approx(1 - coarse(75.0), rel=1e-12)
+        assert dist.truncated_below == 0.0
+
+    def test_tail_user_cdf(self):
+        class Linear:
+            lower_limit = 0.0
+            upper_limit = 100.0
+
+            def __call__(self, d):
+                return min(float(d), 100.0)
+
+        dist = bins_from_cut_points({10: 0.5, 30: 1.0}, [1.0, 10.0, 30.0, 60.0], tail=Linear())
+        # F(60) = 1.0 * 60 / 30 = 2: the 30-60 bin holds as much as all below.
+        assert dist.mass_fractions[-1] == pytest.approx(0.5, rel=1e-14)
+        assert dist.anchor_ratio == pytest.approx(2.0, rel=1e-14)
+        # Upper limit 1.0 * 100 / 30; above 60 lies (100 - 60) / 100 of it.
+        assert dist.truncated_above == pytest.approx(0.4, rel=1e-12)
+
+    def test_tail_is_idle_when_the_bins_stop_at_the_cut_points(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with_tail = bins_from_cut_points(AP42_1324_K, EDGES[:13], tail=1.0)
+            without = bins_from_cut_points(AP42_1324_K, EDGES[:13])
+        assert with_tail == without
+        assert with_tail.truncated_above is None
+
+    @pytest.mark.parametrize("tail, match", [
+        ("foo", "tail must be"),
+        (object(), "tail must be"),
+        (True, "tail must be"),
+        (0, "exponent above 0"),
+        (-1.5, "exponent above 0"),
+        (float("inf"), "exponent above 0"),
+        (LognormalCDF(1e6, 1.1), "no mass below the last cut point"),
+    ])
+    def test_bad_tail_rejected(self, tail, match):
+        with pytest.raises(ValueError, match=match):
+            bins_from_cut_points(AP42_1324_K, EDGES, tail=tail)
 
     @pytest.mark.parametrize("r, p10, t", [(0.05, 0.2, 0.0), (0.2, 0.6, 0.5), (0.151, 0.473, 0.35)])
     def test_fractions_sum_to_one(self, r, p10, t):
@@ -171,7 +276,7 @@ class TestCutPoints:
         knots = {2.5: r * p10, 10: p10, 30: 1.0}
         if t:
             knots[50] = 1.0 + t
-        dist = bins_from_cut_points(knots, EDGES, anchor=30)
+        dist = bins_from_cut_points(knots, EDGES, anchor=30, tail="zero")
         assert abs(math.fsum(dist.mass_fractions) - 1.0) <= 1e-12
         assert abs(sum(dist.mass_fractions) - 1.0) <= 1e-12
         assert dist.anchor_ratio == pytest.approx(1.0 + t, rel=1e-14)
@@ -179,7 +284,7 @@ class TestCutPoints:
         assert 1 - dist.fraction_at_or_above(10) == pytest.approx(p10 / (1 + t), rel=1e-12)
 
     def test_default_anchor_is_largest_cut_point(self):
-        dist = bins_from_cut_points({10: 0.5, 30: 1.0, 50: 1.5}, EDGES)
+        dist = bins_from_cut_points({10: 0.5, 30: 1.0, 50: 1.5}, EDGES, tail="zero")
         assert dist.anchor_ratio == pytest.approx(1.0, abs=1e-15)
 
     def test_explicit_lower_below_first_edge(self):
@@ -198,7 +303,7 @@ class TestCutPoints:
         dist = bins_from_cut_points({2.5: 0.2, 10: 0.8}, [1.0, 2.5, 10.0], lower=0.5)
         below = 0.2 * math.log(2) / math.log(5)
         assert dist.truncated_below == pytest.approx(below / 0.8, rel=1e-14)
-        assert dist.truncated_above == 0.0
+        assert dist.truncated_above is None  # the cut points stop at 10 um
 
     def test_bins_short_of_default_anchor_lose_the_rest(self):
         """AP-42 13.2.4 k-values (whole = 0.74) on bins that stop at 15 um.
@@ -215,7 +320,7 @@ class TestCutPoints:
     def test_mapped_surfcoal_has_no_mass_at_or_above_10um(self):
         # surfcoal's fractions as cumulative knots, mapped onto the sixteen bins.
         cum = {1: 0.03, 2.5: 0.10, 5: 0.30, 10: 1.0}
-        dist = bins_from_cut_points(cum, EDGES)
+        dist = bins_from_cut_points(cum, EDGES, tail="zero")
         assert dist.fraction_at_or_above(10) == 0.0
         assert [round(f, 4) for f in dist.mass_fractions[:7]] == [
             0.0300, 0.0359, 0.0341, 0.0971, 0.1029, 0.3398, 0.3602]
@@ -280,6 +385,19 @@ class TestLognormal:
 
 
 class TestBinsFromCdf:
+    def test_flat_topped_cdf_does_not_know_the_mass_above_its_last_knot(self):
+        cdf = LogLinearCDF({0.5: 0.0, 10.0: 0.5, 30.0: 1.0})
+        assert cdf.top_knot == 30.0
+        assert bins_from_cdf(cdf, [1.0, 10.0, 30.0]).truncated_above is None
+        assert bins_from_cdf(cdf, [1.0, 10.0, 50.0]).truncated_above is None
+        # Short of the last knot, the mass up to it is known.
+        short = bins_from_cdf(cdf, [1.0, 10.0, 20.0])
+        assert short.truncated_above == pytest.approx(1.0 - cdf(20.0), rel=1e-14)
+
+    def test_lognormal_always_knows_both_ends(self):
+        dist = bins_from_cdf(LognormalCDF(10.0, 2.0), [1.0, 10.0, 100.0])
+        assert dist.truncated_above is not None and dist.truncated_below is not None
+
     def test_no_mass_in_bins_rejected(self):
         with pytest.raises(ValueError, match="no mass between"):
             bins_from_cdf(LogLinearCDF({1.0: 0.0, 2.0: 1.0}), [5.0, 10.0])
@@ -490,6 +608,12 @@ class TestSizeDistribution:
     def test_bad_distribution_rejected(self, edges, fractions, match):
         with pytest.raises(ValueError, match=match):
             SizeDistribution(edges, fractions)
+
+    def test_unknown_truncation_is_allowed(self):
+        dist = SizeDistribution((1.0, 2.0), (1.0,), truncated_above=None, truncated_below=None)
+        assert dist.truncated_above is None and dist.truncated_below is None
+        with pytest.raises(ValueError, match="truncated_above"):
+            SizeDistribution((1.0, 2.0), (1.0,), truncated_above=-0.1)
 
     def test_bad_anchor_ratio_rejected(self):
         with pytest.raises(ValueError, match="anchor_ratio"):
