@@ -26,7 +26,7 @@ authors:
     given-names: Shannon
     email: shannon.capps@gmail.com
 version: 2.2.0
-date-released: "2026-01-01"  # placeholder: set to the release day
+date-released: "2026-10-20"
 doi: 10.5281/zenodo.0000000  # placeholder: replace with the Zenodo DOI minted for the v2.2.0 release
 repository-code: "https://github.com/atmmod/pyaermod"
 url: "https://atmmod.github.io/pyaermod/"

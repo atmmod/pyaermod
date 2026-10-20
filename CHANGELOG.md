@@ -7,7 +7,269 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-20
+
+The archival release the JAWMA manuscript cites. v2.1.0 was planned
+after PR #9 and never tagged, so this section carries everything since
+2.0.0: the validation of the regulatory math and file formats against
+EPA's own programs (#9), the reader's four completeness tranches (#10,
+#13, #14, #15) and the 53-deck round-trip guarantee (#14), the AERSCREEN
+rescue (#11), and the release engineering itself (#16). After that came
+particle size distributions for Method 1 deposition (`pyaermod.psd`,
+#24, #44, #46) and designed run sets (`pyaermod.ensemble`, #33, #50);
+CO DEBUGOPT, the depletion switches and receptor elevations written from
+the project model (#29, #51); AERMET and AERMAP decks those programs
+accept, with runs reported as successful only when the program says so
+(#30, #31); the seven-step GUI (#21, #35, #41); ten end-to-end use-case
+scripts run against AERMOD 26135 and the library defects they found
+(#42, #48); and fixes to the runner, batch runs and the output readers
+(#19, #26, #27, #32, #36, #38, #39). Three dataclasses changed their
+fields incompatibly (`AERSURFACEConfig`, `AERSCREENConfig`,
+`EventPeriod`), `OutputPathway.max_file` is gone, and the AERMET
+pipeline runs in two stages; the upgrade notes are at the end of this
+section.
+
+#### Validation evidence
+
+What the release has been checked against, with the artifact each
+number comes from:
+
+| Check | Oracle | Result |
+|---|---|---|
+| EPA test-suite parity (`docs/validation.md`) | AERMOD v26135 built with gfortran, EPA reference set `aermet26135_aermod26135` | **142 / 142** POSTFILE comparisons within EPA's ±0.001 best-fit-slope margin |
+| AERTEST regression (`tests/test_real_aermod.py`) | EPA's `AERTEST_01H.PLT` | all 144 receptors bit for bit |
+| EPA deck round trip (`tests/test_epa_deck_roundtrip.py`, `tests/test_epa_source_roundtrip.py`) | the 53 decks of EPA's v26135 archive | **53 / 53** parse → write → re-parse with every pathway equal field for field, the keyword lines equal token for token, and every original line either modelled or kept in `unparsed_lines` |
+| EPA deck acceptance (`tests/test_epa_deck_acceptance.py`) | AERMOD's own setup pass over the rewritten decks | 49 / 53 accepted clean; the four chained MULTYEAR years report the same E500 as EPA's original does without the previous year's save file |
+| Rewritten decks against EPA's POSTFILEs (`tests/regulatory/test_epa_rewritten_so.py`) | EPA's reference POSTFILEs | fourteen decks with pyaermod's SO pathway and ten fully rewritten decks, all at slope 1.000000 |
+| Keyword coverage (`docs/keyword-audit-v26135.md`) | the 115 keywords AERMOD v26135's `modules.f` dispatches | **115 / 115** handled and tested (104 with a field, 11 stored verbatim by documented decision), from 59 at v2.0.0 |
+| AERSCREEN (`tests/test_aerscreen_known_answers.py`, `tests/test_real_aerscreen.py`) | EPA's `aerscreen_test_cases.zip` and the patched binary | all **22** restart decks reproduced byte for byte; **21** of the 22 cases (12 flat, through typed answers and through the restart file, and 9 terrain) reproduce EPA's `.OUT` line for line; the 22nd ships in EPA's archive as an OLM deck under a PVMRM name and cannot reproduce its own reference |
+| BPIP-PRIME (`tests/test_bpip_known_answers.py`) | EPA's BPIP-PRIME, compiled from source | exact over 6,480 direction comparisons |
+| AERSURFACE (`tests/test_real_aersurface.py`, `tests/test_aersurface_deck_acceptance.py`) | the binary and EPA's RDU reference | EPA's reference reproduced byte for byte; about 30 configurations through the setup pass |
+| NAAQS design values (`tests/test_naaqs_rank_tables.py`, `tests/regulatory/test_epa_known_answers.py`) | 40 CFR 50 appendices N, S and T; EPA's `.PLT`, `DA1`–`DA8` and `.SUM` files | exact, no tolerance |
+| Runner overhead and batch throughput (`docs/benchmarks.md`) | the same AERMOD binary called directly with `subprocess` | the numbers, and the machines they were measured on, are on that page |
+
 ### Added
+- **`CITATION.cff`** (Citation File Format 1.2.0) with the metadata the
+  archival release needs: title, author, licence, repository, version
+  and a `preferred-citation` stub for the JAWMA paper. `date-released`
+  and `doi` are placeholders the release fills in (Zenodo mints the DOI
+  only after the GitHub release is published; `RELEASING.md` says where
+  to paste it). `tests/test_citation.py` ties its version to
+  `pyproject.toml` and `pyaermod.__version__` and validates the file
+  with `cffconvert` when it is installed, which the 3.12 CI leg does.
+  `README.md` and the docs index carry the citation.
+- **AERMOD run benchmarks** (`benchmarks/bench_aermod_runs.py`,
+  `python benchmarks/run_benchmarks.py --aermod`): the wall time of one
+  run of EPA's `aertest` case driven through `pyaermod.runner` against
+  the same binary called directly with `subprocess`, interleaved and
+  reported as medians and quartiles, and the throughput of a batch of
+  runs through `AERMODRunner.run_batch` at 1, 2, 4 and all-core workers.
+  Both skip with a reason when `bin/aermod` or the case is missing;
+  `--require-aermod` makes that an error. The `Benchmarks` workflow's
+  manual dispatch builds AERMOD from EPA's source, unpacks the case from
+  EPA's test-case archive and runs them on a clean runner. The numbers,
+  from that job and from the session that wrote it, are on the new
+  `docs/benchmarks.md` page.
+- **Release notes** for this version under `docs/release-notes/`, and a
+  "Reproducing the validation report" section in `docs/validation.md`
+  (emitted by `scripts/run_epa_parity.py` too, so it survives
+  regeneration) with the commands that rebuild the parity report, the
+  keyword audit and the benchmarks from a clean checkout of the tag.
+- **AERSCREEN drives the real binary, and EPA's own test cases prove
+  it.** AERSCREEN has no input deck: it is interactive, and it restarts
+  from the `**` header of its own output file. `pyaermod.aerscreen` now
+  produces both -- `AERSCREENConfig.to_stdin_answers()` gives the answers
+  in the order `AERSCREEN.FOR` asks them, `to_aerscreen_input()` writes
+  the restart header in `makeinput`'s exact column layout, and
+  `from_aerscreen_input()` parses it back -- and `AERSCREENRunner` feeds
+  either to the binary, staging the programs AERSCREEN spawns (AERMOD,
+  MAKEMET, BPIP-PRIME, AERMAP; it checks for `AERMOD.EXE`-style markers
+  and calls the lower-case names through the shell), the auxiliary
+  input files a run names, and `DEMlist.txt` for terrain runs.
+  `parse_aerscreen_output()` reads the `MAXIMUM IMPACT SUMMARY` and the
+  concentration-by-distance table of the `.OUT` file.
+  - `scripts/build_aerscreen.sh` fetches EPA's `aerscreen_code.zip` and
+    `makemet_code.zip`, applies `scripts/patches/aerscreen_21112.patch`
+    and compiles both into `./bin`. The patch is what gfortran needs:
+    the `\` non-advancing edit descriptor of every prompt FORMAT (an
+    Intel/Microsoft extension that even `-fdec` rejects) becomes `$`;
+    the file names AERSCREEN opens get the case AERMOD and AERMAP write
+    them with on Linux; the NAD-grid path uses `/`; and a `-0.00`
+    building adjustment from BPIP no longer overflows the 3-character
+    field `makeformat` gives it (which handed AERMOD `36****`). Applied
+    with `patch(1)` so a source change on EPA's side fails the build
+    loudly instead of silently building something else.
+  - `tests/test_aerscreen_known_answers.py` round-trips all 22 restart
+    decks of EPA's `aerscreen_test_cases.zip` (every source type, with
+    and without downwash, terrain, NO2 chemistry and the u* adjustment)
+    through the parser and the writer and requires the header back **byte
+    for byte**; the 22 `.OUT` files pin the output parser. The decks and
+    outputs are vendored under `tests/fixtures/epa_aerscreen`, so this
+    runs on every CI leg.
+  - `tests/test_real_aerscreen.py` drives every EPA case through the
+    built binaries, by typing the answers and by handing over the restart
+    file, and compares the `.OUT` with EPA's line for line (run
+    timestamps aside): all 12 flat cases through both interfaces and all
+    9 terrain cases (AERMAP over EPA's NED and DEM rasters) reproduce
+    EPA's outputs, one fumigation distance in the point downwash case
+    differing in its last digit. `.github/workflows/real_aerscreen.yml`
+    does this in CI, weekly and on pull requests that touch the
+    AERSCREEN code.
+  - The restart reader, it turns out, keeps a title only up to its first
+    comma and upper-cases it; the restart-file tests allow for that and
+    the docstrings say so.
+- **Every v26135 runstream keyword is now read into a field (WP-5).** The
+  audit's "Unhandled (kept verbatim)" list -- the EV pathway, six ME and
+  five OU keywords, and the CO/SO leftovers -- is empty; the only lines
+  that still travel in `unparsed_lines` are the ones with no model by
+  design (EMISFACT, HOUREMIS, INCLUDED, SITEDATA, EVALCART, DISCPOLR,
+  ERRORFIL, DEBUGOPT, NO2EQUIL, BACKUNIT) and malformed forms. Field
+  layouts come from `evset.f`, `meset.f`, `ouset.f`, `coset.f` and
+  `soset.f` through `scripts/keyword_oracle.py`; probe decks 20-30 under
+  `scripts/oracle_decks/` record what AERMOD v26135 said about each form,
+  including the first guesses it rejected.
+  - **EV pathway** (`EventPeriod`, `EventLocation`, `EventPathway`) in the
+    layout AERMOD writes itself for `EVENTFIL` (`EVENTPER name aveper
+    grpid date conc`, `EVENTLOC name XR= x YR= y zelev [zhill [zflag]]` or
+    `RNG=`/`DIR=`); `AERMODProject.event_processing` and the `CO SO ME EV
+    OU` event-deck layout with `OutputPathway.event_output` (EVENTOUT);
+    `ControlPathway.eventfil_option`; `read_event_output()` for the
+    per-event source contributions of an EVENT run's `.out`.
+  - **ME**: `MeteorologyPathway.day_ranges` (DAYRANGE), `.num_years`
+    (NUMYEARS), `.wind_speed_categories` (WINDCATS), `.scim`
+    (`ScimOptions`, the three SCIMBYHR forms) and `.turbulence_option`
+    (the nine NOTURB/NOSA/NOSW keywords).
+  - **OU**: `OutputPathway.no_header` (NOHEADER), `.rank_files`
+    (`RankFile`), `.season_hour_files` (`SeasonHourFile`), `.eval_files`
+    (`EvalFile`), `.toxx_files` (`ToxxFile`); the file entries read their
+    output through the existing `aermod_outputs` readers.
+  - **CO**: `ControlPathway.arm2_ratios` (ARMRATIO), `.awma_downwash`
+    (AWMADWNW), `.ord_downwash` (ORD_DWNW), `.aircraft_option` /
+    `.airport_id` (ARCFTOPT).
+  - **SO**: `method_2` (`Method2Params`, `METHOD_2 srcid finemass dg`) on
+    every source type; `PointSource.platform` (`PlatformParams`,
+    PLATFORM); `SourcePathway.aircraft_sources` (ARCFTSRC) and
+    `.hbp_sources` (HBPSRCID); `PointCapSource`, `PointHorSource` and
+    `SidewashPointSource` construct POINTCAP, POINTHOR and SWPOINT;
+    `OPEN_PIT`/`OPEN-PIT` are read as OPENPIT; the `FLAT` literal in a
+    LOCATION elevation field is kept (`flat_source`) and written back.
+  - Validator rules naming the AERMOD code for each: E145/E380 (ARMRATIO),
+    E122/E123/E124/E126/E121 (the downwash options), E197/E198/E332/E386
+    (METHOD_2), E198/E631 (PLATFORM), E198 (SWPOINT), E821/E130 (ARCFTSRC,
+    HBPSRCID), E154/E200/E202/E380 (the ME keywords), E164/E203/E211
+    (the OU files), E130/E203/E297/E313 (the events).
+  - `tests/test_epa_deck_acceptance.py` runs every new writer form through
+    AERMOD's setup pass; `tests/regulatory/test_epa_rewritten_so.py` now
+    fully rewrites testpart, testprt2, openpits, capped, the two ARM2 decks,
+    flatelev, lovett, mcr and hrdow and scores them against EPA's
+    POSTFILEs (all at slope 1.000000); `tests/regulatory/test_event_rewrite.py`
+    runs AERMOD's own generated event deck and pyaermod's rewrite and
+    requires every contribution to agree. flatelev, scimtest,
+    no2_1yrAK_arm2 and the AERMOD-generated `events_generated.inp` are
+    vendored.
+- **Source construction, reader tranche 2.** The SO keywords the v26135
+  audit listed as recognised but not constructed, or not read at all,
+  are now stored on the source model and written back in the field
+  layout `soset.f` parses. Each form passes AERMOD's setup pass
+  (`tests/test_so_deck_acceptance.py`, 20 cases), every EPA deck that
+  uses it round-trips the keyword lines token for token
+  (`tests/test_epa_source_roundtrip.py`, seven more decks vendored), and
+  the fourteen EPA decks whose SO pathway uses these keywords reproduce
+  EPA's reference POSTFILEs when run with pyaermod's rewritten SO
+  pathway (`tests/regulatory/test_epa_rewritten_so.py`; nine of them
+  also as whole rewritten decks). Reader coverage goes from 77 to 91 of
+  the 115 dispatched keywords.
+  - AREAPOLY: `AREAVERT` rings accumulate over any number of lines, a
+    closing repeat of the first vertex is dropped (AERMOD closes the ring
+    itself), and `AreaPolySource.initial_vertical_dimension` carries the
+    optional fourth SRCPARAM field. `LineSource` gains the same field.
+  - BUOYLINE: `BLPGROUP` continuation lines, source-ID ranges and `ALL`
+    (soset.f BLPGRP); per-segment base elevations
+    (`BuoyLineSegment.base_elevation`); the eight-field `BLPINPUT` with
+    no BLPGROUP is AERMOD's implicit single group, which a
+    `BuoyLineSource` named `ALL` now writes back as such instead of the
+    nine-field form.
+  - RLINEXT: the eleventh LOCATION field (base elevation) is read and
+    always written; `RBARRIER` (one or two barriers), `RDEPRESS` and the
+    v26135 `VBARRIER` (`RLineExtSource.vegetative_barriers`,
+    `VegetativeBarrier`) are read back; `SBARRIER` solid barriers
+    (`SourcePathway.solid_barriers`, `SolidBarrier`,
+    `SolidBarrierSegment`) and the bare `RLEMCONV` switch
+    (`SourcePathway.rline_moves_units`) are new.
+  - `OLMGROUP` is read into `ChemistryOptions.olm_groups`, including the
+    bare `OLMGROUP ALL` form, continuation lines and ranges (member
+    tokens are kept as written); `PSDGROUP` into
+    `SourcePathway.psd_groups` with `ControlPathway.psd_credit` for the
+    PSDCREDIT option, under which the writer emits PSDGROUP instead of
+    SRCGROUP as AERMOD requires; `NO2RATIO` (ID or range) into
+    `no2_ratio`, which every source type now has.
+  - `EMISUNIT`, `CONCUNIT`, `DEPOUNIT` (`EmissionUnits` on
+    `SourcePathway.emission_units` / `concentration_units` /
+    `deposition_units`); Fortran `D` exponents (`3.6D6`) are read.
+  - `MODELOPT` `ALPHA`, `BETA` and `PSDCREDIT` are read back (they were
+    dropped, so a rewritten RLINEXT or GASDEPOS deck failed E198).
+  - `URBANSRC ALL`, ranges and the multi-area `urbanid srcids` form are
+    read; `URBANOPT` is read in both its field orders and
+    `ControlPathway.urban_roughness` carries the optional roughness.
+  - Deposition presets (`chemistry_presets.deposition_defaults_for`)
+    now return AERMOD's own built-in GASDEPOS values (soset.f GASDEP)
+    for SO2, NO2, HG0, HGII, TCDD and BAP.
+  - Validator rules for the above, each naming the AERMOD code: E144
+    (OLMGROUP needs OLM), E146/E105/E287 (PSDGROUP), E158/E159 (unit
+    conflicts), E198/E713 (barriers need ALPHA and FLAT), E320,
+    E371-E374 (barrier ranges), E380/E195 (GASDEPOS).
+  - `scripts/oracle_decks/13`-`18`: the probe decks that settled these
+    forms, with what AERMOD said about the first guesses; the oracle
+    workflow's default keyword list covers the tranche.
+
+- **Nothing the reader cannot model is dropped any more:
+  `AERMODProject.unparsed_lines`.** `pyaermod.input_reader` keeps every
+  runstream line it has no field for -- an unmodelled keyword (RANKFILE,
+  SEASONHR, EMISFACT, HOUREMIS, INCLUDED, SITEDATA, ERRORFIL, ...), an
+  unmodelled form of a known keyword (a BACKGRND hourly file, a PLOTFILE
+  with a lower rank, a second POSTFILE), the definition lines of a source
+  type it does not construct (POINTCAP, POINTHOR), or an inline EV
+  pathway -- as an `UnparsedLine` (pathway, keyword, fields as written,
+  line number), logs one warning per pathway and keyword, and the writer
+  puts them back into their pathway (`to_aermod_input(preserve_unparsed=
+  True)`, the default) where AERMOD accepts them: ELEVUNIT first, SO lines
+  before the group keywords, the rest before FINISHED. The module
+  docstring had promised this collection since the reader was written;
+  the implementation silently discarded the lines.
+- **The runstream layout AERMOD actually parses.** A line blank through
+  the keyword columns continues the previous keyword (setup.f EXKEY), as
+  twenty of EPA's decks write their GRIDPOLR blocks (`POL1 DIST 100.
+  1000.`); the reader took `POL1` for the keyword and dropped the line.
+- **Receptor networks as reset.f defines them.** `PolarGrid.distances`
+  (GRIDPOLR DIST is only ever a list of ring distances), `.directions`
+  (DDIR), `.origin_source_id` (`ORIG srcid`), `.elevations`/`.hills`/
+  `.flags`; `CartesianGrid.x_points`/`.y_points` (XPNTS/YPNTS) and
+  `.grid_flags`; `ring_distances()`, `direction_angles()`, `x_values()`,
+  `y_values()` and `receptor_count` for consumers, which the geospatial
+  expansion and the advanced validator now use. The reader fills the
+  GRIDCART ELEV/HILL rows the writer already emitted.
+- **`OutputPathway.maxi_files` (`MaxiFile`)**: MAXIFILE in the layout
+  ouset.f reads, `aveper grpid thresh filename [funit]`, one per
+  averaging period and group (audit item 1).
+- **`ControlPathway.urban_areas` (`UrbanArea`)** for decks with several
+  URBANOPT lines (EPA's multurb.inp), `.extra_model_options` for MODELOPT
+  tokens without a field (SCREEN, PSDCREDIT, NOCHKD, ...), `.run_model`
+  (RUNORNOT NOT round-trips), `ChemistryMethod.TTRM`/`TTRM2`,
+  `MeteorologyPathway.start_hour`/`.end_hour` (the eight-field STARTEND),
+  `SourcePathway.include_all_group` (a deck that groups its sources with
+  PSDGROUP gets no invented `SRCGROUP ALL`).
+- **The round-trip guarantee over EPA's whole archive.**
+  `tests/test_epa_deck_roundtrip.py` now compares the CO, RE, ME and OU
+  pathways field for field, the source groups and IDs, and the preserved
+  lines, and asserts every line of each of the 53 v26135 decks is either
+  modelled or in `unparsed_lines`; eleven decks are vendored so the check
+  runs without the archive. `tests/test_epa_deck_acceptance.py` runs
+  every deck pyaermod writes for the archive through AERMOD's setup pass
+  next to EPA's original: 49 are accepted clean, the four chained
+  MULTYEAR years report the same missing-save-file E500 as EPA's own
+  deck. The writer forms this release changed have setup-pass cases of
+  their own. Probe decks 13-19 under `scripts/oracle_decks/` record what
+  AERMOD said about the previous forms.
 - **Short-term PLOTFILEs take a rank other than FIRST.**
   `OutputPathway.plot_file_rank` sets the high value that `plot_file`
   and the `period_plot_files` write for the short-term periods (FIRST by
@@ -443,6 +705,385 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_real_ensemble.py` repeats the design with the binary.
 
 ### Changed
+- `RELEASING.md` names every file a release touches (the third
+  `__version__`, in `pyaermod.api`, was missing), sets the changelog
+  date and `CITATION.cff`'s `date-released`, and adds the Zenodo step:
+  enable the GitHub–Zenodo archive before publishing, then paste the
+  minted DOI into `CITATION.cff`, `README.md` and `docs/index.md`.
+- **`EventPeriod` has AERMOD's field semantics** (`event_name,
+  averaging_period, date, source_group, original_conc, location`); the
+  former `start_date`/`end_date` pair matched no AERMOD card, EVENTLOC was
+  never written and the EV block went after OU, so no event deck pyaermod
+  wrote was ever accepted. `AERMODProject.write(event_filename=)` now
+  writes a complete event deck rather than an EV block. Event names may be
+  ten characters (`EVNAME*10`; AERMOD's own are).
+- `SourcePathway.sources` may hold `SidewashPointSource`; the GUI's source
+  registries list the three new classes.
+- The pre-commit ruff hook is pinned to the ruff release CI uses (the
+  v0.4.0 hook could not parse `pyproject.toml`'s `UP045` selector).
+- **`OutputPathway.max_file` is removed.** It wrote `MAXIFILE filename`,
+  which every AERMOD release rejects (E201: four fields are required);
+  use `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`. The
+  GUI's output page lists the new field.
+- `Validator` accepts explicit receptor lists (`distances`, `directions`,
+  `x_points`, `y_points`) in place of the generator fields they replace.
+- **`GasDepositionParams` now has AERMOD's field semantics** (audit
+  follow-up 7): `GASDEPOS srcid Da Dw rcl Henry`, i.e. `diffusivity`,
+  `diffusivity_water`, `cuticular_resistance` and a required
+  `henry_constant`. The former `alpha_r` and `reactivity` names, the
+  0-1 check on the third field and the `dry_dep_velocity` fallback (which
+  wrote a velocity into the Henry's-law field) are gone; EPA's `testgas`
+  values (`0.08962 1.04E-5 2.51E4 557.0`) validate and are written back
+  unchanged. Positional construction is unaffected.
+- **URBANSRC and URBANOPT are written in the single-urban-area forms
+  AERMOD reads**: `URBANSRC srcid` (a trailing area name was an
+  undefined source, E300) and `URBANOPT population [name] [roughness]`
+  (the old `name population` order was an illegal numeric field, E208).
+  `is_urban=True` no longer needs `urban_area_name` to emit the keyword.
+- Numeric fields with an exponent are written with a decimal point in
+  the mantissa (`1.0e+06`, not `1e+06`), which is what AERMOD's STODBL
+  accepts.
+- SRCGROUP continuation lines are merged into one
+  `SourceGroupDefinition` on read, and the writer keeps every group's
+  lines together with `SRCGROUP ALL BACKGROUND` on the card that
+  defines ALL: AERMOD files a non-adjacent continuation card under the
+  last group defined, whichever ID it names.
+- `Validator._validate_output` receives the control pathway so the OU
+  design-value keywords can be checked against the pollutant and
+  averaging periods; `Validator.validate` is unchanged for callers.
+- The GRSM validation warning is raised when no NOx background of any
+  kind is given, not only when `nox_file` is unset, and the NOx keywords
+  on a non-GRSM run are an error (AERMOD E602).
+
+- **AERSURFACE deck-acceptance tests across the configuration space** —
+  `tests/test_aersurface_deck_acceptance.py` runs AERSURFACE's own setup
+  pass (`RUNORNOT NOT`) over ~30 configurations. Setup needs the raster
+  files to exist but never reads them, so ten-byte placeholders suffice:
+  no test-case archive, and the sweep runs in under a second. The
+  existing end-to-end test proves one configuration byte-for-byte; this
+  covers the rest of the space, where four more defects were hiding.
+- **`AERSURFACEConfig.anemometer_height_m`** — emitted as `ANEM_HGT`,
+  and required when `zo_method="ZOEFF"`.
+
+- **Property-based round-trip over the ME and OU pathways, and polar
+  receptor grids** — `tests/test_property_pathways.py`. Those pathways
+  were pinned to fixed values in the existing property tests, so every
+  field on them went unexercised.
+- **Deck-acceptance cases for the output pathway** — the PLOTFILE,
+  POSTFILE and RECTABLE keywords have field-count-sensitive syntax that
+  varies with the averaging period, so each configuration is now run
+  through AERMOD's setup check.
+
+- **Deck-acceptance tests for every source type** —
+  `tests/test_source_deck_acceptance.py` generates a minimal deck for
+  each of pyaermod's ten source types and runs AERMOD's own setup pass
+  (`RUNORNOT NOT`) over it, asserting no fatal errors. It carries a
+  coverage guard that fails when a new source type is added without a
+  case, and a self-check that a deliberately broken deck *is* reported,
+  so the suite cannot pass vacuously.
+- **Property-based round-trip over all ten source types** —
+  `tests/test_property_all_sources.py`. The existing property tests
+  covered the three types the reader supported when they were written.
+- **`ControlPathway.alpha` / `.beta`** — the non-regulatory MODELOPT
+  options. AERMOD refuses RLINEXT outright without ALPHA.
+
+- **Real-binary parity for BPIP-PRIME and AERSURFACE.** Both had EPA
+  Fortran available and neither had ever been run against it.
+  `scripts/build_bpip.sh` and `scripts/build_aersurface.sh` fetch and
+  compile them (into `./bin`), and `make test-binaries` puts that
+  directory on PATH so the binary-backed suite is one command.
+  - `tests/test_bpip_known_answers.py` compares `pyaermod.bpip` against
+    EPA's BPIP-PRIME direction by direction, at the F8.2 print
+    resolution BPIP writes with.
+  - `tests/test_real_aersurface.py` builds the deck for EPA's published
+    RDU test case with `AERSURFACEConfig`, runs it, and compares the
+    surface characteristics to EPA's shipped reference file. They are
+    identical apart from the run timestamp.
+- **`pyaermod.epa_sources`** — registry of EPA SCRAM download locations
+  for AERMOD, AERMET, AERMAP, AERSURFACE, AERSCREEN, MAKEMET, BPIP and
+  BPIP-PRIME source and test-case archives. Every URL was discovered by
+  listing its SCRAM directory and verified to return a zip; an opt-in
+  network test (`PYAERMOD_NETWORK_TESTS=1`) re-lists each directory so
+  an EPA rename fails a test instead of 404-ing in CI later.
+- **`pyaermod.bpip` GEP influence-zone test** — `BPIPCalculator` now
+  reports zeros for wind directions where the stack lies outside the
+  structure influence zone, as BPIP does, with `influence_test=False`
+  to inspect the raw projected geometry.
+
+- **NAAQS design-value known-answer tests** — the design-value math is now
+  pinned against evidence rather than smoke-tested. `tests/test_naaqs_rank_tables.py`
+  transcribes 40 CFR part 50 appendix N Table 1, appendix S Table 1 and
+  appendix T Table 1 and checks the new `naaqs_percentile_rank()` against
+  every row for every day count 1–366, then pins design values on series
+  whose answer is arithmetic (365 strictly decreasing daily values → the
+  98th percentile is exactly the 358th). `tests/regulatory/test_epa_known_answers.py`
+  compares pyaermod's ranking against EPA's *own* ranked output — no
+  AERMOD binary needed, since both sides derive from the concentrations
+  in EPA's shipped `.PST` files:
+  - the 1st-highest value at every receptor of all 47 `.PST`/`.PLT` pairs
+    in the reference set, exactly (no tolerance);
+  - ranks 1 through 8 of the 24-hour series in EPA's `surfcoal` deck
+    against its eight `PSET2PA.DA1`–`DA8` plotfiles — the depth the
+    98th-percentile forms need;
+  - AERMOD's own NAAQS design-value plotfiles (`PSDCRED_*`, written under
+    its 1-hour NO2 processing) against
+    `nth_highest_daily_max_design_value()`, receptor by receptor;
+  - the `.SUM` overall-maximum table, which ranks the largest *n*-th
+    highest value per receptor rather than the *n*-th largest value in
+    the record.
+- **`pyaermod.design_values.naaqs_percentile_rank()`** — the EPA rank-table
+  lookup, with both regulatory tables exported as
+  `PERCENTILE_98_RANK_TABLE` / `PERCENTILE_99_RANK_TABLE`.
+- **`pyaermod.design_values.nth_highest_daily_max_design_value()`** — the
+  general form behind the 1-hour NO2, 1-hour SO2 and 24-hour PM2.5
+  standards, and the one AERMOD itself computes under `NO2AVE` / `SO2AVE`
+  / `PM25AVE`: rank each year's daily series independently, then average
+  those annual values across years (`SUMHNH / NUMYRS` in `aermod.f`).
+- **`AERMODAuxResult.concentration_column` / `.values()`** — callers no
+  longer have to guess whether AERMOD spelled the column `CONC` or
+  `AVERAGE CONC`.
+- **`pyaermod.aermod_outputs.parse_fortran_format()`** — expands the
+  Fortran FORMAT statement AERMOD prints in every auxiliary-file header
+  into field widths, so records are sliced at the offsets AERMOD wrote
+  them at.
+
+- **Headless smoke tests for the NiceGUI GUI** — `tests/test_gui_v2_smoke.py`
+  drives the real `gui_v2` shell through `nicegui.testing.User` (in-process
+  ASGI, no browser): every tab renders its key controls; a minimal project
+  (title, one point source via the Sources editor dialog, a receptor grid,
+  met file names) is filled in through the UI, saved and reloaded via
+  `project_io` with an identical AERMOD deck, and run against a fake
+  `aermod` on `PATH` with the Results tab asserted for both the no-output
+  and parsed-output cases. `gui_v2` is now measured by coverage (only
+  `desktop.py`, the pywebview wrapper, stays omitted). Requires the new
+  `pytest-asyncio` dev dependency.
+- **Regulatory-grade numeric regression** — `tests/test_real_aermod.py` now
+  compares every AERTEST receptor against EPA's published reference plotfile
+  (`tests/fixtures/epa_official/AERTEST_01H.PLT`) to a tight tolerance
+  (rtol=1e-4), proving pyaermod drives the real AERMOD Fortran to reproduce
+  EPA's own concentrations field-for-field — not merely that a run completes.
+  A gfortran -O2 build reproduces all 144 receptors bit-for-bit.
+- **Synthetic-DEM analytic regression for AERMAP** — `test_real_aermap.py`
+  now builds a tiny USGS-format UTM DEM whose elevation is an exact tilted
+  plane, runs it through the real AERMAP binary via `AERMAPRunner`, and
+  asserts the extracted receptor elevations match the closed-form plane at
+  on-node receptors (max deviation 0 with a gfortran build). Independent
+  numeric ground truth, fully self-contained (no vendored DEM, no downloads).
+- **Validated-version declarations** — `pyaermod.versions.VALIDATED_AERMOD_VERSIONS`
+  / `VALIDATED_AERMET_VERSIONS` (`("26135", "24142")`, newest first; exported
+  from the package API and `regulatory_parity`) state exactly which EPA
+  releases the bit-exact AERTEST regression and the full test-suite parity
+  have been run against. `AERMODOutputParser` now logs one warning when an
+  output file was produced by a release outside that list.
+- **EPA reference-set resolver** — `pyaermod.epa_testcases.find_epa_testcase_set`
+  locates EPA's unpacked test-case sets under `test_cases/` accepting both
+  naming conventions (`aermet_24142_aermod_24142` and the July-2026 bundle's
+  `aermet24142_aermod24142` / `aermet24142_aermod26135` /
+  `aermet26135_aermod26135`), honours `$PYAERMOD_EPA_TESTCASES`, and prefers
+  the set whose AERMOD version matches the `aermod` binary on PATH
+  (`aermod_binary_version`, from `aermod --help`), then the newest validated
+  release. `tests/regulatory/`, `tests/test_epa_cases.py`,
+  `tests/test_real_cases.py`, `tests/test_regression_epa_official.py` and
+  `scripts/run_epa_parity.py` all resolve through it; regulatory test IDs now
+  carry the set name (`[aermet26135_aermod26135/aertest.inp]`).
+- **Parity report provenance** — `scripts/run_epa_parity.py` now stamps a
+  Provenance table into `docs/validation.md`: AERMOD version (parsed from
+  the `*** AERMOD - VERSION NNNNN ***` banner of a produced `.out`, falling
+  back to `aermod --help`), binary path, `gfortran --version`, the EPA
+  reference set, pyaermod version, git SHA (`-dirty` when applicable),
+  platform and UTC timestamp. New `--testcase-dir` (or
+  `$PYAERMOD_EPA_TESTCASES`) and `--clean-scratch` options; exit 2 when the
+  fixtures or binary are missing, 1 when any comparison fails.
+- **Scheduled EPA parity CI** — `epa_parity.yml` now runs weekly (Tuesday
+  07:00 UTC, staggered from the Monday real-binary smokes) as well as on
+  dispatch (archive URL inputs optional, defaulting to the canonical SCRAM
+  URLs — the old default pointed at a non-existent `aermod_testcases.zip`).
+  It compiles EPA's current AERMOD, fetches both EPA test-case archives via
+  `scripts/fetch_epa_source.sh`, unpacks only the sets the suite needs (the
+  set matching the compiled AERMOD version for parity, the 24142 set for the
+  parser regressions, `aermet_def_testcases_24142` for the AERMET parsers —
+  each AERMOD set is ~3.5 GB unpacked) and caches the unpacked trees with
+  `actions/cache` (key = URLs + upstream ETag/Last-Modified + AERMOD
+  version + salt; saved right after unpacking so a later failure keeps the
+  cache). It runs `tests/regulatory`, `tests/test_epa_cases.py`,
+  `tests/test_real_cases.py`, `tests/test_real_aermet.py` and
+  `scripts/run_epa_parity.py`, fails if any test fails, if the fixture-gated
+  tests all skipped, or if any deck leaves tolerance, and uploads the
+  regenerated `docs/validation.md` as an artifact (never auto-commits).
+  Before the cache is saved, a prune step cuts each unpacked tree down to
+  the directories some test in this repo actually opens — resolved with the
+  same `find_epa_testcase_set` the tests use, so it cannot drift from them:
+  `inputs/`, `meteorology/`, `postfiles/` of the parity set, `Outputs/`,
+  `postfiles/`, `plotfiles/` of the 24142 set (a set filling both roles
+  keeps the union), and `output_files/` + `salem/` of
+  `aermet_def_testcases_24142`. The 24142 set also keeps `inputs/`, which
+  no test reads but `EPATestCaseSet.exists()` requires — without it the set
+  survives on disk yet drops out of `find_epa_testcase_set`, so
+  `tests/test_epa_cases.py` and `tests/test_real_cases.py` skip and the
+  all-skipped guard fails the job (11 MB). What the prune actually reclaims
+  in CI is the AERMET raw example datasets whose products are already in
+  `output_files/` (873 MB → 174 MB, ~90 % of the saving) plus the Windows
+  `.bat`/`.exe` runners and the empty `rdata/` drop boxes: **7.91 GB →
+  7.14 GB, 770 MB (9.7 %) freed**. The clauses dropping EPA's `plots_*/`
+  comparison images and R driver scripts are defence for a local full
+  unpack only — CI's selective `unzip` never extracts them, so they
+  contribute 0 MB of that total. Afterwards the step re-checks every kept
+  directory *and* re-resolves both sets through `find_epa_testcase_set`,
+  failing the job before the save if one came out missing, empty, or no
+  longer resolvable. The regulatory harness also deletes each
+  deck's staged scratch (~40 MB) in a fixture finalizer. The three
+  real-binary smoke workflows gained `timeout-minutes: 30` (`epa_parity`
+  already had 120) so a stalled gaftp fetch cannot hold a runner for the
+  six-hour default.
+- **AERMOD v26135 keyword audit** — `docs/keyword-audit-v26135.md` compares
+  the 122-entry keyword table in EPA's v26135 `modules.f` (and the
+  per-pathway `KEYWRD .EQ.` dispatch) against `input_reader.py`: per
+  pathway, handled+tested / handled+untested / unhandled lists, the reader's
+  MODELOPT and source-type coverage, and five follow-ups (`MAXIFILE`
+  argument order, RLINEXT/AREAPOLY/BUOYLINE not constructed, `GRIDPOLR`
+  heuristics, the undelivered `unparsed_lines` promise). All 53 decks in the
+  v26135 archive parse. `tests/test_input_reader.py` gains parametrised
+  one-line decks for every previously untested branch and a pass-through
+  test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
+  99.8 % (the one remaining line is an unreachable guard).
+- **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
+  build, EPA set `aermet26135_aermod26135`): **142 / 142** POSTFILE
+  comparisons within EPA's ±0.001 slope margin in 323 s (the previous
+  104 / 104 figure was produced against the pre-2026 24142 bundle with no
+  recorded version). Informational cross-version run of the same v26135
+  binary against the `aermet24142_aermod24142` references: 136 / 142, the
+  six misses all GRSM NO2 cases (slopes 0.946–1.117) — EPA's v26135 GRSM
+  changes, not a pyaermod regression — which is why the harness now scores
+  against the reference set matching the binary's version.
+- **Vendored EPA fixtures refreshed to the v26135 archive**
+  (`tests/fixtures/epa_official/`; EPA bundle of 2026-07-09, set
+  `aermet26135_aermod26135`): `AERTEST_01H.PLT` (data rows byte-identical to
+  the 24142 file; only the two banner lines differ), `aertest.inp`
+  (whitespace and lower-case met filenames only), `AERMET2.SFC`/`.PFL`
+  (values identical; AERMET 26135 writes four-digit years). `AERTEST.SUM`
+  deliberately stays at 24142 (the 26135 summary prints `**` in its
+  two-digit year column). `tests/test_real_aermod.py` passes bit-exact
+  against a gfortran build of AERMOD v26135. Version notes in module
+  docstrings, README and docs now say 26135 (AERMAP stays 24142 — EPA's
+  current AERMAP source is still `aermap_source_code_24142`; the GRSM note
+  records that v26135 drops its BETA flag while it remains non-DFAULT).
+- **Library code no longer prints.** `import pyaermod` is now silent: the
+  `Warning: folium not installed. Interactive maps unavailable.` (and the
+  matching matplotlib) line that `pyaermod.visualization` wrote to stdout on
+  every import is now a `DEBUG`-level log record. That line was not merely
+  untidy — it broke the scheduled parity workflow, whose version probe reads
+  `python -c "... print(aermod_binary_version())"` through command
+  substitution: the warning landed inside the captured value, and a
+  multi-line value is invalid in `$GITHUB_OUTPUT`, so the run died with
+  `Invalid format 'Warning: folium not installed...'` before compiling
+  anything. The workflow now also takes only the last line and rejects a
+  non-numeric version, so a future stray print degrades to the fallback
+  instead of failing the run; the user-facing signal stays
+  the `ImportError` with an install hint raised by the first feature that needs
+  the package. `AERMODVisualizer.plot_contours` / `create_interactive_map`
+  ("Figure saved to ...") and `AERMODResults.export_to_csv` ("Exported results
+  to ...") report through `logging.getLogger(__name__)` at `INFO` instead of
+  `print()`. `print()` remains only in `cli.py`, the NiceGUI GUI, the explicit
+  `pyaermod.print_info()` banner, and `if __name__ == "__main__":` demo blocks.
+  `tests/test_import_silence.py` pins the guarantee in a fresh subprocess.
+- **Benchmark gate has a noise floor.** `benchmarks/compare_benchmarks.py`
+  gained `--min-baseline-ms` (default 5.0): a benchmark whose baseline is
+  below the floor is listed under `IGNORED` but never fails the PR — the gate
+  previously failed a PR on `aux_parse/plotfile_100rows 0.172 -> 0.235 ms
+  (+36.8%)`, pure noise on a sub-millisecond operation. `run_benchmarks.py`
+  now times each benchmark over `--rounds` independent rounds (default 5) and
+  reports the minimum instead of a single timing; the round count is recorded
+  in the JSON. `tests/test_benchmarks_harness.py` proves +40% on a 0.2 ms
+  baseline passes while +40% on a 50 ms baseline still fails.
+- **mypy is gated, not advisory.** `scripts/mypy_gate.py` runs
+  `mypy src/pyaermod` (config from `pyproject.toml`), counts `error:`
+  diagnostics and compares against the integer committed in
+  `mypy-baseline.txt`; CI (`tests.yml`, Python 3.12 leg, mypy pinned) fails
+  only if the count *increases*, and prints the exact
+  `python scripts/mypy_gate.py --update` command when it decreases. Existing
+  type errors are untouched. The baseline is authoritative for the
+  `.[dev,all]` environment CI uses: typed optional packages (`nicegui`,
+  `ezdxf`, ...) surface errors that `ignore_missing_imports` hides when they
+  are absent, so a partial install reports a different count (the gate's
+  failure message says so; `make typecheck` pins the same mypy as CI).
+  The baseline is **78**, and it is only meaningful measured on that leg.
+  There is deliberately no `python_version` pin: pinning 3.11 while the gate
+  runs on 3.12 made mypy reject numpy 2.5's own stubs (`Type statement is
+  only supported in Python 3.12 and greater`) and abort before checking any
+  project code. The count is dependency-sensitive too — numpy 2.5 types
+  `ArrayLike` precisely enough to surface nine further errors in
+  `geospatial.py` and `visualization.py` that numpy 2.4 did not — so a
+  baseline measured on an older local environment understates it, which is
+  how it was first committed nine too low.
+- **Honest dependency floors, validated in CI.** The optional-extra lower
+  bounds in `pyproject.toml` were aspirational (`geopandas>=0.10` predates
+  shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
+  `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`, `nicegui>=2.0`). They are
+  raised to `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
+  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.32.2` and
+  `nicegui>=3.0` (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`
+  unchanged). `requests>=2.32` is forced by nicegui — even nicegui 2.0.0
+  requires `requests>=2.32.0`, so the previous `[all]` floor set was not
+  co-installable at all — and `nicegui>=3.0` is the line the GUI itself
+  needs (nothing under `src/` imports `nicegui.testing`). The headless smoke
+  tests do *not* exercise that floor: `user_simulation` and
+  `ElementFilter(local_scope=)` only landed in NiceGUI 3.4.0, so
+  `tests/test_gui_v2_smoke.py` skips below it rather than claiming coverage
+  it does not have — the min-deps leg caught the original `minversion="3.0"`
+  guard letting collection through and then failing on the missing module.
+  The requests
+  floor lands on `2.32.2` rather than `2.32.0` because 2.32.0 and 2.32.1
+  are yanked on PyPI ("Yanked due to conflicts with CVE-2024-35195
+  mitigation"): the exact pin in `min-constraints.txt` made the `min-deps`
+  leg install a withdrawn release (pip honours an `==` pin on a yanked
+  version, warning as it does so), and no range resolution will ever land
+  there anyway. 2.32.2 is the oldest 2.32.x that is still a real
+  candidate. A new
+  `min-constraints.txt` pins the oldest versions that satisfy those floors
+  together (resolvability proven with
+  `pip install --dry-run --ignore-installed -e ".[dev,all]" -c min-constraints.txt`),
+  and a `min-deps` leg in `tests.yml` (Python 3.11) installs `.[dev,all]`
+  under those constraints and runs the suite, so the floors are checked
+  rather than guessed. It earned its keep immediately: `fiona` is pulled in
+  by geopandas, which declares only `fiona >=1.8.21` with no upper bound, so
+  the oldest-everything resolve paired geopandas 0.14 with a current fiona —
+  and fiona 1.10 removed `fiona.path.ParsedPath`, which geopandas 0.14 calls
+  on every read, failing eight shapefile tests with `module 'fiona' has no
+  attribute 'path'`. `min-constraints.txt` now caps it at the last 1.9.x.
+- The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
+  instead of re-invoking it per test.
+- `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
+  `aermod_outputs.py` change.
+- **Hardened EPA real-binary CI against gaftp flakiness and version churn.**
+  The real-binary workflows (`real_aermod`, `real_aermap`, `real_aermet`,
+  `epa_parity`) now:
+  - fetch EPA SCRAM archives via `scripts/fetch_epa_source.sh` — `curl --fail`,
+    retries with backoff, and validation that the archive is a real zip before
+    compiling (previously a rate-limited/error response from `gaftp.epa.gov`
+    was silently saved as the "zip" and failed the job on `unzip`); and
+  - derive the extracted source directory from the archive instead of pinning
+    a name, so EPA's rename of the AERMOD source dir
+    (`aermod_source_code_24142` → `aermod_source_v26135`) and AERMET's flat,
+    Fortran-90 layout no longer break the compile. Verified locally: AERMOD
+    v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
+- **EPA source version is pinned per run and surfaced in CI.**
+  `scripts/fetch_epa_source.sh` now prints the archive's top-level directory
+  (EPA encodes the version in it, e.g. `aermod_source_v26135`; `<flat
+  archive>` for AERMET) after every successful fetch or cache reuse, and
+  appends `EPA source: <dir> from <url>` to `$GITHUB_STEP_SUMMARY` when set.
+  `real_aermod.yml` / `real_aermap.yml` / `real_aermet.yml` gained a
+  `workflow_dispatch` input `source_url` (default = the current SCRAM URL) to
+  try a new EPA release without editing the workflow, and cache the downloaded
+  zip with `actions/cache` keyed on the URL plus the calendar month (so a
+  same-URL EPA re-release is still picked up within a month while gaftp
+  flakiness inside the month is absorbed). The derived-dir and
+  `chmod -R u+w` compile logic is unchanged.
+- **Repo hygiene.** `.DS_Store` and `aermod/.DS_Store` are no longer tracked
+  (they were already gitignored, so they showed as perpetually modified). A
+  `Makefile` adds `test`, `test-full` (installs `.[dev,all]`, then the whole
+  suite with coverage), `lint` and `typecheck` targets mirroring CI;
+  `CONTRIBUTING.md` documents the GDAL prerequisite for the `[geo]` extra and
+  `make test-full` as the pre-PR check.
 - Docs: the GUI guide, the desktop notes and the contributing guide
   describe the seven-step GUI (Project, Sources, Receptors, Meteorology,
   Output, Review & Run, Results) as the code and the browser journeys
@@ -598,6 +1239,416 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distribution); the next release will raise `ValueError` there.
 
 ### Fixed
+- **Scalar building-downwash values produced a deck AERMOD rejects.**
+  A source whose `building_height`, `building_width`, `building_length`,
+  `building_x_offset` or `building_y_offset` was a single float wrote one
+  value per keyword, and AERMOD reads one per 10-degree sector: a POINT
+  source was fatal (SO E236, E237, E241, E246, E247). A scalar is now
+  written as the same value for all 36 sectors, and the point, area and
+  volume forms pass AERMOD's setup pass in
+  `tests/test_source_deck_acceptance.py` (keyword audit item 10).
+- **The EPA parity workflow pruned the reference files the known-answer
+  suite compares against.** It kept only `inputs/`, `meteorology/` and
+  `postfiles/` of the parity set, so the PST/PLT rank comparisons, the
+  surfcoal `.DA1`-`.DA8` ranks and the AERTEST `.SUM` check had nothing to
+  read and the suite's non-empty guard failed the job. The set now also
+  keeps `plotfiles/` and `Outputs/` (about 32 MB), and the cache salt is
+  bumped so the previously pruned cache is not reused.
+- **`pyaermod.__version__` was `pyaermod.api`'s constant, not
+  `__init__.py`'s.** `api.py` defines its own `__version__` and the
+  package re-exports `api.*` after setting its own, so bumping the two
+  files `RELEASING.md` named left the package reporting the old number.
+  All three say 2.2.0, and `tests/test_citation.py` fails on a partial
+  bump.
+- **`deposition_method` wrote a `METHOD` line that no AERMOD release
+  accepts** (there is no METHOD keyword in `modules.f`; SO E105). The field
+  is kept for compatibility and writes nothing; Method 2 deposition is
+  `method_2`.
+- **Fixed-column source fields no longer round a value away**: EPA's
+  capped deck gives three stacks an exit velocity of 0.001 m/s, which the
+  `8.2f` SRCPARAM column wrote as 0.00; a value the column cannot hold is
+  now written with six significant digits in the same width.
+- A `LOCATION ... FLAT` source (flatelev) was written with elevation 0.00,
+  which moved the FLAT group's 1-hour maxima by 17 %.
+- The lines of an incomplete source definition (a POINT with four
+  SRCPARAM values, a LINE with no end point) are kept in `unparsed_lines`
+  instead of being dropped.
+- **Every polar grid pyaermod wrote had no receptors (RE E185).** The
+  writer emitted `DIST init num delta` and `GDIR init num delta`;
+  reset.f reads every DIST field as a ring and GDIR as `num init delta`,
+  so `GDIR 0.0 36 10.0` generated zero directions. The reader's
+  three-token heuristic for the same lines (audit item 3) read EPA's
+  `GDIR 36 10 10` as 10 directions starting at 36 degrees. Both now
+  follow the Fortran; there is no heuristic.
+- **Elevated terrain was written as `MODELOPT ... ELEVATED`, which
+  coset.f does not know (E203).** The token is `ELEV`; `FLATSRCS` is the
+  pair `FLAT ELEV`, and the reader maps `FLAT ELEV` back to
+  `TerrainType.FLATSRCS` and ignores a FLAT after ELEV as AERMOD does.
+- **`NO2STACK` was written for ARM2 runs, which reject it (E600).** It
+  is written only for OLM, PVMRM, GRSM and TTRM.
+- **A single `URBANOPT` was written name-first (E208).** With one card
+  coset.f reads `pop [name [z0]]`; the ID-first form belongs to decks
+  with several cards. The reader still accepts the old spelling.
+- **`GRIDCART` with `XPNTS`/`YPNTS` became a default 10 x 10 grid**, and
+  `STARTEND` with hours lost its last two fields; a source defined in an
+  INCLUDED file with SRCPARAM inline was re-defined at the origin (E310).
+- The reader dropped every source's base elevation (the LOCATION
+  elevation field was parsed and never applied) and the fourth SRCPARAM
+  field of LINE sources.
+
+- **Structural reading and writing of the regulatory-critical CO and OU
+  keywords** the v26135 audit listed as pass-through only. Each is stored
+  on the project model, written back in the field layout AERMOD's
+  `coset.f` / `ouset.f` read, and checked against the binary's own setup
+  pass (`tests/test_source_deck_acceptance.py`) and against every EPA
+  test deck that uses it (`tests/test_epa_deck_roundtrip.py`, token for
+  token). Reader coverage goes from 59 to 77 of the 115 dispatched
+  keywords.
+  - Restart and multi-year runs: `ControlPathway.save_file`
+    (`SaveFile`: SAVEFILE with its day increment and alternate file),
+    `.init_file` (`InitFile`, bare or named) and `.multiyear`
+    (`MultiYear`: MULTYEAR with the optional previous-year file and the
+    legacy `H6H` field AERMOD still tolerates). EPA's five-year
+    `testpm10_1986`–`1990` chain round-trips.
+  - The NOx background family for GRSM: `ChemistryOptions.nox_background`
+    (`NOxBackground`) carries NOXVALUE, NOX_FILE (units and Fortran
+    format), NOX_VALS (any of the twelve EMISFACT-style temporal flags,
+    accumulated over continuation lines), NOX_UNIT and NOXSECTR with
+    per-sector `BackgroundSpec`s. `OzoneData` gains the matching
+    O3SECTOR (`sectors`), OZONUNIT (`units`), per-sector `by_sector`,
+    the units on OZONEVAL/OZONEFIL and the OZONEFIL read format, and an
+    O3VALUES temporal profile (`TemporalValues`).
+  - Gas dry-deposition defaults: `ControlPathway.gas_deposition_defaults`
+    (`GasDepositionDefaults`: GASDEPDF), `.gas_deposition_velocity`
+    (GASDEPVD), `.gas_deposition_seasons` (GDSEASON) and
+    `.gas_deposition_land_use` (GDLANUSE).
+  - The 1-hour NO2/SO2 and 24-hour PM2.5 design-value outputs:
+    `OutputPathway.max_daily_files` / `.max_daily_by_year_files`
+    (`MaxDailyFile`: MAXDAILY, MXDYBYYR), `.max_daily_contributions`
+    (`MaxDailyContribution`: MAXDCONT in both the rank and the THRESH
+    form) and `.file_format` (FILEFORM).
+- **The 1-hour NAAQS workflow end to end.**
+  `design_values.naaqs_output_pathway(pollutant)` builds the OU pathway
+  for a design value with the rank taken from the NAAQS table
+  (`NAAQSStandard.percentile` / `.design_rank()`, new), `read_maxdaily()`
+  and `read_mxdybyyr()` parse AERMOD's MAXDAILY / MXDYBYYR files into
+  the frames the design-value functions take, and
+  `mxdybyyr_design_value()` reads AERMOD's own ranking back as a
+  cross-check. On EPA's Anchorage 1999 meteorology the SO2 and NO2 design
+  values pyaermod computes from MAXDAILY equal AERMOD's MXDYBYYR rank and
+  MAXDCONT total to the last printed digit
+  (`tests/fixtures/epa_style/{so2,no2}_1hr_*`, produced by the vendored
+  decks, which `naaqs_output_pathway` wrote).
+- **Validator rules for the cross-checks AERMOD applies to these
+  keywords**: MULTYEAR excludes SAVEFILE/INITFILE (E150) and is limited
+  to the pollutants it can chain; the gas-deposition defaults need ALPHA
+  (E198) and GASDEPVD excludes GDSEASON/GDLANUSE (E195); NOXVALUE and
+  NOX_VALS conflict (E605), sector forms need their sector keyword (E171)
+  and sectors must be ascending and at least 30 degrees apart (E222/E227);
+  MAXDAILY/MXDYBYYR/MAXDCONT require the NAAQS processing to be active
+  (`Validator.naaqs_processing`, E162/E163), MAXDCONT excludes restarts
+  (E153) and its ranks must sit inside the RECTABLE range (E290/E272),
+  with the THRESH form needing room beyond the design rank (E273).
+- **`scripts/keyword_oracle.py` and `.github/workflows/keyword_oracle.yml`**
+  — print, from EPA's Fortran and a freshly built binary, what AERMOD
+  does with a keyword: the dispatch branch and parsing subroutine, every
+  EPA test deck that uses it, and the setup-pass messages and produced
+  files from probe decks (`scripts/oracle_decks/`). Manual dispatch.
+- **The ozone and NOx writer emitted lines AERMOD rejects.** An ozone
+  file was written as `O3VALUES <file>` (E201, no numerical parameters),
+  a constant as `O3VALUES UNIFORM <value>` (E203, invalid flag) and a
+  sector value as `O3VALUES SECTOR n <value>`; the NOx background file
+  was written on `NOXVALUE`, which takes a concentration (E208). They now
+  go on OZONEFIL, OZONEVAL, `OZONEVAL SECTn` and NOX_FILE, and the
+  setup-pass acceptance tests hold them there. The reader still accepts
+  the two legacy `O3VALUES` spellings so decks written by earlier
+  releases open.
+- **`pyaermod.aerscreen` wrote a deck AERSCREEN never reads.** The
+  `KEY: value` layout of the previous release was not an AERSCREEN
+  format (it has none), so nothing that used `AERSCREENConfig` could
+  ever have run. EPA's `AERSCREEN.FOR` did not build under gfortran,
+  which is why the rewrite waited for a reference: with the source
+  patched (see *Added*) the binary is the oracle, and every flat EPA
+  test case now reproduces EPA's published output through pyaermod's
+  answers. See the upgrade notes for the field changes.
+- **Four AERSURFACE configurations produced decks the binary rejects**,
+  all outside the single case the end-to-end test covers:
+  - `frequency="SEASONAL"` still wrote `SEASON` keywords, which
+    AERSURFACE accepts only with `ANNUAL` and `MONTHLY`. Now omitted,
+    and an explicit `seasons=` under `SEASONAL` raises rather than being
+    silently dropped.
+  - `zo_method="ZOEFF"` never emitted `ANEM_HGT`, which AERSURFACE
+    requires for it.
+  - `arid=True` with the default `snow=True` is refused by AERSURFACE
+    ("Arid Climate is Invalid With Continuous Snow"); the combination
+    now raises.
+  - Sectors with a gap or overlap were accepted here and refused there
+    (`E267`); they must tile the compass, and now must here too.
+- **`datum="NAD27"` could never work.** AERSURFACE reads NADCON grid
+  files (`conus`/`alaska`/`hawaii`/`prvi` `.las` and `.los`) from its
+  working directory and fails without them. `scripts/build_aersurface.sh`
+  now installs them beside the binary, `AERSURFACERunner` stages them
+  into the run directory for NAD27 runs (overridable with
+  `$PYAERMOD_NADCON_DIR`), and a run with no grids available fails with
+  a message saying where to get them instead of a Fortran error code.
+
+- **PLOTFILE and POSTFILE wrote a field AERMOD does not have.** Both
+  carried an output-type token (`CONC`, `DDEP`, ...), and PLOTFILE also
+  wrote a rank on the PERIOD/ANNUAL form, which takes none. AERMOD
+  counts fields: the result was a fatal "Too Many Parameters Specified
+  For the Keyword of PLOTFILE" and "Invalid Parameter Specified.
+  Troubled Parameter: FORMAT". There is no per-file output type in
+  AERMOD -- the quantity written is a MODELOPT setting -- so
+  `OutputPathway.output_type` is now documented as inert and no longer
+  emitted.
+- **The reader read the PLOTFILE rank as the filename.** It took a fixed
+  field position, so a PERIOD-form plotfile round-tripped
+  `plot_file="p.dat"` into `plot_file="FIRST"`.
+- **`RECTABLE ALLAVE 10` asks AERMOD for the tenth-highest value alone,
+  not the top ten.** `receptor_table_rank=10` therefore produced a table
+  of one rank, and any PLOTFILE requesting FIRST against it was rejected
+  as an invalid HIVALU. The writer now emits the range form
+  (`ALLAVE 1-10`), and the reader understands bare ranks, ranges and the
+  ordinal-word forms (`FIRST-THIRD`, `EIGHTH`) alike -- it previously
+  fell back to the default rank for all but a bare number.
+
+- **Three of the ten source types produced decks AERMOD rejects.**
+  Verified against the real binary's setup pass:
+  - `AREAPOLY` wrote its `LOCATION` at the polygon *centroid* while
+    AERMOD requires the first vertex ("ARVERT: First Vertex Does Not
+    Match LOCATION"), and omitted the vertex count from `SRCPARAM`,
+    which is a fatal "Not Enough Parameters" and then makes every
+    `AREAVERT` line overflow an unset limit. Four distinct fatal errors
+    from one source.
+  - `BUOYLINE` wrote `BLPINPUT` with no group ID, so AERMOD filed the
+    parameters under the implicit group `ALL` and then failed with "No
+    BLPINPUT record for BLPGROUP ID".
+  - `RLINEXT` needs `MODELOPT ... ALPHA`, which `ControlPathway` had no
+    way to emit.
+- **The reader silently dropped AREAPOLY, RLINEXT and BUOYLINE
+  sources.** `parse_aermod_input` returned successfully with an empty
+  source list -- no error, no warning -- so a project could lose its
+  emissions with nothing to show for it. All three are now
+  reconstructed, including `AREAVERT` vertex rings and the
+  `BLPINPUT`/`BLPGROUP` pairing that turns buoyant line *segments* back
+  into a source. All ten source types now round-trip.
+
+- **AERSURFACE decks used keywords AERSURFACE does not have.**
+  `AERSURFACEConfig.to_aersurface_input()` emitted `TITLE`, `LOCATION`,
+  `NLCDFILE`, `NLCDYEAR`, `SNOW_TEMPER`, `SECTORS_LIST`, `OUTPATH` and
+  friends -- none of which exist. The real format is pathway-based
+  (`CO STARTING` / `OU STARTING`) with `TITLEONE`, `CENTERLL`,
+  `DATAFILE`, `ZORADIUS`, `CLIMATE`, `FREQ_SECT`, `SECTOR`, `SEASON`,
+  `RUNORNOT`, `SFCCHAR`. Fed the old deck, AERSURFACE v26135 aborted
+  immediately with a Fortran bounds error in its control-file parser.
+  Rewritten to the real format, with sectors as
+  `(start, end, "AP"|"NONAP")` triples, season-to-month assignment
+  (including `WINTERWS` for continuous snow cover), and the canopy and
+  impervious rasters that 2001-and-later NLCD releases carry. This is a
+  breaking change to `AERSURFACEConfig`'s fields; the class never
+  produced a usable deck, so no working code depended on them.
+- **BPIP reported downwash where EPA reports none.** `BPIPCalculator`
+  had no structure-influence-zone test, so a stack 400 m from a 13 m
+  building came back with a full-size building for all 36 directions
+  instead of zeros -- enough to make AERMOD apply downwash the GEP
+  criteria exclude.
+- **BPIP now agrees with EPA's BPIP-PRIME exactly** (6,480 direction
+  comparisons over rectangles, an L-shape and randomised polygons; worst
+  difference 0.005, which is what BPIP's `F8.2` output can express).
+  Closing the last gap needed two things that projection geometry alone
+  does not give, both transcribed from `Bpipprm.for`:
+  - **BPIP applies two different influence tests.** The downwash pass
+    admits a stack within half an `L` of either edge of the projected
+    width and no more than `2 L` upwind of the near face -- with *no*
+    downwind limit (it computes `CYMX = YMAX + 5 L` and never tests
+    against it). The GEP pass is stricter and separate. An empirically
+    fitted single zone matched 501 of 504 cases and was wrong in kind.
+  - **The GEP clamp.** When a direction's wake-effect height
+    `H + 1.5 L` would exceed the stack's GEP stack height, BPIP reports
+    the GEP-controlling structure's height and width instead of that
+    direction's projection. This shows up as a flat cap across a run of
+    directions that tracks the *stack position*, not the footprint --
+    on one test case pyaermod reported 58.68 m where BPIP reports 42.18.
+    The GEP height itself comes from a quarter-degree sweep, far finer
+    than the 36 reported directions, so the capped width is generally
+    not any direction's projected width.
+- **BPIP's XBADJ and YBADJ were the projected centroid.** XBADJ is the
+  along-flow coordinate of the projected building's *upwind face*
+  (`-BUILDLEN/2` for a stack at the building centre, where the old code
+  returned 0) and YBADJ the negated crosswind midpoint. The rotation
+  also ran the wrong way, which an axis-aligned rectangle cannot reveal
+  because its projected width and length are symmetric in wind
+  direction.
+- **`Building` rejected any footprint that was not a quadrilateral**,
+  including the six-corner L-shape in EPA's own first BPIP test case.
+  Any polygon of three or more corners is accepted.
+
+- **NAAQS percentiles were interpolated quantiles, not the regulatory
+  order statistics.** `pm25_24hr_design_value`, `no2_1hr_design_value`
+  and `so2_1hr_design_value` computed the annual percentile with
+  `Series.quantile(..., interpolation="linear")`. The standards do not
+  interpolate: 40 CFR part 50 appendices N, S and T sort each year's
+  daily values from highest to lowest and read the rank off a table keyed
+  on the year's count of valid days — the **8th highest** for a full-year
+  98th percentile, the **4th highest** for a full-year 99th percentile.
+  Linear interpolation lands *between* ranks (0.98 × 364 = 356.72) and
+  reports a number the regulation never defines, biased low against the
+  standard. Now rank-based, with the rank chosen per receptor-year from
+  that year's own day count.
+- **PM2.5 and PM10 24-hour design values used each day's peak hour as the
+  24-hour value.** Both functions called the daily-*maximum* helper on
+  hourly input, despite the docstring promising an average. A day with
+  one hour at 240 µg/m³ and 23 hours at zero was scored as 240 rather
+  than 10. Hourly input is now averaged over the day for the 24-hour
+  standards; input already carrying AERMOD `AVE='24-HR'` block averages
+  is unchanged.
+- **The PM10 24-hour form ignored the multi-year window.** It always
+  returned the high-second-high and left averaging to the caller. It now
+  follows Appendix W Table 8-2: the highest *sixth*-high (H6H) of the
+  pooled record when five years are modelled, H2H otherwise, overridable
+  via `rank=`. Unlike the percentile standards this form is not averaged
+  across years.
+- **Design values silently pooled source groups and duplicated
+  receptors.** A POSTFILE holding several `SRCGROUP`s was ranked as one
+  mixed series; the functions now require a single group and say how to
+  filter. A deck that declares the same receptor twice (EPA's own
+  `surfcoal` does) made the 2nd-highest value a copy of the 1st —
+  repeated rows are now collapsed, and receptors that genuinely share
+  (x, y) but differ in concentration raise instead of being merged.
+- **`naaqs_percentile_rank` boundary rounding.** The rank is computed in
+  exact rational arithmetic: `math.ceil(0.02 * 50)` is 2 in binary
+  floating point, which would put a 50-day year on the second-highest
+  value where appendix S Table 1 says the highest. Caught by the new
+  table test.
+- **`get_naaqs("Pb", ...)` always raised `KeyError`.** The lookup
+  upper-cased the caller's string, and `"Pb".upper()` is not the table
+  key `"Pb"`. Lookup is now case-insensitive and the error lists the
+  available pollutants.
+- **Every AERMOD PLOTFILE from a deposition run was unreadable.**
+  `read_plotfile` detected the file type from the first header line
+  mentioning one, which is `MODELING OPTIONS USED: ... DDEP WDEP ...` —
+  so a deposition run's plotfile was classified `DDEP` and rejected. The
+  options line is now excluded and the `"<kind> FILE OF ..."` declaration
+  wins. Seven of EPA's reference plotfiles were affected.
+- **Auxiliary-file column labels were shifted by one for every real
+  AERMOD output.** The header line was split on any whitespace, so
+  AERMOD's two-word labels `AVERAGE CONC` and `NET ID` each became two
+  columns and every label after them named the wrong data. Labels are
+  now split on two-or-more spaces, and rows are sliced using the Fortran
+  FORMAT AERMOD prints in the header — which is also the only way a
+  blank trailing `NET ID` (discrete receptors) parses as blank instead of
+  pulling every later column one place left.
+
+- **EPA fixture tests skipped silently after EPA renamed the archive sets.**
+  `tests/test_epa_cases.py` looked only at a hard-coded Dropbox path, and
+  `tests/regulatory/` plus `tests/test_real_cases.py` at the pre-2026
+  `aermet_24142_aermod_24142` name, so with the current EPA bundle unpacked
+  every one of them still skipped (the file-parametrised cases did not even
+  collect). With the resolver and the archive present they collect as
+  350 / 54 / 323 tests; regulatory: 47 passed / 7 skipped against a compiled
+  v26135; the two parser modules: 673 passed against the 24142 set (after
+  the phantom-4HR fix below). Those two modules skip, with the discovered
+  set named in the reason, when only another AERMOD version is present —
+  their assertions quote 24142 values.
+- **Phantom `4HR` averaging period in `AERMODOutputParser`.** The `4-HR`
+  section pattern also matched inside `24-HR` headers, so every run with a
+  24-hour average gained a bogus `4HR` result duplicating the 24-hour table
+  (surfaced by `tests/test_epa_cases.py` on AERTEST and FLATELEV once those
+  tests ran). Period patterns are now anchored (`(?<![0-9])(?:...)`) so they
+  cannot start inside a longer number. Wrapping the alternation in a group
+  fixes a second latent bug: interpolated bare, `24-HOUR|24HR|24-HR` split
+  the *surrounding* section regex into three top-level branches, so only the
+  last spelling carried the `RESULTS` tail and the capture group and the
+  other two matched with `group(1) is None` — the `X-HOUR` and `XHR`
+  spellings never selected a table. No shipped result changes: AERMOD only
+  ever writes the `X-HR` spelling in its section headers (checked across
+  every `.out`/`.SUM` in EPA's v26135 archive), so the broken branches were
+  unreachable in practice. Regression in
+  `tests/test_output_parser_periods.py`.
+- **`AERMODOutputParser` effectively hung on multi-MB `.out` files.** The
+  second, free-form section pattern
+  (`\*\*\*.*?<period>.*?RESULTS.*?\*\*\*…`, `re.DOTALL`) backtracks from
+  every `***` in the file out to EOF, and `parse()` tries all eleven period
+  patterns against every output — so on EPA's 2.3 MB `allsrcs.out` a single
+  *absent* period cost ~291 s in that pattern (the first, line-anchored
+  pattern rejects the same input in 0.014 s).
+  `tests/test_epa_cases.py::TestOutputParserEdgeCases` never got past
+  `allsrcs.out`. Both section patterns require the period token to occur
+  somewhere, so `_parse_concentration_table` now returns `None` early after
+  one linear `re.search` for it — equivalent by construction, and it turns
+  the pathological case into a single scan. `allsrcs.out`: no completion in
+  over six minutes → 0.30 s; the whole EPA `.out` set parses in under a
+  second per file.
+- **`tests/test_source_importers.py` skipped entirely whenever `ezdxf` was
+  absent** — a module-level `pytest.importorskip("ezdxf")` hid the seven
+  geopandas shapefile tests too. The skip is now a class-scoped fixture on
+  `TestDxfImporter` only; the shapefile tests run wherever geopandas is
+  installed (`source_importers.py` coverage 11.8 % → 52.8 % in the local
+  env). All five shapefile fixtures now write through one `_write_shapefile`
+  helper — three of them still called `gdf.to_file` directly — which falls
+  back to writing the layer through fiona (no `.prj`, which the importers do
+  not read) if geopandas' writer raises pyproj's `Invalid value supplied
+  'WktVersion.WKT2_2019'`. That is a defensive guard, not a live workaround:
+  it was seen once under coverage tracing but does not reproduce on the
+  current pin (geopandas 0.14.4, fiona 1.9.6, pyproj 3.6.1, coverage
+  7.13.3), where `to_file` succeeds for all six writes and the fallback is
+  never entered.
+- **`AERMODRunner._extract_error_message` swallowed read errors** around the
+  `.err`/`.out` files (`except Exception: pass`), so a Latin-1 byte in
+  AERMOD's output — a degree sign in the banner is enough — raised
+  `UnicodeDecodeError` and the caller saw only "AERMOD failed with return
+  code N" instead of the `FATAL` line. Both files are now read as Latin-1
+  with replacement, only `OSError` is tolerated, and that is logged at
+  DEBUG. Tests cover non-UTF-8 bytes in both files and the logged fallback.
+- **GUI v2 Run/Results/editor crashes found by the new smoke tests:**
+  - the Run button always raised `ImportError` (`from ..._optional import
+    HAS_TERRAIN` — no such name), so AERMOD could never be launched from the
+    GUI; the stray import is removed;
+  - the Run tab wrote its deck as `aermod.inp`, the name `AERMODRunner`
+    reserves for the symlink it points at the deck — the runner unlinked the
+    deck and replaced it with a self-referencing symlink, and then failed
+    renaming `aermod.out` onto itself. The deck is now written as
+    `pyaermod_gui.inp`;
+  - the Results tab read `run_info.title` / `.pollutant` and iterated
+    `results.concentrations` as a list of objects with `max_x` / `max_y` /
+    `source_group`; the parser provides `jobname` / `pollutant_id`, a
+    `{period: ConcentrationResult}` mapping and a `max_location` tuple, so any
+    real output raised `AttributeError`;
+  - the source/receptor editor dialog crashed (`float() argument ... not
+    'list'`) for every source with polygon `vertices`, because the form
+    helper's numeric check was a substring test that claimed
+    `List[Tuple[float, float]]` — and silently rendered
+    `Optional[Tuple[DepositionMethod, float]]` as a number box, letting a
+    float be written into a tuple-typed field. `is_numeric` now resolves the
+    annotation (`typing.get_type_hints`, `get_origin`/`get_args`, unwrapping
+    `Optional`/`Union`, with a structural parser for unresolvable string
+    annotations) and is true only when the type *is* `int`/`float`,
+    optionally with `None`; list annotations are still dispatched first;
+  - tightening `is_numeric` then made the five building-downwash dimensions
+    (`building_height`, `building_width`, `building_length`,
+    `building_x_offset`, `building_y_offset` on the point/volume/area
+    sources) uneditable: they are `Optional[Union[float, List[float]]]`,
+    which is correctly *not* numeric, and fell through to the read-only-label
+    escape hatch, so a building height could no longer be typed at all.
+    `emit_field` now dispatches these on the current value — a number box
+    (clearable) while the field holds a scalar or nothing, the one-per-line
+    list editor once it holds a 36-sector vector — so neither shape is
+    thrown away. Clearing either widget stores `None` rather than `0.0` or
+    `[]`: the writer emits the keyword for any non-`None` value, and an
+    empty list is rejected as "not 36 values";
+  - `Optional[str]` fields (e.g. `OutputPathway.summary_file`) were rendered
+    as read-only labels instead of text inputs.
+- **`AERMAPRunner.run` passed the input file *stem* instead of its full
+  name** as AERMAP's command-line argument, so AERMAP could not locate the
+  runstream and exited without processing (still returning code 0) — runs
+  silently produced no output. Now passes the full filename.
+- **Title round-trip** — `ControlPathway.to_aermod_input()` now normalizes
+  `TITLEONE`/`TITLETWO` whitespace (collapsing leading/trailing/internal runs)
+  to match how AERMOD's free-form, unquoted runstream parser reads titles back.
+  Previously a title with surrounding or doubled spaces was emitted verbatim
+  but re-read collapsed, so `write -> read` was not a fixed point. The
+  property-based round-trip strategy is restricted to the representable
+  (normalized, non-empty) title domain accordingly.
 - **`run_design` dropped the per-period PLOTFILEs and POSTFILEs.**
   `OutputPathway.period_plot_files` and `period_postfiles` were not among
   the output names `rewrite_output_names` rewrites, so a run that used
@@ -1569,1062 +2620,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parallel.
 
 ### Removed
-- `pyaermod.gui_v2.state.AppState`, replaced by
-  `pyaermod.gui_v2.session.Session`: `reset()` is now `new()`,
-  `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
-  `mark_clean()` are replaced by the operations that change or save the
-  project. `pyaermod.gui_v2.state._empty_project()` is still importable.
-
-## [2.2.0] - YYYY-MM-DD
-
-<!-- YYYY-MM-DD is a placeholder: RELEASING.md sets it to the day the GitHub release is published. -->
-
-The archival release the JAWMA manuscript cites. v2.1.0 was planned
-after PR #9 and never tagged, so this section carries everything since
-2.0.0: the validation of the regulatory math and file formats against
-EPA's own programs (#9), the reader's four completeness tranches (#10,
-#13, #14, #15) and the 53-deck round-trip guarantee (#14), the AERSCREEN
-rescue (#11), and the release engineering itself. Three dataclasses
-changed their fields incompatibly (`AERSURFACEConfig`,
-`AERSCREENConfig`, `EventPeriod`) and `OutputPathway.max_file` is gone;
-the upgrade notes are at the end of this section.
-
-#### Validation evidence
-
-What the release has been checked against, with the artifact each
-number comes from:
-
-| Check | Oracle | Result |
-|---|---|---|
-| EPA test-suite parity (`docs/validation.md`) | AERMOD v26135 built with gfortran, EPA reference set `aermet26135_aermod26135` | **142 / 142** POSTFILE comparisons within EPA's ±0.001 best-fit-slope margin |
-| AERTEST regression (`tests/test_real_aermod.py`) | EPA's `AERTEST_01H.PLT` | all 144 receptors bit for bit |
-| EPA deck round trip (`tests/test_epa_deck_roundtrip.py`, `tests/test_epa_source_roundtrip.py`) | the 53 decks of EPA's v26135 archive | **53 / 53** parse → write → re-parse with every pathway equal field for field, the keyword lines equal token for token, and every original line either modelled or kept in `unparsed_lines` |
-| EPA deck acceptance (`tests/test_epa_deck_acceptance.py`) | AERMOD's own setup pass over the rewritten decks | 49 / 53 accepted clean; the four chained MULTYEAR years report the same E500 as EPA's original does without the previous year's save file |
-| Rewritten decks against EPA's POSTFILEs (`tests/regulatory/test_epa_rewritten_so.py`) | EPA's reference POSTFILEs | fourteen decks with pyaermod's SO pathway and ten fully rewritten decks, all at slope 1.000000 |
-| Keyword coverage (`docs/keyword-audit-v26135.md`) | the 115 keywords AERMOD v26135's `modules.f` dispatches | **115 / 115** handled and tested (104 with a field, 11 stored verbatim by documented decision), from 59 at v2.0.0 |
-| AERSCREEN (`tests/test_aerscreen_known_answers.py`, `tests/test_real_aerscreen.py`) | EPA's `aerscreen_test_cases.zip` and the patched binary | all **22** restart decks reproduced byte for byte; **21** of the 22 cases (12 flat, through typed answers and through the restart file, and 9 terrain) reproduce EPA's `.OUT` line for line; the 22nd ships in EPA's archive as an OLM deck under a PVMRM name and cannot reproduce its own reference |
-| BPIP-PRIME (`tests/test_bpip_known_answers.py`) | EPA's BPIP-PRIME, compiled from source | exact over 6,480 direction comparisons |
-| AERSURFACE (`tests/test_real_aersurface.py`, `tests/test_aersurface_deck_acceptance.py`) | the binary and EPA's RDU reference | EPA's reference reproduced byte for byte; about 30 configurations through the setup pass |
-| NAAQS design values (`tests/test_naaqs_rank_tables.py`, `tests/regulatory/test_epa_known_answers.py`) | 40 CFR 50 appendices N, S and T; EPA's `.PLT`, `DA1`–`DA8` and `.SUM` files | exact, no tolerance |
-| Runner overhead and batch throughput (`docs/benchmarks.md`) | the same AERMOD binary called directly with `subprocess` | the numbers, and the machines they were measured on, are on that page |
-
-### Added
-- **`CITATION.cff`** (Citation File Format 1.2.0) with the metadata the
-  archival release needs: title, author, licence, repository, version
-  and a `preferred-citation` stub for the JAWMA paper. `date-released`
-  and `doi` are placeholders the release fills in (Zenodo mints the DOI
-  only after the GitHub release is published; `RELEASING.md` says where
-  to paste it). `tests/test_citation.py` ties its version to
-  `pyproject.toml` and `pyaermod.__version__` and validates the file
-  with `cffconvert` when it is installed, which the 3.12 CI leg does.
-  `README.md` and the docs index carry the citation.
-- **AERMOD run benchmarks** (`benchmarks/bench_aermod_runs.py`,
-  `python benchmarks/run_benchmarks.py --aermod`): the wall time of one
-  run of EPA's `aertest` case driven through `pyaermod.runner` against
-  the same binary called directly with `subprocess`, interleaved and
-  reported as medians and quartiles, and the throughput of a batch of
-  runs through `AERMODRunner.run_batch` at 1, 2, 4 and all-core workers.
-  Both skip with a reason when `bin/aermod` or the case is missing;
-  `--require-aermod` makes that an error. The `Benchmarks` workflow's
-  manual dispatch builds AERMOD from EPA's source, unpacks the case from
-  EPA's test-case archive and runs them on a clean runner. The numbers,
-  from that job and from the session that wrote it, are on the new
-  `docs/benchmarks.md` page.
-- **Release notes** for this version under `docs/release-notes/`, and a
-  "Reproducing the validation report" section in `docs/validation.md`
-  (emitted by `scripts/run_epa_parity.py` too, so it survives
-  regeneration) with the commands that rebuild the parity report, the
-  keyword audit and the benchmarks from a clean checkout of the tag.
-- **AERSCREEN drives the real binary, and EPA's own test cases prove
-  it.** AERSCREEN has no input deck: it is interactive, and it restarts
-  from the `**` header of its own output file. `pyaermod.aerscreen` now
-  produces both -- `AERSCREENConfig.to_stdin_answers()` gives the answers
-  in the order `AERSCREEN.FOR` asks them, `to_aerscreen_input()` writes
-  the restart header in `makeinput`'s exact column layout, and
-  `from_aerscreen_input()` parses it back -- and `AERSCREENRunner` feeds
-  either to the binary, staging the programs AERSCREEN spawns (AERMOD,
-  MAKEMET, BPIP-PRIME, AERMAP; it checks for `AERMOD.EXE`-style markers
-  and calls the lower-case names through the shell), the auxiliary
-  input files a run names, and `DEMlist.txt` for terrain runs.
-  `parse_aerscreen_output()` reads the `MAXIMUM IMPACT SUMMARY` and the
-  concentration-by-distance table of the `.OUT` file.
-  - `scripts/build_aerscreen.sh` fetches EPA's `aerscreen_code.zip` and
-    `makemet_code.zip`, applies `scripts/patches/aerscreen_21112.patch`
-    and compiles both into `./bin`. The patch is what gfortran needs:
-    the `\` non-advancing edit descriptor of every prompt FORMAT (an
-    Intel/Microsoft extension that even `-fdec` rejects) becomes `$`;
-    the file names AERSCREEN opens get the case AERMOD and AERMAP write
-    them with on Linux; the NAD-grid path uses `/`; and a `-0.00`
-    building adjustment from BPIP no longer overflows the 3-character
-    field `makeformat` gives it (which handed AERMOD `36****`). Applied
-    with `patch(1)` so a source change on EPA's side fails the build
-    loudly instead of silently building something else.
-  - `tests/test_aerscreen_known_answers.py` round-trips all 22 restart
-    decks of EPA's `aerscreen_test_cases.zip` (every source type, with
-    and without downwash, terrain, NO2 chemistry and the u* adjustment)
-    through the parser and the writer and requires the header back **byte
-    for byte**; the 22 `.OUT` files pin the output parser. The decks and
-    outputs are vendored under `tests/fixtures/epa_aerscreen`, so this
-    runs on every CI leg.
-  - `tests/test_real_aerscreen.py` drives every EPA case through the
-    built binaries, by typing the answers and by handing over the restart
-    file, and compares the `.OUT` with EPA's line for line (run
-    timestamps aside): all 12 flat cases through both interfaces and all
-    9 terrain cases (AERMAP over EPA's NED and DEM rasters) reproduce
-    EPA's outputs, one fumigation distance in the point downwash case
-    differing in its last digit. `.github/workflows/real_aerscreen.yml`
-    does this in CI, weekly and on pull requests that touch the
-    AERSCREEN code.
-  - The restart reader, it turns out, keeps a title only up to its first
-    comma and upper-cases it; the restart-file tests allow for that and
-    the docstrings say so.
-- **Every v26135 runstream keyword is now read into a field (WP-5).** The
-  audit's "Unhandled (kept verbatim)" list -- the EV pathway, six ME and
-  five OU keywords, and the CO/SO leftovers -- is empty; the only lines
-  that still travel in `unparsed_lines` are the ones with no model by
-  design (EMISFACT, HOUREMIS, INCLUDED, SITEDATA, EVALCART, DISCPOLR,
-  ERRORFIL, DEBUGOPT, NO2EQUIL, BACKUNIT) and malformed forms. Field
-  layouts come from `evset.f`, `meset.f`, `ouset.f`, `coset.f` and
-  `soset.f` through `scripts/keyword_oracle.py`; probe decks 20-30 under
-  `scripts/oracle_decks/` record what AERMOD v26135 said about each form,
-  including the first guesses it rejected.
-  - **EV pathway** (`EventPeriod`, `EventLocation`, `EventPathway`) in the
-    layout AERMOD writes itself for `EVENTFIL` (`EVENTPER name aveper
-    grpid date conc`, `EVENTLOC name XR= x YR= y zelev [zhill [zflag]]` or
-    `RNG=`/`DIR=`); `AERMODProject.event_processing` and the `CO SO ME EV
-    OU` event-deck layout with `OutputPathway.event_output` (EVENTOUT);
-    `ControlPathway.eventfil_option`; `read_event_output()` for the
-    per-event source contributions of an EVENT run's `.out`.
-  - **ME**: `MeteorologyPathway.day_ranges` (DAYRANGE), `.num_years`
-    (NUMYEARS), `.wind_speed_categories` (WINDCATS), `.scim`
-    (`ScimOptions`, the three SCIMBYHR forms) and `.turbulence_option`
-    (the nine NOTURB/NOSA/NOSW keywords).
-  - **OU**: `OutputPathway.no_header` (NOHEADER), `.rank_files`
-    (`RankFile`), `.season_hour_files` (`SeasonHourFile`), `.eval_files`
-    (`EvalFile`), `.toxx_files` (`ToxxFile`); the file entries read their
-    output through the existing `aermod_outputs` readers.
-  - **CO**: `ControlPathway.arm2_ratios` (ARMRATIO), `.awma_downwash`
-    (AWMADWNW), `.ord_downwash` (ORD_DWNW), `.aircraft_option` /
-    `.airport_id` (ARCFTOPT).
-  - **SO**: `method_2` (`Method2Params`, `METHOD_2 srcid finemass dg`) on
-    every source type; `PointSource.platform` (`PlatformParams`,
-    PLATFORM); `SourcePathway.aircraft_sources` (ARCFTSRC) and
-    `.hbp_sources` (HBPSRCID); `PointCapSource`, `PointHorSource` and
-    `SidewashPointSource` construct POINTCAP, POINTHOR and SWPOINT;
-    `OPEN_PIT`/`OPEN-PIT` are read as OPENPIT; the `FLAT` literal in a
-    LOCATION elevation field is kept (`flat_source`) and written back.
-  - Validator rules naming the AERMOD code for each: E145/E380 (ARMRATIO),
-    E122/E123/E124/E126/E121 (the downwash options), E197/E198/E332/E386
-    (METHOD_2), E198/E631 (PLATFORM), E198 (SWPOINT), E821/E130 (ARCFTSRC,
-    HBPSRCID), E154/E200/E202/E380 (the ME keywords), E164/E203/E211
-    (the OU files), E130/E203/E297/E313 (the events).
-  - `tests/test_epa_deck_acceptance.py` runs every new writer form through
-    AERMOD's setup pass; `tests/regulatory/test_epa_rewritten_so.py` now
-    fully rewrites testpart, testprt2, openpits, capped, the two ARM2 decks,
-    flatelev, lovett, mcr and hrdow and scores them against EPA's
-    POSTFILEs (all at slope 1.000000); `tests/regulatory/test_event_rewrite.py`
-    runs AERMOD's own generated event deck and pyaermod's rewrite and
-    requires every contribution to agree. flatelev, scimtest,
-    no2_1yrAK_arm2 and the AERMOD-generated `events_generated.inp` are
-    vendored.
-- **Source construction, reader tranche 2.** The SO keywords the v26135
-  audit listed as recognised but not constructed, or not read at all,
-  are now stored on the source model and written back in the field
-  layout `soset.f` parses. Each form passes AERMOD's setup pass
-  (`tests/test_so_deck_acceptance.py`, 20 cases), every EPA deck that
-  uses it round-trips the keyword lines token for token
-  (`tests/test_epa_source_roundtrip.py`, seven more decks vendored), and
-  the fourteen EPA decks whose SO pathway uses these keywords reproduce
-  EPA's reference POSTFILEs when run with pyaermod's rewritten SO
-  pathway (`tests/regulatory/test_epa_rewritten_so.py`; nine of them
-  also as whole rewritten decks). Reader coverage goes from 77 to 91 of
-  the 115 dispatched keywords.
-  - AREAPOLY: `AREAVERT` rings accumulate over any number of lines, a
-    closing repeat of the first vertex is dropped (AERMOD closes the ring
-    itself), and `AreaPolySource.initial_vertical_dimension` carries the
-    optional fourth SRCPARAM field. `LineSource` gains the same field.
-  - BUOYLINE: `BLPGROUP` continuation lines, source-ID ranges and `ALL`
-    (soset.f BLPGRP); per-segment base elevations
-    (`BuoyLineSegment.base_elevation`); the eight-field `BLPINPUT` with
-    no BLPGROUP is AERMOD's implicit single group, which a
-    `BuoyLineSource` named `ALL` now writes back as such instead of the
-    nine-field form.
-  - RLINEXT: the eleventh LOCATION field (base elevation) is read and
-    always written; `RBARRIER` (one or two barriers), `RDEPRESS` and the
-    v26135 `VBARRIER` (`RLineExtSource.vegetative_barriers`,
-    `VegetativeBarrier`) are read back; `SBARRIER` solid barriers
-    (`SourcePathway.solid_barriers`, `SolidBarrier`,
-    `SolidBarrierSegment`) and the bare `RLEMCONV` switch
-    (`SourcePathway.rline_moves_units`) are new.
-  - `OLMGROUP` is read into `ChemistryOptions.olm_groups`, including the
-    bare `OLMGROUP ALL` form, continuation lines and ranges (member
-    tokens are kept as written); `PSDGROUP` into
-    `SourcePathway.psd_groups` with `ControlPathway.psd_credit` for the
-    PSDCREDIT option, under which the writer emits PSDGROUP instead of
-    SRCGROUP as AERMOD requires; `NO2RATIO` (ID or range) into
-    `no2_ratio`, which every source type now has.
-  - `EMISUNIT`, `CONCUNIT`, `DEPOUNIT` (`EmissionUnits` on
-    `SourcePathway.emission_units` / `concentration_units` /
-    `deposition_units`); Fortran `D` exponents (`3.6D6`) are read.
-  - `MODELOPT` `ALPHA`, `BETA` and `PSDCREDIT` are read back (they were
-    dropped, so a rewritten RLINEXT or GASDEPOS deck failed E198).
-  - `URBANSRC ALL`, ranges and the multi-area `urbanid srcids` form are
-    read; `URBANOPT` is read in both its field orders and
-    `ControlPathway.urban_roughness` carries the optional roughness.
-  - Deposition presets (`chemistry_presets.deposition_defaults_for`)
-    now return AERMOD's own built-in GASDEPOS values (soset.f GASDEP)
-    for SO2, NO2, HG0, HGII, TCDD and BAP.
-  - Validator rules for the above, each naming the AERMOD code: E144
-    (OLMGROUP needs OLM), E146/E105/E287 (PSDGROUP), E158/E159 (unit
-    conflicts), E198/E713 (barriers need ALPHA and FLAT), E320,
-    E371-E374 (barrier ranges), E380/E195 (GASDEPOS).
-  - `scripts/oracle_decks/13`-`18`: the probe decks that settled these
-    forms, with what AERMOD said about the first guesses; the oracle
-    workflow's default keyword list covers the tranche.
-
-- **Nothing the reader cannot model is dropped any more:
-  `AERMODProject.unparsed_lines`.** `pyaermod.input_reader` keeps every
-  runstream line it has no field for -- an unmodelled keyword (RANKFILE,
-  SEASONHR, EMISFACT, HOUREMIS, INCLUDED, SITEDATA, ERRORFIL, ...), an
-  unmodelled form of a known keyword (a BACKGRND hourly file, a PLOTFILE
-  with a lower rank, a second POSTFILE), the definition lines of a source
-  type it does not construct (POINTCAP, POINTHOR), or an inline EV
-  pathway -- as an `UnparsedLine` (pathway, keyword, fields as written,
-  line number), logs one warning per pathway and keyword, and the writer
-  puts them back into their pathway (`to_aermod_input(preserve_unparsed=
-  True)`, the default) where AERMOD accepts them: ELEVUNIT first, SO lines
-  before the group keywords, the rest before FINISHED. The module
-  docstring had promised this collection since the reader was written;
-  the implementation silently discarded the lines.
-- **The runstream layout AERMOD actually parses.** A line blank through
-  the keyword columns continues the previous keyword (setup.f EXKEY), as
-  twenty of EPA's decks write their GRIDPOLR blocks (`POL1 DIST 100.
-  1000.`); the reader took `POL1` for the keyword and dropped the line.
-- **Receptor networks as reset.f defines them.** `PolarGrid.distances`
-  (GRIDPOLR DIST is only ever a list of ring distances), `.directions`
-  (DDIR), `.origin_source_id` (`ORIG srcid`), `.elevations`/`.hills`/
-  `.flags`; `CartesianGrid.x_points`/`.y_points` (XPNTS/YPNTS) and
-  `.grid_flags`; `ring_distances()`, `direction_angles()`, `x_values()`,
-  `y_values()` and `receptor_count` for consumers, which the geospatial
-  expansion and the advanced validator now use. The reader fills the
-  GRIDCART ELEV/HILL rows the writer already emitted.
-- **`OutputPathway.maxi_files` (`MaxiFile`)**: MAXIFILE in the layout
-  ouset.f reads, `aveper grpid thresh filename [funit]`, one per
-  averaging period and group (audit item 1).
-- **`ControlPathway.urban_areas` (`UrbanArea`)** for decks with several
-  URBANOPT lines (EPA's multurb.inp), `.extra_model_options` for MODELOPT
-  tokens without a field (SCREEN, PSDCREDIT, NOCHKD, ...), `.run_model`
-  (RUNORNOT NOT round-trips), `ChemistryMethod.TTRM`/`TTRM2`,
-  `MeteorologyPathway.start_hour`/`.end_hour` (the eight-field STARTEND),
-  `SourcePathway.include_all_group` (a deck that groups its sources with
-  PSDGROUP gets no invented `SRCGROUP ALL`).
-- **The round-trip guarantee over EPA's whole archive.**
-  `tests/test_epa_deck_roundtrip.py` now compares the CO, RE, ME and OU
-  pathways field for field, the source groups and IDs, and the preserved
-  lines, and asserts every line of each of the 53 v26135 decks is either
-  modelled or in `unparsed_lines`; eleven decks are vendored so the check
-  runs without the archive. `tests/test_epa_deck_acceptance.py` runs
-  every deck pyaermod writes for the archive through AERMOD's setup pass
-  next to EPA's original: 49 are accepted clean, the four chained
-  MULTYEAR years report the same missing-save-file E500 as EPA's own
-  deck. The writer forms this release changed have setup-pass cases of
-  their own. Probe decks 13-19 under `scripts/oracle_decks/` record what
-  AERMOD said about the previous forms.
-
-### Changed
-- `RELEASING.md` names every file a release touches (the third
-  `__version__`, in `pyaermod.api`, was missing), sets the changelog
-  date and `CITATION.cff`'s `date-released`, and adds the Zenodo step:
-  enable the GitHub–Zenodo archive before publishing, then paste the
-  minted DOI into `CITATION.cff`, `README.md` and `docs/index.md`.
-- **`EventPeriod` has AERMOD's field semantics** (`event_name,
-  averaging_period, date, source_group, original_conc, location`); the
-  former `start_date`/`end_date` pair matched no AERMOD card, EVENTLOC was
-  never written and the EV block went after OU, so no event deck pyaermod
-  wrote was ever accepted. `AERMODProject.write(event_filename=)` now
-  writes a complete event deck rather than an EV block. Event names may be
-  ten characters (`EVNAME*10`; AERMOD's own are).
-- `SourcePathway.sources` may hold `SidewashPointSource`; the GUI's source
-  registries list the three new classes.
-- The pre-commit ruff hook is pinned to the ruff release CI uses (the
-  v0.4.0 hook could not parse `pyproject.toml`'s `UP045` selector).
-- **`OutputPathway.max_file` is removed.** It wrote `MAXIFILE filename`,
-  which every AERMOD release rejects (E201: four fields are required);
-  use `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`. The
-  GUI's output page lists the new field.
-- `Validator` accepts explicit receptor lists (`distances`, `directions`,
-  `x_points`, `y_points`) in place of the generator fields they replace.
-- **`GasDepositionParams` now has AERMOD's field semantics** (audit
-  follow-up 7): `GASDEPOS srcid Da Dw rcl Henry`, i.e. `diffusivity`,
-  `diffusivity_water`, `cuticular_resistance` and a required
-  `henry_constant`. The former `alpha_r` and `reactivity` names, the
-  0-1 check on the third field and the `dry_dep_velocity` fallback (which
-  wrote a velocity into the Henry's-law field) are gone; EPA's `testgas`
-  values (`0.08962 1.04E-5 2.51E4 557.0`) validate and are written back
-  unchanged. Positional construction is unaffected.
-- **URBANSRC and URBANOPT are written in the single-urban-area forms
-  AERMOD reads**: `URBANSRC srcid` (a trailing area name was an
-  undefined source, E300) and `URBANOPT population [name] [roughness]`
-  (the old `name population` order was an illegal numeric field, E208).
-  `is_urban=True` no longer needs `urban_area_name` to emit the keyword.
-- Numeric fields with an exponent are written with a decimal point in
-  the mantissa (`1.0e+06`, not `1e+06`), which is what AERMOD's STODBL
-  accepts.
-- SRCGROUP continuation lines are merged into one
-  `SourceGroupDefinition` on read, and the writer keeps every group's
-  lines together with `SRCGROUP ALL BACKGROUND` on the card that
-  defines ALL: AERMOD files a non-adjacent continuation card under the
-  last group defined, whichever ID it names.
-- `Validator._validate_output` receives the control pathway so the OU
-  design-value keywords can be checked against the pollutant and
-  averaging periods; `Validator.validate` is unchanged for callers.
-- The GRSM validation warning is raised when no NOx background of any
-  kind is given, not only when `nox_file` is unset, and the NOx keywords
-  on a non-GRSM run are an error (AERMOD E602).
-
-- **AERSURFACE deck-acceptance tests across the configuration space** —
-  `tests/test_aersurface_deck_acceptance.py` runs AERSURFACE's own setup
-  pass (`RUNORNOT NOT`) over ~30 configurations. Setup needs the raster
-  files to exist but never reads them, so ten-byte placeholders suffice:
-  no test-case archive, and the sweep runs in under a second. The
-  existing end-to-end test proves one configuration byte-for-byte; this
-  covers the rest of the space, where four more defects were hiding.
-- **`AERSURFACEConfig.anemometer_height_m`** — emitted as `ANEM_HGT`,
-  and required when `zo_method="ZOEFF"`.
-
-- **Property-based round-trip over the ME and OU pathways, and polar
-  receptor grids** — `tests/test_property_pathways.py`. Those pathways
-  were pinned to fixed values in the existing property tests, so every
-  field on them went unexercised.
-- **Deck-acceptance cases for the output pathway** — the PLOTFILE,
-  POSTFILE and RECTABLE keywords have field-count-sensitive syntax that
-  varies with the averaging period, so each configuration is now run
-  through AERMOD's setup check.
-
-- **Deck-acceptance tests for every source type** —
-  `tests/test_source_deck_acceptance.py` generates a minimal deck for
-  each of pyaermod's ten source types and runs AERMOD's own setup pass
-  (`RUNORNOT NOT`) over it, asserting no fatal errors. It carries a
-  coverage guard that fails when a new source type is added without a
-  case, and a self-check that a deliberately broken deck *is* reported,
-  so the suite cannot pass vacuously.
-- **Property-based round-trip over all ten source types** —
-  `tests/test_property_all_sources.py`. The existing property tests
-  covered the three types the reader supported when they were written.
-- **`ControlPathway.alpha` / `.beta`** — the non-regulatory MODELOPT
-  options. AERMOD refuses RLINEXT outright without ALPHA.
-
-- **Real-binary parity for BPIP-PRIME and AERSURFACE.** Both had EPA
-  Fortran available and neither had ever been run against it.
-  `scripts/build_bpip.sh` and `scripts/build_aersurface.sh` fetch and
-  compile them (into `./bin`), and `make test-binaries` puts that
-  directory on PATH so the binary-backed suite is one command.
-  - `tests/test_bpip_known_answers.py` compares `pyaermod.bpip` against
-    EPA's BPIP-PRIME direction by direction, at the F8.2 print
-    resolution BPIP writes with.
-  - `tests/test_real_aersurface.py` builds the deck for EPA's published
-    RDU test case with `AERSURFACEConfig`, runs it, and compares the
-    surface characteristics to EPA's shipped reference file. They are
-    identical apart from the run timestamp.
-- **`pyaermod.epa_sources`** — registry of EPA SCRAM download locations
-  for AERMOD, AERMET, AERMAP, AERSURFACE, AERSCREEN, MAKEMET, BPIP and
-  BPIP-PRIME source and test-case archives. Every URL was discovered by
-  listing its SCRAM directory and verified to return a zip; an opt-in
-  network test (`PYAERMOD_NETWORK_TESTS=1`) re-lists each directory so
-  an EPA rename fails a test instead of 404-ing in CI later.
-- **`pyaermod.bpip` GEP influence-zone test** — `BPIPCalculator` now
-  reports zeros for wind directions where the stack lies outside the
-  structure influence zone, as BPIP does, with `influence_test=False`
-  to inspect the raw projected geometry.
-
-- **NAAQS design-value known-answer tests** — the design-value math is now
-  pinned against evidence rather than smoke-tested. `tests/test_naaqs_rank_tables.py`
-  transcribes 40 CFR part 50 appendix N Table 1, appendix S Table 1 and
-  appendix T Table 1 and checks the new `naaqs_percentile_rank()` against
-  every row for every day count 1–366, then pins design values on series
-  whose answer is arithmetic (365 strictly decreasing daily values → the
-  98th percentile is exactly the 358th). `tests/regulatory/test_epa_known_answers.py`
-  compares pyaermod's ranking against EPA's *own* ranked output — no
-  AERMOD binary needed, since both sides derive from the concentrations
-  in EPA's shipped `.PST` files:
-  - the 1st-highest value at every receptor of all 47 `.PST`/`.PLT` pairs
-    in the reference set, exactly (no tolerance);
-  - ranks 1 through 8 of the 24-hour series in EPA's `surfcoal` deck
-    against its eight `PSET2PA.DA1`–`DA8` plotfiles — the depth the
-    98th-percentile forms need;
-  - AERMOD's own NAAQS design-value plotfiles (`PSDCRED_*`, written under
-    its 1-hour NO2 processing) against
-    `nth_highest_daily_max_design_value()`, receptor by receptor;
-  - the `.SUM` overall-maximum table, which ranks the largest *n*-th
-    highest value per receptor rather than the *n*-th largest value in
-    the record.
-- **`pyaermod.design_values.naaqs_percentile_rank()`** — the EPA rank-table
-  lookup, with both regulatory tables exported as
-  `PERCENTILE_98_RANK_TABLE` / `PERCENTILE_99_RANK_TABLE`.
-- **`pyaermod.design_values.nth_highest_daily_max_design_value()`** — the
-  general form behind the 1-hour NO2, 1-hour SO2 and 24-hour PM2.5
-  standards, and the one AERMOD itself computes under `NO2AVE` / `SO2AVE`
-  / `PM25AVE`: rank each year's daily series independently, then average
-  those annual values across years (`SUMHNH / NUMYRS` in `aermod.f`).
-- **`AERMODAuxResult.concentration_column` / `.values()`** — callers no
-  longer have to guess whether AERMOD spelled the column `CONC` or
-  `AVERAGE CONC`.
-- **`pyaermod.aermod_outputs.parse_fortran_format()`** — expands the
-  Fortran FORMAT statement AERMOD prints in every auxiliary-file header
-  into field widths, so records are sliced at the offsets AERMOD wrote
-  them at.
-
-- **Headless smoke tests for the NiceGUI GUI** — `tests/test_gui_v2_smoke.py`
-  drives the real `gui_v2` shell through `nicegui.testing.User` (in-process
-  ASGI, no browser): every tab renders its key controls; a minimal project
-  (title, one point source via the Sources editor dialog, a receptor grid,
-  met file names) is filled in through the UI, saved and reloaded via
-  `project_io` with an identical AERMOD deck, and run against a fake
-  `aermod` on `PATH` with the Results tab asserted for both the no-output
-  and parsed-output cases. `gui_v2` is now measured by coverage (only
-  `desktop.py`, the pywebview wrapper, stays omitted). Requires the new
-  `pytest-asyncio` dev dependency.
-- **Regulatory-grade numeric regression** — `tests/test_real_aermod.py` now
-  compares every AERTEST receptor against EPA's published reference plotfile
-  (`tests/fixtures/epa_official/AERTEST_01H.PLT`) to a tight tolerance
-  (rtol=1e-4), proving pyaermod drives the real AERMOD Fortran to reproduce
-  EPA's own concentrations field-for-field — not merely that a run completes.
-  A gfortran -O2 build reproduces all 144 receptors bit-for-bit.
-- **Synthetic-DEM analytic regression for AERMAP** — `test_real_aermap.py`
-  now builds a tiny USGS-format UTM DEM whose elevation is an exact tilted
-  plane, runs it through the real AERMAP binary via `AERMAPRunner`, and
-  asserts the extracted receptor elevations match the closed-form plane at
-  on-node receptors (max deviation 0 with a gfortran build). Independent
-  numeric ground truth, fully self-contained (no vendored DEM, no downloads).
-- **Validated-version declarations** — `pyaermod.versions.VALIDATED_AERMOD_VERSIONS`
-  / `VALIDATED_AERMET_VERSIONS` (`("26135", "24142")`, newest first; exported
-  from the package API and `regulatory_parity`) state exactly which EPA
-  releases the bit-exact AERTEST regression and the full test-suite parity
-  have been run against. `AERMODOutputParser` now logs one warning when an
-  output file was produced by a release outside that list.
-- **EPA reference-set resolver** — `pyaermod.epa_testcases.find_epa_testcase_set`
-  locates EPA's unpacked test-case sets under `test_cases/` accepting both
-  naming conventions (`aermet_24142_aermod_24142` and the July-2026 bundle's
-  `aermet24142_aermod24142` / `aermet24142_aermod26135` /
-  `aermet26135_aermod26135`), honours `$PYAERMOD_EPA_TESTCASES`, and prefers
-  the set whose AERMOD version matches the `aermod` binary on PATH
-  (`aermod_binary_version`, from `aermod --help`), then the newest validated
-  release. `tests/regulatory/`, `tests/test_epa_cases.py`,
-  `tests/test_real_cases.py`, `tests/test_regression_epa_official.py` and
-  `scripts/run_epa_parity.py` all resolve through it; regulatory test IDs now
-  carry the set name (`[aermet26135_aermod26135/aertest.inp]`).
-- **Parity report provenance** — `scripts/run_epa_parity.py` now stamps a
-  Provenance table into `docs/validation.md`: AERMOD version (parsed from
-  the `*** AERMOD - VERSION NNNNN ***` banner of a produced `.out`, falling
-  back to `aermod --help`), binary path, `gfortran --version`, the EPA
-  reference set, pyaermod version, git SHA (`-dirty` when applicable),
-  platform and UTC timestamp. New `--testcase-dir` (or
-  `$PYAERMOD_EPA_TESTCASES`) and `--clean-scratch` options; exit 2 when the
-  fixtures or binary are missing, 1 when any comparison fails.
-- **Scheduled EPA parity CI** — `epa_parity.yml` now runs weekly (Tuesday
-  07:00 UTC, staggered from the Monday real-binary smokes) as well as on
-  dispatch (archive URL inputs optional, defaulting to the canonical SCRAM
-  URLs — the old default pointed at a non-existent `aermod_testcases.zip`).
-  It compiles EPA's current AERMOD, fetches both EPA test-case archives via
-  `scripts/fetch_epa_source.sh`, unpacks only the sets the suite needs (the
-  set matching the compiled AERMOD version for parity, the 24142 set for the
-  parser regressions, `aermet_def_testcases_24142` for the AERMET parsers —
-  each AERMOD set is ~3.5 GB unpacked) and caches the unpacked trees with
-  `actions/cache` (key = URLs + upstream ETag/Last-Modified + AERMOD
-  version + salt; saved right after unpacking so a later failure keeps the
-  cache). It runs `tests/regulatory`, `tests/test_epa_cases.py`,
-  `tests/test_real_cases.py`, `tests/test_real_aermet.py` and
-  `scripts/run_epa_parity.py`, fails if any test fails, if the fixture-gated
-  tests all skipped, or if any deck leaves tolerance, and uploads the
-  regenerated `docs/validation.md` as an artifact (never auto-commits).
-  Before the cache is saved, a prune step cuts each unpacked tree down to
-  the directories some test in this repo actually opens — resolved with the
-  same `find_epa_testcase_set` the tests use, so it cannot drift from them:
-  `inputs/`, `meteorology/`, `postfiles/` of the parity set, `Outputs/`,
-  `postfiles/`, `plotfiles/` of the 24142 set (a set filling both roles
-  keeps the union), and `output_files/` + `salem/` of
-  `aermet_def_testcases_24142`. The 24142 set also keeps `inputs/`, which
-  no test reads but `EPATestCaseSet.exists()` requires — without it the set
-  survives on disk yet drops out of `find_epa_testcase_set`, so
-  `tests/test_epa_cases.py` and `tests/test_real_cases.py` skip and the
-  all-skipped guard fails the job (11 MB). What the prune actually reclaims
-  in CI is the AERMET raw example datasets whose products are already in
-  `output_files/` (873 MB → 174 MB, ~90 % of the saving) plus the Windows
-  `.bat`/`.exe` runners and the empty `rdata/` drop boxes: **7.91 GB →
-  7.14 GB, 770 MB (9.7 %) freed**. The clauses dropping EPA's `plots_*/`
-  comparison images and R driver scripts are defence for a local full
-  unpack only — CI's selective `unzip` never extracts them, so they
-  contribute 0 MB of that total. Afterwards the step re-checks every kept
-  directory *and* re-resolves both sets through `find_epa_testcase_set`,
-  failing the job before the save if one came out missing, empty, or no
-  longer resolvable. The regulatory harness also deletes each
-  deck's staged scratch (~40 MB) in a fixture finalizer. The three
-  real-binary smoke workflows gained `timeout-minutes: 30` (`epa_parity`
-  already had 120) so a stalled gaftp fetch cannot hold a runner for the
-  six-hour default.
-- **AERMOD v26135 keyword audit** — `docs/keyword-audit-v26135.md` compares
-  the 122-entry keyword table in EPA's v26135 `modules.f` (and the
-  per-pathway `KEYWRD .EQ.` dispatch) against `input_reader.py`: per
-  pathway, handled+tested / handled+untested / unhandled lists, the reader's
-  MODELOPT and source-type coverage, and five follow-ups (`MAXIFILE`
-  argument order, RLINEXT/AREAPOLY/BUOYLINE not constructed, `GRIDPOLR`
-  heuristics, the undelivered `unparsed_lines` promise). All 53 decks in the
-  v26135 archive parse. `tests/test_input_reader.py` gains parametrised
-  one-line decks for every previously untested branch and a pass-through
-  test for every unhandled keyword; `input_reader.py` coverage 85.0 % →
-  99.8 % (the one remaining line is an unreachable guard).
-- **`docs/validation.md` regenerated against AERMOD v26135** (gfortran 15.2
-  build, EPA set `aermet26135_aermod26135`): **142 / 142** POSTFILE
-  comparisons within EPA's ±0.001 slope margin in 323 s (the previous
-  104 / 104 figure was produced against the pre-2026 24142 bundle with no
-  recorded version). Informational cross-version run of the same v26135
-  binary against the `aermet24142_aermod24142` references: 136 / 142, the
-  six misses all GRSM NO2 cases (slopes 0.946–1.117) — EPA's v26135 GRSM
-  changes, not a pyaermod regression — which is why the harness now scores
-  against the reference set matching the binary's version.
-- **Vendored EPA fixtures refreshed to the v26135 archive**
-  (`tests/fixtures/epa_official/`; EPA bundle of 2026-07-09, set
-  `aermet26135_aermod26135`): `AERTEST_01H.PLT` (data rows byte-identical to
-  the 24142 file; only the two banner lines differ), `aertest.inp`
-  (whitespace and lower-case met filenames only), `AERMET2.SFC`/`.PFL`
-  (values identical; AERMET 26135 writes four-digit years). `AERTEST.SUM`
-  deliberately stays at 24142 (the 26135 summary prints `**` in its
-  two-digit year column). `tests/test_real_aermod.py` passes bit-exact
-  against a gfortran build of AERMOD v26135. Version notes in module
-  docstrings, README and docs now say 26135 (AERMAP stays 24142 — EPA's
-  current AERMAP source is still `aermap_source_code_24142`; the GRSM note
-  records that v26135 drops its BETA flag while it remains non-DFAULT).
-- **Library code no longer prints.** `import pyaermod` is now silent: the
-  `Warning: folium not installed. Interactive maps unavailable.` (and the
-  matching matplotlib) line that `pyaermod.visualization` wrote to stdout on
-  every import is now a `DEBUG`-level log record. That line was not merely
-  untidy — it broke the scheduled parity workflow, whose version probe reads
-  `python -c "... print(aermod_binary_version())"` through command
-  substitution: the warning landed inside the captured value, and a
-  multi-line value is invalid in `$GITHUB_OUTPUT`, so the run died with
-  `Invalid format 'Warning: folium not installed...'` before compiling
-  anything. The workflow now also takes only the last line and rejects a
-  non-numeric version, so a future stray print degrades to the fallback
-  instead of failing the run; the user-facing signal stays
-  the `ImportError` with an install hint raised by the first feature that needs
-  the package. `AERMODVisualizer.plot_contours` / `create_interactive_map`
-  ("Figure saved to ...") and `AERMODResults.export_to_csv` ("Exported results
-  to ...") report through `logging.getLogger(__name__)` at `INFO` instead of
-  `print()`. `print()` remains only in `cli.py`, the NiceGUI GUI, the explicit
-  `pyaermod.print_info()` banner, and `if __name__ == "__main__":` demo blocks.
-  `tests/test_import_silence.py` pins the guarantee in a fresh subprocess.
-- **Benchmark gate has a noise floor.** `benchmarks/compare_benchmarks.py`
-  gained `--min-baseline-ms` (default 5.0): a benchmark whose baseline is
-  below the floor is listed under `IGNORED` but never fails the PR — the gate
-  previously failed a PR on `aux_parse/plotfile_100rows 0.172 -> 0.235 ms
-  (+36.8%)`, pure noise on a sub-millisecond operation. `run_benchmarks.py`
-  now times each benchmark over `--rounds` independent rounds (default 5) and
-  reports the minimum instead of a single timing; the round count is recorded
-  in the JSON. `tests/test_benchmarks_harness.py` proves +40% on a 0.2 ms
-  baseline passes while +40% on a 50 ms baseline still fails.
-- **mypy is gated, not advisory.** `scripts/mypy_gate.py` runs
-  `mypy src/pyaermod` (config from `pyproject.toml`), counts `error:`
-  diagnostics and compares against the integer committed in
-  `mypy-baseline.txt`; CI (`tests.yml`, Python 3.12 leg, mypy pinned) fails
-  only if the count *increases*, and prints the exact
-  `python scripts/mypy_gate.py --update` command when it decreases. Existing
-  type errors are untouched. The baseline is authoritative for the
-  `.[dev,all]` environment CI uses: typed optional packages (`nicegui`,
-  `ezdxf`, ...) surface errors that `ignore_missing_imports` hides when they
-  are absent, so a partial install reports a different count (the gate's
-  failure message says so; `make typecheck` pins the same mypy as CI).
-  The baseline is **78**, and it is only meaningful measured on that leg.
-  There is deliberately no `python_version` pin: pinning 3.11 while the gate
-  runs on 3.12 made mypy reject numpy 2.5's own stubs (`Type statement is
-  only supported in Python 3.12 and greater`) and abort before checking any
-  project code. The count is dependency-sensitive too — numpy 2.5 types
-  `ArrayLike` precisely enough to surface nine further errors in
-  `geospatial.py` and `visualization.py` that numpy 2.4 did not — so a
-  baseline measured on an older local environment understates it, which is
-  how it was first committed nine too low.
-- **Honest dependency floors, validated in CI.** The optional-extra lower
-  bounds in `pyproject.toml` were aspirational (`geopandas>=0.10` predates
-  shapely 2 / pandas 2; `shapely>=1.8`, `matplotlib>=3.3`, `scipy>=1.7`,
-  `pyproj>=3.0`, `rasterio>=1.2`, `requests>=2.25`, `nicegui>=2.0`). They are
-  raised to `matplotlib>=3.7`, `scipy>=1.10`, `folium>=0.14`, `pyproj>=3.4`,
-  `geopandas>=0.14`, `rasterio>=1.3`, `shapely>=2.0`, `requests>=2.32.2` and
-  `nicegui>=3.0` (`numpy>=1.24`, `pandas>=2.0`, `tqdm>=4.60`, `ezdxf>=1.0`
-  unchanged). `requests>=2.32` is forced by nicegui — even nicegui 2.0.0
-  requires `requests>=2.32.0`, so the previous `[all]` floor set was not
-  co-installable at all — and `nicegui>=3.0` is the line the GUI itself
-  needs (nothing under `src/` imports `nicegui.testing`). The headless smoke
-  tests do *not* exercise that floor: `user_simulation` and
-  `ElementFilter(local_scope=)` only landed in NiceGUI 3.4.0, so
-  `tests/test_gui_v2_smoke.py` skips below it rather than claiming coverage
-  it does not have — the min-deps leg caught the original `minversion="3.0"`
-  guard letting collection through and then failing on the missing module.
-  The requests
-  floor lands on `2.32.2` rather than `2.32.0` because 2.32.0 and 2.32.1
-  are yanked on PyPI ("Yanked due to conflicts with CVE-2024-35195
-  mitigation"): the exact pin in `min-constraints.txt` made the `min-deps`
-  leg install a withdrawn release (pip honours an `==` pin on a yanked
-  version, warning as it does so), and no range resolution will ever land
-  there anyway. 2.32.2 is the oldest 2.32.x that is still a real
-  candidate. A new
-  `min-constraints.txt` pins the oldest versions that satisfy those floors
-  together (resolvability proven with
-  `pip install --dry-run --ignore-installed -e ".[dev,all]" -c min-constraints.txt`),
-  and a `min-deps` leg in `tests.yml` (Python 3.11) installs `.[dev,all]`
-  under those constraints and runs the suite, so the floors are checked
-  rather than guessed. It earned its keep immediately: `fiona` is pulled in
-  by geopandas, which declares only `fiona >=1.8.21` with no upper bound, so
-  the oldest-everything resolve paired geopandas 0.14 with a current fiona —
-  and fiona 1.10 removed `fiona.path.ParsedPath`, which geopandas 0.14 calls
-  on every read, failing eight shapefile tests with `module 'fiona' has no
-  attribute 'path'`. `min-constraints.txt` now caps it at the last 1.9.x.
-- The real-AERMOD test suite runs AERMOD once via a session-scoped fixture
-  instead of re-invoking it per test.
-- `real_aermod.yml` CI now also re-runs when the EPA reference plotfile or
-  `aermod_outputs.py` change.
-- **Hardened EPA real-binary CI against gaftp flakiness and version churn.**
-  The real-binary workflows (`real_aermod`, `real_aermap`, `real_aermet`,
-  `epa_parity`) now:
-  - fetch EPA SCRAM archives via `scripts/fetch_epa_source.sh` — `curl --fail`,
-    retries with backoff, and validation that the archive is a real zip before
-    compiling (previously a rate-limited/error response from `gaftp.epa.gov`
-    was silently saved as the "zip" and failed the job on `unzip`); and
-  - derive the extracted source directory from the archive instead of pinning
-    a name, so EPA's rename of the AERMOD source dir
-    (`aermod_source_code_24142` → `aermod_source_v26135`) and AERMET's flat,
-    Fortran-90 layout no longer break the compile. Verified locally: AERMOD
-    v26135 still reproduces the vendored 24142 AERTEST reference bit-for-bit.
-- **EPA source version is pinned per run and surfaced in CI.**
-  `scripts/fetch_epa_source.sh` now prints the archive's top-level directory
-  (EPA encodes the version in it, e.g. `aermod_source_v26135`; `<flat
-  archive>` for AERMET) after every successful fetch or cache reuse, and
-  appends `EPA source: <dir> from <url>` to `$GITHUB_STEP_SUMMARY` when set.
-  `real_aermod.yml` / `real_aermap.yml` / `real_aermet.yml` gained a
-  `workflow_dispatch` input `source_url` (default = the current SCRAM URL) to
-  try a new EPA release without editing the workflow, and cache the downloaded
-  zip with `actions/cache` keyed on the URL plus the calendar month (so a
-  same-URL EPA re-release is still picked up within a month while gaftp
-  flakiness inside the month is absorbed). The derived-dir and
-  `chmod -R u+w` compile logic is unchanged.
-- **Repo hygiene.** `.DS_Store` and `aermod/.DS_Store` are no longer tracked
-  (they were already gitignored, so they showed as perpetually modified). A
-  `Makefile` adds `test`, `test-full` (installs `.[dev,all]`, then the whole
-  suite with coverage), `lint` and `typecheck` targets mirroring CI;
-  `CONTRIBUTING.md` documents the GDAL prerequisite for the `[geo]` extra and
-  `make test-full` as the pre-PR check.
-
-### Fixed
-- **Scalar building-downwash values produced a deck AERMOD rejects.**
-  A source whose `building_height`, `building_width`, `building_length`,
-  `building_x_offset` or `building_y_offset` was a single float wrote one
-  value per keyword, and AERMOD reads one per 10-degree sector: a POINT
-  source was fatal (SO E236, E237, E241, E246, E247). A scalar is now
-  written as the same value for all 36 sectors, and the point, area and
-  volume forms pass AERMOD's setup pass in
-  `tests/test_source_deck_acceptance.py` (keyword audit item 10).
-- **The EPA parity workflow pruned the reference files the known-answer
-  suite compares against.** It kept only `inputs/`, `meteorology/` and
-  `postfiles/` of the parity set, so the PST/PLT rank comparisons, the
-  surfcoal `.DA1`-`.DA8` ranks and the AERTEST `.SUM` check had nothing to
-  read and the suite's non-empty guard failed the job. The set now also
-  keeps `plotfiles/` and `Outputs/` (about 32 MB), and the cache salt is
-  bumped so the previously pruned cache is not reused.
-- **`pyaermod.__version__` was `pyaermod.api`'s constant, not
-  `__init__.py`'s.** `api.py` defines its own `__version__` and the
-  package re-exports `api.*` after setting its own, so bumping the two
-  files `RELEASING.md` named left the package reporting the old number.
-  All three say 2.2.0, and `tests/test_citation.py` fails on a partial
-  bump.
-- **`deposition_method` wrote a `METHOD` line that no AERMOD release
-  accepts** (there is no METHOD keyword in `modules.f`; SO E105). The field
-  is kept for compatibility and writes nothing; Method 2 deposition is
-  `method_2`.
-- **Fixed-column source fields no longer round a value away**: EPA's
-  capped deck gives three stacks an exit velocity of 0.001 m/s, which the
-  `8.2f` SRCPARAM column wrote as 0.00; a value the column cannot hold is
-  now written with six significant digits in the same width.
-- A `LOCATION ... FLAT` source (flatelev) was written with elevation 0.00,
-  which moved the FLAT group's 1-hour maxima by 17 %.
-- The lines of an incomplete source definition (a POINT with four
-  SRCPARAM values, a LINE with no end point) are kept in `unparsed_lines`
-  instead of being dropped.
-- **Every polar grid pyaermod wrote had no receptors (RE E185).** The
-  writer emitted `DIST init num delta` and `GDIR init num delta`;
-  reset.f reads every DIST field as a ring and GDIR as `num init delta`,
-  so `GDIR 0.0 36 10.0` generated zero directions. The reader's
-  three-token heuristic for the same lines (audit item 3) read EPA's
-  `GDIR 36 10 10` as 10 directions starting at 36 degrees. Both now
-  follow the Fortran; there is no heuristic.
-- **Elevated terrain was written as `MODELOPT ... ELEVATED`, which
-  coset.f does not know (E203).** The token is `ELEV`; `FLATSRCS` is the
-  pair `FLAT ELEV`, and the reader maps `FLAT ELEV` back to
-  `TerrainType.FLATSRCS` and ignores a FLAT after ELEV as AERMOD does.
-- **`NO2STACK` was written for ARM2 runs, which reject it (E600).** It
-  is written only for OLM, PVMRM, GRSM and TTRM.
-- **A single `URBANOPT` was written name-first (E208).** With one card
-  coset.f reads `pop [name [z0]]`; the ID-first form belongs to decks
-  with several cards. The reader still accepts the old spelling.
-- **`GRIDCART` with `XPNTS`/`YPNTS` became a default 10 x 10 grid**, and
-  `STARTEND` with hours lost its last two fields; a source defined in an
-  INCLUDED file with SRCPARAM inline was re-defined at the origin (E310).
-- The reader dropped every source's base elevation (the LOCATION
-  elevation field was parsed and never applied) and the fourth SRCPARAM
-  field of LINE sources.
-
-- **Structural reading and writing of the regulatory-critical CO and OU
-  keywords** the v26135 audit listed as pass-through only. Each is stored
-  on the project model, written back in the field layout AERMOD's
-  `coset.f` / `ouset.f` read, and checked against the binary's own setup
-  pass (`tests/test_source_deck_acceptance.py`) and against every EPA
-  test deck that uses it (`tests/test_epa_deck_roundtrip.py`, token for
-  token). Reader coverage goes from 59 to 77 of the 115 dispatched
-  keywords.
-  - Restart and multi-year runs: `ControlPathway.save_file`
-    (`SaveFile`: SAVEFILE with its day increment and alternate file),
-    `.init_file` (`InitFile`, bare or named) and `.multiyear`
-    (`MultiYear`: MULTYEAR with the optional previous-year file and the
-    legacy `H6H` field AERMOD still tolerates). EPA's five-year
-    `testpm10_1986`–`1990` chain round-trips.
-  - The NOx background family for GRSM: `ChemistryOptions.nox_background`
-    (`NOxBackground`) carries NOXVALUE, NOX_FILE (units and Fortran
-    format), NOX_VALS (any of the twelve EMISFACT-style temporal flags,
-    accumulated over continuation lines), NOX_UNIT and NOXSECTR with
-    per-sector `BackgroundSpec`s. `OzoneData` gains the matching
-    O3SECTOR (`sectors`), OZONUNIT (`units`), per-sector `by_sector`,
-    the units on OZONEVAL/OZONEFIL and the OZONEFIL read format, and an
-    O3VALUES temporal profile (`TemporalValues`).
-  - Gas dry-deposition defaults: `ControlPathway.gas_deposition_defaults`
-    (`GasDepositionDefaults`: GASDEPDF), `.gas_deposition_velocity`
-    (GASDEPVD), `.gas_deposition_seasons` (GDSEASON) and
-    `.gas_deposition_land_use` (GDLANUSE).
-  - The 1-hour NO2/SO2 and 24-hour PM2.5 design-value outputs:
-    `OutputPathway.max_daily_files` / `.max_daily_by_year_files`
-    (`MaxDailyFile`: MAXDAILY, MXDYBYYR), `.max_daily_contributions`
-    (`MaxDailyContribution`: MAXDCONT in both the rank and the THRESH
-    form) and `.file_format` (FILEFORM).
-- **The 1-hour NAAQS workflow end to end.**
-  `design_values.naaqs_output_pathway(pollutant)` builds the OU pathway
-  for a design value with the rank taken from the NAAQS table
-  (`NAAQSStandard.percentile` / `.design_rank()`, new), `read_maxdaily()`
-  and `read_mxdybyyr()` parse AERMOD's MAXDAILY / MXDYBYYR files into
-  the frames the design-value functions take, and
-  `mxdybyyr_design_value()` reads AERMOD's own ranking back as a
-  cross-check. On EPA's Anchorage 1999 meteorology the SO2 and NO2 design
-  values pyaermod computes from MAXDAILY equal AERMOD's MXDYBYYR rank and
-  MAXDCONT total to the last printed digit
-  (`tests/fixtures/epa_style/{so2,no2}_1hr_*`, produced by the vendored
-  decks, which `naaqs_output_pathway` wrote).
-- **Validator rules for the cross-checks AERMOD applies to these
-  keywords**: MULTYEAR excludes SAVEFILE/INITFILE (E150) and is limited
-  to the pollutants it can chain; the gas-deposition defaults need ALPHA
-  (E198) and GASDEPVD excludes GDSEASON/GDLANUSE (E195); NOXVALUE and
-  NOX_VALS conflict (E605), sector forms need their sector keyword (E171)
-  and sectors must be ascending and at least 30 degrees apart (E222/E227);
-  MAXDAILY/MXDYBYYR/MAXDCONT require the NAAQS processing to be active
-  (`Validator.naaqs_processing`, E162/E163), MAXDCONT excludes restarts
-  (E153) and its ranks must sit inside the RECTABLE range (E290/E272),
-  with the THRESH form needing room beyond the design rank (E273).
-- **`scripts/keyword_oracle.py` and `.github/workflows/keyword_oracle.yml`**
-  — print, from EPA's Fortran and a freshly built binary, what AERMOD
-  does with a keyword: the dispatch branch and parsing subroutine, every
-  EPA test deck that uses it, and the setup-pass messages and produced
-  files from probe decks (`scripts/oracle_decks/`). Manual dispatch.
-- **The ozone and NOx writer emitted lines AERMOD rejects.** An ozone
-  file was written as `O3VALUES <file>` (E201, no numerical parameters),
-  a constant as `O3VALUES UNIFORM <value>` (E203, invalid flag) and a
-  sector value as `O3VALUES SECTOR n <value>`; the NOx background file
-  was written on `NOXVALUE`, which takes a concentration (E208). They now
-  go on OZONEFIL, OZONEVAL, `OZONEVAL SECTn` and NOX_FILE, and the
-  setup-pass acceptance tests hold them there. The reader still accepts
-  the two legacy `O3VALUES` spellings so decks written by earlier
-  releases open.
-- **`pyaermod.aerscreen` wrote a deck AERSCREEN never reads.** The
-  `KEY: value` layout of the previous release was not an AERSCREEN
-  format (it has none), so nothing that used `AERSCREENConfig` could
-  ever have run. EPA's `AERSCREEN.FOR` did not build under gfortran,
-  which is why the rewrite waited for a reference: with the source
-  patched (see *Added*) the binary is the oracle, and every flat EPA
-  test case now reproduces EPA's published output through pyaermod's
-  answers. See the upgrade notes for the field changes.
-- **Four AERSURFACE configurations produced decks the binary rejects**,
-  all outside the single case the end-to-end test covers:
-  - `frequency="SEASONAL"` still wrote `SEASON` keywords, which
-    AERSURFACE accepts only with `ANNUAL` and `MONTHLY`. Now omitted,
-    and an explicit `seasons=` under `SEASONAL` raises rather than being
-    silently dropped.
-  - `zo_method="ZOEFF"` never emitted `ANEM_HGT`, which AERSURFACE
-    requires for it.
-  - `arid=True` with the default `snow=True` is refused by AERSURFACE
-    ("Arid Climate is Invalid With Continuous Snow"); the combination
-    now raises.
-  - Sectors with a gap or overlap were accepted here and refused there
-    (`E267`); they must tile the compass, and now must here too.
-- **`datum="NAD27"` could never work.** AERSURFACE reads NADCON grid
-  files (`conus`/`alaska`/`hawaii`/`prvi` `.las` and `.los`) from its
-  working directory and fails without them. `scripts/build_aersurface.sh`
-  now installs them beside the binary, `AERSURFACERunner` stages them
-  into the run directory for NAD27 runs (overridable with
-  `$PYAERMOD_NADCON_DIR`), and a run with no grids available fails with
-  a message saying where to get them instead of a Fortran error code.
-
-- **PLOTFILE and POSTFILE wrote a field AERMOD does not have.** Both
-  carried an output-type token (`CONC`, `DDEP`, ...), and PLOTFILE also
-  wrote a rank on the PERIOD/ANNUAL form, which takes none. AERMOD
-  counts fields: the result was a fatal "Too Many Parameters Specified
-  For the Keyword of PLOTFILE" and "Invalid Parameter Specified.
-  Troubled Parameter: FORMAT". There is no per-file output type in
-  AERMOD -- the quantity written is a MODELOPT setting -- so
-  `OutputPathway.output_type` is now documented as inert and no longer
-  emitted.
-- **The reader read the PLOTFILE rank as the filename.** It took a fixed
-  field position, so a PERIOD-form plotfile round-tripped
-  `plot_file="p.dat"` into `plot_file="FIRST"`.
-- **`RECTABLE ALLAVE 10` asks AERMOD for the tenth-highest value alone,
-  not the top ten.** `receptor_table_rank=10` therefore produced a table
-  of one rank, and any PLOTFILE requesting FIRST against it was rejected
-  as an invalid HIVALU. The writer now emits the range form
-  (`ALLAVE 1-10`), and the reader understands bare ranks, ranges and the
-  ordinal-word forms (`FIRST-THIRD`, `EIGHTH`) alike -- it previously
-  fell back to the default rank for all but a bare number.
-
-- **Three of the ten source types produced decks AERMOD rejects.**
-  Verified against the real binary's setup pass:
-  - `AREAPOLY` wrote its `LOCATION` at the polygon *centroid* while
-    AERMOD requires the first vertex ("ARVERT: First Vertex Does Not
-    Match LOCATION"), and omitted the vertex count from `SRCPARAM`,
-    which is a fatal "Not Enough Parameters" and then makes every
-    `AREAVERT` line overflow an unset limit. Four distinct fatal errors
-    from one source.
-  - `BUOYLINE` wrote `BLPINPUT` with no group ID, so AERMOD filed the
-    parameters under the implicit group `ALL` and then failed with "No
-    BLPINPUT record for BLPGROUP ID".
-  - `RLINEXT` needs `MODELOPT ... ALPHA`, which `ControlPathway` had no
-    way to emit.
-- **The reader silently dropped AREAPOLY, RLINEXT and BUOYLINE
-  sources.** `parse_aermod_input` returned successfully with an empty
-  source list -- no error, no warning -- so a project could lose its
-  emissions with nothing to show for it. All three are now
-  reconstructed, including `AREAVERT` vertex rings and the
-  `BLPINPUT`/`BLPGROUP` pairing that turns buoyant line *segments* back
-  into a source. All ten source types now round-trip.
-
-- **AERSURFACE decks used keywords AERSURFACE does not have.**
-  `AERSURFACEConfig.to_aersurface_input()` emitted `TITLE`, `LOCATION`,
-  `NLCDFILE`, `NLCDYEAR`, `SNOW_TEMPER`, `SECTORS_LIST`, `OUTPATH` and
-  friends -- none of which exist. The real format is pathway-based
-  (`CO STARTING` / `OU STARTING`) with `TITLEONE`, `CENTERLL`,
-  `DATAFILE`, `ZORADIUS`, `CLIMATE`, `FREQ_SECT`, `SECTOR`, `SEASON`,
-  `RUNORNOT`, `SFCCHAR`. Fed the old deck, AERSURFACE v26135 aborted
-  immediately with a Fortran bounds error in its control-file parser.
-  Rewritten to the real format, with sectors as
-  `(start, end, "AP"|"NONAP")` triples, season-to-month assignment
-  (including `WINTERWS` for continuous snow cover), and the canopy and
-  impervious rasters that 2001-and-later NLCD releases carry. This is a
-  breaking change to `AERSURFACEConfig`'s fields; the class never
-  produced a usable deck, so no working code depended on them.
-- **BPIP reported downwash where EPA reports none.** `BPIPCalculator`
-  had no structure-influence-zone test, so a stack 400 m from a 13 m
-  building came back with a full-size building for all 36 directions
-  instead of zeros -- enough to make AERMOD apply downwash the GEP
-  criteria exclude.
-- **BPIP now agrees with EPA's BPIP-PRIME exactly** (6,480 direction
-  comparisons over rectangles, an L-shape and randomised polygons; worst
-  difference 0.005, which is what BPIP's `F8.2` output can express).
-  Closing the last gap needed two things that projection geometry alone
-  does not give, both transcribed from `Bpipprm.for`:
-  - **BPIP applies two different influence tests.** The downwash pass
-    admits a stack within half an `L` of either edge of the projected
-    width and no more than `2 L` upwind of the near face -- with *no*
-    downwind limit (it computes `CYMX = YMAX + 5 L` and never tests
-    against it). The GEP pass is stricter and separate. An empirically
-    fitted single zone matched 501 of 504 cases and was wrong in kind.
-  - **The GEP clamp.** When a direction's wake-effect height
-    `H + 1.5 L` would exceed the stack's GEP stack height, BPIP reports
-    the GEP-controlling structure's height and width instead of that
-    direction's projection. This shows up as a flat cap across a run of
-    directions that tracks the *stack position*, not the footprint --
-    on one test case pyaermod reported 58.68 m where BPIP reports 42.18.
-    The GEP height itself comes from a quarter-degree sweep, far finer
-    than the 36 reported directions, so the capped width is generally
-    not any direction's projected width.
-- **BPIP's XBADJ and YBADJ were the projected centroid.** XBADJ is the
-  along-flow coordinate of the projected building's *upwind face*
-  (`-BUILDLEN/2` for a stack at the building centre, where the old code
-  returned 0) and YBADJ the negated crosswind midpoint. The rotation
-  also ran the wrong way, which an axis-aligned rectangle cannot reveal
-  because its projected width and length are symmetric in wind
-  direction.
-- **`Building` rejected any footprint that was not a quadrilateral**,
-  including the six-corner L-shape in EPA's own first BPIP test case.
-  Any polygon of three or more corners is accepted.
-
-- **NAAQS percentiles were interpolated quantiles, not the regulatory
-  order statistics.** `pm25_24hr_design_value`, `no2_1hr_design_value`
-  and `so2_1hr_design_value` computed the annual percentile with
-  `Series.quantile(..., interpolation="linear")`. The standards do not
-  interpolate: 40 CFR part 50 appendices N, S and T sort each year's
-  daily values from highest to lowest and read the rank off a table keyed
-  on the year's count of valid days — the **8th highest** for a full-year
-  98th percentile, the **4th highest** for a full-year 99th percentile.
-  Linear interpolation lands *between* ranks (0.98 × 364 = 356.72) and
-  reports a number the regulation never defines, biased low against the
-  standard. Now rank-based, with the rank chosen per receptor-year from
-  that year's own day count.
-- **PM2.5 and PM10 24-hour design values used each day's peak hour as the
-  24-hour value.** Both functions called the daily-*maximum* helper on
-  hourly input, despite the docstring promising an average. A day with
-  one hour at 240 µg/m³ and 23 hours at zero was scored as 240 rather
-  than 10. Hourly input is now averaged over the day for the 24-hour
-  standards; input already carrying AERMOD `AVE='24-HR'` block averages
-  is unchanged.
-- **The PM10 24-hour form ignored the multi-year window.** It always
-  returned the high-second-high and left averaging to the caller. It now
-  follows Appendix W Table 8-2: the highest *sixth*-high (H6H) of the
-  pooled record when five years are modelled, H2H otherwise, overridable
-  via `rank=`. Unlike the percentile standards this form is not averaged
-  across years.
-- **Design values silently pooled source groups and duplicated
-  receptors.** A POSTFILE holding several `SRCGROUP`s was ranked as one
-  mixed series; the functions now require a single group and say how to
-  filter. A deck that declares the same receptor twice (EPA's own
-  `surfcoal` does) made the 2nd-highest value a copy of the 1st —
-  repeated rows are now collapsed, and receptors that genuinely share
-  (x, y) but differ in concentration raise instead of being merged.
-- **`naaqs_percentile_rank` boundary rounding.** The rank is computed in
-  exact rational arithmetic: `math.ceil(0.02 * 50)` is 2 in binary
-  floating point, which would put a 50-day year on the second-highest
-  value where appendix S Table 1 says the highest. Caught by the new
-  table test.
-- **`get_naaqs("Pb", ...)` always raised `KeyError`.** The lookup
-  upper-cased the caller's string, and `"Pb".upper()` is not the table
-  key `"Pb"`. Lookup is now case-insensitive and the error lists the
-  available pollutants.
-- **Every AERMOD PLOTFILE from a deposition run was unreadable.**
-  `read_plotfile` detected the file type from the first header line
-  mentioning one, which is `MODELING OPTIONS USED: ... DDEP WDEP ...` —
-  so a deposition run's plotfile was classified `DDEP` and rejected. The
-  options line is now excluded and the `"<kind> FILE OF ..."` declaration
-  wins. Seven of EPA's reference plotfiles were affected.
-- **Auxiliary-file column labels were shifted by one for every real
-  AERMOD output.** The header line was split on any whitespace, so
-  AERMOD's two-word labels `AVERAGE CONC` and `NET ID` each became two
-  columns and every label after them named the wrong data. Labels are
-  now split on two-or-more spaces, and rows are sliced using the Fortran
-  FORMAT AERMOD prints in the header — which is also the only way a
-  blank trailing `NET ID` (discrete receptors) parses as blank instead of
-  pulling every later column one place left.
-
-- **EPA fixture tests skipped silently after EPA renamed the archive sets.**
-  `tests/test_epa_cases.py` looked only at a hard-coded Dropbox path, and
-  `tests/regulatory/` plus `tests/test_real_cases.py` at the pre-2026
-  `aermet_24142_aermod_24142` name, so with the current EPA bundle unpacked
-  every one of them still skipped (the file-parametrised cases did not even
-  collect). With the resolver and the archive present they collect as
-  350 / 54 / 323 tests; regulatory: 47 passed / 7 skipped against a compiled
-  v26135; the two parser modules: 673 passed against the 24142 set (after
-  the phantom-4HR fix below). Those two modules skip, with the discovered
-  set named in the reason, when only another AERMOD version is present —
-  their assertions quote 24142 values.
-- **Phantom `4HR` averaging period in `AERMODOutputParser`.** The `4-HR`
-  section pattern also matched inside `24-HR` headers, so every run with a
-  24-hour average gained a bogus `4HR` result duplicating the 24-hour table
-  (surfaced by `tests/test_epa_cases.py` on AERTEST and FLATELEV once those
-  tests ran). Period patterns are now anchored (`(?<![0-9])(?:...)`) so they
-  cannot start inside a longer number. Wrapping the alternation in a group
-  fixes a second latent bug: interpolated bare, `24-HOUR|24HR|24-HR` split
-  the *surrounding* section regex into three top-level branches, so only the
-  last spelling carried the `RESULTS` tail and the capture group and the
-  other two matched with `group(1) is None` — the `X-HOUR` and `XHR`
-  spellings never selected a table. No shipped result changes: AERMOD only
-  ever writes the `X-HR` spelling in its section headers (checked across
-  every `.out`/`.SUM` in EPA's v26135 archive), so the broken branches were
-  unreachable in practice. Regression in
-  `tests/test_output_parser_periods.py`.
-- **`AERMODOutputParser` effectively hung on multi-MB `.out` files.** The
-  second, free-form section pattern
-  (`\*\*\*.*?<period>.*?RESULTS.*?\*\*\*…`, `re.DOTALL`) backtracks from
-  every `***` in the file out to EOF, and `parse()` tries all eleven period
-  patterns against every output — so on EPA's 2.3 MB `allsrcs.out` a single
-  *absent* period cost ~291 s in that pattern (the first, line-anchored
-  pattern rejects the same input in 0.014 s).
-  `tests/test_epa_cases.py::TestOutputParserEdgeCases` never got past
-  `allsrcs.out`. Both section patterns require the period token to occur
-  somewhere, so `_parse_concentration_table` now returns `None` early after
-  one linear `re.search` for it — equivalent by construction, and it turns
-  the pathological case into a single scan. `allsrcs.out`: no completion in
-  over six minutes → 0.30 s; the whole EPA `.out` set parses in under a
-  second per file.
-- **`tests/test_source_importers.py` skipped entirely whenever `ezdxf` was
-  absent** — a module-level `pytest.importorskip("ezdxf")` hid the seven
-  geopandas shapefile tests too. The skip is now a class-scoped fixture on
-  `TestDxfImporter` only; the shapefile tests run wherever geopandas is
-  installed (`source_importers.py` coverage 11.8 % → 52.8 % in the local
-  env). All five shapefile fixtures now write through one `_write_shapefile`
-  helper — three of them still called `gdf.to_file` directly — which falls
-  back to writing the layer through fiona (no `.prj`, which the importers do
-  not read) if geopandas' writer raises pyproj's `Invalid value supplied
-  'WktVersion.WKT2_2019'`. That is a defensive guard, not a live workaround:
-  it was seen once under coverage tracing but does not reproduce on the
-  current pin (geopandas 0.14.4, fiona 1.9.6, pyproj 3.6.1, coverage
-  7.13.3), where `to_file` succeeds for all six writes and the fallback is
-  never entered.
-- **`AERMODRunner._extract_error_message` swallowed read errors** around the
-  `.err`/`.out` files (`except Exception: pass`), so a Latin-1 byte in
-  AERMOD's output — a degree sign in the banner is enough — raised
-  `UnicodeDecodeError` and the caller saw only "AERMOD failed with return
-  code N" instead of the `FATAL` line. Both files are now read as Latin-1
-  with replacement, only `OSError` is tolerated, and that is logged at
-  DEBUG. Tests cover non-UTF-8 bytes in both files and the logged fallback.
-- **GUI v2 Run/Results/editor crashes found by the new smoke tests:**
-  - the Run button always raised `ImportError` (`from ..._optional import
-    HAS_TERRAIN` — no such name), so AERMOD could never be launched from the
-    GUI; the stray import is removed;
-  - the Run tab wrote its deck as `aermod.inp`, the name `AERMODRunner`
-    reserves for the symlink it points at the deck — the runner unlinked the
-    deck and replaced it with a self-referencing symlink, and then failed
-    renaming `aermod.out` onto itself. The deck is now written as
-    `pyaermod_gui.inp`;
-  - the Results tab read `run_info.title` / `.pollutant` and iterated
-    `results.concentrations` as a list of objects with `max_x` / `max_y` /
-    `source_group`; the parser provides `jobname` / `pollutant_id`, a
-    `{period: ConcentrationResult}` mapping and a `max_location` tuple, so any
-    real output raised `AttributeError`;
-  - the source/receptor editor dialog crashed (`float() argument ... not
-    'list'`) for every source with polygon `vertices`, because the form
-    helper's numeric check was a substring test that claimed
-    `List[Tuple[float, float]]` — and silently rendered
-    `Optional[Tuple[DepositionMethod, float]]` as a number box, letting a
-    float be written into a tuple-typed field. `is_numeric` now resolves the
-    annotation (`typing.get_type_hints`, `get_origin`/`get_args`, unwrapping
-    `Optional`/`Union`, with a structural parser for unresolvable string
-    annotations) and is true only when the type *is* `int`/`float`,
-    optionally with `None`; list annotations are still dispatched first;
-  - tightening `is_numeric` then made the five building-downwash dimensions
-    (`building_height`, `building_width`, `building_length`,
-    `building_x_offset`, `building_y_offset` on the point/volume/area
-    sources) uneditable: they are `Optional[Union[float, List[float]]]`,
-    which is correctly *not* numeric, and fell through to the read-only-label
-    escape hatch, so a building height could no longer be typed at all.
-    `emit_field` now dispatches these on the current value — a number box
-    (clearable) while the field holds a scalar or nothing, the one-per-line
-    list editor once it holds a 36-sector vector — so neither shape is
-    thrown away. Clearing either widget stores `None` rather than `0.0` or
-    `[]`: the writer emits the keyword for any non-`None` value, and an
-    empty list is rejected as "not 36 values";
-  - `Optional[str]` fields (e.g. `OutputPathway.summary_file`) were rendered
-    as read-only labels instead of text inputs.
-- **`AERMAPRunner.run` passed the input file *stem* instead of its full
-  name** as AERMAP's command-line argument, so AERMAP could not locate the
-  runstream and exited without processing (still returning code 0) — runs
-  silently produced no output. Now passes the full filename.
-- **Title round-trip** — `ControlPathway.to_aermod_input()` now normalizes
-  `TITLEONE`/`TITLETWO` whitespace (collapsing leading/trailing/internal runs)
-  to match how AERMOD's free-form, unquoted runstream parser reads titles back.
-  Previously a title with surrounding or doubled spaces was emitted verbatim
-  but re-read collapsed, so `write -> read` was not a fixed point. The
-  property-based round-trip strategy is restricted to the representable
-  (normalized, non-empty) title domain accordingly.
-
-### Removed
 - `OutputPathway.max_file`: it wrote `MAXIFILE filename`, which every
   AERMOD release rejects (E201); use
   `maxi_files=[MaxiFile(aveper, group, threshold, filename)]`.
@@ -2642,6 +2637,11 @@ number comes from:
 - `EventPeriod.start_date` and `.end_date`; see the upgrade notes.
 - The "known limitation" on `pyaermod.aerscreen` recorded after PR #9:
   the module drives the real binary now.
+- `pyaermod.gui_v2.state.AppState`, replaced by
+  `pyaermod.gui_v2.session.Session`: `reset()` is now `new()`,
+  `last_run_dir` is now `last_run.work_dir`, and `mark_dirty()` /
+  `mark_clean()` are replaced by the operations that change or save the
+  project. `pyaermod.gui_v2.state._empty_project()` is still importable.
 
 ### Upgrade notes — `AERSCREENConfig`
 
@@ -2793,6 +2793,24 @@ OutputPathway(max_file="thresholds.dat")
 OutputPathway(maxi_files=[MaxiFile(averaging_period="1", source_group="ALL",
                                    threshold=100.0, filename="thresholds.dat")])
 ```
+
+### Upgrade notes — the AERMET pipeline
+
+AERMET 11 and later merge the data inside METPREP, so the pipeline has
+two stages. Pass `None` for `stage2` and expect two results:
+
+```python
+# Old: three results, stage 1, 2 and 3
+results = run_aermet_pipeline(stage1, stage2, stage3, working_dir="met")
+
+# New: stage 1 and 3 (only stage 1 if it failed and stop_on_failure is True)
+results = run_aermet_pipeline(stage1, None, stage3, working_dir="met")
+```
+
+`AERMETStage2` still constructs but is deprecated. A Stage 1 deck with
+upper air needs `UpperAirStation.elevation`, and a SURFACE station ID
+must be numeric (the WBAN, `13874`, not `KATL`); the Changed entry
+above lists the other inputs AERMET stops without.
 
 ## [2.0.0] - 2026-05-04
 
@@ -3128,6 +3146,11 @@ of NiceGUI; it will be removed in v2.0. Both are functional today.
 
 ---
 
-[Unreleased]: https://github.com/atmmod/pyaermod/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/atmmod/pyaermod/compare/v0.1.0...v1.0.0
-[0.1.0]: https://github.com/atmmod/pyaermod/releases/tag/v0.1.0
+[Unreleased]: https://github.com/atmmod/pyaermod/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/atmmod/pyaermod/compare/v2.0.0...v2.2.0
+[2.0.0]: https://github.com/atmmod/pyaermod/compare/v1.9.0...v2.0.0
+[1.9.0]: https://github.com/atmmod/pyaermod/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/atmmod/pyaermod/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/atmmod/pyaermod/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/atmmod/pyaermod/compare/v1.5.0...v1.6.0
+[1.0.0]: https://github.com/atmmod/pyaermod/releases/tag/v1.0.0
