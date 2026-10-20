@@ -623,6 +623,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before, and without the options (`None`) the output is unchanged. A
   test confirms `TerrainProcessor.process` leaves every network's and
   receptor's flagpole heights alone.
+- **Receptor lookups no longer merge flagpole heights silently.** With
+  `CO FLAGPOLE` and one GRIDCART per height, receptors share (x, y) at
+  several `zflag`. `PostfileResult.get_max_by_receptor()` grouped by
+  (x, y) only and returned one row per location (81 for a 9x9x7 grid)
+  instead of one per receptor (567); with more than one height in the
+  file it now groups by (x, y, `zflag`) and keeps `zflag`, `zelev` and
+  `zhill` (a one-height file is unchanged). `PostfileResult.get_receptor`
+  and `AERMODResults.get_concentration_at_point` take an optional `zflag=`
+  (matched within `tolerance`) and, without it, warn with the heights
+  they found; they return what they did before. `PostfileResult` also
+  has `flagpole_heights`. `visualization.plotfile_frame` takes `zflag=`
+  and raises a `ValueError` naming the heights when the PLOTFILE has
+  several and none is chosen, since contouring mixed heights is never
+  meaningful; `AERMODVisualizer.plot_contours` and `quick_plot` pass
+  `zflag=` through with `plotfile=`.
 - **`naaqs_compliance_report` compared µg/m³ with ppb.** The design
   value is in AERMOD's µg/m³, but `exceeds` compared it with
   `NAAQSStandard.level`, which is in ppb for SO2, NO2 and O3: on a real
