@@ -208,21 +208,34 @@ def unaccounted_lines(text: str, project) -> list[str]:
     return out
 
 
-# Decks whose RE pathway leaves a network without ELEV/HILL rows under
-# AERMOD's default elevated terrain (W214 in AERMOD, which then uses
-# zeros). The writer states those zeros, so the rewrite gains the rows
-# and the deck's first rewrite is the one that must round-trip unchanged.
-ZERO_TERRAIN_ROWS_ADDED = {"bg_no2_olm_ppb.inp"}
+def polar_grids_without_terrain_rows(project) -> list[int]:
+    """Indices of the polar networks AERMOD runs with zero terrain.
+
+    Under elevated terrain a GRIDPOLR network with neither ELEV nor HILL
+    rows gets W214 in AERMOD, which then uses zeros. The writer states
+    those zeros, so such a deck gains the rows on its first rewrite, and
+    that rewrite is the one that must round-trip unchanged. EPA's v26135
+    archive has one such deck (bg_no2_olm_ppb.inp); v24142's has all ten
+    bg_no2 decks.
+    """
+    if not project.control.elevated_terrain:
+        return []
+    return [i for i, grid in enumerate(project.receptors.polar_grids)
+            if grid.elevations is None and grid.hills is None]
 
 
 def assert_roundtrip(path: Path) -> int:
     text = path.read_text(encoding="latin-1")
-    if path.name in ZERO_TERRAIN_ROWS_ADDED:
-        original = parse_aermod_input(text)
+    original = parse_aermod_input(text)
+    bare = polar_grids_without_terrain_rows(original)
+    if bare:
         text = original.to_aermod_input(validate=False)
-        (grid,) = parse_aermod_input(text).receptors.polar_grids
-        assert not original.receptors.polar_grids[0].elevations
-        assert grid.elevations == [[0.0, 0.0]] * 36 and grid.hills == grid.elevations
+        grids = parse_aermod_input(text).receptors.polar_grids
+        for i in bare:
+            grid = grids[i]
+            n_dirs = len(grid.directions) if grid.directions is not None else grid.dir_num
+            zeros = [[0.0] * len(grid.ring_distances())] * n_dirs
+            assert grid.elevations == zeros and grid.hills == zeros, (path.name, grid.grid_name)
     first = parse_aermod_input(text)
     written = first.to_aermod_input(validate=False)
     second = parse_aermod_input(written)
