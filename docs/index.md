@@ -66,9 +66,7 @@ GitHub, Zenodo and reference managers read directly:
 
 > Capps, S. (2026). *PyAERMOD: Python wrapper for EPA's AERMOD air
 > dispersion model* (version 2.2.0) [Computer software].
-> https://github.com/atmmod/pyaermod. DOI: 10.5281/zenodo.XXXXXXX
-> (the Zenodo DOI is minted when the v2.2.0 release is published and is
-> recorded in `CITATION.cff`).
+> https://doi.org/10.5281/zenodo.23512927
 
 A journal article describing PyAERMOD and its validation is in
 preparation for the *Journal of the Air & Waste Management Association*;

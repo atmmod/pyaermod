@@ -13,8 +13,18 @@ Before the first archival release, log in at <https://zenodo.org> with
 the GitHub account that owns `atmmod/pyaermod`, open *GitHub* under the
 account menu and switch the repository on. From then on every
 **published** GitHub release is archived automatically and gets its own
-version DOI plus a concept DOI shared by all versions. (A release
-published before the switch is not archived retroactively.)
+version DOI plus a concept DOI shared by all versions (pyaermod's
+concept DOI is `10.5281/zenodo.23512926`). A release published before
+the switch is not archived retroactively.
+
+Check that the switch took: the repository's *Settings → Webhooks* must
+list a hook to `zenodo.org/api/hooks/receivers/github/events/`. Zenodo's
+list of repositories is a snapshot from its last sync, so a repository
+made public after that sync is missing from it until you press *Sync
+now*. For v2.2.0 this happened: pyaermod, private until February, was
+missing from the list, no hook existed, the first release was not archived, and the release had to be deleted (keeping
+the tag) and published again once the hook existed. Publishing again
+re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
 
 ## 1. Prepare the release commit
 
@@ -84,13 +94,12 @@ page links to it). Copy the **version** DOI (`10.5281/zenodo.NNNNNNN`,
 the one specific to vX.Y.Z, not the concept DOI) and paste it into:
 
 - `CITATION.cff` → `doi: 10.5281/zenodo.NNNNNNN` (replacing the
-  placeholder and its comment)
+  previous release's DOI and its comment)
 - `README.md` and `docs/index.md` → the "Citing PyAERMOD" section
-  (replace `10.5281/zenodo.XXXXXXX` and drop the parenthetical about the
-  DOI being minted later)
+  (the version number and the `https://doi.org/...` link)
 
 Commit and push that on `main` ("Record the Zenodo DOI for vX.Y.Z").
-The tag itself keeps the placeholder; that is expected, since the DOI
+The tag itself keeps the previous DOI; that is expected, since the DOI
 did not exist when the tag was made, and Zenodo's own record carries
 the authoritative citation for the tag.
 
