@@ -103,3 +103,7 @@ UNKNOWN.egg-info/
 CONTINUATION_NOTES.md
 aermet_test_cases/
 aermap_testcase*.zip
+
+# Manuscript planning and drafts (kept private)
+PLAN-manuscript.md
+paper/
