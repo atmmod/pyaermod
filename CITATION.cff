@@ -1,14 +1,16 @@
 # Citation metadata for PyAERMOD (Citation File Format 1.2.0).
 #
 # GitHub renders this file as a "Cite this repository" button, and Zenodo
-# reads it when the GitHub release is archived. Two fields are placeholders
-# that the release fills in (see RELEASING.md):
+# reads it when the GitHub release is archived. Two fields change with each
+# release (see RELEASING.md):
 #
 #   date-released  the day the vX.Y.Z GitHub release is published.
-#   doi            the Zenodo DOI. Zenodo mints it only after the GitHub
-#                  release is published, so it cannot be known at the time
-#                  the release commit is made. Paste the version DOI
-#                  (10.5281/zenodo.NNNNNNN) here afterward and commit it.
+#   doi            the Zenodo version DOI. Zenodo mints it only after the
+#                  GitHub release is published, so it cannot be known at the
+#                  time the release commit is made: the release commit keeps
+#                  the previous DOI as a placeholder, and the version DOI
+#                  (10.5281/zenodo.NNNNNNN) is pasted here afterward. The
+#                  concept DOI for all versions is 10.5281/zenodo.23512926.
 #
 # Validate with:  cffconvert --validate   (tests/test_citation.py does).
 cff-version: 1.2.0
@@ -27,7 +29,7 @@ authors:
     email: shannon.capps@gmail.com
 version: 2.2.0
 date-released: "2026-10-20"
-doi: 10.5281/zenodo.0000000  # placeholder: replace with the Zenodo DOI minted for the v2.2.0 release
+doi: 10.5281/zenodo.23512927  # v2.2.0, minted by Zenodo on 2026-10-20
 repository-code: "https://github.com/atmmod/pyaermod"
 url: "https://atmmod.github.io/pyaermod/"
 license: MIT
