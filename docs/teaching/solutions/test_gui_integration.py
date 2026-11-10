@@ -4,12 +4,12 @@ GUI Integration Test — Tutorials 1-8
 
 Tests the same code path the GUI uses:
   1. Build each tutorial project programmatically
-  2. Serialize to JSON (Download Project)
-  3. Deserialize from JSON (Load Project)
-  4. Generate AERMOD input file (Run AERMOD → Preview)
+  2. Serialize to JSON (Project step: Save as...)
+  3. Deserialize from JSON (Project step: Open...)
+  4. Generate AERMOD input file (Review & Run step: Deck preview)
   5. Verify the input file is correct
 
-This exercises ProjectSerializer, all source types, receptor grids,
+This exercises pyaermod.gui_v2.project_io, all source types, receptor grids,
 meteorology pathways, and AERMET stages — the full GUI pipeline.
 
 Usage:
@@ -51,14 +51,9 @@ from pyaermod.aermet import (
     UpperAirStation,
 )
 
-# Try importing the GUI serializer (same code path as Load/Save Project)
-try:
-    from pyaermod.gui import ProjectSerializer
-    HAS_SERIALIZER = True
-except ImportError:
-    HAS_SERIALIZER = False
-    print("  ⚠ ProjectSerializer not available (GUI not installed?)")
-    print("    Will test project building and input generation only.")
+# The GUI's project files (Project step: Save as... / Open...). project_io
+# needs only the core package, not the [gui] extra.
+from pyaermod.gui_v2.project_io import project_from_json, project_to_json
 
 
 PASS = 0
@@ -76,7 +71,10 @@ def check(condition, description):
 
 
 def roundtrip_json(project):
-    """Serialize to JSON and back — simulates Download → Load Project."""
+    """Dump the project's fields as JSON and read them back as plain dicts.
+
+    Not the GUI's project file; test_gui_serializer() round-trips that.
+    """
     d = dataclasses.asdict(project)
     json_str = json.dumps(d, indent=2, default=str)
     loaded = json.loads(json_str)
@@ -604,14 +602,11 @@ def test_tutorial8():
 
 
 # ============================================================================
-# GUI SERIALIZER TEST (same as Download → Load Project)
+# GUI PROJECT FILE TEST (same as Save as... → Open...)
 # ============================================================================
 
 def test_gui_serializer():
-    print("\n═══ GUI Serializer (Load/Save Project) ═══")
-    if not HAS_SERIALIZER:
-        print("  ⚠ Skipped — ProjectSerializer not available")
-        return
+    print("\n═══ GUI project file (Save as... / Open...) ═══")
 
     # Build Tutorial 4 project (most complex source types)
     control = ControlPathway(
@@ -646,79 +641,46 @@ def test_gui_serializer():
     project = AERMODProject(control=control, sources=sources, receptors=receptors,
                             meteorology=met, output=output)
 
-    # Manually serialize (mimics what Download Project does inside Streamlit)
-    src_list = []
-    for src in sources.sources:
-        d = dataclasses.asdict(src)
-        d["_type"] = type(src).__name__
-        src_list.append(d)
-    group_defs = [dataclasses.asdict(g) for g in sources.group_definitions]
-
-    json_data = {
-        "pyaermod_version": "1.0.0",
-        "save_format_version": 1,
-        "project_control": dataclasses.asdict(control),
-        "project_sources": {
-            "sources": src_list,
-            "background": None,
-            "group_definitions": group_defs,
-        },
-        "project_receptors": {
-            "cartesian_grids": [dataclasses.asdict(g) for g in receptors.cartesian_grids],
-            "polar_grids": [],
-            "discrete_receptors": [dataclasses.asdict(r) for r in receptors.discrete_receptors],
-            "elevation_units": receptors.elevation_units,
-        },
-        "project_meteorology": dataclasses.asdict(met),
-        "project_output": dataclasses.asdict(output),
-        "geo_settings": {},
-        "buildings": [],
-        "aermet_config": {"mode": "files"},
-        "project_events": None,
-    }
-
-    # Handle enums in control pathway
-    ctrl_dict = json_data["project_control"]
-    if hasattr(ctrl_dict.get("pollutant_id"), "name"):
-        ctrl_dict["pollutant_id"] = {"_enum": f"PollutantType.{ctrl_dict['pollutant_id'].name}"}
-    if hasattr(ctrl_dict.get("terrain_type"), "name"):
-        ctrl_dict["terrain_type"] = {"_enum": f"TerrainType.{ctrl_dict['terrain_type'].name}"}
-
-    json_str = json.dumps(json_data, indent=2, default=str)
-    check(len(json_str) > 100, "Serialization produced output")
+    # Save: the text the Project step's "Save as..." writes
+    try:
+        json_str = project_to_json(project)
+    except Exception as e:
+        check(False, f"Saving the project failed: {e}")
+        print(f"  ✗ Project file: {e}")
+        return
+    saved = json.loads(json_str)
+    check("project" in saved, "Project tree in JSON")
+    check("save_format_version" in saved, "Save format version in JSON")
     check("PT1" in json_str, "Point source in JSON")
     check("AR1" in json_str, "Area source in JSON")
     check("VL1" in json_str, "Volume source in JSON")
 
-    # Deserialize (Load Project — same code path the GUI uses)
+    # Open: the same reader the Project step's "Open..." uses
     try:
-        restored = ProjectSerializer.deserialize_session_state(json_str)
-        check("project_control" in restored, "Control restored")
-        check("project_sources" in restored, "Sources restored")
-        check("project_receptors" in restored, "Receptors restored")
+        restored = project_from_json(json_str, origin="serializer test")
+        check(isinstance(restored, AERMODProject), "AERMODProject restored")
+        check(restored.control.pollutant_id == PollutantType.PM10, "Pollutant restored")
+        check(restored.control.terrain_type == TerrainType.FLAT, "Terrain restored")
 
-        restored_sources = restored["project_sources"]
-        check(len(restored_sources.sources) == 5,
-              f"5 sources restored (got {len(restored_sources.sources)})")
+        restored_types = [type(s).__name__ for s in restored.sources.sources]
+        check(restored_types == [type(s).__name__ for s in sources.sources],
+              f"5 sources restored with their types (got {restored_types})")
+        check(len(restored.receptors.cartesian_grids) == 1, "Grid restored")
+        check(len(restored.receptors.discrete_receptors) == 1, "Discrete receptor restored")
 
-        # Generate input from restored project
-        restored_project = AERMODProject(
-            control=restored["project_control"],
-            sources=restored["project_sources"],
-            receptors=restored["project_receptors"],
-            meteorology=restored["project_meteorology"],
-            output=restored["project_output"],
-        )
-        restored_inp = restored_project.to_aermod_input()
+        # The restored project writes the same deck as the original
+        restored_inp = restored.to_aermod_input()
+        check(restored_inp == project.to_aermod_input(),
+              "Restored project writes the same input file")
         check("PT1" in restored_inp, "PT1 in restored input")
         check("AREAPOLY" in restored_inp, "AREAPOLY in restored input")
         check("VOLUME" in restored_inp, "VOLUME in restored input")
 
-        print(f"  ✓ Serializer: round-trip OK, "
-              f"{len(restored_sources.sources)} sources preserved")
+        print(f"  ✓ Project file: round-trip OK, "
+              f"{len(restored.sources.sources)} sources preserved")
     except Exception as e:
-        check(False, f"Deserialization failed: {e}")
-        print(f"  ✗ Serializer: {e}")
+        check(False, f"Opening the project failed: {e}")
+        print(f"  ✗ Project file: {e}")
 
 
 # ============================================================================

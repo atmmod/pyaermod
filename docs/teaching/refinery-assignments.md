@@ -1,11 +1,14 @@
 # Houston Refinery Modeling Assignments
 
-Advanced tutorials for the PyAERMOD GUI: from meteorological preprocessing
+Advanced tutorials for PyAERMOD: from meteorological preprocessing
 through terrain processing to a complete oil refinery dispersion model.
 
 These three tutorials build on [Tutorials 1--5](student-guide.md) and assume
-you are comfortable with the PyAERMOD GUI, point/area sources, receptor grids,
-and basic AERMET concepts.
+you are comfortable with the PyAERMOD GUI (`pyaermod-app`), point/area
+sources, receptor grids, and basic AERMET concepts. The model is built in
+the GUI; the steps the GUI does not cover (AERMET input files, AERMAP
+elevations, a background concentration, POSTFILE analysis) use short Python
+scripts that you copy and run, as in Tutorial 5.
 
 ---
 
@@ -83,6 +86,7 @@ For a refinery near the Houston Ship Channel (approximately 29.75 N,
 | Station Name | `Lake Charles, LA` | |
 | Latitude | `30.1200` | |
 | Longitude | `-93.2200` | |
+| Elevation (m) | `4.6` | Station elevation above sea level |
 
 > **Why Lake Charles?** It is the closest radiosonde station to Houston
 > (~200 km east). The only alternative would be Corpus Christi (~330 km
@@ -102,28 +106,55 @@ NOAA's NCEI archive.
 | Start Date | `2023/01/01` |
 | End Date | `2023/12/31` |
 
-### Step 2: Configure Stage 1 in the GUI
+### Step 2: Configure Stage 1
 
-1. Launch `pyaermod-app`.
-2. On **Project Setup**, set:
-   - UTM Zone: `15`
-   - Hemisphere: `N`
-   - Datum: `NAD83`
-   - Map Center Latitude: `29.75`
-   - Map Center Longitude: `-95.10`
-3. Go to **Meteorology** and select **Configure AERMET**.
-4. On the **Stage 1** tab, enter all the surface and upper air station
-   parameters from the tables above.
-5. Enter the data file paths and date range.
-6. Click **Save Stage 1 Configuration**.
-7. Expand **Preview Stage 1 Input** and verify the keywords.
+As in Tutorial 5, the AERMET input files come from a short Python script,
+not from the GUI.
 
-> **Check yourself:** The preview should contain:
+1. In your working folder, create `make_houston_aermet.py` and start it
+   with the stations and Stage 1, using the parameters from the tables
+   above:
+
+```python
+from pathlib import Path
+
+from pyaermod.aermet import AERMETStage1, AERMETStage3, AERMETStation, UpperAirStation
+
+surface = AERMETStation(
+    station_id="12918",
+    station_name="Houston Hobby Airport",
+    latitude=29.6454,
+    longitude=-95.2789,
+    time_zone=-6,
+    elevation=14.0,
+    anemometer_height=10.0,
+)
+
+upper_air = UpperAirStation(
+    station_id="72240",
+    station_name="Lake Charles LA",
+    latitude=30.1200,
+    longitude=-93.2200,
+    elevation=4.6,
+)
+
+stage1 = AERMETStage1(
+    surface_station=surface,
+    surface_data_file="khou_2023.dat",
+    surface_format="ISHD",
+    upper_air_station=upper_air,
+    upper_air_data_file="72240_2023.dat",
+    start_date="2023/01/01",
+    end_date="2023/12/31",
+)
+```
+
+2. You will write the file in Step 4, as `aermet_houston_s1.inp`.
+
+> **Check yourself:** Once written, the Stage 1 file should contain:
 > - A `SURFACE` block with `DATA khou_2023.dat ISHD`
 > - An `UPPERAIR` block with `DATA 72240_2023.dat FSL`
 > - An `XDATES` line showing `2023/01/01 TO 2023/12/31`
-
-8. Click **Download Stage 1 Input File** — save as `aermet_houston_s1.inp`.
 
 ### Step 3: Configure Stage 2
 
@@ -132,8 +163,7 @@ NOAA's NCEI archive.
 > `s2` file to run. Go on to Step 4. The steps below are kept for readers
 > of older AERMET material.
 
-1. Click the **Stage 2** tab.
-2. Enter the filenames that Stage 1 will produce:
+Stage 2 took the filenames that Stage 1 produces:
 
    | Parameter | Value |
    |---|---|
@@ -143,17 +173,14 @@ NOAA's NCEI archive.
    | End Date | `2023/12/31` |
    | Merge Output File | `houston_merged.mrg` |
 
-3. Save and download as `aermet_houston_s2.inp`.
-
 ### Step 4: Configure Stage 3 — Houston Surface Parameters
 
 This is where your knowledge of the Houston area matters. The land around the
 Ship Channel is a mix of **industrial facilities, port infrastructure, open
 water, and coastal grassland**. This is very different from the suburban
-defaults in the GUI.
+values of Tutorial 5.
 
-1. Click the **Stage 3** tab.
-2. Enter file paths:
+1. Stage 3 uses these dates and output files:
 
    | Parameter | Value |
    |---|---|
@@ -162,7 +189,7 @@ defaults in the GUI.
    | Surface Output | `houston_2023.sfc` |
    | Profile Output | `houston_2023.pfl` |
 
-3. **Edit the monthly surface parameters table** using the Houston-specific
+2. **Set the monthly surface parameters** to the Houston-specific
    values below:
 
 #### Houston Ship Channel Monthly Surface Parameters
@@ -194,8 +221,29 @@ defaults in the GUI.
 >   Channel area has large structures (tanks, stacks, buildings) that create
 >   more aerodynamic drag than low-rise suburban neighborhoods.
 
-4. Leave the **Use Stage 1 surface station** checkbox checked.
-5. Save and download as `aermet_houston_s3.inp`.
+3. Add Stage 3 to your script, with the Houston values, and the lines that
+   write both files. `station=surface` uses the Stage 1 surface station.
+
+```python
+stage3 = AERMETStage3(
+    station=surface,
+    #        Jan   Feb   Mar   Apr   May   Jun   Jul   Aug   Sep   Oct   Nov   Dec
+    albedo=[0.18, 0.18, 0.16, 0.14, 0.14, 0.14, 0.14, 0.14, 0.15, 0.16, 0.17, 0.18],
+    bowen=[0.8, 0.7, 0.5, 0.4, 0.3, 0.3, 0.3, 0.3, 0.4, 0.5, 0.7, 0.8],
+    roughness=[0.40, 0.40, 0.50, 0.60, 0.60, 0.60, 0.60, 0.60, 0.60, 0.50, 0.45, 0.40],
+    methods=[("REFLEVEL", "SUBNWS")],
+    start_date="2023/01/01",
+    end_date="2023/12/31",
+    surface_file="houston_2023.sfc",
+    profile_file="houston_2023.pfl",
+).with_inputs_from(stage1)
+
+Path("aermet_houston_s1.inp").write_text(stage1.to_aermet_input())
+Path("aermet_houston_s3.inp").write_text(stage3.to_aermet_input())
+```
+
+4. Run the script: `python make_houston_aermet.py`. It writes
+   `aermet_houston_s1.inp` and `aermet_houston_s3.inp`.
 
 ### Step 5: Run AERMET
 
@@ -213,10 +261,13 @@ ends with `AERMET FINISHED SUCCESSFULLY`. When METPREP completes, you should hav
 
 ### Step 6: Verify the Output
 
-Return to the GUI:
+Launch the GUI (`pyaermod-app`):
 
-1. Go to **Meteorology** and switch to **Use Existing Files**.
-2. Enter the paths to `houston_2023.sfc` and `houston_2023.pfl`.
+1. Go to the **Meteorology** step.
+2. Under **Met files**, enter the full paths to `houston_2023.sfc` and
+   `houston_2023.pfl` in **Surface file** and **Profile file**.
+3. Read what the step says about the surface file: the period it covers
+   and the station IDs in its header should be 2023, `12918` and `72240`.
 
 > **Sanity checks:**
 >
@@ -255,7 +306,7 @@ Return to the GUI:
 
 ## Tutorial 7 — Terrain Processing with AERMAP
 
-**Goal:** Use the PyAERMOD GUI and AERMAP to assign terrain elevations to
+**Goal:** Use PyAERMOD and AERMAP to assign terrain elevations to
 all receptors and sources for a model domain near the Houston Ship Channel.
 
 **Time:** 30--40 minutes
@@ -264,7 +315,7 @@ all receptors and sources for a model domain near the Houston Ship Channel.
 - Why terrain elevation matters even in "flat" areas like Houston
 - How to download digital elevation model (DEM) data
 - How to run AERMAP to compute receptor and source elevations
-- How to import AERMAP results back into the GUI
+- How to bring AERMAP's elevations into your project
 - The difference between FLAT and ELEVATED terrain modes in AERMOD
 
 ### Conceptual Background
@@ -369,41 +420,48 @@ a script or notebook for this. The downloader needs:
 ### Step 3: Set Up the Project in the GUI
 
 1. Launch `pyaermod-app`.
-2. On **Project Setup**:
-   - Title: `Tutorial 7 - Terrain Processing`
-   - UTM Zone: `15`, Hemisphere: `N`, Datum: `NAD83`
-   - Map Center: Lat `29.735`, Lon `-95.105`
+2. On the **Project** step:
+   - Title (line 1): `Tutorial 7 - Terrain Processing`
    - Pollutant: `SO2` (we will use this in Tutorial 8)
-   - **Terrain Type: `ELEVATED`** (this is the key change from previous tutorials)
-   - Averaging Periods: `1-HR`, `24-HR`, `ANNUAL`
+   - **Terrain: `Elevated (ELEV)`** (this is the key change from previous tutorials)
+   - Averaging periods: `1`, `24`, `ANNUAL`
 
-3. Go to **Source Editor** and add a placeholder point source at the
+   The coordinates below are UTM zone 15 north (NAD83) meters. The GUI has
+   no setting for the zone; you give it to AERMAP in Step 4.
+
+3. Go to **Sources** and add a placeholder `PointSource` at the
    refinery center. We will replace this with the full source inventory in
    Tutorial 8, but AERMAP needs at least one source to process.
 
    | Parameter | Value |
    |---|---|
    | Source ID | `FCCSTK` |
-   | X Coordinate | `279200` |
-   | Y Coordinate | `3291700` |
-   | Base Elevation | `0` |
-   | Stack Height | `60` |
-   | Exit Temperature | `470` |
-   | Exit Velocity | `20` |
-   | Stack Diameter | `3.0` |
-   | Emission Rate | `5.0` |
+   | X coord (m) | `279200` |
+   | Y coord (m) | `3291700` |
+   | Stack height (m) | `60` |
+   | Stack temp (K) | `470` |
+   | Exit velocity (m/s) | `20` |
+   | Stack diameter (m) | `3.0` |
+   | Emission rate (g/s) | `5.0` |
+   | Base elevation (m), under **Advanced** | `0` |
 
-4. Go to **Receptor Editor** and add the Cartesian grid:
+4. Go to **Receptors** and add a `CartesianGrid`:
 
    | Parameter | Value |
    |---|---|
-   | X Min | `276700` |
-   | X Max | `281700` |
-   | Y Min | `3289200` |
-   | Y Max | `3294200` |
-   | Spacing | `100` |
+   | Grid name | `GRID1` |
+   | X init (m) | `276700` |
+   | X num | `51` |
+   | X delta (m) | `100` |
+   | Y init (m) | `3289200` |
+   | Y num | `51` |
+   | Y delta (m) | `100` |
 
-   This gives a **51 x 51 = 2,601 receptor** grid at 100 m resolution.
+   This gives a **51 x 51 = 2,601 receptor** grid at 100 m resolution,
+   from 276700 to 281700 east and 3289200 to 3294200 north.
+
+5. On the **Project** step, click **Save as...** and save the project as
+   `tutorial7.json`. Move the downloaded file into your working directory.
 
 ### Step 4: Run AERMAP
 
@@ -412,15 +470,40 @@ process differs slightly depending on how your instructor has set things up:
 
 **Option A — Using PyAERMOD's terrain module (recommended):**
 
-If the AERMAP executable is installed:
+If the AERMAP executable is installed (on your PATH), PyAERMOD can write
+the AERMAP input file from your saved project, run AERMAP, and put the
+elevations into the project. In your working directory, create
+`run_terrain.py`:
 
-1. PyAERMOD can generate the AERMAP input file from your project
-   configuration.
-2. The AERMAP input references your DEM files and the receptor/source
-   coordinates from the GUI.
-3. Run AERMAP, which produces two output files:
-   - **Receptor output** — elevation and hill height for each grid point
-   - **Source output** — base elevation for each source
+```python
+from pyaermod.gui_v2.project_io import load_project, save_project
+from pyaermod.terrain import TerrainProcessor
+
+project = load_project("tutorial7.json")
+
+project = TerrainProcessor().process(
+    project,
+    bounds=(-95.40, 29.65, -95.15, 29.85),  # west, south, east, north (degrees)
+    dem_files=["houston_dem.tif"],           # the DEM file(s) you downloaded
+    skip_download=True,
+    utm_zone=15,
+    datum="NAD83",
+    working_dir="aermap_run",
+)
+
+save_project(project, "tutorial7_terrain.json")
+```
+
+Replace `houston_dem.tif` with the name of your DEM file and run
+`python run_terrain.py`. AERMAP runs in the `aermap_run` folder and leaves
+its input file and two output files there:
+
+- **Receptor output** — elevation and hill height for each grid point
+- **Source output** — base elevation for each source
+
+The script saves a copy of your project with those elevations as
+`tutorial7_terrain.json`. If AERMAP stops with an error, see the
+[AERMAP troubleshooting guide](../aermap-troubleshooting.md).
 
 **Option B — Command line:**
 
@@ -430,32 +513,36 @@ Your instructor may provide the AERMAP input file. Run it as:
 aermap aermap_houston.inp
 ```
 
-AERMAP typically runs in under a minute for a domain this size.
+AERMAP typically runs in under a minute for a domain this size. Your
+instructor will then give you the project file with the elevations for
+Step 5, or you can use Option A.
 
-### Step 5: Import AERMAP Results into the GUI
+### Step 5: Open the Project with Its Elevations
 
-1. Go to **Receptor Editor**.
-2. Click the **AERMAP Elevation Import** tab (the fifth tab).
-3. Upload the **receptor output file** from AERMAP.
-   - The GUI will match each receptor by (x, y) coordinates (within 0.5 m
-     tolerance).
-   - Each receptor will be updated with its terrain elevation (`z_elev`)
-     and controlling hill height (`z_hill`).
-4. Upload the **source output file** from AERMAP.
-   - Each source's base elevation will be updated automatically.
+The GUI has no AERMAP import. The elevations arrive with the project file
+the script wrote:
+
+1. In the GUI, go to the **Project** step and click **Open...**.
+2. Choose `tutorial7_terrain.json`.
+3. On the **Sources** step, click **Edit** on `FCCSTK` and open
+   **Advanced**: **Base elevation (m)** now holds AERMAP's value.
+4. On the **Receptors** step, click **Edit** on the grid and open
+   **Advanced**: **Grid elevations** and **Grid hills** show that the grid
+   now carries a terrain elevation (`z_elev`) and a controlling hill height
+   (`z_hill`) for each receptor. These two are read-only in the GUI.
 
 > **What you should see:**
 >
 > - Most receptor elevations will be between 0 and 25 meters (the Ship
->   Channel area is low-lying).
+>   Channel area is low-lying). The deck preview in Step 6 shows them all.
 > - Hill heights may be slightly higher, reflecting terrain features within
 >   a radius of influence around each receptor.
 > - The source base elevation will be close to sea level (likely 3--8 m).
 
 ### Step 6: Verify the Terrain Data
 
-After importing, go to the **Run AERMOD** page and expand the **Generated
-Input File**. Look for:
+With the project open, go to the **Review & Run** step and read the **Deck
+preview**. Look for:
 
 1. In the `RE` pathway, `GRIDCART` lines should now include `ELEV` and
    `HILL` rows with varying elevation values (not all zeros).
@@ -463,10 +550,11 @@ Input File**. Look for:
 2. In the `SO` pathway, the `LOCATION` line for your source should have
    a non-zero base elevation.
 
-3. The `CO` pathway should contain `MODELOPT DFAULT ELEV` (not `FLAT`).
+3. The `MODELOPT` line of the `CO` pathway should contain `ELEV` (not `FLAT`).
 
 > **Compare FLAT vs ELEVATED:** If you save this project and create a
-> FLAT-terrain copy (change Terrain Type on Project Setup), you can compare
+> FLAT-terrain copy (change **Terrain** on the Project step and untick
+> **Regulatory default options (DFAULT)**), you can compare
 > the two input files. The FLAT version omits all elevation data. When you
 > run both through AERMOD with the same meteorology, the ELEVATED version
 > will typically produce slightly higher maximum concentrations because
@@ -494,7 +582,7 @@ Input File**. Look for:
 - [x] Why even modest terrain matters for regulatory modeling
 - [x] How to obtain DEM data for a project domain
 - [x] How AERMAP processes DEMs to produce receptor/source elevations
-- [x] How to import AERMAP output into the GUI
+- [x] How to bring AERMAP's elevations into your project
 - [x] The difference between FLAT and ELEVATED terrain modes in AERMOD
 
 ---
@@ -553,23 +641,20 @@ other pollutant — only the emission rates and standards change.
 > ~10 sources to keep the assignment manageable while demonstrating all the
 > key concepts.
 
-### Step 1: Project Setup
+### Step 1: Set Up the Project
 
 1. Launch `pyaermod-app`.
-2. On **Project Setup**:
+2. On the **Project** step:
 
    | Parameter | Value |
    |---|---|
-   | Title Line 1 | `Houston Refinery SO2 Assessment` |
-   | Title Line 2 | `Simplified 150 kbpd refinery - Tutorial 8` |
-   | UTM Zone | `15` |
-   | Hemisphere | `N` |
-   | Datum | `NAD83` |
-   | Map Center Lat | `29.735` |
-   | Map Center Lon | `-95.105` |
+   | Title (line 1) | `Houston Refinery SO2 Assessment` |
+   | Title (line 2) | `Simplified 150 kbpd refinery - Tutorial 8` |
    | Pollutant | `SO2` |
-   | Terrain Type | `ELEVATED` |
-   | Averaging Periods | `1-HR`, `3-HR`, `24-HR`, `ANNUAL` |
+   | Averaging periods | `1`, `3`, `24`, `ANNUAL` |
+   | Terrain | `Elevated (ELEV)` |
+
+   All coordinates in this tutorial are UTM zone 15 north (NAD83) meters.
 
 > **Why these averaging periods?** The SO2 NAAQS is a 1-hour standard
 > (75 ppb = 196 ug/m3). We also include 3-hour, 24-hour, and annual for
@@ -578,8 +663,9 @@ other pollutant — only the emission rates and standards change.
 
 ### Step 2: Define Emission Sources
 
-Now add all the refinery sources. Go to **Source Editor** and add them one
-at a time in the order below. The refinery is oriented roughly north-south
+Now add all the refinery sources. Go to **Sources** and add them one
+at a time in the order below: set **Type**, click **Add**, fill in the
+editor and click **Save**. **Base elevation (m)** is under **Advanced**. The refinery is oriented roughly north-south
 along the Ship Channel, with process units in the center and tank farms to
 the south.
 
@@ -589,19 +675,19 @@ The fluid catalytic cracking (FCC) unit is the largest single SO2 source
 at most refineries. The regenerator burns coke off the catalyst, releasing
 SO2, CO, and particulate matter through a tall stack.
 
-Source type: **Point**
+Type: `PointSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `FCCSTK` | FCC regenerator stack |
-| X Coordinate | `279200` | Center of the process area |
-| Y Coordinate | `3291750` | |
-| Base Elevation | `5.0` | Near sea level |
-| Stack Height | `60.0` | Tall stack — regulatory requirement for FCC units |
-| Exit Temperature | `470.0` | Hot regenerator flue gas (~197 C) |
-| Exit Velocity | `20.0` | High velocity through large stack |
-| Stack Diameter | `3.0` | Large diameter for high flow volume |
-| Emission Rate | `5.0` | 5 g/s SO2 — major source |
+| X coord (m) | `279200` | Center of the process area |
+| Y coord (m) | `3291750` | |
+| Base elevation (m), under **Advanced** | `5.0` | Near sea level |
+| Stack height (m) | `60.0` | Tall stack — regulatory requirement for FCC units |
+| Stack temp (K) | `470.0` | Hot regenerator flue gas (~197 C) |
+| Exit velocity (m/s) | `20.0` | High velocity through large stack |
+| Stack diameter (m) | `3.0` | Large diameter for high flow volume |
+| Emission rate (g/s) | `5.0` | 5 g/s SO2 — major source |
 
 > **Intuition:** The FCC stack is the "big gun" of the refinery. Its tall
 > stack and hot exhaust give it substantial plume rise (the effective release
@@ -612,55 +698,55 @@ Source type: **Point**
 
 Crude unit charge heater — burns refinery fuel gas to heat crude oil.
 
-Source type: **Point**
+Type: `PointSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `HTR1` | Crude unit heater |
-| X Coordinate | `279100` | West of FCC, within process area |
-| Y Coordinate | `3291800` | |
-| Base Elevation | `5.0` | |
-| Stack Height | `40.0` | Shorter than FCC — typical for heaters |
-| Exit Temperature | `420.0` | Hot flue gas (~147 C) |
-| Exit Velocity | `12.0` | Moderate velocity |
-| Stack Diameter | `1.8` | Smaller than FCC |
-| Emission Rate | `2.0` | 2 g/s SO2 |
+| X coord (m) | `279100` | West of FCC, within process area |
+| Y coord (m) | `3291800` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Stack height (m) | `40.0` | Shorter than FCC — typical for heaters |
+| Stack temp (K) | `420.0` | Hot flue gas (~147 C) |
+| Exit velocity (m/s) | `12.0` | Moderate velocity |
+| Stack diameter (m) | `1.8` | Smaller than FCC |
+| Emission rate (g/s) | `2.0` | 2 g/s SO2 |
 
 #### Source 3 — Process Heater #2 (HTR2)
 
 Vacuum unit charge heater — similar to Heater #1 but slightly smaller.
 
-Source type: **Point**
+Type: `PointSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `HTR2` | Vacuum unit heater |
-| X Coordinate | `279300` | East of FCC |
-| Y Coordinate | `3291850` | |
-| Base Elevation | `5.0` | |
-| Stack Height | `35.0` | Slightly shorter |
-| Exit Temperature | `410.0` | |
-| Exit Velocity | `10.0` | |
-| Stack Diameter | `1.5` | |
-| Emission Rate | `1.5` | 1.5 g/s SO2 |
+| X coord (m) | `279300` | East of FCC |
+| Y coord (m) | `3291850` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Stack height (m) | `35.0` | Slightly shorter |
+| Stack temp (K) | `410.0` | |
+| Exit velocity (m/s) | `10.0` | |
+| Stack diameter (m) | `1.5` | |
+| Emission rate (g/s) | `1.5` | 1.5 g/s SO2 |
 
 #### Source 4 — Boiler Stack (BOILER)
 
 Package boiler generating steam for process heat and utilities.
 
-Source type: **Point**
+Type: `PointSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `BOILER` | Utility boiler |
-| X Coordinate | `279050` | Utility area, west side of refinery |
-| Y Coordinate | `3291600` | South of process area |
-| Base Elevation | `5.0` | |
-| Stack Height | `45.0` | Mid-height industrial stack |
-| Exit Temperature | `430.0` | |
-| Exit Velocity | `14.0` | |
-| Stack Diameter | `2.0` | |
-| Emission Rate | `3.0` | 3 g/s SO2 — second-largest source |
+| X coord (m) | `279050` | Utility area, west side of refinery |
+| Y coord (m) | `3291600` | South of process area |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Stack height (m) | `45.0` | Mid-height industrial stack |
+| Stack temp (K) | `430.0` | |
+| Exit velocity (m/s) | `14.0` | |
+| Stack diameter (m) | `2.0` | |
+| Emission rate (g/s) | `3.0` | 3 g/s SO2 — second-largest source |
 
 #### Source 5 — Flare (FLARE)
 
@@ -668,19 +754,19 @@ The refinery's ground-level flare (modeled as a short elevated point source
 for simplicity). During normal operations, the flare burns small amounts of
 waste gas. During upsets, emissions can be much higher.
 
-Source type: **Point**
+Type: `PointSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `FLARE` | Ground flare |
-| X Coordinate | `279400` | East side of refinery, away from process units |
-| Y Coordinate | `3291500` | |
-| Base Elevation | `5.0` | |
-| Stack Height | `15.0` | Low effective height for ground flare |
-| Exit Temperature | `1,273.0` | Very hot (~1000 C) — combustion temperature |
-| Exit Velocity | `20.0` | High exit velocity |
-| Stack Diameter | `1.0` | |
-| Emission Rate | `1.0` | 1 g/s SO2 — normal operations |
+| X coord (m) | `279400` | East side of refinery, away from process units |
+| Y coord (m) | `3291500` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Stack height (m) | `15.0` | Low effective height for ground flare |
+| Stack temp (K) | `1,273.0` | Very hot (~1000 C) — combustion temperature |
+| Exit velocity (m/s) | `20.0` | High exit velocity |
+| Stack diameter (m) | `1.0` | |
+| Emission rate (g/s) | `1.0` | 1 g/s SO2 — normal operations |
 
 > **Note on flare modeling:** In real regulatory work, flares are modeled
 > using EPA's flare modeling guidance, which accounts for flame length,
@@ -694,19 +780,19 @@ The emission rate represents fugitive losses through the floating roof
 seals. For this SO2 model, we use a small emission rate representing
 H2S/SO2 emissions from sour crude storage.
 
-Source type: **Area (Rectangular)**
+Type: `AreaSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `TANKS` | Crude tank farm |
-| X Coordinate | `279150` | Southwest corner of the tank farm |
-| Y Coordinate | `3291300` | South of the process area |
-| Base Elevation | `5.0` | |
-| Release Height | `15.0` | Tank top height (~15 m for large tanks) |
-| X Side Length (Xinit) | `200.0` | 200 m east-west |
-| Y Side Length (Yinit) | `150.0` | 150 m north-south |
-| Rotation Angle | `0` | Aligned with grid |
-| Emission Rate | `0.000010` | 0.00001 g/s/m2 — small fugitive rate |
+| X coord (m) | `279150` | Southwest corner of the tank farm |
+| Y coord (m) | `3291300` | South of the process area |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Release height (m) | `15.0` | Tank top height (~15 m for large tanks) |
+| Initial lateral dimension (m) | `200.0` | Xinit, the X side: 200 m east-west |
+| Initial vertical dimension (m) | `150.0` | Yinit, the Y side: 150 m north-south |
+| Angle (deg) | `0` | Aligned with grid |
+| Emission rate (g/(s·m²)) | `0.000010` | 0.00001 g/s/m2 — small fugitive rate |
 
 > **Emission rate calculation:**
 > Area = 200 m x 150 m = 30,000 m2 (AERMOD takes Xinit and Yinit as the
@@ -719,37 +805,37 @@ Source type: **Area (Rectangular)**
 The truck/railcar loading area where refined products are loaded for
 distribution. Vapor displacement during loading produces emissions.
 
-Source type: **Area (Rectangular)**
+Type: `AreaSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `LOADRK` | Product loading rack |
-| X Coordinate | `279350` | East side of the refinery |
-| Y Coordinate | `3291400` | |
-| Base Elevation | `5.0` | |
-| Release Height | `4.0` | Vehicle height |
-| X Side Length (Xinit) | `80.0` | 80 m east-west |
-| Y Side Length (Yinit) | `30.0` | 30 m north-south |
-| Rotation Angle | `0` | |
-| Emission Rate | `0.000005` | 0.000005 g/s/m2 — very low SO2 |
+| X coord (m) | `279350` | East side of the refinery |
+| Y coord (m) | `3291400` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Release height (m) | `4.0` | Vehicle height |
+| Initial lateral dimension (m) | `80.0` | Xinit, the X side: 80 m east-west |
+| Initial vertical dimension (m) | `30.0` | Yinit, the Y side: 30 m north-south |
+| Angle (deg) | `0` | |
+| Emission rate (g/(s·m²)) | `0.000005` | 0.000005 g/s/m2 — very low SO2 |
 
 #### Source 8 — Wastewater Treatment (WWATER)
 
 The wastewater treatment area includes API oil-water separators and
 aeration basins. H2S and SO2 can be released from exposed water surfaces.
 
-Source type: **Area (Circular)**
+Type: `AreaCircSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `WWATER` | Wastewater treatment |
-| X Coordinate | `278900` | West side, buffered from process area |
-| Y Coordinate | `3291400` | |
-| Base Elevation | `5.0` | |
-| Release Height | `1.0` | At ground level (open basins) |
-| Radius | `50.0` | 50 m radius circular treatment area |
-| Num Vertices | `20` | |
-| Emission Rate | `0.000030` | 0.00003 g/s/m2 |
+| X coord (m) | `278900` | West side, buffered from process area |
+| Y coord (m) | `3291400` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Release height (m) | `1.0` | At ground level (open basins) |
+| Radius (m) | `50.0` | 50 m radius circular treatment area |
+| Num vertices, under **Advanced** | `20` | |
+| Emission rate (g/(s·m²)) | `0.000030` | 0.00003 g/s/m2 |
 
 > **Emission rate calculation:**
 > Area = pi x 50^2 = ~7,854 m2.
@@ -761,18 +847,18 @@ Large mechanical-draft cooling towers. Drift (small water droplets carrying
 dissolved minerals) escapes from the tower. We model these as volume sources
 because emissions come from the entire tower structure.
 
-Source type: **Volume**
+Type: `VolumeSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `COOL1` | Cooling tower bank |
-| X Coordinate | `279250` | Adjacent to process area |
-| Y Coordinate | `3291550` | |
-| Base Elevation | `5.0` | |
-| Release Height | `12.0` | Tower exit height |
-| Initial Sigma-Y | `8.0` | ~ tower width / 4.3 (EPA guidance) |
-| Initial Sigma-Z | `6.0` | ~ tower height / 2.15 |
-| Emission Rate | `0.2` | 0.2 g/s total (drift PM, minor SO2 content) |
+| X coord (m) | `279250` | Adjacent to process area |
+| Y coord (m) | `3291550` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Release height (m) | `12.0` | Tower exit height |
+| Initial lateral dimension (m) | `8.0` | Initial sigma-y: ~ tower width / 4.3 (EPA guidance) |
+| Initial vertical dimension (m) | `6.0` | Initial sigma-z: ~ tower height / 2.15 |
+| Emission rate (g/s) | `0.2` | 0.2 g/s total (drift PM, minor SO2 content) |
 
 > **Volume source parameters:** EPA guidance recommends:
 > - Initial sigma-Y = building width / 4.3
@@ -786,18 +872,18 @@ Distributed fugitive emissions from thousands of valves, pumps, flanges,
 and connections throughout the refinery process area. Modeled as a single
 large volume source representing the aggregate.
 
-Source type: **Volume**
+Type: `VolumeSource`
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Source ID | `FUGITV` | Process area fugitives |
-| X Coordinate | `279200` | Center of process area |
-| Y Coordinate | `3291700` | |
-| Base Elevation | `5.0` | |
-| Release Height | `5.0` | Average equipment height |
-| Initial Sigma-Y | `25.0` | Large lateral extent (~100 m process area) |
-| Initial Sigma-Z | `4.0` | Low release height |
-| Emission Rate | `0.5` | 0.5 g/s total from all leak points |
+| X coord (m) | `279200` | Center of process area |
+| Y coord (m) | `3291700` | |
+| Base elevation (m), under **Advanced** | `5.0` | |
+| Release height (m) | `5.0` | Average equipment height |
+| Initial lateral dimension (m) | `25.0` | Initial sigma-y: Large lateral extent (~100 m process area) |
+| Initial vertical dimension (m) | `4.0` | Initial sigma-z: Low release height |
+| Emission rate (g/s) | `0.5` | 0.5 g/s total from all leak points |
 
 ### Step 3: Create Source Groups
 
@@ -805,8 +891,13 @@ Source groups let you evaluate the contribution of different parts of the
 refinery separately. This is required for regulatory work and invaluable
 for understanding where impacts come from.
 
-1. In the **Source Editor**, navigate to the **Source Groups** section.
-2. Create these groups:
+A source belongs to the groups named in its **Source groups** field. There
+is no separate list of groups to create:
+
+1. On the **Sources** step, click **Edit** on a source and open **Advanced**.
+2. In **Source groups**, type the source's groups, one name per line
+   (`FCCSTK` gets two lines: `STACKS` and `FCCONLY`), and click **Save**.
+3. Repeat for every source, so that the groups come out as:
 
 | Group Name | Sources | What It Represents |
 |---|---|---|
@@ -814,6 +905,9 @@ for understanding where impacts come from.
 | `FUGITIV` | TANKS, LOADRK, WWATER, FUGITV | All fugitive/area/volume sources |
 | `FCCONLY` | FCCSTK | FCC unit alone (largest single source) |
 | `ALL` | All 10 sources | Total facility impact |
+
+Do not type `ALL`: AERMOD's `ALL` group holds every source, and PyAERMOD
+writes it for you.
 
 > **Why source groups?** When the regulator asks "What happens if you add
 > a scrubber to the FCC unit?", you can compare the FCCONLY group results
@@ -829,14 +923,17 @@ impact area. We will use three receptor configurations:
 
 This captures the peak concentration close to the refinery.
 
+On the **Receptors** step, add a `CartesianGrid`:
+
 | Parameter | Value |
 |---|---|
-| Grid Name | `FINE` |
-| X Min | `278200` |
-| X Max | `280200` |
-| Y Min | `3290700` |
-| Y Max | `3292700` |
-| Spacing | `50` |
+| Grid name | `FINE` |
+| X init (m) | `278200` |
+| X num | `41` |
+| X delta (m) | `50` |
+| Y init (m) | `3290700` |
+| Y num | `41` |
+| Y delta (m) | `50` |
 
 This gives a **41 x 41 = 1,681 receptor** grid at 50 m spacing, covering
 a 2 km x 2 km area centered on the refinery.
@@ -845,14 +942,17 @@ a 2 km x 2 km area centered on the refinery.
 
 This captures impacts several kilometers downwind.
 
+Add a second `CartesianGrid`:
+
 | Parameter | Value |
 |---|---|
-| Grid Name | `COARSE` |
-| X Min | `276700` |
-| X Max | `281700` |
-| Y Min | `3289200` |
-| Y Max | `3294200` |
-| Spacing | `200` |
+| Grid name | `COARSE` |
+| X init (m) | `276700` |
+| X num | `26` |
+| X delta (m) | `200` |
+| Y init (m) | `3289200` |
+| Y num | `26` |
+| Y delta (m) | `200` |
 
 This gives a **26 x 26 = 676 receptor** grid at 200 m spacing, covering
 a 5 km x 5 km area.
@@ -862,7 +962,8 @@ a 5 km x 5 km area.
 Add discrete receptors at locations of special concern. These represent
 nearby communities, schools, and monitoring stations.
 
-1. On the **Discrete Receptors** tab, add:
+1. Set **Type** to `DiscreteReceptor` and click **Add** once for each row,
+   entering **Label**, **X coord (m)** and **Y coord (m)**:
 
 | Label | X | Y | What It Represents |
 |---|---|---|---|
@@ -879,55 +980,69 @@ nearby communities, schools, and monitoring stations.
 
 ### Step 5: Connect Meteorology
 
-1. Go to **Meteorology** and select **Use Existing Files**.
-2. Enter the paths to your Houston `.sfc` and `.pfl` files from
-   Tutorial 6:
+1. Go to **Meteorology**.
+2. Under **Met files**, enter the full paths to your Houston `.sfc` and
+   `.pfl` files from Tutorial 6:
    - Surface file: `houston_2023.sfc`
    - Profile file: `houston_2023.pfl`
+3. Under **Stations**, enter **Surface station ID** `12918`, **Upper air
+   station ID** `72240` and **Data start year** `2023`.
 
 ### Step 6: Import Terrain Data (Optional but Recommended)
 
 If you completed Tutorial 7:
 
-1. Go to **Receptor Editor** > **AERMAP Elevation Import** tab.
-2. Upload the AERMAP receptor and source output files.
-3. Verify that elevations have been applied.
+1. Save the project (**Project** step, **Save as...**) as
+   `refinery_project.json` in your working directory.
+2. Run your `run_terrain.py` script from Tutorial 7 with the two file names
+   changed: load `refinery_project.json` and save
+   `refinery_terrain.json`.
+3. Open `refinery_terrain.json` in the GUI (**Project** step, **Open...**)
+   and verify in the **Review & Run** step's deck preview that elevations
+   have been applied.
 
 If you did not complete Tutorial 7, you can proceed with FLAT terrain by
-changing the Terrain Type to FLAT on Project Setup. The results will be
+changing **Terrain** to `Flat (FLAT)` on the Project step and unticking
+**Regulatory default options (DFAULT)**. The results will be
 slightly different but the analysis workflow is the same.
 
 ### Step 7: Configure Output
 
-1. Go to **Run AERMOD**.
-2. Under **Output Configuration**:
-   - **Receptor table:** On
-   - **Max value table:** On
-   - Enable **POSTFILE** output:
-     - Format: `PLOT`
-     - Averaging period: `1`  (1-hour — needed for NAAQS comparison)
-     - Source group: `ALL`
-3. Enable separate plot files for each source group:
-   - `STACKS` — 1-hour averaging
-   - `FCCONLY` — 1-hour averaging
+1. Go to the **Output** step.
+2. Under **Files for the Results step**, leave both boxes ticked:
+   - **Plot file for every averaging period** — the Results step draws its
+     map from these.
+   - **POSTFILE for every averaging period** — needed for the POSTFILE
+     analysis in Step 9D. The 1-hour POSTFILE of this model holds about 20
+     million values and takes on the order of a gigabyte or more; untick
+     the box if you skip 9D.
+3. Under **Tables in the .out file**, leave **Receptor table** and **Max
+   table** ticked.
 
-### Step 8: Validate and Run
+These files are for the source group `ALL`. The GUI cannot add plot files
+for the other source groups. You do not need them here: AERMOD's `.out`
+file reports the highest values of every source group, and the Results
+step shows them under **Summary tables**.
 
-1. Click **Validate** to check for errors.
+### Step 8: Review and Run
+
+1. Go to **Review & Run** and read the **Readiness checklist**.
 
    Common issues at this stage:
-   - Source coordinates outside the receptor grid (verify all sources are
-     within the FINE grid)
-   - Missing meteorological file paths
+   - Missing meteorological file paths, or paths that are not full paths
    - Source ID longer than 8 characters
+   - A source placed outside the receptor grid by a typing mistake (the
+     checklist does not catch this: check the plan view on the Sources
+     step, where all sources should fall within the FINE grid)
 
-2. **Preview the input file.** Expand it and verify:
-   - 10 sources in the SO pathway (5 POINT, 2 AREA, 1 AREAPOL, 2 VOLUME)
-   - 4 source groups defined (STACKS, FUGITIV, FCCONLY, ALL)
+2. **Read the Deck preview** and verify:
+   - 10 sources in the SO pathway (5 POINT, 2 AREA, 1 AREACIRC, 2 VOLUME)
+   - 4 source groups defined (`SRCGROUP` lines for ALL, STACKS, FUGITIV,
+     FCCONLY)
    - Receptor grids FINE and COARSE plus 6 discrete receptors
    - Correct met file paths
 
-3. Set the **Working Directory** and click **Run AERMOD**.
+3. Set the **Working directory** and click **Run AERMOD**.
 
 > **Runtime estimate:** With ~2,400 receptors, 10 sources, and 8,760 hours
 > of meteorology, expect approximately 5--15 minutes depending on your
@@ -935,31 +1050,38 @@ slightly different but the analysis workflow is the same.
 
 ### Step 9: Analyze the Results
 
-Once AERMOD completes, go to **Results Viewer**.
+Once AERMOD completes, go to the **Results** step.
 
-#### 9A. Interactive Map
+#### 9A. Concentration Map
 
-1. Select **1-hour** averaging period.
+1. In **Map shows**, select the 1-hour plot file.
 2. Observe the spatial pattern:
    - The plume should extend primarily to the **north-northwest** (downwind
      of the prevailing south-southeast winds in Houston).
    - The maximum 1-hour concentration will be located 0.5--2 km downwind
      of the tallest stacks.
-3. Switch to **ANNUAL** averaging. The pattern should be more symmetric
+3. Switch to the **ANNUAL** plot file. The pattern should be more symmetric
    because annual averages include winds from all directions.
-4. Toggle between the street map and satellite basemap. Can you see the
-   Ship Channel and surrounding neighborhoods?
+4. The map has no street or satellite background. To see the pattern over
+   the Ship Channel and the surrounding neighborhoods, click **Download
+   KMZ** (under **Downloads**; enter UTM zone `15`) and open the file in
+   Google Earth. The KMZ download needs `pip install pyaermod[geo]`.
 
-#### 9B. Statistics — Regulatory Compliance
+#### 9B. Regulatory Compliance
 
-Go to the **Statistics** tab and answer these questions:
+Use the **Maximum for each averaging period**, **Comparison with the
+NAAQS** and **Summary tables** sections to answer these questions:
 
 **Question 1: Does the refinery comply with the SO2 1-hour NAAQS?**
 
 The SO2 1-hour standard is **196 ug/m3** (equivalent to 75 ppb).
 
-- Enter `196` in the exceedance threshold.
-- How many receptors exceed this standard?
+- What does the **Comparison with the NAAQS** table report for the 1-hour
+  standard, and which value did it compare (the **Value from** column)?
+- How many receptors exceed this standard? Download the 1-hour plot file
+  from **Downloads**: it is a text file with one row per receptor (X, Y
+  and the highest 1-hour concentration there). Open it in a spreadsheet
+  and count the rows above `196`.
 - What is the maximum 1-hour concentration?
 - Where is the maximum located (coordinates)?
 
@@ -980,7 +1102,9 @@ average is useful for understanding chronic exposure.
 
 **Question 3: Sensitive receptor analysis.**
 
-Check the concentrations at each discrete receptor:
+Check the concentrations at each discrete receptor. Find each receptor's
+row, by its coordinates, in the plot file of each averaging period
+(**Downloads**):
 
 | Receptor | 1-hr Max | 24-hr Max | Annual | Above NAAQS? |
 |---|---|---|---|---|
@@ -996,7 +1120,8 @@ the wind direction pattern you observed on the map?
 
 #### 9C. Source Group Analysis
 
-If you generated separate plot files for each source group:
+The **Summary tables** section lists the highest values of every source
+group (the group column), read from AERMOD's `.out` file:
 
 **Question 4: Source contribution analysis.**
 
@@ -1018,13 +1143,26 @@ Compare the maximum 1-hour concentrations from each source group:
 
 If you enabled POSTFILE output:
 
-1. Go to the **POSTFILE Viewer** tab.
-2. Upload the POSTFILE.
-3. Use the timestep slider to find the hour with the highest concentration.
-4. What were the meteorological conditions during this hour? (You can check
+The GUI has no POSTFILE viewer; this part uses Python. The 1-hour POSTFILE
+is listed under **Downloads** with its path on disk (`pyaermod_01H.pst` in
+the run's working directory).
+
+1. Read the POSTFILE and find the hour with the highest concentration:
+
+```python
+from pyaermod.postfile import read_postfile
+
+post = read_postfile("pyaermod_01H.pst")   # use the path from Downloads
+values = post.to_dataframe()               # columns x, y, concentration, date ...
+peak = values.loc[values["concentration"].idxmax()]
+print(peak)                                # date is YYMMDDHH
+```
+
+2. What were the meteorological conditions during this hour? (You can check
    the `.sfc` file for the matching date/time.)
-5. Generate an animation GIF showing the hourly concentration evolution
-   over a 24-hour period that includes the peak hour.
+3. Use `post.get_timestep("YYMMDDHH")` (the date as text) to get the
+   concentrations at every receptor for one hour. Look at the hours of the
+   day that includes the peak: how does the pattern move through the day?
 
 ### Step 10: Sensitivity Analysis (Assignment Extension)
 
@@ -1053,9 +1191,24 @@ on the FCC unit. Reduce the FCC emission rate from 5.0 g/s to 1.0 g/s
 Real air has background SO2 from regional sources (power plants, shipping,
 other refineries). Add a background concentration:
 
-1. In the **Source Editor**, go to the **Background** section.
-2. Select **Uniform** mode.
-3. Enter **10 ug/m3** as the background for all periods.
+The GUI cannot enter a background concentration; add it to a saved project
+from Python:
+
+1. Save the project as `refinery_project.json` (**Project** step, **Save
+   as...**).
+2. Run this script in the same folder:
+
+```python
+from pyaermod.gui_v2.project_io import load_project, save_project
+from pyaermod.input_generator import BackgroundConcentration
+
+project = load_project("refinery_project.json")
+project.sources.background = BackgroundConcentration(uniform_value=10.0)  # ug/m3
+save_project(project, "refinery_background.json")
+```
+
+3. Open `refinery_background.json` in the GUI (**Open...**). The deck
+   preview now has a `BACKGRND` line. Run it.
 
 - How does the background change the compliance picture?
 - At what background level would the facility fail to comply (if it didn't
@@ -1081,7 +1234,7 @@ sections:
    network, meteorological data, and terrain data used.
 
 3. **Results** — Present your answers to Questions 1--4 above, with
-   supporting maps and tables from the Results Viewer.
+   supporting maps and tables from the Results step.
 
 4. **Sensitivity Analysis** — Summarize Scenarios A--D and what they reveal
    about the most effective control strategies.
@@ -1102,18 +1255,20 @@ Submit the following files and documents:
   rationale
 
 ### From Tutorial 7 (Terrain)
-- [ ] Screenshot of the GUI showing imported terrain elevations in the
-  receptor grid
+- [ ] Screenshot of the Review & Run step's deck preview showing the
+  receptor grid's `ELEV` and `HILL` rows with AERMAP's elevations
 - [ ] Comparison of FLAT vs ELEVATED generated input files (highlight
   differences)
 - [ ] Written answers to the three Discussion Questions
 
 ### From Tutorial 8 (Refinery Model)
 - [ ] Project JSON file (`refinery_project.json`) — saved from the GUI
-- [ ] Generated AERMOD input file (`refinery.inp`)
+  (**Save as...**)
+- [ ] Generated AERMOD input file (`refinery.inp`) — **Download deck** on the
+  Review & Run step, renamed
 - [ ] Technical report (3--5 pages) including:
   - Source inventory table
-  - Results maps (screenshots from the Interactive Map)
+  - Results maps (screenshots of the Results step's concentration map)
   - Compliance analysis table
   - Source contribution analysis
   - Sensitivity analysis results (Scenarios A--D)

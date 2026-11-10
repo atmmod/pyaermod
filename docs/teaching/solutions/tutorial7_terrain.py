@@ -18,7 +18,7 @@ Usage:
 Outputs:
     terrain_elevated.inp    — AERMOD input with ELEVATED terrain
     terrain_flat.inp        — AERMOD input with FLAT terrain (for comparison)
-    terrain_project.json    — Serialized project (for GUI import)
+    terrain_project.json    — Project file (the GUI opens it: Project step, Open...)
 
 Note: Actually running AERMAP requires the AERMAP executable and DEM data.
 This script generates the AERMOD project configurations that would feed
@@ -26,10 +26,9 @@ into AERMAP processing.
 """
 
 import argparse
-import dataclasses
-import json
 from pathlib import Path
 
+from pyaermod.gui_v2.project_io import save_project
 from pyaermod.input_generator import (
     AERMODProject,
     CartesianGrid,
@@ -147,9 +146,8 @@ def main(output_dir: str = ".") -> None:
 
     # --- Serialize project as JSON ---
     # Use the elevated project as the canonical solution
-    proj_dict = dataclasses.asdict(proj_elev)
     json_path = out / "terrain_project.json"
-    json_path.write_text(json.dumps(proj_dict, indent=2, default=str))
+    save_project(proj_elev, json_path)
     print(f"  Project JSON written to {json_path}")
 
     # --- Verification ---

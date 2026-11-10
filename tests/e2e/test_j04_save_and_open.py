@@ -22,6 +22,7 @@ from pyaermod.gui_v2.project_io import save_project
 from pyaermod.gui_v2.state import _empty_project
 from pyaermod.receptors import DiscreteReceptor
 
+from .pages import PICK_FILES
 from .reference import GRID, PROFILE_FILE, STACK, STATIONS, SURFACE_FILE
 
 pytestmark = pytest.mark.e2e
@@ -82,7 +83,7 @@ def test_j04_cancelling_open_mid_upload_keeps_the_project(gui, step, journey):
     gui.project.panel.get_by_role("button", name="Open...").click()
     dialog = gui.dialog()
     with gui.page.expect_file_chooser() as chooser:
-        dialog.get_by_role("button", name="Choose File").first.click()
+        dialog.get_by_role("button", name=PICK_FILES).first.click()
     with gui.page.expect_event("requestfailed", predicate=lambda r: "/upload/" in r.url):
         chooser.value.set_files(str(big))       # auto_upload starts sending at once
         dialog.get_by_role("button", name="Cancel").click()

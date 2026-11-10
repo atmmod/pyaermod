@@ -2,8 +2,8 @@
 
 These tests confirm that the app modules import cleanly and that the
 ``main`` / ``build_app`` symbols are reachable. They deliberately do
-not start the NiceGUI server — that's exercised end-to-end during
-manual testing and in v1.9-E's pywebview-bundle smoke job.
+not start the NiceGUI server — that's exercised end-to-end by the
+GUI smoke tests and the browser journeys (``tests/e2e``).
 
 Pages are exercised via ``nicegui.testing`` in v1.9-B onward; for
 v1.9-A we just check the import surface.

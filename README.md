@@ -10,13 +10,58 @@ PyAERMOD automates input file generation, model execution, output parsing, and r
 
 ## Installation
 
+PyAERMOD needs Python 3.11 or later. Install it into a virtual
+environment (`python -m venv .venv`, then activate it):
+
 ```bash
-pip install pyaermod             # core (input generation + output parsing)
-pip install pyaermod[viz]        # + matplotlib/folium visualization
-pip install pyaermod[geo]        # + geospatial export (GeoTIFF, Shapefile)
-pip install pyaermod[gui]        # + NiceGUI app
-pip install pyaermod[all]        # everything
+pip install pyaermod               # core (input generation + output parsing)
+pip install "pyaermod[viz]"        # + matplotlib/folium visualization
+pip install "pyaermod[geo]"        # + geospatial export (GeoTIFF, Shapefile)
+pip install "pyaermod[gui]"        # + the graphical interface
+pip install "pyaermod[all]"        # everything
 ```
+
+Keep the quotes: zsh, the default shell on macOS, otherwise reads the
+square brackets as a file pattern.
+
+### The graphical interface
+
+To get the app without setting up an environment, install it with
+[pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/), then
+start it:
+
+```bash
+pipx install "pyaermod[gui]"       # or: uv tool install "pyaermod[gui]"
+pyaermod-app                       # opens the GUI in a browser tab
+```
+
+After `pip install "pyaermod[gui]"` the same command is available in that
+environment, also as `pyaermod gui`. `"pyaermod[gui-desktop]"` adds
+`pyaermod-desktop`, the same app in a window of its own. There are no
+separate desktop downloads.
+
+### conda
+
+PyAERMOD is not on conda-forge yet (the recipe is in
+[`conda-recipe/`](conda-recipe/)). Once the conda-forge package is
+published, `conda install -c conda-forge pyaermod` will install the
+library and `conda install -c conda-forge pyaermod-gui` the library with
+the graphical interface. Until then, use pip inside a conda environment.
+
+### Troubleshooting
+
+- `zsh: no matches found: pyaermod[gui]`: quote the name, as above.
+- `pyaermod-app: command not found`: activate the environment you
+  installed into; after `pipx install` run `pipx ensurepath`, after
+  `uv tool install` run `uv tool update-shell`. `python -m pyaermod.gui_v2`
+  starts the app without the command being on `PATH`.
+- `Cannot listen on 127.0.0.1 port 8080`: the port is in use; start with
+  `pyaermod-app --port 8081`.
+- pip compiles packages and fails: Python 3.11 to 3.14 install the GUI
+  from wheels alone; with a newer Python, pick one of those
+  (`uv tool install --python 3.13 "pyaermod[gui]"`).
+
+More in the [GUI User Guide](docs/gui-guide.md#install).
 
 For development:
 ```bash

@@ -7,23 +7,84 @@ The same codebase runs in two modes:
   loopback. Best for development, multi-user / server deployments,
   and remote access.
 - **Native desktop window** via `pyaermod-desktop` — wraps the same
-  app in a [pywebview](https://pywebview.flowrl.com/) shell. Best for
-  end users who want a one-click app with no terminal.
-
-Pre-built single-file desktop binaries for Windows, macOS, and Linux
-are attached to each [GitHub Release](https://github.com/atmmod/pyaermod/releases).
-See [Desktop App](desktop.md) for download instructions.
+  app in a [pywebview](https://pywebview.flowrl.com/) shell, for those
+  who would rather not have it in a browser. See
+  [Desktop Window](desktop.md).
 
 ## Install
 
+The GUI is part of the `pyaermod` package on
+[PyPI](https://pypi.org/project/pyaermod/). Its `gui` extra adds the two
+packages the GUI needs, NiceGUI and matplotlib. You need Python 3.11 or
+later. There is no separate app to download; AERMOD itself is
+[installed separately](#the-aermod-binary).
+
+### Just the app: pipx or uv
+
+[pipx](https://pipx.pypa.io/) and [uv](https://docs.astral.sh/uv/) each
+install a command-line program into an environment of its own and put
+its commands on your `PATH`. Use either:
+
 ```bash
-pip install pyaermod[gui]          # NiceGUI + matplotlib, browser mode
-pip install pyaermod[gui-desktop]  # + pywebview, native window mode
+pipx install "pyaermod[gui]"
 ```
 
-The `[gui]` extra brings matplotlib, which draws the Results step's
-concentration map. The KMZ download on the Results step also needs
-`pyproj`, from `pip install pyaermod[geo]`.
+```bash
+uv tool install "pyaermod[gui]"
+```
+
+Then start it with `pyaermod-app`. To upgrade later:
+`pipx upgrade pyaermod` or `uv tool upgrade pyaermod`.
+
+### With pip, in a virtual environment
+
+Choose this to use the Python library as well as the GUI.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python -m pip install "pyaermod[gui]"
+pyaermod-app
+```
+
+The quotes matter: without them zsh, the default shell on macOS, reads
+the square brackets as a file pattern and stops with "no matches found".
+`"pyaermod[gui-desktop]"` adds pywebview for the
+[desktop window](desktop.md), and `"pyaermod[all]"` every optional
+package.
+
+### With conda
+
+pyaermod is not on conda-forge yet; the recipe is prepared in the
+repository's `conda-recipe/` directory. Once the conda-forge package is
+published, the GUI will install with:
+
+```bash
+conda install -c conda-forge pyaermod-gui
+```
+
+`pyaermod-gui` is the conda form of the `gui` extra (conda has no
+extras); `pyaermod` alone is the library without the GUI's packages.
+Until then, use pip inside a conda environment:
+
+```bash
+conda create -n pyaermod python=3.12
+conda activate pyaermod
+python -m pip install "pyaermod[gui]"
+```
+
+### Troubleshooting the install
+
+| What you see | What to do |
+|---|---|
+| `zsh: no matches found: pyaermod[gui]` | Put the package name in quotes: `pip install "pyaermod[gui]"`. |
+| `pyaermod-app: command not found` | The environment it was installed into is not active: activate the virtual environment (or conda environment) again. After `pipx install`, run `pipx ensurepath`; after `uv tool install`, run `uv tool update-shell`; then open a new terminal. `python -m pyaermod.gui_v2` starts the same app without the command being on `PATH`. |
+| `pyaermod-app needs NiceGUI, which is not installed.` | pyaermod was installed without the extra. Run the command the message gives: `pip install "pyaermod[gui]"`. |
+| `Cannot listen on 127.0.0.1 port 8080` | Another program, or another PyAERMOD window, is using the port. Choose another: `pyaermod-app --port 8081`. |
+| No browser tab opens | Open the address the terminal shows (`http://127.0.0.1:8080`). Over SSH there is no browser to open: start with `--no-browser` and forward the port. |
+| pip starts compiling packages and fails (`error: subprocess-exited-with-error`, a missing compiler or Rust) | Your Python is newer than the wheels of some dependency. Python 3.11 to 3.14 install without compiling anything; choose one of them, for example `uv tool install --python 3.13 "pyaermod[gui]"`. |
+| `pyaermod-app --port 8081` still serves on port 8080, or `--help` starts the app | That is pyaermod 2.2.0, whose `pyaermod-app` reads no options. Upgrade: `python -m pip install --upgrade "pyaermod[gui]"`. `pyaermod gui`, `python -m pyaermod.gui_v2` and the one-line messages above are also newer than 2.2.0. |
+| "KMZ export needs pyproj" on the Results step | Only that download needs pyproj: `python -m pip install pyproj` (with pipx: `pipx inject pyaermod pyproj`). Everything else in the GUI works without it. |
 
 ## Launch
 
@@ -31,6 +92,18 @@ concentration map. The KMZ download on the Results step also needs
 pyaermod-app           # opens a browser tab at http://127.0.0.1:8080
 pyaermod-desktop       # opens a native OS window on a free port
 ```
+
+`pyaermod gui` and `python -m pyaermod.gui_v2` are other spellings of
+`pyaermod-app`, with the same options. Stop the app with Ctrl+C in the
+terminal that started it.
+
+`pyaermod-app` takes `--port` (when 8080 is in use), `--no-browser` (serve
+without opening a tab) and `--host`. The default host, 127.0.0.1, serves
+this computer only. The GUI reads and writes files and runs AERMOD as the
+user who started it, for anyone who can reach it, so pass
+`--host 0.0.0.0` only in a container or on a network you trust; the
+repository's `Dockerfile` does, and its header shows how to publish the
+port on 127.0.0.1.
 
 ## The AERMOD binary
 
@@ -428,5 +501,6 @@ need the legacy interface, pin to `pyaermod==1.9.x`.
 ## Reporting issues
 
 File issues at <https://github.com/atmmod/pyaermod/issues> with the
-OS, install method (`pip` vs. desktop bundle), and a minimum
+OS, install method (pip, pipx, uv or conda), the output of
+`pyaermod info`, and a minimum
 reproducer (a saved `.json` project is ideal).

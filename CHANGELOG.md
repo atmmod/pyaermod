@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- The downloadable desktop apps. Releases no longer build or attach the
+  PyInstaller bundles for macOS, Windows and Linux; the spec, the entry
+  script and `.github/workflows/build_desktop.yml` are gone. The macOS
+  bundle was unsigned, so Gatekeeper blocked it, and the frozen app
+  re-launched itself in an endless chain of background processes. The
+  GUI installs from PyPI (`pip install "pyaermod[gui]"`) instead; the
+  `pyaermod-desktop` command and the `gui-desktop` extra are unchanged.
+  `docs/desktop.md` says how to open a 2.2.0 or earlier bundle.
+
+### Added
+
+- `pyaermod-app` takes `--host`, `--port` and `--no-browser`, so the GUI
+  can be served from a container or on another port.
+- `pyaermod gui` and `python -m pyaermod.gui_v2` start the GUI too, with
+  the same options. `pyaermod info` reports whether the GUI and the
+  desktop window can run.
+- A conda-forge recipe (`conda-recipe/recipe.yaml`, v1 format) with two
+  packages: `pyaermod`, and `pyaermod-gui`, which adds NiceGUI and
+  matplotlib as `pip install "pyaermod[gui]"` does. It is not on
+  conda-forge yet; `RELEASING.md` and `conda-recipe/README.md` say how
+  to submit it after the next release.
+- A GUI install check (`scripts/gui_install_smoke.py`,
+  `.github/workflows/gui_install.yml`): the built wheel is installed
+  with the `gui` extra into new environments on Linux, macOS and
+  Windows, also through pipx and `uv tool`, and the GUI is started
+  there. `publish.yml` runs it before uploading to PyPI.
+
+### Changed
+
+- `pyaermod[all]` includes `pywebview`, so it can run `pyaermod-desktop`.
+- License metadata is the SPDX string `license = "MIT"` with
+  `license-files`, and the build needs `setuptools>=77.0.3`; setuptools
+  stops building the older table form in 2027.
+
+### Fixed
+
+- `pyaermod-app` and `pyaermod-desktop` without their extras stop with
+  one line naming the install command (`pip install "pyaermod[gui]"`, or
+  the conda package in a conda install) instead of a traceback.
+- A port already in use is reported with the port and a suggestion to
+  pass `--port`, instead of only uvicorn's log line.
+- Material that still described the Streamlit GUI removed in v2.0, and
+  so made the GUI look absent from the PyPI release: the teaching guide
+  and refinery assignments (port 8501, the old page names), the teaching
+  solution scripts (which imported `pyaermod.gui` or wrote project files
+  the GUI could not open), the `Dockerfile` (it ran `streamlit run` on a
+  file that no longer exists), the conda recipe's entry points, and the
+  banner `pyaermod` prints.
+
 ## [2.2.0] - 2026-10-20
 
 The archival release the JAWMA manuscript cites. v2.1.0 was planned

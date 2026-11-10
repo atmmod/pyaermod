@@ -30,6 +30,10 @@ from playwright.sync_api import Locator, Page, expect
 
 from .harness import Journey
 
+# The accessible name of ui.upload's file-picker button: "Choose File" up
+# to NiceGUI 3, "Pick files" from NiceGUI 4 (Quasar 2.35).
+PICK_FILES = re.compile(r"^(Choose File|Pick files)$")
+
 RUN_TIMEOUT_MS = 180_000
 
 # How the Review & Run status reads ("Succeeded in 0.8 s", "Failed: E480 ...",
@@ -153,9 +157,10 @@ class App:
         return panel
 
     def _panels(self) -> Locator:
-        # The step panels sit inside the tab-panels container, itself a
-        # tabpanel; during a switch the old and new step are both there.
-        return self.page.get_by_role("tabpanel").get_by_role("tabpanel")
+        # The step panels (Quasar's q-tab-panel); during a switch the old and
+        # new step are both there. Not "tabpanel inside tabpanel": Quasar
+        # 2.35 (NiceGUI 4) no longer gives the container that role.
+        return self.page.locator(".q-tab-panel").and_(self.page.get_by_role("tabpanel"))
 
     def expect_current_step(self, name: str) -> None:
         expect(self.step_tab(name)).to_have_attribute("aria-selected", "true")
@@ -311,7 +316,7 @@ class ProjectPage(_Step):
         self.panel.get_by_role("button", name="Open...").click()
         dialog = self.app.dialog().filter(has_text="Open a project file")
         with self.page.expect_file_chooser() as chooser:
-            dialog.get_by_role("button", name="Choose File").first.click()
+            dialog.get_by_role("button", name=PICK_FILES).first.click()
         # The uploader sends the file as soon as it is chosen (auto_upload);
         # with unsaved changes, the page then asks before replacing them.
         chooser.value.set_files(str(path))

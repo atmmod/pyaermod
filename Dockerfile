@@ -1,12 +1,17 @@
 # PyAERMOD Docker Image
 #
-# Launches the PyAERMOD Streamlit GUI with all optional dependencies
-# pre-installed, ready for one-command use:
+# Serves the PyAERMOD GUI (the NiceGUI app, `pyaermod-app`) with all
+# optional dependencies pre-installed, ready for one-command use:
 #
 #   docker build -t pyaermod .
-#   docker run -p 8501:8501 pyaermod
+#   docker run -p 127.0.0.1:8080:8080 pyaermod
 #
-# Then open http://localhost:8501 in your browser.
+# Then open http://localhost:8080 in your browser.
+#
+# The GUI reads and writes files and runs AERMOD for anyone who can reach
+# it, so publish the port on 127.0.0.1 as above unless the network is
+# trusted. The image has no AERMOD executable: mount one on the PATH, for
+# example `-v /path/to/aermod:/usr/local/bin/aermod:ro`.
 
 FROM python:3.11-slim-bookworm
 
@@ -36,15 +41,11 @@ COPY docs/ docs/
 COPY examples/ examples/
 COPY CHANGELOG.md LICENSE ./
 
-# Streamlit configuration: disable file watcher (not needed in container),
-# bind to all interfaces, disable CORS for local development
-RUN mkdir -p /root/.streamlit && \
-    printf '[server]\nheadless = true\nport = 8501\naddress = "0.0.0.0"\nenableCORS = false\n\n[browser]\ngatherUsageStats = false\n' \
-    > /root/.streamlit/config.toml
-
-EXPOSE 8501
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/')" || exit 1
 
-CMD ["python", "-m", "streamlit", "run", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", "/usr/local/lib/python3.11/site-packages/pyaermod/gui.py"]
+# In a container the server listens on every interface (the published port
+# reaches it from the host) and there is no browser to open.
+CMD ["pyaermod-app", "--host", "0.0.0.0", "--port", "8080", "--no-browser"]

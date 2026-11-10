@@ -18,7 +18,7 @@ Usage:
 
 Outputs:
     refinery_base.inp           — Base case AERMOD input
-    refinery_project.json       — Serialized project (for GUI import)
+    refinery_project.json       — Project file (the GUI opens it: Project step, Open...)
     scenario_a_tall_stack.inp   — Scenario A: FCC stack 60 -> 90 m
     scenario_b_scrubber.inp     — Scenario B: FCC emission 5.0 -> 1.0 g/s
     scenario_c_background.inp   — Scenario C: 10 ug/m3 background
@@ -27,11 +27,10 @@ Outputs:
 
 import argparse
 import copy
-import dataclasses
-import json
 import math
 from pathlib import Path
 
+from pyaermod.gui_v2.project_io import save_project
 from pyaermod.input_generator import (
     AERMODProject,
     AreaCircSource,
@@ -489,9 +488,8 @@ def main(output_dir: str = ".") -> None:
     print(f"  Input file: {len(base_inp.splitlines())} lines")
 
     # --- Serialize project JSON ---
-    proj_dict = dataclasses.asdict(base)
     json_path = out / "refinery_project.json"
-    json_path.write_text(json.dumps(proj_dict, indent=2, default=str))
+    save_project(base, json_path)
     print(f"  Project JSON written to {json_path}")
 
     # --- Verification ---

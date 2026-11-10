@@ -17,10 +17,9 @@ Outputs:
 """
 
 import argparse
-import dataclasses
-import json
 from pathlib import Path
 
+from pyaermod.gui_v2.project_io import save_project
 from pyaermod.input_generator import (
     AERMODProject,
     CartesianGrid,
@@ -101,8 +100,7 @@ def main(output_dir: str = ".") -> None:
     print(f"  20 m input written to {path_20}")
 
     json_20 = out / "tutorial2_20m_project.json"
-    json_20.write_text(json.dumps(
-        dataclasses.asdict(proj_20), indent=2, default=str))
+    save_project(proj_20, json_20)
     print(f"  20 m project JSON written to {json_20}")
 
     # --- 60 m stack ---
@@ -113,8 +111,7 @@ def main(output_dir: str = ".") -> None:
     print(f"  60 m input written to {path_60}")
 
     json_60 = out / "tutorial2_60m_project.json"
-    json_60.write_text(json.dumps(
-        dataclasses.asdict(proj_60), indent=2, default=str))
+    save_project(proj_60, json_60)
     print(f"  60 m project JSON written to {json_60}")
 
     # --- Verification ---

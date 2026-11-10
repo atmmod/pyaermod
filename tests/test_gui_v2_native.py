@@ -1,13 +1,11 @@
 """Tier T0 tests for the desktop window hooks (:mod:`pyaermod.gui_v2._native`).
 
 A stub stands in for the pywebview window: pywebview is optional, and a
-real native dialog cannot be driven from a test (J10 in WP-G7 checks the
-bundle).
+real native dialog cannot be driven from a test.
 """
 
 from __future__ import annotations
 
-import ast
 import sys
 import types
 from pathlib import Path
@@ -15,8 +13,6 @@ from pathlib import Path
 import pytest
 
 from pyaermod.gui_v2 import _native
-
-REPO = Path(__file__).resolve().parent.parent
 
 
 class _StubWindow:
@@ -84,17 +80,3 @@ def test_ask_save_path_without_a_window_is_an_error(monkeypatch):
     monkeypatch.setattr(_native, "_WINDOW", None)
     with pytest.raises(RuntimeError, match="no desktop window"):
         _native.ask_save_path("p.json")
-
-
-def test_packaging_entry_imports_desktop_main():
-    entry = REPO / "packaging" / "desktop_entry.py"
-    tree = ast.parse(entry.read_text(encoding="utf-8"))
-    imports = [(n.module, [a.name for a in n.names]) for n in ast.walk(tree)
-               if isinstance(n, ast.ImportFrom)]
-    assert ("pyaermod.gui_v2.desktop", ["main"]) in imports
-    calls = [n.value.func.id for n in tree.body
-             if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
-             and isinstance(n.value.func, ast.Name)]
-    assert calls == ["main"]
-    spec = (REPO / "packaging" / "pyaermod_desktop.spec").read_text(encoding="utf-8")
-    assert 'ENTRY = ROOT / "packaging" / "desktop_entry.py"' in spec

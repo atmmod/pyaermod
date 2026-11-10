@@ -286,14 +286,13 @@ def check_stability_consistency(records: Sequence[Dict[str, Any]]) -> QAQCReport
                     message=f"CBL but zim ({zim}) >> zic ({zic}) — unusual",
                     when=i,
                 ))
-        elif L > 0:  # stable / SBL
-            if zic is not None and zic > 0:
-                rep.findings.append(QAQCFinding(
-                    level="warning",
-                    category="stability",
-                    message=f"SBL regime (L>0) but zic = {zic} (should be 0)",
-                    when=i,
-                ))
+        elif L > 0 and zic is not None and zic > 0:  # stable / SBL
+            rep.findings.append(QAQCFinding(
+                level="warning",
+                category="stability",
+                message=f"SBL regime (L>0) but zic = {zic} (should be 0)",
+                when=i,
+            ))
     return rep
 
 

@@ -35,7 +35,8 @@ re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
    - `pyproject.toml` → `version = "X.Y.Z"`
    - `src/pyaermod/__init__.py` → `__version__ = "X.Y.Z"`
    - `src/pyaermod/api.py` → `__version__ = "X.Y.Z"`
-   - `conda-recipe/meta.yaml` → `{% set version = "X.Y.Z" %}`
+   - `conda-recipe/recipe.yaml` → `context: version: "X.Y.Z"` (its
+     `sha256` is updated after the release, in step 4)
    - `CITATION.cff` → `version: X.Y.Z`
 
 2. **Date the release**:
@@ -62,7 +63,7 @@ re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
 4. **Commit and push** (on `main`, or through a PR):
    ```bash
    git add pyproject.toml src/pyaermod/__init__.py src/pyaermod/api.py \
-           conda-recipe/meta.yaml CITATION.cff CHANGELOG.md docs/release-notes
+           conda-recipe/recipe.yaml CITATION.cff CHANGELOG.md docs/release-notes
    git commit -m "Release vX.Y.Z"
    git push origin main
    ```
@@ -86,6 +87,16 @@ pip install pyaermod==X.Y.Z
 ```
 The docs site redeploys on the push to `main` (`.github/workflows/docs.yml`).
 
+`publish.yml` installs the wheel it built, with only the `gui` extra,
+into new environments on Linux, macOS and Windows and starts the GUI
+there (`gui_install_smoke.yml`, `scripts/gui_install_smoke.py`) before
+it uploads. If that job fails, nothing was published: fix the cause and
+publish the release again.
+
+No desktop binaries are built or attached to the release. The GUI is
+installed with pip (`pyaermod[gui]`, or `pyaermod[gui-desktop]` for the
+native window); the downloadable desktop apps stopped after v2.2.0.
+
 ## 3. Record the Zenodo DOI
 
 A few minutes after the release is published, Zenodo lists the archived
@@ -102,6 +113,40 @@ Commit and push that on `main` ("Record the Zenodo DOI for vX.Y.Z").
 The tag itself keeps the previous DOI; that is expected, since the DOI
 did not exist when the tag was made, and Zenodo's own record carries
 the authoritative citation for the tag.
+
+## 4. conda-forge
+
+pyaermod is not on conda-forge until the recipe in `conda-recipe/` has
+been submitted once; `conda-recipe/README.md` has the full procedure.
+
+After every release, record the sdist's checksum in the recipe (the same
+commit as the Zenodo DOI is fine):
+
+```bash
+curl -s https://pypi.org/pypi/pyaermod/X.Y.Z/json \
+  | python -c "import json,sys; print([f['digests']['sha256'] for f in json.load(sys.stdin)['urls'] if f['packagetype'] == 'sdist'][0])"
+```
+
+and paste it into `source: sha256:` in `conda-recipe/recipe.yaml`.
+
+- **First time** (the first release after 2.2.0): lint and build the
+  recipe locally, copy it to `recipes/pyaermod/recipe.yaml` in a fork of
+  conda-forge/staged-recipes, open the pull request and ask the
+  `conda-forge/help-python` team for review ("Submit to conda-forge
+  (once)" in `conda-recipe/README.md`). Every login in
+  `extra.recipe-maintainers` must comment on the pull request to agree.
+  When it is merged and `conda install -c conda-forge pyaermod-gui`
+  works, change "once the conda-forge package is published" in
+  `README.md`, `docs/index.md` and `docs/gui-guide.md` to plain
+  instructions (and the matching assertion in `tests/test_packaging.py`).
+- **Afterwards**: `regro-cf-autotick-bot` opens a pull request on
+  conda-forge/pyaermod-feedstock within some hours of the PyPI release,
+  with the new version and checksum. If the release changed
+  `dependencies`, the `gui` extra, `requires-python`,
+  `[build-system] requires` or `[project.scripts]`, copy the same change
+  from `conda-recipe/recipe.yaml` into that pull request; then merge it
+  when its CI is green. No pull request after a day: open an issue on
+  the feedstock titled `@conda-forge-admin, please update version`.
 
 ## Important
 

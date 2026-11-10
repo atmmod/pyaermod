@@ -8,10 +8,8 @@ two delivery modes:
 - ``pyaermod-app``     — browser tab (opens default browser)
 - ``pyaermod-desktop`` — native OS window (this module)
 
-PyInstaller bundles this entry through ``packaging/desktop_entry.py``
-(see ``packaging/pyaermod_desktop.spec``).
-
-Requires the ``[gui-desktop]`` extra (pywebview).
+Requires the ``[gui-desktop]`` extra (pywebview). Linux also needs one
+of pywebview's backends (GTK or Qt); see ``docs/desktop.md``.
 """
 
 from __future__ import annotations
@@ -47,13 +45,19 @@ def main(*, title: str = "PyAERMOD",
          width: int = 1280, height: int = 800,
          port: Optional[int] = None) -> None:
     """Launch NiceGUI in a background thread and open a pywebview window."""
+    from . import _missing_dependency, _require_nicegui
+
+    _require_nicegui("pyaermod-desktop")
     try:
         import webview
     except ImportError as e:
-        raise ImportError(
-            "pywebview is required for the desktop GUI. Install with "
-            "`pip install pyaermod[gui-desktop]`."
-        ) from e
+        raise _missing_dependency(
+            "pywebview", "pyaermod-desktop",
+            pip_fix='`pip install "pyaermod[gui-desktop]"`',
+            # conda-forge builds pywebview for Windows and Linux only.
+            conda_fix="`conda install -c conda-forge pywebview` (on macOS, "
+                      "where conda-forge has no pywebview, "
+                      "`python -m pip install pywebview`)") from e
 
     from . import _native
     from .app import build_and_run

@@ -1,8 +1,9 @@
 # Introduction to Air Dispersion Modeling with PyAERMOD
 
 A hands-on guide for students who have never used a dispersion model before.
-No programming is required — all five tutorials use the PyAERMOD graphical
-interface (GUI) in your web browser.
+No programming experience is required — Tutorials 1--4 use the PyAERMOD
+graphical interface (GUI) in your web browser, and Tutorial 5 has you copy
+and run one short Python script.
 
 ---
 
@@ -348,10 +349,11 @@ which aermod        # Should print the path to the aermod executable
 aermod              # Should print AERMOD version (error about input is OK)
 ```
 
-> **The GUI's "Run AERMOD" page will automatically search your PATH for the
-> executable.** If it can't find it, you'll see an error message with
-> instructions. You can also specify the full path to the executable directly
-> in the GUI.
+> **The GUI's Review & Run step looks for the `aermod` executable on your
+> PATH.** If it can't find it, its readiness checklist says "No 'aermod'
+> binary on PATH. Install AERMOD and re-launch." and the **Run AERMOD**
+> button stays disabled. The GUI has no field for the executable's path:
+> put `aermod` on your PATH and start the GUI again.
 
 ### 3.3 Launch the GUI
 
@@ -359,28 +361,41 @@ aermod              # Should print AERMOD version (error about input is OK)
 pyaermod-app
 ```
 
-Your web browser will open automatically to `http://localhost:8501`. You'll see
-the PyAERMOD interface with a sidebar on the left and the **Project Setup**
-page in the main area.
+Your web browser will open automatically to `http://127.0.0.1:8080`. You'll see
+the PyAERMOD interface with a list of steps on the left and the **Project**
+step in the main area. (If port 8080 is already in use on your computer, run
+`pyaermod-app --port 8081` instead.)
 
 > **Tip:** The GUI runs as a local web app. It never sends your data to the
 > internet — everything stays on your computer.
 
 ### 3.4 GUI Layout
 
-- **Sidebar (left):** Navigation between the 7 workflow pages, plus a progress
-  checklist showing which steps are complete.
-- **Main area (center):** The active page — forms, maps, tables, and plots.
+- **Header (top):** The project's name, a "(modified)" marker while there are
+  unsaved changes, a one-line readiness summary ("Ready to run" or "Not ready
+  to run: ...") and a **Save** button.
+- **Step list (left):** Navigation between the 7 workflow steps. Each step
+  carries a badge: not started, complete, warning or error. In a narrow
+  window the list is hidden behind the menu button in the header.
+- **Main area (center):** The current step — forms, tables, and plots.
 
-The 7 pages, in workflow order:
+The 7 steps, in workflow order:
 
-1. **Project Setup** — project name, pollutant, terrain, coordinate system
-2. **Source Editor** — add and configure emission sources on a map
-3. **Receptor Editor** — define where concentrations are calculated
+1. **Project** — open and save project files; titles, pollutant, averaging
+   periods, terrain
+2. **Sources** — add and edit emission sources
+3. **Receptors** — define where concentrations are calculated
 4. **Meteorology** — point to weather data files
-5. **Run AERMOD** — validate, preview, and execute the model
-6. **Results Viewer** — maps, plots, statistics, compliance checks
-7. **Export** — download results as GeoTIFF, Shapefile, CSV, etc.
+5. **Output** — choose the files and tables AERMOD writes
+6. **Review & Run** — readiness checklist, input-file preview, and the run
+7. **Results** — maxima, concentration map, NAAQS comparison, downloads
+
+You can visit the steps in any order. The GUI calls an AERMOD input file a
+**deck**, the modelers' word for it.
+
+All coordinates in the GUI are AERMOD's model coordinates: easting and
+northing in UTM meters. There is no map to click and no latitude/longitude
+setting.
 
 ---
 
@@ -398,47 +413,43 @@ PM2.5, and understand what each setting means.
 - How to specify meteorology file paths
 - How to preview and download the generated AERMOD input file
 
-### Step 1: Project Setup
+### Step 1: Set Up the Project
 
 1. Launch the GUI (`pyaermod-app`).
-2. On the **Project Setup** page, fill in:
-   - **Title Line 1:** `Tutorial 1 - My First Model`
-   - **Title Line 2:** `Single point source, PM2.5`
-   - **UTM Zone:** Pick the zone for your area. (If unsure, use `17` for the
-     eastern U.S. or `10` for the western U.S. The exact zone doesn't matter
-     for learning.)
-   - **Hemisphere:** `N` (Northern)
-   - **Datum:** `WGS84`
-   - **Map Center Latitude:** `35.0` (or your local latitude)
-   - **Map Center Longitude:** `-80.0` (or your local longitude)
-   - **Pollutant Type:** `PM25`
-   - **Terrain Type:** `FLAT`
-   - **Averaging Periods:** Select `ANNUAL` and `24-HR`
+2. On the **Project** step, fill in:
+   - **Title (line 1):** `Tutorial 1 - My First Model`
+   - **Title (line 2):** `Single point source, PM2.5`
+   - **Pollutant:** `PM25`
+   - **Averaging periods:** Select `24` and `ANNUAL` (a new project starts
+     with `1` and `ANNUAL`; remove `1`)
+   - **Terrain:** `Flat (FLAT)`
+   - Untick **Regulatory default options (DFAULT)**. AERMOD ignores FLAT
+     while DFAULT is on; the GUI shows a warning on the Project step if you
+     leave it ticked.
 
 > **What you just did:** You told AERMOD what pollutant you're modeling (PM2.5),
 > that the terrain is flat (no hills), and that you want annual and 24-hour
-> average results. The coordinate system settings let the GUI convert between
-> the map (latitude/longitude) and AERMOD's coordinate system (UTM meters).
+> average results.
 
 ### Step 2: Add a Point Source
 
-1. Click **Source Editor** in the sidebar.
-2. You'll see an interactive map. Below it, select source type: **Point**.
+1. Click **Sources** in the step list.
+2. Set **Type** to `PointSource` and click **Add**. An editor opens.
 3. Fill in the source form:
 
    | Parameter | Value | What It Means |
    |---|---|---|
    | Source ID | `STACK1` | A short name for this source |
-   | X Coordinate | `500000` | Easting in UTM meters (or click the map) |
-   | Y Coordinate | `3870000` | Northing in UTM meters (or click the map) |
-   | Base Elevation | `0` | Ground elevation at the stack base (meters) |
-   | Stack Height | `50` | The stack is 50 meters tall |
-   | Exit Temperature | `400` | Exhaust gas temperature: 400 K (about 127 C) |
-   | Exit Velocity | `15` | Gas exits at 15 m/s |
-   | Stack Diameter | `2` | Stack opening is 2 meters across |
-   | Emission Rate | `1.5` | Emitting 1.5 grams of PM2.5 per second |
+   | X coord (m) | `500000` | Easting in UTM meters |
+   | Y coord (m) | `3870000` | Northing in UTM meters |
+   | Stack height (m) | `50` | The stack is 50 meters tall |
+   | Stack temp (K) | `400` | Exhaust gas temperature: 400 K (about 127 C) |
+   | Exit velocity (m/s) | `15` | Gas exits at 15 m/s |
+   | Stack diameter (m) | `2` | Stack opening is 2 meters across |
+   | Emission rate (g/s) | `1.5` | Emitting 1.5 grams of PM2.5 per second |
+   | Base elevation (m), under **Advanced** | `0` | Ground elevation at the stack base (meters) |
 
-4. Click **Add Source**.
+4. Click **Save**. (**Close** discards the source.)
 
 > **What you just did:** You defined a medium-sized industrial smokestack. The
 > hot, fast-moving exhaust gas will rise well above the 50 m physical stack
@@ -446,23 +457,26 @@ PM2.5, and understand what each setting means.
 > depending on meteorological conditions. This is why AERMOD needs the
 > temperature and velocity — not just the physical height.
 
-You should see your source appear as a marker on the map and in the source
-table below.
+You should see your source appear in the source table and as a marker in the
+plan view beside it.
 
 ### Step 3: Set Up Receptors
 
-1. Click **Receptor Editor** in the sidebar.
-2. On the **Cartesian Grid** tab, enter:
+1. Click **Receptors** in the step list.
+2. Set **Type** to `CartesianGrid` and click **Add**. In the editor, enter:
 
    | Parameter | Value | What It Means |
    |---|---|---|
-   | X Min | `498000` | Western edge of the grid |
-   | X Max | `502000` | Eastern edge (4 km total width) |
-   | Y Min | `3868000` | Southern edge |
-   | Y Max | `3872000` | Northern edge (4 km total height) |
-   | Spacing | `200` | One receptor every 200 meters |
+   | Grid name | `GRID1` | A short name for this grid |
+   | X init (m) | `498000` | Western edge of the grid |
+   | X num | `21` | 21 points across: 4 km total width |
+   | X delta (m) | `200` | One receptor every 200 meters |
+   | Y init (m) | `3868000` | Southern edge |
+   | Y num | `21` | 21 points up: 4 km total height |
+   | Y delta (m) | `200` | One receptor every 200 meters |
 
-3. The GUI will show: **21 x 21 = 441 receptors**. Click **Add Grid**.
+3. Click **Save**. The table shows the grid with the summary **21 x 21**:
+   441 receptors.
 
 > **What you just did:** You placed a 4 km x 4 km grid of virtual air quality
 > monitors centered on your source, with a receptor every 200 meters. AERMOD
@@ -471,20 +485,21 @@ table below.
 
 ### Step 4: Specify Meteorology
 
-1. Click **Meteorology** in the sidebar.
-2. Select **Use Existing Files** mode.
-3. Enter file paths:
+1. Click **Meteorology** in the step list.
+2. Under **Met files**, enter:
    - **Surface file:** `met_data.sfc`
    - **Profile file:** `met_data.pfl`
 
 > **Note:** You don't need actual meteorological files for this tutorial — we're
-> just generating the input file. When you're ready to actually run AERMOD
+> just generating the input file. Because these files don't exist, the GUI
+> marks the Meteorology step with an error and the header reads "Not ready to
+> run". That is expected here. When you're ready to actually run AERMOD
 > (Tutorial 3), you'll need real `.sfc` and `.pfl` files.
 
 ### Step 5: Preview the Input File
 
-1. Click **Run AERMOD** in the sidebar.
-2. Expand the **Generated Input File** section. You'll see the complete AERMOD
+1. Click **Review & Run** in the step list.
+2. Look at the **Deck preview** section. You'll see the complete AERMOD
    input file — a text file organized into five pathways:
 
    - **CO** (Control): Project title, pollutant, options
@@ -493,7 +508,8 @@ table below.
    - **ME** (Meteorology): File paths
    - **OU** (Output): What results to produce
 
-3. Click **Download Input File** to save it as `aermod.inp`.
+3. Click **Download deck** to save it. The download is named
+   `pyaermod_gui.inp`; rename it `aermod.inp`.
 
 > **What you just did:** You generated a complete, valid AERMOD input file
 > without editing a single line of text. Open the `.inp` file in a text
@@ -520,7 +536,7 @@ concentrations.
 
 **What you'll learn:**
 - How stack height controls plume rise and ground-level impact
-- How to use the Project Save/Load feature to create scenario variants
+- How to save and reopen project files to create scenario variants
 - How to read an AERMOD input file and spot key differences
 
 ### Conceptual Background
@@ -542,22 +558,23 @@ calculates.
 
 Follow the same steps as Tutorial 1, but with these settings:
 
-**Project Setup:**
-- Title: `Tutorial 2 - Stack Height Comparison (20m)`
+**Project:**
+- Title (line 1): `Tutorial 2 - Stack Height Comparison (20m)`
 - Pollutant: `SO2`
-- Averaging Periods: `1-HR`, `24-HR`, and `ANNUAL`
-- Terrain: `FLAT`
+- Averaging periods: `1`, `24`, and `ANNUAL`
+- Terrain: `Flat (FLAT)`, with **Regulatory default options (DFAULT)** unticked
 
-**Source (Point):**
+**Source (`PointSource`):**
 - Source ID: `STACK1`
-- Stack Height: `20`
-- Exit Temperature: `420` K
-- Exit Velocity: `15` m/s
-- Stack Diameter: `2` m
-- Emission Rate: `2.0` g/s
+- Stack height (m): `20`
+- Stack temp (K): `420`
+- Exit velocity (m/s): `15`
+- Stack diameter (m): `2`
+- Emission rate (g/s): `2.0`
 
-**Receptors (Cartesian Grid):**
+**Receptors (`CartesianGrid`):**
 - 4 km x 4 km area centered on the source, 100 m spacing
+  (X num and Y num `41`, X delta and Y delta `100`)
 
 **Meteorology:**
 - Surface file: `met_data.sfc`
@@ -565,39 +582,43 @@ Follow the same steps as Tutorial 1, but with these settings:
 
 ### Step 2: Save the Project
 
-1. Go back to **Project Setup**.
-2. Click **Download Project** to save the project as a JSON file. Name it
-   `tutorial2_20m.json`.
+1. Go back to the **Project** step.
+2. Click **Save as...**, enter the filename `tutorial2_20m.json` and click
+   **Save**. Your browser downloads the project as a JSON file.
 
 ### Step 3: Download the 20 m Input File
 
-1. Go to **Run AERMOD**.
-2. Download the input file. Name it `stack_20m.inp`.
+1. Go to **Review & Run**.
+2. Click **Download deck**. Rename the downloaded file `stack_20m.inp`.
 
 ### Step 4: Create the 60 m Variant
 
-1. Go to **Source Editor**.
-2. Delete the existing source (select it in the table and click **Delete**).
-3. Add a new source with the same parameters, **except Stack Height: `60`**.
-4. Update the project title to `Tutorial 2 - Stack Height Comparison (60m)`.
-5. Save this project as `tutorial2_60m.json`.
-6. Download the input file as `stack_60m.inp`.
+1. Go to **Sources**.
+2. Click the **Edit** button on the `STACK1` row of the table.
+3. Change **Stack height (m)** to `60` and click **Save**. Everything else
+   stays the same.
+4. On the **Project** step, update the title to
+   `Tutorial 2 - Stack Height Comparison (60m)`.
+5. Save this project as `tutorial2_60m.json` (**Save as...**).
+6. Download the input file and rename it `stack_60m.inp`.
 
 ### Step 5: Compare the Input Files
 
-Open both `.inp` files in a text editor and find the `SO SRCPARAM` line:
+Open both `.inp` files in a text editor and find the `SRCPARAM` line of the
+`SO` pathway:
 
 **20 m stack:**
 ```
-SO SRCPARAM  STACK1   2.0   20.0   420.0   15.0   2.0
+   SRCPARAM  STACK1     2.000000    20.00   420.00    15.00     2.00
 ```
 
 **60 m stack:**
 ```
-SO SRCPARAM  STACK1   2.0   60.0   420.0   15.0   2.0
+   SRCPARAM  STACK1     2.000000    60.00   420.00    15.00     2.00
 ```
 
-The only difference is the second number (stack height). Everything else is
+The only difference is the second number (stack height); the title line
+differs too. Everything else is
 identical, making this a controlled experiment.
 
 ### What to Expect When You Run These (Tutorial 3)
@@ -622,15 +643,17 @@ At this point you should understand:
 
 - [x] Taller stacks reduce ground-level concentrations
 - [x] Taller stacks push the peak concentration farther downwind
-- [x] The Project Save/Load feature lets you create scenario variants
-- [x] The `SO SRCPARAM` line contains all point source parameters
+- [x] Saving the project under a new name (**Save as...**) lets you create
+  scenario variants; **Open...** brings one back
+- [x] The `SRCPARAM` line of the `SO` pathway contains all point source
+  parameters
 
 ---
 
 ## 6. Tutorial 3 — Running AERMOD and Reading Results
 
 **Goal:** Run AERMOD with real meteorological data and interpret the results
-using the GUI's Results Viewer.
+using the GUI's Results step.
 
 **Time:** 30--45 minutes
 
@@ -664,79 +687,104 @@ you need to install AERMOD or add it to your PATH.
 
 ### Step 2: Set Up the Model
 
-Load one of your Tutorial 2 project files, or create a new project:
+Open one of your Tutorial 2 project files (**Project** step, **Open...**), or
+start a new project (**New**):
 
-**Project Setup:**
-- Title: `Tutorial 3 - Full AERMOD Run`
+**Project:**
+- Title (line 1): `Tutorial 3 - Full AERMOD Run`
 - Pollutant: `PM25`
-- Averaging Periods: `ANNUAL` and `24-HR`
-- Terrain: `FLAT`
+- Averaging periods: `24` and `ANNUAL`
+- Terrain: `Flat (FLAT)`, with **Regulatory default options (DFAULT)** unticked
 
 **Source:**
 - A single point source with realistic parameters (see Tutorial 1)
 
 **Receptors:**
-- Cartesian grid: 4 km x 4 km, 100 m spacing (441 receptors)
+- Cartesian grid: 4 km x 4 km, 100 m spacing (41 x 41 = 1,681 receptors)
 
 **Meteorology:**
-- Click **Meteorology** in the sidebar.
-- Select **Use Existing Files**.
-- Enter the paths to your `.sfc` and `.pfl` files. You can also use the
-  **Upload** buttons to copy the files into the working directory.
+- Click **Meteorology** in the step list.
+- Under **Met files**, enter the full paths of your `.sfc` and `.pfl` files
+  in **Surface file** and **Profile file**. Give the whole path (for example
+  `/Users/you/met/site.sfc` or `C:\met\site.sfc`): AERMOD does not expand
+  `~`, and the GUI tells you under the field when a path is not a file on
+  your computer. There is no upload button; the files stay where they are.
+- Below the files, the step says what the surface file holds: the period it
+  covers, the station IDs in its header and the first year of its data.
+- Under **Stations**, set **Surface station ID**, **Upper air station ID**
+  and **Data start year** to those values. AERMOD checks them against the
+  files.
 
-### Step 3: Validate and Run
+> **ANNUAL needs a full year.** If your met files cover less than a year,
+> the GUI warns that AERMOD would stop the run. Replace `ANNUAL` with
+> `PERIOD` on the Project step, which averages over whatever the files hold.
 
-1. Click **Run AERMOD** in the sidebar.
-2. The GUI will run validation checks. Fix any errors that appear (common
-   issues: missing met file paths, no sources defined, no receptors defined).
-3. Verify the **Working Directory** path — this is where AERMOD will write its
-   output.
-4. Verify the **AERMOD Executable Path** (default: `aermod`).
+### Step 3: Review and Run
+
+1. Click **Review & Run** in the step list.
+2. Read the **Readiness checklist**. The GUI checks the project every time
+   you change it and lists here everything that would stop the run, each
+   item with a link to the step that fixes it (common issues: missing met
+   file paths, no sources defined, no receptors defined). When the list is
+   empty the step says "Nothing blocks the run." Warnings that do not stop
+   the run are listed under **Before you run**.
+3. Set the **Working directory** — this is where AERMOD will write its
+   output. If you leave it blank, each run gets a new temporary folder.
+4. If the checklist says "No 'aermod' binary on PATH", AERMOD is not
+   installed where the GUI can find it: go back to Step 1.
 5. Click **Run AERMOD**.
 
-A spinner will appear while AERMOD runs. Depending on your grid size and the
+A progress bar follows AERMOD through the days of your met data, next to
+the elapsed time and a **Cancel** button. Depending on your grid size and the
 number of hours of met data, this may take anywhere from 10 seconds to a few
 minutes.
 
-When it finishes, you'll see either:
-- A green **success** banner with runtime info, or
-- A red **error** banner. Read the error message — the most common issue is
-  AERMOD not finding the meteorological files.
+When it finishes, the status line reads either:
+- "Succeeded in *N* s. See the Results step.", or
+- "Failed: *reason*", above a table of AERMOD's messages and a **Run log**.
+  Read the messages — the most common issue is AERMOD not finding the
+  meteorological files.
 
 ### Step 4: Explore the Results
 
-Click **Results Viewer** in the sidebar. You now have four tabs:
+Click **Results** in the step list. The step shows the run in several
+sections, from top to bottom:
 
-#### Tab 1: Interactive Map
+#### Maximum for Each Averaging Period
 
-- Select an averaging period (e.g., `ANNUAL`).
-- The map shows color-coded concentration values at each receptor location,
-  with your source marked.
-- **Zoom in** to see individual receptor values. **Pan** to explore the spatial
-  pattern.
+- One card per averaging period with the **maximum concentration**: the
+  highest value at any receptor, its units, the receptor where it occurred
+  and the date it ended. This is the starting point for a comparison with
+  the NAAQS.
+
+#### Concentration Map
+
+- Filled contours of concentration (isopleths — areas between lines of equal
+  concentration), with your source and the highest value marked.
+- **Map shows** selects the averaging period (e.g., `ANNUAL`).
 - Notice the **plume shape**: concentrations are highest downwind of the source
   and decrease with distance. The elongated pattern reflects the prevailing
   wind direction in your met data.
-
-#### Tab 2: Static Plots
-
-- A contour plot showing smooth concentration isopleths (lines of equal
-  concentration).
-- The concentric pattern around the source shows how concentrations decrease
+- The pattern around the source shows how concentrations decrease
   with distance — the **concentration gradient**.
+- The map is a picture: it does not zoom or pan. The numbers behind it are in
+  the tables and in the plot files under **Downloads**.
 
-#### Tab 3: Statistics
+#### Comparison with the NAAQS and Summary Tables
 
 This is where you do compliance analysis:
 
-- **Maximum concentration**: The highest value at any receptor. This is what
-  regulators compare to the NAAQS.
-- **Mean and median**: How polluted the area is on average.
-- **Top 10 receptors**: Where are the worst-case locations?
-- **Exceedance analysis**: Enter the NAAQS value to see how many receptors
-  exceed the standard.
+- **Comparison with the NAAQS**: one row for each standard of your
+  pollutant, with the standard's level, this run's value, where it occurred,
+  what was compared and the result.
+- **Summary tables**: the ten highest values of each averaging period, with
+  their dates and receptor coordinates. Where are the worst-case locations?
+- **Exceedance analysis**: the GUI does not count the receptors above a
+  standard. To count them, download the plot file of that averaging period
+  from **Downloads** (a text file with one row per receptor: X, Y and the
+  highest concentration there) and open it in a spreadsheet.
 
-**Common NAAQS values to try:**
+**Common NAAQS values for reference:**
 
 | Pollutant | Period | Standard (ug/m3) |
 |---|---|---|
@@ -747,10 +795,15 @@ This is where you do compliance analysis:
 | NO2 | 1-hour | 188 |
 | CO | 8-hour | 10,000 |
 
-#### Tab 4: POSTFILE Viewer (Advanced)
+#### Downloads and POSTFILEs (Advanced)
 
-If you enabled POSTFILE output on the Run page, you can upload the file here
-to see hour-by-hour concentration animations. This is optional for beginners.
+**Downloads** lists the deck, AERMOD's `.out` file, the plot files and the
+POSTFILEs of the run. A POSTFILE holds the concentration at every receptor
+for every averaging interval; the GUI writes one per averaging period
+unless you untick **POSTFILE for every averaging period** on the **Output**
+step. The GUI does not animate them. From Python,
+`pyaermod.postfile.read_postfile` reads one into a table. This is optional
+for beginners.
 
 ### Step 5: Interpret What You See
 
@@ -764,12 +817,13 @@ Ask yourself these questions:
    direction in your met data. If the wind usually blows from west to east,
    the highest concentrations will be east of the source.
 
-3. **Does the maximum exceed the NAAQS?** Enter the relevant standard in the
-   exceedance analysis. If any receptors exceed it, the facility would need
-   additional controls (taller stack, emission reduction, scrubbers, etc.).
+3. **Does the maximum exceed the NAAQS?** Read the result in the
+   **Comparison with the NAAQS** table. If the standard is exceeded, the
+   facility would need additional controls (taller stack, emission
+   reduction, scrubbers, etc.).
 
-4. **How quickly do concentrations drop with distance?** Look at the contour
-   plot — concentrations typically drop to 10% of the maximum within 1--2 km
+4. **How quickly do concentrations drop with distance?** Look at the
+   concentration map — concentrations typically drop to 10% of the maximum within 1--2 km
    for elevated point sources.
 
 ### Checkpoint
@@ -777,7 +831,7 @@ Ask yourself these questions:
 At this point you should understand:
 
 - [x] How to run AERMOD from the GUI
-- [x] How to read the interactive map and identify the plume direction
+- [x] How to read the concentration map and identify the plume direction
 - [x] How to find the maximum concentration and where it occurs
 - [x] How to check whether a facility complies with air quality standards
 - [x] That wind direction and stack height are the dominant factors in where
@@ -827,57 +881,58 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
 > Area = 100 x 50 = 5,000 m2.
 > Emission rate = 0.5 / 5,000 = **0.0001 g/s/m2**.
 
-### Step 1: Project Setup
+### Step 1: Set Up the Project
 
 1. Launch the GUI (`pyaermod-app`).
-2. On the **Project Setup** page:
-   - **Title Line 1:** `Tutorial 4 - Area Source Facility`
-   - **Title Line 2:** `Construction site with mixed source types`
-   - **Pollutant Type:** `PM10`
-   - **Averaging Periods:** Select `24` and `ANNUAL`
-   - **Terrain Type:** `FLAT`
+2. On the **Project** step:
+   - **Title (line 1):** `Tutorial 4 - Area Source Facility`
+   - **Title (line 2):** `Construction site with mixed source types`
+   - **Pollutant:** `PM10`
+   - **Averaging periods:** Select `24` and `ANNUAL`
+   - **Terrain:** `Flat (FLAT)`, with **Regulatory default options (DFAULT)**
+     unticked
 
 ### Step 2: Add a Point Source (Generator)
 
-1. Click **Source Editor** in the sidebar.
-2. Select source type: **Point**.
+1. Click **Sources** in the step list.
+2. Set **Type** to `PointSource` and click **Add**.
 3. Fill in the form:
 
    | Parameter | Value | What It Represents |
    |---|---|---|
    | Source ID | `GENSET` | Diesel generator exhaust |
-   | X Coordinate | `500050` | UTM meters (or click the map) |
-   | Y Coordinate | `3870050` | UTM meters (or click the map) |
-   | Base Elevation | `0` | |
-   | Stack Height | `5` | Short exhaust stack |
-   | Exit Temperature | `700` | Diesel exhaust is very hot (K) |
-   | Exit Velocity | `10` | |
-   | Stack Diameter | `0.3` | Small pipe |
-   | Emission Rate | `0.3` | 0.3 g/s of PM10 |
+   | X coord (m) | `500050` | UTM meters |
+   | Y coord (m) | `3870050` | UTM meters |
+   | Base elevation (m), under **Advanced** | `0` | |
+   | Stack height (m) | `5` | Short exhaust stack |
+   | Stack temp (K) | `700` | Diesel exhaust is very hot (K) |
+   | Exit velocity (m/s) | `10` | |
+   | Stack diameter (m) | `0.3` | Small pipe |
+   | Emission rate (g/s) | `0.3` | 0.3 g/s of PM10 |
 
-4. Click **Add Source**.
+4. Click **Save**.
 
-> **Why start with the point source?** It gives you a reference marker on the
-> map. You'll place the area sources around it.
+> **Why start with the point source?** It gives you a reference marker in the
+> plan view. You'll place the area sources around it.
 
 ### Step 3: Add a Rectangular Area Source (Stockpile)
 
-1. In the source type selector, choose **Area (Rectangular)**.
+1. Set **Type** to `AreaSource` and click **Add**.
 2. Fill in the form:
 
    | Parameter | Value | What It Represents |
    |---|---|---|
    | Source ID | `PILE1` | Dirt/gravel stockpile |
-   | X Coordinate | `500000` | Southwest corner X |
-   | Y Coordinate | `3870000` | Southwest corner Y |
-   | Base Elevation | `0` | |
-   | Release Height | `2.0` | Dust lifts off ~2 m above the pile surface |
-   | X Side Length (Xinit) | `100.0` | 100 m in the X direction |
-   | Y Side Length (Yinit) | `50.0` | 50 m in the Y direction |
-   | Rotation Angle | `0` | Aligned with the grid (no rotation) |
-   | Emission Rate | `0.000100` | 0.0001 g/s/m2 (see calculation above) |
+   | X coord (m) | `500000` | Southwest corner X |
+   | Y coord (m) | `3870000` | Southwest corner Y |
+   | Base elevation (m), under **Advanced** | `0` | |
+   | Release height (m) | `2.0` | Dust lifts off ~2 m above the pile surface |
+   | Initial lateral dimension (m) | `100.0` | Xinit, the X side: 100 m in the X direction |
+   | Initial vertical dimension (m) | `50.0` | Yinit, the Y side: 50 m in the Y direction |
+   | Angle (deg) | `0` | Aligned with the grid (no rotation) |
+   | Emission rate (g/(s·m²)) | `0.000100` | 0.0001 g/s/m2 (see calculation above) |
 
-3. Click **Add Area Source**.
+3. Click **Save**.
 
 > **Understanding the dimensions:** AERMOD places a rectangular area source by
 > its *southwest corner* and gives it *full side lengths*: Xinit is the length
@@ -887,21 +942,21 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
 
 ### Step 4: Add a Circular Area Source (Staging Area)
 
-1. Select source type: **Area (Circular)**.
+1. Set **Type** to `AreaCircSource` and click **Add**.
 2. Fill in the form:
 
    | Parameter | Value | What It Represents |
    |---|---|---|
    | Source ID | `STAGING` | Equipment staging / laydown area |
-   | X Coordinate | `500200` | Center of the circle |
-   | Y Coordinate | `3870100` | |
-   | Base Elevation | `0` | |
-   | Release Height | `1.0` | Low-level dust from vehicle traffic |
-   | Radius | `60` | 60 m radius circle |
-   | Num Vertices | `20` | How many sides to approximate the circle |
-   | Emission Rate | `0.000050` | Lower rate — less disturbed surface |
+   | X coord (m) | `500200` | Center of the circle |
+   | Y coord (m) | `3870100` | |
+   | Base elevation (m), under **Advanced** | `0` | |
+   | Release height (m) | `1.0` | Low-level dust from vehicle traffic |
+   | Radius (m) | `60` | 60 m radius circle |
+   | Num vertices, under **Advanced** | `20` | How many sides to approximate the circle |
+   | Emission rate (g/(s·m²)) | `0.000050` | Lower rate — less disturbed surface |
 
-3. Click **Add Circular Area Source**.
+3. Click **Save**.
 
 > **Num Vertices:** AERMOD approximates circles as polygons. 20 vertices gives
 > a smooth-enough circle for most purposes. More vertices is more accurate but
@@ -909,28 +964,28 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
 
 ### Step 5: Add a Polygonal Area Source (Site Boundary)
 
-1. Select source type: **Area (Polygon)**.
-2. Set **Number of Vertices** to `5` (this selector appears *above* the form).
-3. Fill in the form:
+1. Set **Type** to `AreaPolySource` and click **Add**.
+2. Fill in the form:
 
    | Parameter | Value |
    |---|---|
    | Source ID | `SITEBND` |
-   | Base Elevation | `0` |
-   | Release Height | `0.5` |
-   | Emission Rate | `0.000020` |
+   | Base elevation (m), under **Advanced** | `0` |
+   | Release height (m) | `0.5` |
+   | Emission rate (g/(s·m²)) | `0.000020` |
 
-4. Enter vertex coordinates (these define the irregular site boundary):
+3. In **Vertices (m)**, replace the placeholder with the five corners of the
+   irregular site boundary, one `x, y` pair per line:
 
-   | Vertex | X | Y |
-   |---|---|---|
-   | V1 | `499900` | `3869900` |
-   | V2 | `500350` | `3869900` |
-   | V3 | `500400` | `3870100` |
-   | V4 | `500300` | `3870250` |
-   | V5 | `499900` | `3870200` |
+   ```
+   499900, 3869900
+   500350, 3869900
+   500400, 3870100
+   500300, 3870250
+   499900, 3870200
+   ```
 
-5. Click **Add Polygon Source**.
+4. Click **Save**.
 
 > **Vertex order matters:** The vertices should trace the outline of the area
 > in order (clockwise or counterclockwise). AERMOD closes the polygon
@@ -938,46 +993,50 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
 
 ### Step 6: Set Up Receptors
 
-1. Click **Receptor Editor** in the sidebar.
-2. On the **Cartesian Grid** tab:
+1. Click **Receptors** in the step list.
+2. Set **Type** to `CartesianGrid`, click **Add**, and enter:
 
    | Parameter | Value |
    |---|---|
-   | X Min | `499500` |
-   | X Max | `500800` |
-   | Y Min | `3869500` |
-   | Y Max | `3870700` |
-   | Spacing | `50` |
+   | X init (m) | `499500` |
+   | X num | `27` |
+   | X delta (m) | `50` |
+   | Y init (m) | `3869500` |
+   | Y num | `25` |
+   | Y delta (m) | `50` |
 
-3. Click **Add Grid**. You should get roughly 600+ receptors covering the
-   site and a buffer zone around it.
+3. Click **Save**. The grid runs from 499500 to 500800 east and from 3869500
+   to 3870700 north: 27 x 25 = 675 receptors covering the site and a buffer
+   zone around it.
 
 ### Step 7: Meteorology and Preview
 
-1. Click **Meteorology** > **Use Existing Files** > enter paths to `.sfc`
-   and `.pfl` files (or placeholder names for now).
-2. Click **Run AERMOD** to preview the generated input file.
+1. Click **Meteorology** and enter the paths to your `.sfc` and `.pfl` files
+   in **Surface file** and **Profile file** (or placeholder names for now).
+2. Click **Review & Run** to preview the generated input file.
 
-Expand the **Generated Input File** section and look for the `SO` pathway.
+In the **Deck preview**, look for the `SO` pathway.
 You should see four sources — one POINT and three area types:
 
 ```
-SO LOCATION  GENSET   POINT   500050.00  3870050.00  0.00
-SO LOCATION  PILE1    AREA    500000.00  3870000.00  0.00
-SO LOCATION  STAGING  AREAPOL 500200.00  3870100.00  0.00
-SO LOCATION  SITEBND  AREAPOL 499900.00  3869900.00  0.00
+   LOCATION  GENSET   POINT   500050.0000 3870050.0000     0.00
+   LOCATION  PILE1    AREA     500000.0000 3870000.0000     0.00
+   LOCATION  STAGING  AREACIRC  500200.0000 3870100.0000     0.00
+   LOCATION  SITEBND  AREAPOLY  499900.0000 3869900.0000     0.00
 ```
 
-Notice how each source type generates different `SO SRCPARAM` lines:
+Notice how each source type generates different `SRCPARAM` lines:
 - **POINT**: emission rate, stack height, temperature, velocity, diameter
 - **AREA**: emission rate, release height, X side length, Y side length (then
   an optional angle and initial vertical spread Szinit)
-- **AREAPOL**: emission rate, release height, number of vertices
+- **AREACIRC**: emission rate, release height, radius, number of vertices
+- **AREAPOLY**: emission rate, release height, number of vertices (the
+  corners follow on an `AREAVERT` line)
 
 ### Step 8: Interpret Area Source Results (After Running)
 
 When you eventually run this model, look for these patterns in the Results
-Viewer:
+step's concentration map:
 
 - **The generator (point source)** produces a concentrated plume downwind of
   the stack — a narrow elongated shape.
@@ -1003,20 +1062,25 @@ At this point you should understand:
 
 ## 8. Tutorial 5 — Processing Meteorological Data with AERMET
 
-**Goal:** Use the GUI's AERMET configuration page to generate the two AERMET
-input files (Stage 1 and METPREP) needed to process raw weather station data
-into AERMOD-ready meteorological files.
+**Goal:** Use PyAERMOD to generate the two AERMET input files (Stage 1 and
+METPREP) needed to process raw weather station data into AERMOD-ready
+meteorological files.
+
+> **This tutorial uses a short Python script, not the GUI.** The GUI's
+> Meteorology step only points AERMOD at finished `.sfc` and `.pfl` files; it
+> has no AERMET page. You don't need programming experience: you copy the
+> script below into a file, change the values, and run it.
 
 **Time:** 30--40 minutes
 
 **What you'll learn:**
 - What AERMET does and why AERMOD needs it
 - How AERMET's two stages, Stage 1 and METPREP, work
-- How to configure each stage in the GUI
+- How to configure each stage with PyAERMOD
 - What the monthly surface parameters mean and how to choose values
 
 **Prerequisites:**
-- The GUI generates AERMET *input files*, but to actually process them you
+- PyAERMOD generates AERMET *input files*, but to actually process them you
   need the `aermet` executable installed on your computer.
 - **macOS/Linux:** If you followed [Section 3.2, Option B](#32-install-the-aermod-and-aermet-executables)
   (compile from source), you already have it. If you used Option A (download
@@ -1080,22 +1144,23 @@ AERMET requires two types of weather observations:
 > ranges for your region. If you need to download your own data, NOAA's
 > archives are at https://www.ncei.noaa.gov/.
 
-### Step 1: Navigate to the AERMET Page
+### Step 1: Start the Script
 
-1. Launch the GUI (`pyaermod-app`).
-2. First, set up your **Project Setup** page with the correct UTM zone and
-   map center for your area (see Tutorial 1). AERMET Stage 3 may use these
-   coordinates.
-3. Click **Meteorology** in the sidebar.
-4. Select the **Configure AERMET** radio button (not "Use existing files").
+1. Make a folder for this tutorial and put your raw data files in it.
+2. In that folder, create a text file named `make_aermet_inputs.py` and
+   start it with these lines:
 
-You'll see three tabs: **Stage 1**, **Stage 2**, and **Stage 3**. Current
-AERMET (11 and later) runs only two of them, Stage 1 and Stage 3; Stage 2
-is skipped (see Step 3).
+```python
+from pathlib import Path
+
+from pyaermod.aermet import AERMETStage1, AERMETStage3, AERMETStation, UpperAirStation
+```
+
+You will add to this file in Steps 2 and 4 and run it in Step 5. The script
+describes two stages, Stage 1 and Stage 3. Current AERMET (11 and later) has
+no separate Stage 2 (see Step 3).
 
 ### Step 2: Configure Stage 1 — Extract & QA/QC
-
-Click the **Stage 1: Data Extract** tab.
 
 **Purpose:** Stage 1 reads raw weather station data, performs quality assurance
 checks (flagging missing or suspicious values), and extracts the variables
@@ -1103,7 +1168,7 @@ AERMET needs.
 
 #### Surface Station
 
-Fill in the surface station information. Your instructor should provide these
+Describe the surface station. Your instructor should provide these
 values. Example for Atlanta, GA:
 
 | Parameter | Example Value | What It Means |
@@ -1117,6 +1182,22 @@ values. Example for Atlanta, GA:
 | Anemometer Height (m) | `10.0` | Height of the wind sensor (usually 10 m) |
 | Data Format | `ISHD` | NOAA Integrated Surface Hourly Data (most common) |
 
+Add the station to your script:
+
+```python
+surface = AERMETStation(
+    station_id="13874",
+    station_name="Atlanta Hartsfield",
+    latitude=33.6300,
+    longitude=-84.4400,
+    time_zone=-5,
+    elevation=315.0,
+    anemometer_height=10.0,
+)
+```
+
+The data format goes into Stage 1 itself, below.
+
 > **Data Format options:**
 > - **ISHD** — Integrated Surface Hourly Data (NOAA, post-2006). This is the
 >   most common format for recent U.S. data.
@@ -1126,7 +1207,7 @@ values. Example for Atlanta, GA:
 
 #### Upper Air Station
 
-Fill in the upper air (radiosonde) station. Example:
+Describe the upper air (radiosonde) station. Example:
 
 | Parameter | Example Value | What It Means |
 |---|---|---|
@@ -1134,6 +1215,17 @@ Fill in the upper air (radiosonde) station. Example:
 | Station Name | `Peachtree City` | Closest radiosonde launch site |
 | Latitude | `33.3600` | |
 | Longitude | `-84.5700` | |
+| Elevation (m) | `245.0` | Station elevation above sea level; check it against the station list of your data source |
+
+```python
+upper_air = UpperAirStation(
+    station_id="72215",
+    station_name="Peachtree City",
+    latitude=33.3600,
+    longitude=-84.5700,
+    elevation=245.0,
+)
+```
 
 > **Finding your upper air station:** The closest radiosonde station may be
 > far from your surface station. In the U.S., there are only about 90 upper
@@ -1149,19 +1241,29 @@ Fill in the upper air (radiosonde) station. Example:
 | Start Date | `2020/01/01` | First day of the period to process |
 | End Date | `2020/12/31` | Last day (typically 1--5 years of data) |
 
-Click **Save Stage 1 Configuration**.
+Add Stage 1 to your script:
 
-#### Preview and Download
+```python
+stage1 = AERMETStage1(
+    surface_station=surface,
+    surface_data_file="72219013874.dat",
+    surface_format="ISHD",
+    upper_air_station=upper_air,
+    upper_air_data_file="72215.dat",
+    start_date="2020/01/01",
+    end_date="2020/12/31",
+)
+```
 
-Expand **Preview Stage 1 Input** to see the generated AERMET input file. It
-will contain keywords like:
+#### What Stage 1's Input File Contains
 
-- `JOB` — identifies the processing job
-- `SURFACE DATA` — points to the surface data file and specifies the format
-- `UPPERAIR DATA` — points to the upper air data file
+The file this produces (you will write it in Step 5) contains keywords like:
+
+- `JOB` — identifies the processing job and names its report and message files
+- `SURFACE` with a `DATA` line — points to the surface data file and
+  specifies the format
+- `UPPERAIR` with a `DATA` line — points to the upper air data file
 - `XDATES` — specifies the date range to extract
-
-Click **Download Stage 1 Input File** to save it as `aermet_stage1.inp`.
 
 ### Step 3: Configure Stage 2 — Merge
 
@@ -1170,9 +1272,7 @@ Click **Download Stage 1 Input File** to save it as `aermet_stage1.inp`.
 > longer writes a Stage 2 file. Go on to Step 4. The description below is
 > kept for readers of older AERMET material.
 
-Click the **Stage 2: Merge** tab.
-
-**Purpose:** Stage 2 takes the extracted surface and upper air data from
+**Purpose:** Stage 2 took the extracted surface and upper air data from
 Stage 1 and merges them into a single hourly dataset, aligning timestamps and
 interpolating upper air soundings to each hour.
 
@@ -1184,11 +1284,7 @@ interpolating upper air soundings to each hour.
 | End Date | `2020/12/31` | Should match Stage 1 |
 | Merge Output File | `stage2.mrg` | Where to write the merged dataset |
 
-Click **Save Stage 2 Configuration**, then preview and download.
-
 ### Step 4: Configure Stage 3 — Boundary Layer Parameters
-
-Click the **Stage 3: Boundary Layer** tab.
 
 **Purpose:** This is the most important stage. Stage 3 (AERMET's METPREP)
 reads Stage 1's quality-assured files, merges them, and computes the **planetary boundary layer parameters** that AERMOD needs:
@@ -1207,8 +1303,8 @@ the **surface characteristics** around the station.
 
 #### Monthly Surface Parameters
 
-This is the part that requires the most judgment. The GUI shows an editable
-table with three parameters for each month:
+This is the part that requires the most judgment. Stage 3 takes three
+parameters for each month:
 
 | Parameter | What It Controls | Typical Range |
 |---|---|---|
@@ -1216,7 +1312,7 @@ table with three parameters for each month:
 | **Bowen Ratio** | Ratio of sensible heat to latent heat. Dry surfaces (deserts, cities) have high Bowen ratios; moist surfaces (wetlands, irrigated fields) have low values. | 0.1 -- 10.0 |
 | **Roughness (m)** | Aerodynamic roughness length — how "bumpy" the surface is to wind flow. Open water is very smooth (~0.001 m); a city center is very rough (~1.0 m). | 0.001 -- 2.0 |
 
-The GUI pre-fills **suburban defaults** — these are reasonable starting values
+This tutorial uses **suburban values** — these are reasonable starting values
 for an area with moderate development (residential neighborhoods, scattered
 trees):
 
@@ -1245,34 +1341,66 @@ trees):
 >   (dark pavement).
 > - **If there's winter snow cover:** Increase albedo to 0.50--0.70 during
 >   snowy months.
-> - **When in doubt:** Use the pre-filled suburban defaults. They're
+> - **When in doubt:** Use the suburban values above. They're
 >   conservative and widely used in regulatory work.
 
-Click in any cell in the table to edit it. The values update in real time.
+In the script each parameter is a list of twelve numbers, January first. To
+change a month, edit its number in the list.
 
 #### Site Location
 
-The **Use Stage 1 surface station** checkbox (checked by default) tells
-AERMET to use the latitude and longitude you entered in Stage 1. If you
-uncheck it, AERMET will use the project center coordinates from the Project
-Setup page.
+`station=surface` tells METPREP to use the surface station you described for
+Stage 1, with its latitude and longitude.
 
-Click **Save Stage 3 Configuration**.
+Add Stage 3 to your script:
 
-### Step 5: Download the Two Input Files
+```python
+stage3 = AERMETStage3(
+    station=surface,
+    #        Jan   Feb   Mar   Apr   May   Jun   Jul   Aug   Sep   Oct   Nov   Dec
+    albedo=[0.35, 0.35, 0.25, 0.18, 0.15, 0.15, 0.15, 0.15, 0.18, 0.25, 0.35, 0.35],
+    bowen=[1.5, 1.5, 1.0, 0.8, 0.6, 0.5, 0.5, 0.5, 0.6, 0.8, 1.0, 1.5],
+    roughness=[0.30, 0.30, 0.30, 0.30, 0.50, 0.50, 0.50, 0.50, 0.50, 0.30, 0.30, 0.30],
+    methods=[("REFLEVEL", "SUBNWS")],
+    start_date="2020/01/01",
+    end_date="2020/12/31",
+    surface_file="aermod.sfc",
+    profile_file="aermod.pfl",
+).with_inputs_from(stage1)
+```
 
-You now have two AERMET input files to run (the GUI may still offer a
-third, for Stage 2, which current AERMET does not use):
+`methods=[("REFLEVEL", "SUBNWS")]` tells AERMET that the wind data come from
+a National Weather Service station, which current AERMET requires to be
+stated. `.with_inputs_from(stage1)` points METPREP at the files Stage 1
+writes.
+
+### Step 5: Write the Two Input Files
+
+End your script with the lines that write the two files:
+
+```python
+Path("aermet_stage1.inp").write_text(stage1.to_aermet_input())
+Path("aermet_stage3.inp").write_text(stage3.to_aermet_input())
+print("Wrote aermet_stage1.inp and aermet_stage3.inp")
+```
+
+Run it in a terminal, from the folder that holds the script:
+
+```bash
+python make_aermet_inputs.py
+```
+
+You now have two AERMET input files to run:
 
 | File | Stage | What It Does |
 |---|---|---|
 | `aermet_stage1.inp` | Extract & QA/QC | Reads raw data, checks quality |
-| `aermet_stage2.inp` | Merge | Not used: current AERMET merges inside METPREP |
 | `aermet_stage3.inp` | METPREP | Merges surface + upper air, computes AERMOD-ready parameters |
 
-Download the Stage 1 and Stage 3 files from their preview sections.
+Open them in a text editor and find the keywords listed in Step 2 and your
+monthly surface parameters (`SITE_CHAR` lines) in the Stage 3 file.
 
-### Step 6: Run AERMET (Outside the GUI)
+### Step 6: Run AERMET
 
 AERMET itself must be run separately (it's a different executable from AERMOD).
 First, verify that `aermet` is installed:
@@ -1286,7 +1414,7 @@ If nothing is printed, go back to
 [Section 3.2](#32-install-the-aermod-and-aermet-executables) to install it
 (Option B for Mac/Linux, Option C for Windows).
 
-Then, in a terminal, navigate to the directory containing your downloaded
+Then, in a terminal, navigate to the directory containing your
 input files and run each stage:
 
 ```bash
@@ -1322,14 +1450,14 @@ and reports each run's `success` and first error for you.
 
 Once you have `aermod.sfc` and `aermod.pfl`:
 
-1. Go back to the **Meteorology** page in the GUI.
-2. Switch to **Use existing .sfc/.pfl files** mode.
-3. Enter the paths to your new `aermod.sfc` and `aermod.pfl` files.
+1. Launch the GUI (`pyaermod-app`) and go to the **Meteorology** step.
+2. Under **Met files**, enter the full paths to your new `aermod.sfc` and
+   `aermod.pfl` files in **Surface file** and **Profile file**. The step
+   then says what the surface file holds.
+3. Under **Stations**, enter **Surface station ID** `13874`, **Upper air
+   station ID** `72215` and **Data start year** `2020`, the stations and
+   year you processed.
 4. Continue with your AERMOD run (Tutorial 3).
-
-Alternatively, Stage 3's **Save** button automatically updates the
-Meteorology Pathway to point to the `.sfc` and `.pfl` files you specified,
-so you may already be set.
 
 ### Understanding What AERMET Produced
 
@@ -1362,8 +1490,8 @@ At this point you should understand:
   boundary layer)
 - [x] That surface characteristics (albedo, Bowen ratio, roughness) vary by
   land use and season
-- [x] How to generate the two AERMET input files using the GUI
-- [x] That AERMET must be run in order (Stage 1, then METPREP, which the GUI
+- [x] How to generate the two AERMET input files with PyAERMOD
+- [x] That AERMET must be run in order (Stage 1, then METPREP, which pyaermod
   calls Stage 3) to produce `.sfc` and `.pfl` files
 
 ---
@@ -1397,13 +1525,14 @@ university course.
 ### Multiple Sources and Source Groups
 
 Add several stacks and area sources to the same project and see how their
-plumes overlap. Use **source groups** (Source Editor > Source Groups) to
+plumes overlap. Use **source groups** (on the Sources step, each source's
+**Source groups** field under **Advanced**, one group name per line) to
 separate contributions from different parts of a facility — for example,
 "STACKS" vs. "FUGITIVE" — and compare their relative impact.
 
 ### Terrain Effects
 
-Change the terrain type from FLAT to ELEVATED. Elevated terrain can
+Change **Terrain** on the Project step from Flat to Elevated. Elevated terrain can
 significantly increase concentrations on hilltops that are close to the
 effective plume height. This requires terrain elevation data processed by
 AERMAP.
@@ -1412,8 +1541,8 @@ AERMAP.
 
 Real-world air quality is never zero — there's always some background
 pollution from regional sources, traffic, and natural sources. AERMOD can add
-a background concentration to its predictions using the **Background** option
-in the Source Editor (see Notebook 07 for the Python API approach).
+a background concentration to its predictions. The GUI cannot enter one yet;
+set it from Python (see Notebook 07) and open the saved project in the GUI.
 
 ### The Python API
 

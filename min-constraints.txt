@@ -42,3 +42,6 @@ ezdxf==1.0.3
 
 # [gui]
 nicegui==3.0.0
+
+# [gui-desktop]
+pywebview==5.0
