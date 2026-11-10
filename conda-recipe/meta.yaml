@@ -18,8 +18,12 @@ build:
   number: 0
   script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   entry_points:
-    - pyaermod = pyaermod:print_info
-    - pyaermod-gui = pyaermod.gui:main
+    # Keep in step with [project.scripts] in pyproject.toml. The two GUI
+    # commands need the optional packages listed in README.md; without
+    # them they stop with a message naming the pip extra.
+    - pyaermod = pyaermod.cli:main
+    - pyaermod-app = pyaermod.gui_v2:main
+    - pyaermod-desktop = pyaermod.gui_v2.desktop:main
 
 requirements:
   host:
@@ -29,8 +33,8 @@ requirements:
     - wheel
   run:
     - python >=3.11
-    - numpy >=1.20
-    - pandas >=1.3
+    - numpy >=1.24.0
+    - pandas >=2.0.0
 
 test:
   imports:
@@ -44,7 +48,8 @@ test:
     - pyaermod.met_qaqc
     - pyaermod.terrain_utils
   commands:
-    - pyaermod --help || true
+    - pyaermod --help
+    - pyaermod-app --help
 
 about:
   home: https://github.com/atmmod/pyaermod

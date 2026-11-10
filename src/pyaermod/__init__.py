@@ -110,7 +110,7 @@ Features:
   * Create visualizations (plots and maps)
   * Batch processing with tqdm / SLURM integration
   * Geospatial: UTM/WGS84 transforms, GeoTIFF & Shapefile export
-  * Interactive Streamlit GUI (pip install pyaermod[gui])
+  * Interactive NiceGUI app (pip install pyaermod[gui], then run pyaermod-app)
   * Regulatory profile presets (EPA Appendix W 2017 / 2023)
   * Advanced cross-field validation + PRIME/GEP downwash helpers
 

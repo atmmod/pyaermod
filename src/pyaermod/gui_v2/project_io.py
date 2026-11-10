@@ -1,10 +1,10 @@
 """
 JSON save/load for the project a GUI v2 :class:`~pyaermod.gui_v2.session.Session` edits.
 
-UI-framework-agnostic: the legacy Streamlit ``ProjectSerializer`` is
-tightly coupled to ``st.session_state`` and lives in :mod:`pyaermod.gui`.
-This module is the headless equivalent — both GUIs can converge on it
-once Streamlit is deprecated in v2.0.
+UI-framework-agnostic and headless: it needs only the core package, so
+scripts can read and write the GUI's project files without the ``[gui]``
+extra. It replaced ``ProjectSerializer`` of the Streamlit GUI
+(``pyaermod.gui``), which was removed in v2.0.
 
 Format
 ------

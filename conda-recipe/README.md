@@ -38,7 +38,14 @@ source:
 ## Optional-dependencies note
 
 The recipe deliberately only pins the *core* runtime deps
-(`numpy`, `pandas`). Users who need viz / geo / gui / hpc should
+(`numpy`, `pandas`), with the same floors as `dependencies` in
+`pyproject.toml`. Users who need viz / geo / gui / hpc should
 install the extras via pip in a conda env, or rely on downstream
-conda-forge packages (`matplotlib`, `rasterio`, `streamlit`, etc.)
-which are already available on conda-forge.
+conda-forge packages (`matplotlib`, `rasterio`, `nicegui`, `pywebview`,
+etc.) which are already available on conda-forge.
+
+The recipe installs the three commands of `[project.scripts]`:
+`pyaermod`, `pyaermod-app` and `pyaermod-desktop`. The GUI commands need
+the packages of the `gui` extra (`nicegui`, `matplotlib`) and, for
+`pyaermod-desktop`, of `gui-desktop` (`pywebview` as well); without them
+they stop with a message that names the extra to install.

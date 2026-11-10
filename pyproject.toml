@@ -88,6 +88,8 @@ all = [
     "tqdm>=4.60.0",
     "ezdxf>=1.0.0",
     "nicegui>=3.0",
+    # So that pyaermod[all] can run pyaermod-desktop as well as pyaermod-app.
+    "pywebview>=5.0",
 ]
 # Browser journeys for the GUI (tests/e2e, `make test-gui-e2e`). Install the
 # browser once with `python -m playwright install --with-deps chromium`.

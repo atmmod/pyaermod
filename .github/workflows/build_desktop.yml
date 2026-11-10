@@ -3,16 +3,30 @@ name: Build desktop bundles
 # Cross-platform PyInstaller builds for the NiceGUI + pywebview desktop
 # app. Triggered on release tags (auto-attaches binaries to the release)
 # or manually for ad-hoc smoke tests.
+#
+# The macOS bundle is signed with a Developer ID certificate, notarized
+# and stapled when the six signing secrets exist (RELEASING.md, "Desktop
+# builds", says how to create them). Without them a manual run still
+# builds an ad-hoc signed bundle, with a warning; a release run fails
+# the macOS job instead of attaching a bundle that Gatekeeper blocks.
+#
+# There is deliberately no pull_request trigger: the signing secrets
+# must not be reachable from code that has not been merged.
 
 on:
   workflow_dispatch:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write  # "Attach to release" uploads the release assets
     strategy:
       fail-fast: false
       matrix:
@@ -46,17 +60,253 @@ jobs:
       - name: Install pyaermod + desktop extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[gui-desktop]" pyinstaller>=6.0
+          pip install -e ".[gui-desktop]" "pyinstaller>=6.0"
 
+      # ---------------------------------------------------------------
+      # macOS signing, part 1: decide whether to sign, import the
+      # certificate. `secrets` cannot be read in a step's `if:`, so this
+      # step turns "are the secrets there" into an output the later
+      # steps test. No step that handles a secret echoes it or turns on
+      # shell tracing.
+      # ---------------------------------------------------------------
+      - name: Check macOS signing secrets
+        id: signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          missing=()
+          present=0
+          for name in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY \
+                      APPLE_API_KEY_P8_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+            if [ -n "${!name}" ]; then
+              present=$((present + 1))
+            else
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "All six signing secrets are set: the bundle will be signed and notarized."
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$present" -gt 0 ]; then
+            echo "::error::Some macOS signing secrets are set and some are not. Missing: ${missing[*]}. Set all six or none (RELEASING.md, Desktop builds)."
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            echo "::error::The macOS signing secrets are not set, so the bundle would be unsigned and Gatekeeper would block it. Refusing to attach it to a release. Add the secrets (RELEASING.md, Desktop builds) and re-run this job."
+            exit 1
+          fi
+
+          echo "::warning::The macOS signing secrets are not set: this macOS build is ad-hoc signed, not notarized, and will be blocked by Gatekeeper on other Macs."
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+
+      - name: Import the Developer ID certificate into a temporary keychain
+        if: runner.os == 'macOS' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/pyaermod-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          # The keychain lives for this job only, so its password is
+          # made up here instead of being one more secret to manage.
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # No auto-lock while the job runs (6 h is the job time limit).
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -f pkcs12 -P "$MACOS_CERT_PASSWORD" \
+            -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          rm -f "$CERT_PATH"
+          # Let codesign use the key without a UI prompt.
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          # Put the keychain on the search list, keeping what is there.
+          existing=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%\"}"
+            line="${line#\"}"
+            [ -n "$line" ] && existing+=("$line")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing[@]}"
+
+          identities="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")"
+          if ! grep -q -F -- "$MACOS_SIGN_IDENTITY" <<<"$identities"; then
+            echo "::error::The identity in MACOS_SIGN_IDENTITY is not a valid code signing identity in the imported .p12 (wrong name, expired or revoked certificate, or a .p12 without the private key)."
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # Build. On macOS, with MACOS_SIGN_IDENTITY set, PyInstaller signs
+      # every collected Mach-O file, the executable and the bundle with
+      # `codesign --options=runtime --timestamp --entitlements
+      # packaging/entitlements.plist` (PyInstaller/utils/osx.py,
+      # sign_binary). Empty identity: ad-hoc. Other OSes ignore it.
+      # ---------------------------------------------------------------
       - name: Build desktop bundle
+        env:
+          MACOS_SIGN_IDENTITY: ${{ steps.signing.outputs.enabled == 'true' && secrets.MACOS_SIGN_IDENTITY || '' }}
         run: |
           pyinstaller packaging/pyaermod_desktop.spec --clean --noconfirm
 
-      - name: Zip macOS .app bundle
-        if: matrix.os == 'macos-latest'
+      # ---------------------------------------------------------------
+      # macOS signing, part 2: verify, package, notarize, staple.
+      # ---------------------------------------------------------------
+      - name: Verify the macOS code signature
+        if: runner.os == 'macOS' && steps.signing.outputs.enabled == 'true'
+        shell: bash
         run: |
-          cd dist
-          zip -ry pyaermod-desktop-macos.zip pyaermod-desktop.app
+          APP="dist/pyaermod-desktop.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv --verbose=4 "$APP"
+          codesign -d --entitlements - "$APP"
+
+          info="$(codesign -dv --verbose=4 "$APP" 2>&1)"
+          fail=0
+          grep -q '^Authority=Developer ID Application' <<<"$info" \
+            || { echo "::error::The bundle is not signed with a Developer ID Application certificate."; fail=1; }
+          grep -q '^CodeDirectory.*flags=.*runtime' <<<"$info" \
+            || { echo "::error::The bundle is signed without the hardened runtime."; fail=1; }
+          grep -q '^Timestamp=' <<<"$info" \
+            || { echo "::error::The signature has no secure timestamp."; fail=1; }
+          team="$(sed -n 's/^TeamIdentifier=//p' <<<"$info")"
+          if [ -z "$team" ] || [ "$team" = "not set" ]; then
+            echo "::error::The bundle's signature has no Team ID."
+            fail=1
+          fi
+
+          # packaging/entitlements.plist leaves library validation on,
+          # so a library signed by anyone else (or not re-signed) would
+          # stop the app at launch. Check every Mach-O file now.
+          checked=0
+          while IFS= read -r -d '' f; do
+            case "$(file -b "$f")" in *Mach-O*) ;; *) continue ;; esac
+            checked=$((checked + 1))
+            t="$(codesign -dv "$f" 2>&1 | sed -n 's/^TeamIdentifier=//p' || true)"
+            if [ "$t" != "$team" ]; then
+              echo "::error::$f is signed by Team ID '${t:-none}', not the bundle's."
+              fail=1
+            fi
+          done < <(find "$APP" -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) -print0)
+          echo "Checked the Team ID of $checked Mach-O files."
+          exit "$fail"
+
+      # Runs for signed and ad-hoc builds alike. A hardened-runtime or
+      # library-validation problem kills the process before the server
+      # binds, so "the server came up" is the test; the window itself
+      # is not checked (the runner's display is not something to rely on).
+      - name: Launch the macOS bundle once
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/pyaermod-desktop-launch.log"
+          dist/pyaermod-desktop.app/Contents/MacOS/pyaermod-desktop > "$LOG" 2>&1 &
+          pid=$!
+          up=""
+          for _ in $(seq 1 90); do
+            sleep 1
+            kill -0 "$pid" 2>/dev/null || break
+            listening="$(lsof -nP -a -p "$pid" -iTCP -sTCP:LISTEN 2>/dev/null || true)"
+            case "$listening" in *LISTEN*) up=yes; break ;; esac
+          done
+          kill "$pid" 2>/dev/null || true
+          sleep 2
+          kill -9 "$pid" 2>/dev/null || true
+          cat "$LOG"
+          if [ -z "$up" ]; then
+            echo "::error::The bundled app exited, or did not start its server within 90 s."
+            exit 1
+          fi
+          echo "The bundled app started its server."
+
+      # ditto, not zip: it keeps the bundle's symlinks and extended
+      # attributes the way Finder's own archiver does, which is what
+      # the notary service and the stapled ticket expect.
+      - name: Zip macOS .app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ditto -c -k --keepParent dist/pyaermod-desktop.app dist/pyaermod-desktop-macos.zip
+
+      - name: Notarize the macOS bundle
+        if: runner.os == 'macOS' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/notary-api-key.p8"
+          RESULT="$RUNNER_TEMP/notary-result.json"
+          (umask 077; printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH")
+          auth=(--key "$KEY_PATH" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID")
+
+          # Judge by the reported status, not the exit code, which does
+          # not reliably say whether the service accepted the submission.
+          xcrun notarytool submit dist/pyaermod-desktop-macos.zip "${auth[@]}" \
+            --wait --timeout 45m --output-format json > "$RESULT" || true
+          cat "$RESULT"; echo
+          id="$(plutil -extract id raw -o - "$RESULT" 2>/dev/null || true)"
+          status="$(plutil -extract status raw -o - "$RESULT" 2>/dev/null || true)"
+
+          # The log lists every problem (and, when accepted, every warning).
+          if [ -n "$id" ]; then
+            xcrun notarytool log "$id" "${auth[@]}" || true
+          fi
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::Notarization did not succeed (status: ${status:-unknown}). The notary log above says why."
+            exit 1
+          fi
+
+      # The ticket is stapled to the .app, so the zip made before
+      # notarization is stale: make it again, then check the copy that
+      # users will actually unpack.
+      - name: Staple the ticket, re-zip and check with Gatekeeper
+        if: runner.os == 'macOS' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          xcrun stapler staple dist/pyaermod-desktop.app
+          rm -f dist/pyaermod-desktop-macos.zip
+          ditto -c -k --keepParent dist/pyaermod-desktop.app dist/pyaermod-desktop-macos.zip
+
+          CHECK_DIR="$RUNNER_TEMP/unzipped"
+          rm -rf "$CHECK_DIR"
+          ditto -x -k dist/pyaermod-desktop-macos.zip "$CHECK_DIR"
+          UNZIPPED="$CHECK_DIR/pyaermod-desktop.app"
+          xcrun stapler validate "$UNZIPPED"
+          codesign --verify --deep --strict "$UNZIPPED"
+          assessment="$(spctl -a -vvv -t exec "$UNZIPPED" 2>&1)" || { echo "$assessment"; echo "::error::Gatekeeper rejects the bundle."; exit 1; }
+          echo "$assessment"
+          grep -q 'source=Notarized Developer ID' <<<"$assessment" \
+            || { echo "::error::Gatekeeper accepts the bundle, but not as 'Notarized Developer ID'."; exit 1; }
+
+      - name: Delete the temporary keychain and key files
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/pyaermod-signing.keychain-db"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f "$KEYCHAIN_PATH" "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/notary-api-key.p8"
 
       - name: List dist/
         if: always()

@@ -34,6 +34,7 @@ import logging
 import os
 import platform
 import re
+import sys
 from pathlib import Path
 from typing import Any, List
 
@@ -707,9 +708,35 @@ class TestEntryPoints:
     def test_main_calls_build_and_run(self, monkeypatch):
         from pyaermod import gui_v2
         called = {}
-        monkeypatch.setattr(app_module, "build_and_run", lambda **kw: called.setdefault("called", True))
+        monkeypatch.setattr(app_module, "build_and_run", lambda **kw: called.update(kw))
+        gui_v2.main([])
+        assert called == {"host": "127.0.0.1", "port": 8080, "show": True}
+
+    def test_main_reads_host_port_and_no_browser(self, monkeypatch):
+        # What the Dockerfile's CMD passes: reachable from outside the
+        # container, and no browser tab to open inside it.
+        from pyaermod import gui_v2
+        called = {}
+        monkeypatch.setattr(app_module, "build_and_run", lambda **kw: called.update(kw))
+        gui_v2.main(["--host", "0.0.0.0", "--port", "9000", "--no-browser"])
+        assert called == {"host": "0.0.0.0", "port": 9000, "show": False}
+
+    def test_main_reads_the_command_line_by_default(self, monkeypatch):
+        from pyaermod import gui_v2
+        called = {}
+        monkeypatch.setattr(app_module, "build_and_run", lambda **kw: called.update(kw))
+        monkeypatch.setattr(sys, "argv", ["pyaermod-app", "--port", "8123"])
         gui_v2.main()
-        assert called["called"]
+        assert called["port"] == 8123
+
+    def test_main_without_nicegui_names_the_gui_extra(self, monkeypatch):
+        from pyaermod import gui_v2
+        monkeypatch.setattr(app_module, "build_and_run",
+                            lambda **kw: pytest.fail("the server was started"))
+        monkeypatch.setitem(sys.modules, "nicegui", None)   # import nicegui fails
+        with pytest.raises(ImportError, match=r'pip install "pyaermod\[gui\]"') as caught:
+            gui_v2.main([])
+        assert isinstance(caught.value.__cause__, ImportError)
 
     def test_build_and_run_forwards_options_to_ui_run(self, monkeypatch):
         captured = {}

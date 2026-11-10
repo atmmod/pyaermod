@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pyaermod-app` takes `--host`, `--port` and `--no-browser`, so the GUI
+  can be served from a container or on another port.
+- The macOS desktop build is signed with a Developer ID certificate,
+  notarized and stapled when the signing secrets are configured
+  (`.github/workflows/build_desktop.yml`; setup in `RELEASING.md`,
+  "Desktop builds"). A release without the secrets fails the macOS job
+  instead of attaching a bundle that Gatekeeper blocks.
+
+### Changed
+
+- The macOS desktop bundle is a onedir `.app` instead of a single-file
+  executable inside a `.app`, which could not be notarized. Its version
+  now comes from `pyproject.toml` (it said 1.9.0).
+- `pyaermod[all]` includes `pywebview`, so it can run `pyaermod-desktop`.
+
+### Fixed
+
+- The desktop bundle re-launched itself in an endless chain of
+  background processes that outlived the window:
+  `packaging/desktop_entry.py` did not call
+  `multiprocessing.freeze_support()`.
+- `pyaermod-app` without the `[gui]` extra stops with a message naming
+  `pip install "pyaermod[gui]"` instead of `ModuleNotFoundError: nicegui`.
+- Material that still described the Streamlit GUI removed in v2.0, and
+  so made the GUI look absent from the PyPI release: the teaching guide
+  and refinery assignments (port 8501, the old page names), the teaching
+  solution scripts (which imported `pyaermod.gui` or wrote project files
+  the GUI could not open), the `Dockerfile` (it ran `streamlit run` on a
+  file that no longer exists), the conda recipe's entry points, and the
+  banner `pyaermod` prints.
+- `docs/desktop.md` named release assets that were never published and
+  called the macOS build universal; it is Apple silicon only. It now
+  also says how to open the unsigned 2.2.0 and earlier bundles.
+
 ## [2.2.0] - 2026-10-20
 
 The archival release the JAWMA manuscript cites. v2.1.0 was planned

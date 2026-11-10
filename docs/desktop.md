@@ -10,17 +10,58 @@ Python install required for end users.
 Pre-built binaries are attached to each [GitHub Release](https://github.com/atmmod/pyaermod/releases).
 Look for assets named:
 
-- ``pyaermod-desktop-windows-x64.zip`` — Windows 10/11, 64-bit
-- ``pyaermod-desktop-macos.zip`` — macOS 12+ universal
-- ``pyaermod-desktop-linux-x64.tar.gz`` — Linux x86_64 (any glibc-compatible distro)
+- ``pyaermod-desktop.exe`` — Windows, 64-bit (x64). A single executable,
+  not zipped.
+- ``pyaermod-desktop-macos.zip`` — macOS on Apple silicon (arm64) only.
+  Unzips to ``pyaermod-desktop.app``.
+- ``pyaermod-desktop`` — Linux x86_64. A single executable, not
+  archived.
+
+There is no Intel Mac build. On an Intel Mac (or any other system
+without a pre-built binary), install the same app with pip and start it
+from a terminal:
+
+```bash
+pip install "pyaermod[gui-desktop]"
+pyaermod-desktop
+```
 
 ## Run
 
-After unzipping:
-
 - **Windows**: double-click ``pyaermod-desktop.exe``
-- **macOS**: drag ``pyaermod-desktop.app`` to Applications and double-click
-- **Linux**: ``./pyaermod-desktop`` from a shell
+- **macOS**: unzip, drag ``pyaermod-desktop.app`` to Applications and
+  double-click it. If macOS refuses to open it, see
+  [macOS: signing and Gatekeeper](#macos-signing-and-gatekeeper).
+- **Linux**: the download is not marked executable, so
+  ``chmod +x pyaermod-desktop`` once, then ``./pyaermod-desktop`` from a
+  shell
+
+## macOS: signing and Gatekeeper
+
+macOS builds attached to releases after 2.2.0 are signed with a
+Developer ID certificate and notarized by Apple, so they open with a
+double-click like any other downloaded app.
+
+The macOS builds of v2.2.0 and earlier are not signed or notarized, and
+Gatekeeper blocks them ("Apple could not verify..." or "... is damaged
+and can't be opened"). To run one of those builds, do either of these
+once, after moving the app to Applications:
+
+- In a terminal, remove the quarantine mark the browser put on the
+  download:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/pyaermod-desktop.app
+  ```
+
+- Or try to open the app, dismiss the warning, then open **System
+  Settings → Privacy & Security**, scroll to the message about
+  ``pyaermod-desktop`` and choose **Open Anyway**.
+
+Only do this for a build downloaded from the project's
+[releases page](https://github.com/atmmod/pyaermod/releases). A bundle
+you [build from source](#build-from-source) yourself is not quarantined
+and needs neither step on the Mac that built it.
 
 The app starts the NiceGUI server on a free loopback port in the
 background and opens a window on it. It opens to the **Project** step,
@@ -66,13 +107,17 @@ network, or an older OS that the pre-built binaries don't support):
 ```bash
 git clone https://github.com/atmmod/pyaermod
 cd pyaermod
-pip install -e ".[gui-desktop]" pyinstaller>=6.0
+pip install -e ".[gui-desktop]" "pyinstaller>=6.0"
 pyinstaller packaging/pyaermod_desktop.spec --clean --noconfirm
 ```
 
-The built binary lands in ``dist/``. Same spec works on all three OSes;
-PyInstaller picks per-platform defaults at build time (single-file
-``.exe`` on Windows, single-file ELF on Linux, ``.app`` bundle on macOS).
+The built binary lands in ``dist/``. The same spec works on all three
+OSes: a single-file ``.exe`` on Windows, a single-file ELF on Linux, and
+a ``.app`` bundle on macOS, built for the architecture of the Python
+that runs PyInstaller. The macOS bundle is ad-hoc signed unless
+``MACOS_SIGN_IDENTITY`` names a Developer ID identity in your keychain;
+[RELEASING.md](https://github.com/atmmod/pyaermod/blob/main/RELEASING.md)
+describes how the release builds are signed and notarized.
 
 ## AERMOD binary
 

@@ -106,7 +106,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,all]" -c min-constraints.txt
           echo "::group::Resolved versions"
-          pip list --format=columns | grep -iE "^(numpy|pandas|scipy|matplotlib|folium|pyproj|shapely|geopandas|rasterio|requests|tqdm|ezdxf|nicegui) " || true
+          pip list --format=columns | grep -iE "^(numpy|pandas|scipy|matplotlib|folium|pyproj|shapely|geopandas|rasterio|requests|tqdm|ezdxf|nicegui|pywebview) " || true
           echo "::endgroup::"
 
       - name: Run core test suite against minimum versions

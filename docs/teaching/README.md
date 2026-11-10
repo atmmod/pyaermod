@@ -4,7 +4,7 @@ Student-facing guides for learning atmospheric dispersion modeling with PyAERMOD
 
 ## Contents
 
-- **[student-guide.md](student-guide.md)** — Conceptual introduction to air dispersion modeling and five hands-on tutorials using the PyAERMOD GUI. No coding required. Start here.
+- **[student-guide.md](student-guide.md)** — Conceptual introduction to air dispersion modeling and five hands-on tutorials: Tutorials 1--4 use the PyAERMOD GUI (`pyaermod-app`), Tutorial 5 a short Python script to copy and run. No programming experience required. Start here.
 - **[refinery-assignments.md](refinery-assignments.md)** — Advanced tutorials (6--8): AERMET for Houston, terrain processing with AERMAP, and a complete oil refinery dispersion model. Builds on the student guide.
 
 ## Prerequisites

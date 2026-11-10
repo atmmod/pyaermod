@@ -32,6 +32,14 @@ pyaermod-app           # opens a browser tab at http://127.0.0.1:8080
 pyaermod-desktop       # opens a native OS window on a free port
 ```
 
+`pyaermod-app` takes `--port` (when 8080 is in use), `--no-browser` (serve
+without opening a tab) and `--host`. The default host, 127.0.0.1, serves
+this computer only. The GUI reads and writes files and runs AERMOD as the
+user who started it, for anyone who can reach it, so pass
+`--host 0.0.0.0` only in a container or on a network you trust; the
+repository's `Dockerfile` does, and its header shows how to publish the
+port on 127.0.0.1.
+
 ## The AERMOD binary
 
 The GUI runs the `aermod` executable it finds on your `PATH`; it does

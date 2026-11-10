@@ -11,17 +11,16 @@ Usage:
 
 Outputs:
     tutorial3.inp           — AERMOD input file
-    tutorial3_project.json  — Serialized project (for GUI import)
+    tutorial3_project.json  — Project file (the GUI opens it: Project step, Open...)
 
 With --run (requires AERMOD executable + met files in working dir):
     Runs AERMOD and prints summary statistics from the output.
 """
 
 import argparse
-import dataclasses
-import json
 from pathlib import Path
 
+from pyaermod.gui_v2.project_io import save_project
 from pyaermod.input_generator import (
     AERMODProject,
     CartesianGrid,
@@ -104,9 +103,8 @@ def main(output_dir: str = ".", run_aermod: bool = False) -> None:
     print(f"  ({len(inp_text.splitlines())} lines)")
 
     # Write project JSON
-    proj_dict = dataclasses.asdict(project)
     json_path = out / "tutorial3_project.json"
-    json_path.write_text(json.dumps(proj_dict, indent=2, default=str))
+    save_project(project, json_path)
     print(f"  Project JSON written to {json_path}")
 
     # --- Verification ---
