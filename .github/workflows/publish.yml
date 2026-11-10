@@ -34,8 +34,20 @@ jobs:
           name: dist
           path: dist/
 
-  publish-pypi:
+  gui-install:
+    # Install the wheel just built, with only the gui extra, into new
+    # environments on Linux, macOS and Windows and start the GUI there.
+    # The upload below waits for it: a release whose GUI does not install
+    # is not published.
     needs: build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/gui_install_smoke.yml
+    with:
+      artifact: dist
+
+  publish-pypi:
+    needs: [build, gui-install]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

@@ -45,7 +45,7 @@ The library underneath is sound. Once the averaging periods were changed, the de
 
 Agents should not reopen these decisions without the maintainer's agreement.
 
-1. **Keep NiceGUI, both entry points (`pyaermod-app` and `pyaermod-desktop`), and the PyInstaller bundle.** The defects are architectural rather than framework limitations. NiceGUI 3 provides `ui.refreshable`, `ui.stepper`, `ui.plotly`, `ui.leaflet` and `run.io_bound`, which cover everything this plan needs.
+1. **Keep NiceGUI, both entry points (`pyaermod-app` and `pyaermod-desktop`), and the PyInstaller bundle.** (Superseded for the bundle, November 2026: the downloadable desktop apps are no longer built, and `packaging/` and `build_desktop.yml` are removed. The GUI is distributed through PyPI and conda-forge only; both entry points stay.) The defects are architectural rather than framework limitations. NiceGUI 3 provides `ui.refreshable`, `ui.stepper`, `ui.plotly`, `ui.leaflet` and `run.io_bound`, which cover everything this plan needs.
 2. **The GUI is a thin layer over the library.** Every modeling operation goes through existing public APIs: `AERMODProject`, `Validator`, `read_aermod_input`, `AERMODRunner`, `AERMODOutputParser`, `PostfileParser`, `design_values`, `naaqs`, `met_qaqc` and `kmz_export`. The GUI never writes AERMOD keywords or parses AERMOD output itself. When the GUI needs something the library lacks, the library gains it first, with its own tests.
 3. **Tests are written before the redesign and define "done."** The user journeys below are executable specifications. A work package is finished when its journeys pass, not when its code is written.
 
@@ -137,7 +137,7 @@ The receptor grid is the GUI's default polar grid, so the user only adds it. The
 | J7 | Add, edit and delete sources and receptors of several types. | Table rows, the empty-state message, the plan-view plot and the step badges update after every action. Integer fields show integers, and the deck contains `SURFDATA  14735  1988`. | T1, T2 |
 | J8 | Reload the browser in the middle of a project, and again after a run. | The project and the last run are restored, or, if WP-G2 chooses the fallback, an unsaved-changes warning appears before unload. | T2 |
 | J9 | Start a long run, watch its progress and cancel it. | Progress advances with AERMOD's day count, and other steps stay usable during the run. Cancel stops the process without leaving an orphaned `aermod`, and the status reads "Cancelled." | T2 (slow recording) |
-| J10 | Launch desktop mode. | `pyaermod-desktop` opens a window under xvfb and serves the app. The bundle built by `build_desktop.yml` starts and responds on its port. | `build_desktop.yml` smoke step |
+| J10 | Launch desktop mode. | `pyaermod-desktop` opens a window under xvfb and serves the app. (The bundle half of this journey is dropped: the bundle is no longer built, see decision 1.) | Not automated |
 
 ## Work packages
 
@@ -232,7 +232,7 @@ This package comes last.
 
 1. Rewrite `docs/gui-guide.md` around the seven steps, using screenshots from the latest end-to-end artifact, and update `docs/desktop.md`.
 2. Replace the stale "Adding a New Source Type" steps in `CONTRIBUTING.md`, which still refer to `gui.py`, with the current GUI registry.
-3. Add the J10 smoke step to `build_desktop.yml`: launch the built bundle (under xvfb on Linux), wait for its port and fetch `/`.
+3. ~~Add the J10 smoke step to `build_desktop.yml`: launch the built bundle (under xvfb on Linux), wait for its port and fetch `/`.~~ Dropped: the bundle is no longer built (decision 1).
 4. Update `CHANGELOG.md` and draft release notes. Tag a release only when the maintainer approves.
 
 **Acceptance:** `mkdocs build --strict` passes, and J10 passes on Linux, macOS and Windows.
@@ -250,7 +250,7 @@ This table lets agents work in parallel without merge conflicts. Where two packa
 | WP-G4 | `pages/run.py` (which may be renamed `review_run.py`) | `pages/results.py` |
 | WP-G5 | `pages/results.py` and any new plotting helper under `gui_v2/` | `pages/run.py` |
 | WP-G6 | A new `gui_v2/files.py` and the import methods on `Session`; WP-G3 places the Import button | Page layout |
-| WP-G7 | `docs/`, `CONTRIBUTING.md`, `build_desktop.yml` and `CHANGELOG.md` | Source code |
+| WP-G7 | `docs/`, `CONTRIBUTING.md` and `CHANGELOG.md` (`build_desktop.yml` until it was removed, decision 1) | Source code |
 
 ## Sequencing
 

@@ -705,6 +705,13 @@ class TestLongTables:
 
 
 class TestEntryPoints:
+    @pytest.fixture(autouse=True)
+    def _any_port_is_free(self, monkeypatch):
+        # main() refuses a port that is in use; these tests name ports
+        # (8080 by default) that something on this machine may hold.
+        from pyaermod import gui_v2
+        monkeypatch.setattr(gui_v2, "_require_free_port", lambda host, port: None)
+
     def test_main_calls_build_and_run(self, monkeypatch):
         from pyaermod import gui_v2
         called = {}
@@ -729,14 +736,136 @@ class TestEntryPoints:
         gui_v2.main()
         assert called["port"] == 8123
 
-    def test_main_without_nicegui_names_the_gui_extra(self, monkeypatch):
+    def test_main_without_nicegui_names_the_gui_extra(self, monkeypatch, tmp_path):
         from pyaermod import gui_v2
         monkeypatch.setattr(app_module, "build_and_run",
                             lambda **kw: pytest.fail("the server was started"))
+        monkeypatch.setattr(sys, "prefix", str(tmp_path))   # not a conda environment
         monkeypatch.setitem(sys.modules, "nicegui", None)   # import nicegui fails
-        with pytest.raises(ImportError, match=r'pip install "pyaermod\[gui\]"') as caught:
+        # One line and exit status 1, not a traceback.
+        with pytest.raises(SystemExit, match=r'pip install "pyaermod\[gui\]"') as caught:
             gui_v2.main([])
+        assert str(caught.value.code).startswith("pyaermod-app needs NiceGUI")
         assert isinstance(caught.value.__cause__, ImportError)
+
+    @pytest.mark.parametrize("records, expected", [
+        # pyaermod itself is a conda package: conda has no extras, so name
+        # the conda package that brings the GUI's dependencies.
+        (["pyaermod-2.3.0-pyhd8ed1ab_0.json"], "conda install -c conda-forge pyaermod-gui"),
+        # A conda environment into which pyaermod was installed with pip.
+        (["python-3.12.7-h_0.json", "numpy-2.1.0-py312_0.json"], 'pip install "pyaermod[gui]"'),
+        # Not pyaermod's own record.
+        (["pyaermod-gui-2.3.0-hd8ed1ab_0.json"], 'pip install "pyaermod[gui]"'),
+    ])
+    def test_the_hint_names_conda_packages_for_a_conda_install(
+            self, monkeypatch, tmp_path, records, expected):
+        from pyaermod import gui_v2
+        (tmp_path / "conda-meta").mkdir()
+        for record in records:
+            (tmp_path / "conda-meta" / record).write_text("{}")
+        monkeypatch.setattr(sys, "prefix", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "nicegui", None)
+        with pytest.raises(SystemExit) as caught:
+            gui_v2.main([])
+        assert f"Install it with `{expected}`." in str(caught.value.code)
+
+    def test_main_says_which_option_to_change_when_the_port_is_in_use(self, monkeypatch):
+        import socket
+
+        from pyaermod import gui_v2
+        monkeypatch.undo()                                   # the real port check
+        monkeypatch.setattr(app_module, "build_and_run",
+                            lambda **kw: pytest.fail("the server was started"))
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as taken:
+            taken.bind(("127.0.0.1", 0))
+            taken.listen()
+            port = taken.getsockname()[1]
+            with pytest.raises(SystemExit) as caught:
+                gui_v2.main(["--port", str(port)])
+        message = str(caught.value.code)
+        assert message.startswith(f"Cannot listen on 127.0.0.1 port {port} (")
+        assert message.endswith(f"choose a different one: --port {port + 1}")
+        assert isinstance(caught.value.__cause__, OSError)
+
+    def test_a_free_port_passes_the_port_check(self, monkeypatch):
+        import socket
+
+        from pyaermod import gui_v2
+        monkeypatch.undo()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        gui_v2._require_free_port("127.0.0.1", port)         # returns
+
+    def test_an_ipv6_host_is_checked_as_ipv6(self, monkeypatch):
+        import socket
+
+        from pyaermod import gui_v2
+        monkeypatch.undo()
+        families = []
+
+        class Recorder(socket.socket):
+            def __init__(self, family, *args):
+                families.append(family)
+                super().__init__(family, *args)
+
+            def bind(self, address):
+                families.append(address)
+
+        monkeypatch.setattr(socket, "socket", Recorder)
+        gui_v2._require_free_port("::1", 8080)
+        assert families == [socket.AF_INET6, ("::1", 8080)]
+
+    def test_python_dash_m_is_the_same_command(self, monkeypatch):
+        import runpy
+
+        from pyaermod import gui_v2
+        called = []
+        monkeypatch.setattr(gui_v2, "main", lambda: called.append(sys.argv[1:]))
+        monkeypatch.setattr(sys, "argv", ["python -m pyaermod.gui_v2", "--no-browser"])
+        monkeypatch.delitem(sys.modules, "pyaermod.gui_v2.__main__", raising=False)
+        runpy.run_module("pyaermod.gui_v2", run_name="__main__")
+        assert called == [["--no-browser"]]
+
+    def test_desktop_without_pywebview_names_the_gui_desktop_extra(self, monkeypatch, tmp_path):
+        from pyaermod.gui_v2 import desktop
+        monkeypatch.setattr(app_module, "build_and_run",
+                            lambda **kw: pytest.fail("the server was started"))
+        monkeypatch.setattr(sys, "prefix", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "webview", None)
+        with pytest.raises(SystemExit) as caught:
+            desktop.main()
+        assert str(caught.value.code) == (
+            "pyaermod-desktop needs pywebview, which is not installed. "
+            'Install it with `pip install "pyaermod[gui-desktop]"`.')
+        assert isinstance(caught.value.__cause__, ImportError)
+
+    def test_desktop_without_pywebview_in_a_conda_install(self, monkeypatch, tmp_path):
+        from pyaermod.gui_v2 import desktop
+        (tmp_path / "conda-meta").mkdir()
+        (tmp_path / "conda-meta" / "pyaermod-2.3.0-pyhd8ed1ab_0.json").write_text("{}")
+        monkeypatch.setattr(sys, "prefix", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "webview", None)
+        with pytest.raises(SystemExit) as caught:
+            desktop.main()
+        assert str(caught.value.code) == (
+            "pyaermod-desktop needs pywebview, which is not installed. "
+            "Install it with `conda install -c conda-forge pywebview` (on macOS, where "
+            "conda-forge has no pywebview, `python -m pip install pywebview`).")
+
+    def test_desktop_without_nicegui_names_the_gui_package(self, monkeypatch, tmp_path):
+        # conda: pywebview can be installed without pyaermod-gui.
+        from pyaermod.gui_v2 import desktop
+        (tmp_path / "conda-meta").mkdir()
+        (tmp_path / "conda-meta" / "pyaermod-2.3.0-pyhd8ed1ab_0.json").write_text("{}")
+        monkeypatch.setattr(sys, "prefix", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "nicegui", None)
+        monkeypatch.setitem(sys.modules, "webview", object())
+        with pytest.raises(SystemExit) as caught:
+            desktop.main()
+        assert str(caught.value.code) == (
+            "pyaermod-desktop needs NiceGUI, which is not installed. "
+            "Install it with `conda install -c conda-forge pyaermod-gui`.")
 
     def test_build_and_run_forwards_options_to_ui_run(self, monkeypatch):
         captured = {}

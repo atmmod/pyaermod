@@ -1,0 +1,109 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/prefix-dev/recipe-format/main/schema.json
+schema_version: 1
+
+context:
+  version: "2.2.0"
+
+recipe:
+  name: pyaermod
+  version: ${{ version }}
+
+source:
+  url: https://pypi.org/packages/source/p/pyaermod/pyaermod-${{ version }}.tar.gz
+  sha256: 4b4ea0662111167a26763dc963116001ada07940fda8dbd3b9b5fe1967300481
+
+build:
+  number: 0
+
+outputs:
+  # The library and its three commands: what `pip install pyaermod` gives.
+  - package:
+      name: pyaermod
+    build:
+      noarch: python
+      script: ${{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+      python:
+        entry_points:
+          - pyaermod = pyaermod.cli:main
+          - pyaermod-app = pyaermod.gui_v2:main
+          - pyaermod-desktop = pyaermod.gui_v2.desktop:main
+    requirements:
+      host:
+        - python ${{ python_min }}.*
+        - pip
+        - setuptools >=77.0.3
+      run:
+        - python >=${{ python_min }}
+        - numpy >=1.24.0
+        - pandas >=2.0.0
+      # The floors of the optional GUI packages, for an environment that has them.
+      run_constraints:
+        - nicegui >=3.0
+        - matplotlib-base >=3.7.0
+        - pywebview >=5.0
+    tests:
+      - python:
+          imports:
+            - pyaermod
+            - pyaermod.api
+            - pyaermod.cli
+            - pyaermod.gui_v2
+          pip_check: true
+          python_version:
+            - ${{ python_min }}.*
+            - "*"
+      - requirements:
+          run:
+            - python ${{ python_min }}.*
+        script:
+          - pyaermod --version
+          - pyaermod --help
+          - pyaermod info
+          # The GUI commands exist here and say what to install; they run in pyaermod-gui.
+          - pyaermod-app --help
+
+  # The `gui` extra of the PyPI package: conda has no extras, so this
+  # package adds what the GUI needs to exactly this build of pyaermod.
+  - package:
+      name: pyaermod-gui
+    build:
+      noarch: generic
+    requirements:
+      run:
+        - ${{ pin_subpackage("pyaermod", exact=True) }}
+        - nicegui >=3.0
+        - matplotlib-base >=3.7.0
+    tests:
+      - requirements:
+          run:
+            - python ${{ python_min }}.*
+            - pip
+        script:
+          - pip check
+          - pyaermod-app --help
+          - pyaermod gui --help
+          - python -c "import nicegui, matplotlib.backends.backend_agg; from pyaermod.gui_v2.app import build_app"
+    about:
+      summary: The graphical interface of pyaermod, with everything it needs
+      description: |
+        Installs pyaermod together with NiceGUI and matplotlib, so that
+        `pyaermod-app` (or `pyaermod gui`) opens the graphical interface
+        in a browser tab. It is the conda form of `pip install "pyaermod[gui]"`.
+
+about:
+  homepage: https://github.com/atmmod/pyaermod
+  summary: Python wrapper for EPA's AERMOD air dispersion model
+  description: |
+    pyaermod writes AERMOD input files from Python, runs AERMOD, and reads
+    its output into pandas. It also drives AERMET, AERMAP and BPIPPRM,
+    checks inputs against regulatory profiles, and has a graphical
+    interface (the pyaermod-gui package). AERMOD itself is not included.
+  license: MIT
+  license_file: LICENSE
+  documentation: https://atmmod.github.io/pyaermod/
+  repository: https://github.com/atmmod/pyaermod
+
+extra:
+  feedstock-name: pyaermod
+  recipe-maintainers:
+    - scapps

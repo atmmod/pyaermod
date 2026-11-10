@@ -35,7 +35,8 @@ re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
    - `pyproject.toml` → `version = "X.Y.Z"`
    - `src/pyaermod/__init__.py` → `__version__ = "X.Y.Z"`
    - `src/pyaermod/api.py` → `__version__ = "X.Y.Z"`
-   - `conda-recipe/meta.yaml` → `{% set version = "X.Y.Z" %}`
+   - `conda-recipe/recipe.yaml` → `context: version: "X.Y.Z"` (its
+     `sha256` is updated after the release, in step 4)
    - `CITATION.cff` → `version: X.Y.Z`
 
 2. **Date the release**:
@@ -62,7 +63,7 @@ re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
 4. **Commit and push** (on `main`, or through a PR):
    ```bash
    git add pyproject.toml src/pyaermod/__init__.py src/pyaermod/api.py \
-           conda-recipe/meta.yaml CITATION.cff CHANGELOG.md docs/release-notes
+           conda-recipe/recipe.yaml CITATION.cff CHANGELOG.md docs/release-notes
    git commit -m "Release vX.Y.Z"
    git push origin main
    ```
@@ -86,6 +87,16 @@ pip install pyaermod==X.Y.Z
 ```
 The docs site redeploys on the push to `main` (`.github/workflows/docs.yml`).
 
+`publish.yml` installs the wheel it built, with only the `gui` extra,
+into new environments on Linux, macOS and Windows and starts the GUI
+there (`gui_install_smoke.yml`, `scripts/gui_install_smoke.py`) before
+it uploads. If that job fails, nothing was published: fix the cause and
+publish the release again.
+
+No desktop binaries are built or attached to the release. The GUI is
+installed with pip (`pyaermod[gui]`, or `pyaermod[gui-desktop]` for the
+native window); the downloadable desktop apps stopped after v2.2.0.
+
 ## 3. Record the Zenodo DOI
 
 A few minutes after the release is published, Zenodo lists the archived
@@ -103,159 +114,39 @@ The tag itself keeps the previous DOI; that is expected, since the DOI
 did not exist when the tag was made, and Zenodo's own record carries
 the authoritative citation for the tag.
 
-## 4. Desktop builds
+## 4. conda-forge
 
-Publishing the release also triggers
-`.github/workflows/build_desktop.yml`, which builds the desktop app with
-PyInstaller on Linux, macOS (Apple silicon) and Windows and attaches
-`pyaermod-desktop`, `pyaermod-desktop-macos.zip` and
-`pyaermod-desktop.exe` to the release. The macOS bundle is signed with
-a Developer ID certificate, notarized by Apple and stapled, which is
-what lets it open on other Macs. That needs six repository secrets.
+pyaermod is not on conda-forge until the recipe in `conda-recipe/` has
+been submitted once; `conda-recipe/README.md` has the full procedure.
 
-Without the secrets, a release run **fails the macOS job** and attaches
-no macOS build (an unsigned one would be blocked by Gatekeeper); the
-Linux and Windows jobs are unaffected. A manual run without them still
-builds an ad-hoc signed bundle, with a warning, for testing.
+After every release, record the sdist's checksum in the recipe (the same
+commit as the Zenodo DOI is fine):
 
-### Once: create the signing secrets
-
-All of this needs the Apple Developer Program membership. Nothing below
-puts a secret value on a command line or in the shell history: each
-`gh secret set` reads a file, or prompts.
-
-1. **Developer ID Application certificate.** In Keychain Access, use
-   *Certificate Assistant → Request a Certificate From a Certificate
-   Authority* (saved to disk) to make a signing request. At
-   <https://developer.apple.com/account/resources/certificates>, add a
-   certificate of type *Developer ID Application* with that request
-   (only the Account Holder can), download the `.cer` and double-click
-   it to add it to the login keychain.
-2. **Export it as a `.p12`.** In Keychain Access, under *My
-   Certificates*, select the "Developer ID Application: ..." entry (it
-   must show its private key beneath it), choose *Export*, pick the
-   `.p12` format and give it a strong password. Then:
-   ```bash
-   base64 -i DeveloperID.p12 | gh secret set MACOS_CERT_P12_BASE64
-   gh secret set MACOS_CERT_PASSWORD        # prompts; paste the .p12 password
-   ```
-3. **The identity name.** It is the quoted name in the output of the
-   command below, in the form
-   `Developer ID Application: Name (TEAMID)`:
-   ```bash
-   security find-identity -v -p codesigning
-   gh secret set MACOS_SIGN_IDENTITY        # prompts; paste the name, without the quotes
-   ```
-4. **App Store Connect API key**, which is what the workflow uses to
-   talk to the notary service. At
-   <https://appstoreconnect.apple.com/access/integrations/api>, create
-   a *Team* key with the *Developer* role. Download the
-   `AuthKey_XXXXXXXXXX.p8` file (it can be downloaded once), and note
-   the *Key ID* and the *Issuer ID* shown on that page:
-   ```bash
-   base64 -i AuthKey_XXXXXXXXXX.p8 | gh secret set APPLE_API_KEY_P8_BASE64
-   gh secret set APPLE_API_KEY_ID           # prompts; the 10-character Key ID
-   gh secret set APPLE_API_ISSUER_ID        # prompts; the Issuer ID (a UUID)
-   ```
-5. Delete the `.p12` and `.p8` files, or move them to a password
-   manager. `gh secret list` should now show all six:
-
-   | Secret | Holds |
-   |--------|-------|
-   | `MACOS_CERT_P12_BASE64` | The Developer ID Application certificate and its private key, as a base64-encoded `.p12` |
-   | `MACOS_CERT_PASSWORD` | The password the `.p12` was exported with |
-   | `MACOS_SIGN_IDENTITY` | The identity name, `Developer ID Application: Name (TEAMID)` |
-   | `APPLE_API_KEY_P8_BASE64` | The App Store Connect API key, as a base64-encoded `.p8` |
-   | `APPLE_API_KEY_ID` | That key's Key ID |
-   | `APPLE_API_ISSUER_ID` | The Issuer ID of the App Store Connect team |
-
-   Set all six or none: the workflow stops with an error if only some
-   are present.
-
-Then run the workflow by hand once, before relying on it for a release
-(next section). The first signed build is also the first real test of
-`packaging/entitlements.plist`, which grants no hardened-runtime
-exceptions; if the signed app fails to start where the ad-hoc one
-works, that file is the place to look.
-
-To try the hardened runtime on a local build without the certificate,
-re-sign a copy ad-hoc with it. An ad-hoc signature has no Team ID, so
-this one test needs library validation switched off, which the release
-build does not:
 ```bash
-cat > /tmp/local-test.plist <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>com.apple.security.cs.disable-library-validation</key><true/>
-</dict></plist>
-PLIST
-cp -R dist/pyaermod-desktop.app /tmp/hardened.app
-codesign --force --deep -s - --options runtime \
-    --entitlements /tmp/local-test.plist /tmp/hardened.app
-/tmp/hardened.app/Contents/MacOS/pyaermod-desktop
+curl -s https://pypi.org/pypi/pyaermod/X.Y.Z/json \
+  | python -c "import json,sys; print([f['digests']['sha256'] for f in json.load(sys.stdin)['urls'] if f['packagetype'] == 'sdist'][0])"
 ```
 
-### Every release: check the macOS build
+and paste it into `source: sha256:` in `conda-recipe/recipe.yaml`.
 
-1. The workflow is green for all three systems:
-   ```bash
-   gh run list --workflow build_desktop.yml --limit 1
-   ```
-   The macOS job has already checked the signature, started the app
-   once, had it notarized, stapled the ticket and asked Gatekeeper about
-   the unzipped result. If notarization is refused, the *Notarize the
-   macOS bundle* step prints Apple's log, which names each offending
-   file.
-2. On a Mac, download the asset with a browser (so that it is
-   quarantined, as it will be for users), unzip it, and ask Gatekeeper:
-   ```bash
-   spctl -a -vvv -t exec ~/Downloads/pyaermod-desktop.app
-   ```
-   The answer must be `accepted` with
-   `source=Notarized Developer ID`.
-3. Double-click the app. It must open without a warning beyond the
-   usual "downloaded from the Internet" confirmation, and show the
-   Project step.
-
-### Running the build again
-
-The workflow can be started by hand, from the *Actions* tab or with:
-```bash
-gh workflow run build_desktop.yml --ref main
-gh run watch
-```
-A manual run uploads the three builds as workflow artifacts
-(`gh run download`) and attaches nothing to any release. To rebuild the
-assets of an existing release, for instance after adding the secrets or
-renewing the certificate, re-run that release's own run, which uploads
-over the assets already there:
-```bash
-gh run list --workflow build_desktop.yml --event release
-gh run rerun <run-id>            # add --failed to redo only the failed jobs
-```
-A re-run uses the workflow and the spec as they were at the release's
-tag, so this cannot sign v2.2.0 or an earlier release, whose tags
-predate the signing steps.
-
-### Certificate and key expiry
-
-A Developer ID Application certificate is valid for five years; the
-date is shown in Keychain Access and on the developer site's
-certificate list. Apps signed while it was valid keep working after it
-expires (the signature carries a secure timestamp), but new builds
-cannot be signed with it: the *Import the Developer ID certificate*
-step fails because the identity is no longer valid. To renew, create a
-new certificate (steps 1 to 3 above) and replace
-`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD` and, if the name
-changed, `MACOS_SIGN_IDENTITY`. Do not revoke the old certificate
-unless its key leaked: revoking invalidates every app signed with it.
-
-The API key does not expire, but stops working if it is revoked or if
-the membership lapses, and notarization also stops when Apple is
-waiting for an updated agreement to be accepted in the developer
-account. In each case the *Notarize the macOS bundle* step fails with
-Apple's message.
+- **First time** (the first release after 2.2.0): lint and build the
+  recipe locally, copy it to `recipes/pyaermod/recipe.yaml` in a fork of
+  conda-forge/staged-recipes, open the pull request and ask the
+  `conda-forge/help-python` team for review ("Submit to conda-forge
+  (once)" in `conda-recipe/README.md`). Every login in
+  `extra.recipe-maintainers` must comment on the pull request to agree.
+  When it is merged and `conda install -c conda-forge pyaermod-gui`
+  works, change "once the conda-forge package is published" in
+  `README.md`, `docs/index.md` and `docs/gui-guide.md` to plain
+  instructions (and the matching assertion in `tests/test_packaging.py`).
+- **Afterwards**: `regro-cf-autotick-bot` opens a pull request on
+  conda-forge/pyaermod-feedstock within some hours of the PyPI release,
+  with the new version and checksum. If the release changed
+  `dependencies`, the `gui` extra, `requires-python`,
+  `[build-system] requires` or `[project.scripts]`, copy the same change
+  from `conda-recipe/recipe.yaml` into that pull request; then merge it
+  when its CI is green. No pull request after a day: open an issue on
+  the feedstock titled `@conda-forge-admin, please update version`.
 
 ## Important
 

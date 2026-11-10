@@ -376,7 +376,7 @@ comparison = proj.compare_scenarios(
 - `dask`: Large-scale parallel computing
 - `netCDF4`: NetCDF file I/O
 - `h5py`: HDF5 for large datasets
-- `nicegui`: Web dashboard + desktop bundle (the desktop bundle also needs `pywebview`)
+- `nicegui`: Web dashboard and native desktop window (the window also needs `pywebview`)
 - `pytest`: Testing framework
 - `sphinx`: Documentation generation
 

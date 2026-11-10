@@ -8,8 +8,7 @@ they run inside it, and in that case use a native save dialog
 (:func:`ask_save_path`) instead of a browser download.
 
 This module is imported by the pages and by ``desktop.main`` alike and is
-never an entry script, so both always see the same module object (the
-PyInstaller bundle starts from ``packaging/desktop_entry.py``).
+never an entry script, so both always see the same module object.
 """
 
 from __future__ import annotations

@@ -1,76 +1,70 @@
-# Desktop App
+# Desktop Window
 
-Starting in **v1.9**, pyaermod ships pre-built desktop binaries for
-Windows, macOS, and Linux. They wrap the NiceGUI app inside a native
-[pywebview](https://pywebview.flowrl.com/) window — no terminal, no
-Python install required for end users.
+`pyaermod-desktop` opens the PyAERMOD GUI in a native window instead of
+a browser tab. It is the same NiceGUI app as `pyaermod-app`, shown in a
+[pywebview](https://pywebview.flowrl.com/) window, and it is installed
+with pip like the rest of the package.
 
-## Download
-
-Pre-built binaries are attached to each [GitHub Release](https://github.com/atmmod/pyaermod/releases).
-Look for assets named:
-
-- ``pyaermod-desktop.exe`` — Windows, 64-bit (x64). A single executable,
-  not zipped.
-- ``pyaermod-desktop-macos.zip`` — macOS on Apple silicon (arm64) only.
-  Unzips to ``pyaermod-desktop.app``.
-- ``pyaermod-desktop`` — Linux x86_64. A single executable, not
-  archived.
-
-There is no Intel Mac build. On an Intel Mac (or any other system
-without a pre-built binary), install the same app with pip and start it
-from a terminal:
+## Install and start
 
 ```bash
 pip install "pyaermod[gui-desktop]"
 pyaermod-desktop
 ```
 
-## Run
+The `gui-desktop` extra adds pywebview to what `pyaermod[gui]` installs.
+For other ways to install the GUI, see the
+[installation section of the GUI guide](gui-guide.md#install).
 
-- **Windows**: double-click ``pyaermod-desktop.exe``
-- **macOS**: unzip, drag ``pyaermod-desktop.app`` to Applications and
-  double-click it. If macOS refuses to open it, see
-  [macOS: signing and Gatekeeper](#macos-signing-and-gatekeeper).
-- **Linux**: the download is not marked executable, so
-  ``chmod +x pyaermod-desktop`` once, then ``./pyaermod-desktop`` from a
-  shell
+- **Windows**: pywebview uses the Edge WebView2 runtime, which is part
+  of Windows 11 and of an up-to-date Windows 10. Nothing else to
+  install.
+- **macOS**: pywebview uses the system WebKit. Nothing else to install.
+- **Linux**: pip does not install a window backend, so add one of the
+  two below.
 
-## macOS: signing and Gatekeeper
+### Linux: choose GTK or Qt
 
-macOS builds attached to releases after 2.2.0 are signed with a
-Developer ID certificate and notarized by Apple, so they open with a
-double-click like any other downloaded app.
+On Linux pywebview needs either GTK or Qt, and installs neither by
+default. Its
+[installation page](https://pywebview.flowrl.com/guide/installation.html)
+has the current details; in short:
 
-The macOS builds of v2.2.0 and earlier are not signed or notarized, and
-Gatekeeper blocks them ("Apple could not verify..." or "... is damaged
-and can't be opened"). To run one of those builds, do either of these
-once, after moving the app to Applications:
-
-- In a terminal, remove the quarantine mark the browser put on the
-  download:
+- **Qt**, entirely from pip. This installs PyQt6 and PyQt6-WebEngine:
 
   ```bash
-  xattr -dr com.apple.quarantine /Applications/pyaermod-desktop.app
+  pip install "pywebview[qt]"
   ```
 
-- Or try to open the app, dismiss the warning, then open **System
-  Settings → Privacy & Security**, scroll to the message about
-  ``pyaermod-desktop`` and choose **Open Anyway**.
+- **GTK**, with WebKitGTK (WebKit2 2.22 or later). On Debian and Ubuntu
+  the system packages are:
 
-Only do this for a build downloaded from the project's
-[releases page](https://github.com/atmmod/pyaermod/releases). A bundle
-you [build from source](#build-from-source) yourself is not quarantined
-and needs neither step on the Mac that built it.
+  ```bash
+  sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+  ```
 
-The app starts the NiceGUI server on a free loopback port in the
+  These belong to the system Python. A virtual environment sees them
+  only if it was created with `--system-site-packages`; otherwise
+  install PyGObject into the environment with
+  `pip install "pywebview[gtk]"`, which compiles it and so needs a C
+  compiler and the GObject development packages (see the
+  [PyGObject documentation](https://pygobject.gnome.org/getting_started.html),
+  also for other distributions). The `gir1.2-*` packages are needed
+  either way.
+
+If no backend is found, `pyaermod-desktop` stops with pywebview's error
+naming GTK and Qt. The browser mode (`pyaermod-app`) needs none of this.
+
+## What it does
+
+The command starts the NiceGUI server on a free loopback port in the
 background and opens a window on it. It opens to the **Project** step,
 with the seven steps of the [GUI User Guide](gui-guide.md) listed on the
 left:
 
 1. On **Project**, name the run and choose the pollutant and averaging
-   periods, **Open** a saved ``.json`` project, or **Import deck** an
-   existing AERMOD ``.inp`` file
+   periods, **Open** a saved `.json` project, or **Import deck** an
+   existing AERMOD `.inp` file
 2. Build the run on **Sources**, **Receptors**, **Meteorology** and
    **Output**
 3. **Review & Run** lists what still blocks the run, previews the deck
@@ -82,8 +76,8 @@ left:
 
 ## What differs from the browser
 
-The desktop app is the same GUI, with native dialogs where the browser
-would upload or download a file:
+The desktop window is the same GUI, with native dialogs where the
+browser would upload or download a file:
 
 - **Open** and **Import deck** use a native file dialog, and the file is
   read from where it is. A deck imported this way brings the met files
@@ -97,52 +91,61 @@ would upload or download a file:
 
 Reloading the window keeps the project. Closing the window stops the
 server; unsaved changes are lost, so save first. Any AERMOD run still in
-progress is stopped when the app exits.
-
-## Build from source
-
-If you want to roll your own bundle (e.g. for an offline air-gapped
-network, or an older OS that the pre-built binaries don't support):
-
-```bash
-git clone https://github.com/atmmod/pyaermod
-cd pyaermod
-pip install -e ".[gui-desktop]" "pyinstaller>=6.0"
-pyinstaller packaging/pyaermod_desktop.spec --clean --noconfirm
-```
-
-The built binary lands in ``dist/``. The same spec works on all three
-OSes: a single-file ``.exe`` on Windows, a single-file ELF on Linux, and
-a ``.app`` bundle on macOS, built for the architecture of the Python
-that runs PyInstaller. The macOS bundle is ad-hoc signed unless
-``MACOS_SIGN_IDENTITY`` names a Developer ID identity in your keychain;
-[RELEASING.md](https://github.com/atmmod/pyaermod/blob/main/RELEASING.md)
-describes how the release builds are signed and notarized.
+progress is stopped when the window closes.
 
 ## AERMOD binary
 
-The desktop bundle does **not** ship the AERMOD Fortran binary. Install
+PyAERMOD does **not** ship the AERMOD Fortran binary. Install
 [AERMOD from EPA SCRAM](https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/)
-separately and ensure ``aermod`` is on your system ``PATH``. When the
+separately and ensure `aermod` is on your system `PATH`. When the
 executable isn't found, the Review & Run step's readiness checklist
 says "No 'aermod' binary on PATH. Install AERMOD and re-launch." and
 the Run AERMOD button stays disabled.
 
 ## Web mode
 
-The same NiceGUI app can also run as a normal web app, useful for
-multi-user / server deployments:
+The same app also runs in a browser tab, which suits multi-user and
+server deployments:
 
 ```bash
-pip install pyaermod[gui]
+pip install "pyaermod[gui]"
 pyaermod-app
 ```
 
-Opens a browser tab pointed at ``http://127.0.0.1:8080``.
+Opens a browser tab pointed at `http://127.0.0.1:8080`.
+
+## Desktop downloads discontinued
+
+Releases from v1.9 up to v2.2.0 have stand-alone desktop apps attached
+on the [releases page](https://github.com/atmmod/pyaermod/releases)
+(for Windows, Apple-silicon macOS and Linux). They are no longer built:
+later releases attach none, and the ones already published get no
+fixes. The supported way to install the GUI is pip, as above, or conda
+(see the [installation section of the GUI guide](gui-guide.md#install)).
+
+Those downloads are unsigned. On macOS, Gatekeeper blocks them ("Apple
+could not verify..." or "... is damaged and can't be opened"). If you
+still have one and want to run it, do either of these once, after
+moving the app to Applications:
+
+- In a terminal, remove the quarantine mark the browser put on the
+  download:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/pyaermod-desktop.app
+  ```
+
+- Or try to open the app, dismiss the warning, then open **System
+  Settings → Privacy & Security**, scroll to the message about
+  `pyaermod-desktop` and choose **Open Anyway**.
+
+Only do this for a file downloaded from the project's own releases
+page.
 
 ## Reporting issues
 
-The desktop bundle is a thin pywebview wrapper around the same NiceGUI
-app — most bug reports apply equally to web mode and desktop mode.
-File issues at <https://github.com/atmmod/pyaermod/issues> with the OS
-+ bundle version (visible in the title bar).
+The desktop window is a thin pywebview wrapper around the same NiceGUI
+app, so most bug reports apply equally to both modes. File issues at
+<https://github.com/atmmod/pyaermod/issues> with the OS, the PyAERMOD
+version (`pip show pyaermod`) and, on Linux, whether pywebview is using
+GTK or Qt.

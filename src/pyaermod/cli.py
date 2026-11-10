@@ -11,6 +11,11 @@ Subcommands
 ``pyaermod info``
     Print package version + feature availability.
 
+``pyaermod gui [--host ADDR] [--port N] [--no-browser]``
+    Open the graphical interface in a browser tab: the same as the
+    ``pyaermod-app`` command. Needs the ``gui`` extra
+    (``pip install "pyaermod[gui]"``).
+
 ``pyaermod validate INPUT``
     Parse INPUT (.inp file), run base + advanced validation, print the
     findings. Exits 1 if any error-severity finding is present.
@@ -43,6 +48,11 @@ from typing import List, Optional
 from . import __version__
 
 
+def _has_module(name: str) -> bool:
+    from importlib.util import find_spec
+    return find_spec(name) is not None
+
+
 def _cmd_info(args: argparse.Namespace) -> int:
     from . import print_info
     from .api import HAS_GEOSPATIAL, HAS_TERRAIN
@@ -52,6 +62,16 @@ def _cmd_info(args: argparse.Namespace) -> int:
           f"{'yes' if HAS_GEOSPATIAL else 'no'}")
     print(f"  terrain (requests-based DEM download):     "
           f"{'yes' if HAS_TERRAIN else 'no'}")
+    print(f"  gui (nicegui, for `pyaermod gui`):         "
+          f"{'yes' if _has_module('nicegui') else 'no'}")
+    print(f"  desktop window (pywebview):                "
+          f"{'yes' if _has_module('webview') else 'no'}")
+    return 0
+
+
+def _cmd_gui(args: argparse.Namespace) -> int:
+    from .gui_v2 import _serve
+    _serve(args)
     return 0
 
 
@@ -189,6 +209,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pyaermod",
         description="pyaermod command-line interface",
+        epilog='Graphical interface: `pyaermod gui` (or `pyaermod-app`), '
+               'after `pip install "pyaermod[gui]"`.',
     )
     p.add_argument("--version", action="version",
                    version=f"pyaermod {__version__}")
@@ -196,6 +218,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("info", help="Print package info")
     sp.set_defaults(func=_cmd_info)
+
+    sp = sub.add_parser("gui", help="Open the graphical interface in a "
+                                    "browser tab (needs the gui extra)",
+                        description="Serve the PyAERMOD GUI and open it in a "
+                                    "browser tab; the same as pyaermod-app. "
+                                    "Stop it with Ctrl+C.")
+    from .gui_v2 import _add_arguments
+    _add_arguments(sp)
+    sp.set_defaults(func=_cmd_gui)
 
     sp = sub.add_parser("validate", help="Validate an AERMOD .inp file")
     sp.add_argument("input", help="Path to the .inp file")

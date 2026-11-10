@@ -1,0 +1,121 @@
+name: GUI install smoke check (reusable)
+
+# Installs an already-built pyaermod wheel the way a user does and checks
+# that the GUI it installs works: `pip install "<wheel>[gui]"` into a new
+# virtual environment outside the checkout, then scripts/gui_install_smoke.py
+# (the commands' --help, `python -m pyaermod.gui_v2`, a real server on a
+# free port that serves / and shows the step list, and the install hint of
+# pyaermod-desktop). Nothing is installed from the checkout: it is there
+# only for that script.
+#
+# Called by gui_install.yml on every push and pull request, and by
+# publish.yml between building a release and uploading it, so that a wheel
+# whose GUI does not install cannot reach PyPI.
+
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        description: "Name of the uploaded artifact that holds dist/*.whl"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  venv:
+    name: "${{ matrix.os }}, Python ${{ matrix.python-version }}, [${{ matrix.extra }}]"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # The oldest Python that requires-python allows, and the newest one
+        # on which every dependency of the gui extra has a wheel. Raise the
+        # second when that changes (README.md, "Troubleshooting").
+        python-version: ["3.11", "3.14"]
+        extra: [gui]
+        desktop: [hint]
+        include:
+          # gui-desktop and all add pywebview; no window is opened here.
+          - {os: ubuntu-latest, python-version: "3.13", extra: gui-desktop, desktop: installed}
+          - {os: macos-latest, python-version: "3.13", extra: gui-desktop, desktop: installed}
+          - {os: windows-latest, python-version: "3.13", extra: gui-desktop, desktop: installed}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download the built wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/dist
+
+      - name: Install the wheel with [${{ matrix.extra }}] into a new virtual environment
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m venv gui-env
+          if [ -x gui-env/bin/python ]; then ENV_PYTHON="$PWD/gui-env/bin/python"; else ENV_PYTHON="$PWD/gui-env/Scripts/python.exe"; fi
+          echo "ENV_PYTHON=$ENV_PYTHON" >> "$GITHUB_ENV"
+          "$ENV_PYTHON" -m pip install --upgrade pip
+          WHEEL=$(ls dist/pyaermod-*.whl)
+          # Wheels only, as a user without a compiler gets them. proxy-tools,
+          # which pywebview needs, is pure Python but published as source only.
+          "$ENV_PYTHON" -m pip install --only-binary :all: --no-binary proxy-tools "${WHEEL}[${{ matrix.extra }}]"
+          "$ENV_PYTHON" -m pip check
+          "$ENV_PYTHON" -m pip list
+
+      - name: Check the installed GUI
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$ENV_PYTHON" "$GITHUB_WORKSPACE/scripts/gui_install_smoke.py" --desktop ${{ matrix.desktop }}
+
+  tools:
+    # The "just give me the app" installs of the README: pipx and uv tool.
+    name: "pipx and uv tool, ubuntu-latest"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download the built wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/dist
+
+      - name: Install pipx and uv
+        run: python -m pip install --upgrade pip pipx uv
+
+      - name: pipx install "pyaermod[gui]"
+        working-directory: ${{ runner.temp }}
+        env:
+          PIPX_HOME: ${{ runner.temp }}/pipx-home
+          PIPX_BIN_DIR: ${{ runner.temp }}/pipx-bin
+        run: |
+          WHEEL=$(ls dist/pyaermod-*.whl)
+          pipx install "${WHEEL}[gui]"
+          python "$GITHUB_WORKSPACE/scripts/gui_install_smoke.py" --bin-dir "$PIPX_BIN_DIR" --desktop hint
+
+      - name: uv tool install "pyaermod[gui]"
+        working-directory: ${{ runner.temp }}
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-bin
+        run: |
+          WHEEL=$(ls dist/pyaermod-*.whl)
+          uv tool install "pyaermod[gui] @ file://$PWD/$WHEEL"
+          python "$GITHUB_WORKSPACE/scripts/gui_install_smoke.py" --bin-dir "$UV_TOOL_BIN_DIR" --desktop hint

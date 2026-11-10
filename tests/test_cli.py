@@ -49,6 +49,51 @@ class TestInfo:
         assert "PyAERMOD" in out
         assert "Optional dependencies" in out
 
+    def test_says_how_to_get_the_gui(self, capsys):
+        _code, out, _err = run_cli(["info"], capsys)
+        assert 'pip install "pyaermod[gui]", then run pyaermod gui' in out
+
+    @pytest.mark.parametrize("installed, word", [(True, "yes"), (False, "no")])
+    def test_reports_whether_the_gui_packages_are_installed(
+            self, capsys, monkeypatch, installed, word):
+        monkeypatch.setattr(cli, "_has_module", lambda name: installed)
+        _code, out, _err = run_cli(["info"], capsys)
+        assert f"gui (nicegui, for `pyaermod gui`):         {word}" in out
+        assert f"desktop window (pywebview):                {word}" in out
+
+    def test_has_module(self):
+        assert cli._has_module("json")
+        assert not cli._has_module("no_such_module_xyz")
+
+
+# ---------------------------------------------------------------------------
+# `pyaermod gui`
+# ---------------------------------------------------------------------------
+
+class TestGui:
+    def test_serves_the_gui_with_the_options_of_pyaermod_app(self, capsys, monkeypatch):
+        from pyaermod import gui_v2
+        served = []
+        monkeypatch.setattr(gui_v2, "_serve", lambda args: served.append(vars(args)))
+        code, _out, _err = run_cli(["gui", "--port", "8123", "--no-browser"], capsys)
+        assert code == 0
+        assert [(s["host"], s["port"], s["no_browser"]) for s in served] == [
+            ("127.0.0.1", 8123, True)]
+
+    def test_defaults_are_those_of_pyaermod_app(self):
+        from pyaermod import gui_v2
+        ours = vars(cli._build_parser().parse_args(["gui"]))
+        theirs = vars(gui_v2._build_parser().parse_args([]))
+        assert {k: ours[k] for k in theirs} == theirs
+
+    def test_help_names_the_gui_and_how_to_install_it(self, capsys):
+        with pytest.raises(SystemExit) as caught:
+            cli.main(["--help"])
+        assert caught.value.code == 0
+        out = capsys.readouterr().out
+        assert "gui " in out
+        assert 'pip install "pyaermod[gui]"' in " ".join(out.split())   # argparse wraps it
+
 
 # ---------------------------------------------------------------------------
 # `pyaermod validate`

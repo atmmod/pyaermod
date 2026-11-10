@@ -1,0 +1,55 @@
+name: GUI install
+
+# Does `pip install "pyaermod[gui]"` give a working GUI? The test suite
+# cannot say: it runs against an editable install with every extra. This
+# builds the wheel once and hands it to gui_install_smoke.yml, which
+# installs it with only the gui extra into new environments on Linux,
+# macOS and Windows and starts the GUI there.
+#
+# Weekly as well, because the answer changes without a commit here: the
+# extras name floors (`nicegui>=3.0`), so a new release of NiceGUI or of
+# one of its dependencies is what a new user installs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * 1"  # Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-install-dist
+          path: dist/
+
+  smoke:
+    needs: build
+    uses: ./.github/workflows/gui_install_smoke.yml
+    with:
+      artifact: gui-install-dist
