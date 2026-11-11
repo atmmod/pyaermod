@@ -437,6 +437,7 @@ class AERMODRunner:
 
         try:
             # Execute AERMOD (reads aermod.inp automatically)
+            result: subprocess.CompletedProcess[str]
             if wasm_runner.IS_EMSCRIPTEN and wasm_runner.is_wasm_executable(self.executable):
                 # No timeout: WebAssembly cannot be interrupted.
                 returncode = wasm_runner.run(self.executable, work_dir,

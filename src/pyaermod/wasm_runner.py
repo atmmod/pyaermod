@@ -182,9 +182,9 @@ def run(executable: Union[str, Path], working_dir: Union[str, Path], *,
             "use the native AERMOD executable here"
         )
     global _loader
-    import pyodide_js  # type: ignore[import-not-found]
-    from pyodide.code import run_js  # type: ignore[import-not-found]
-    from pyodide.ffi import create_proxy, to_js  # type: ignore[import-not-found]
+    import pyodide_js
+    from pyodide.code import run_js
+    from pyodide.ffi import create_proxy, to_js
 
     if _loader is None:
         _loader = run_js(_LOADER_JS)
