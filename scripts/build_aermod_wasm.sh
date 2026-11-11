@@ -34,6 +34,7 @@ set -euo pipefail
 SRC="${1:?usage: build_aermod_wasm.sh <aermod source dir> <output dir>}"
 OUT="${2:?usage: build_aermod_wasm.sh <aermod source dir> <output dir>}"
 SRC="$(cd "$SRC" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
@@ -55,6 +56,7 @@ FFLAGS="--target=wasm32-unknown-emscripten -O2"
 LDFLAGS=(
     -O2
     -sSTACK_SIZE=16MB
+    -sINITIAL_MEMORY=64MB
     -sALLOW_MEMORY_GROWTH=1
     -sMAXIMUM_MEMORY=4GB
     -sFORCE_FILESYSTEM=1
@@ -89,16 +91,35 @@ REST=(aermod setup coset soset reset meset ouset inpsum metext iblval siggrid
       tempgrid windgrid calc1 calc2 prise arise prime sigmas pitarea uninam
       output evset evcalc evoutput rline bline)
 
-compile() { "$FLANG" $FFLAGS -c "$1.f" -o "$1.o" 2> "$1.log" || { cat "$1.log" >&2; echo "FAILED: $1.f" >&2; return 1; }; }
+# Each file goes through LLVM IR so that its calls to the runtime's
+# _FortranAioInquireLogical, which this Flang lowers with the wrong signature
+# for wasm32, can be pointed at the shim in scripts/wasm/inquire_shim.c.
+compile() {
+    { "$FLANG" $FFLAGS -S -emit-llvm "$1.f" -o "$1.ll" \
+      && perl -pi -e 's/\@_FortranAioInquireLogical\(/\@pyaermod_FortranAioInquireLogical32(/g' "$1.ll" \
+      && "$FLANG" $FFLAGS -c "$1.ll" -o "$1.o"; } 2> "$1.log" \
+      || { cat "$1.log" >&2; echo "FAILED: $1.f" >&2; return 1; }
+}
 export -f compile; export FLANG FFLAGS
 
 for f in "${FIRST[@]}"; do compile "$f"; done
 printf '%s\n' "${REST[@]}" | xargs -P "${JOBS:-$(nproc 2>/dev/null || echo 2)}" -I{} bash -c 'compile {}'
 echo "compiled $(ls ./*.o | wc -l) objects"
 
-objs=()
+emcc -O2 -c "$SCRIPT_DIR/wasm/inquire_shim.c" -o inquire_shim.o
+
+objs=(inquire_shim.o)
 for f in "${FIRST[@]}" "${REST[@]}"; do objs+=("$f.o"); done
-emcc "${objs[@]}" "$FORTRAN_RUNTIME" "${LDFLAGS[@]}" -o "$OUT/aermod.js"
+emcc "${objs[@]}" "$FORTRAN_RUNTIME" "${LDFLAGS[@]}" -o "$OUT/aermod.js" 2>&1 | tee link.log
+[ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
+# wasm-ld links a call whose signature differs from the definition's to a
+# stub that traps at run time; it only warns. A runtime function lowered
+# wrongly would make AERMOD die mid-run, so refuse to ship such a build.
+if grep -q "function signature mismatch" link.log; then
+    echo "ERROR: signature mismatch between AERMOD and the Fortran runtime (see above);" \
+         "the build would trap where it calls that function" >&2
+    exit 1
+fi
 
 version="$(grep -o "DATA VERSN /'[0-9]*'/" modules.f | grep -o "[0-9][0-9]*" || echo unknown)"
 {
