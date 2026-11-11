@@ -1,0 +1,6 @@
+# The JupyterLite site (scripts/wasm/build_lite_site.sh); pinned so the
+# Pyodide it ships, and so the Python the notebooks run, change only on purpose.
+jupyterlite-core==0.8.7
+jupyterlite-pyodide-kernel==0.8.7
+jupyter-server>=2
+build

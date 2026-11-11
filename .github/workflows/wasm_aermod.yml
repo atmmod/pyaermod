@@ -1,0 +1,162 @@
+name: WebAssembly AERMOD
+
+# Builds EPA AERMOD to WebAssembly (scripts/build_aermod_wasm.sh) for the
+# in-browser JupyterLite site, then runs the real-AERMOD tests against it
+# under Node: a wrapper named `aermod` on PATH runs
+# scripts/wasm/run_aermod_node.cjs, so tests/test_real_aermod.py compares
+# the WebAssembly build's AERTEST results with EPA's published ones.
+#
+# The flang-wasm image is amd64 only, so this builds natively here rather
+# than under emulation on a developer's Apple-silicon machine.
+
+on:
+  push:
+    paths:
+      - "src/pyaermod/wasm_runner.py"
+      - "scripts/build_aermod_wasm.sh"
+      - "scripts/wasm/**"
+      - ".github/workflows/wasm_aermod.yml"
+  pull_request:
+    paths:
+      - "scripts/build_aermod_wasm.sh"
+      - "scripts/wasm/**"
+      - ".github/workflows/wasm_aermod.yml"
+      - "src/pyaermod/wasm_runner.py"
+      - "src/pyaermod/runner.py"
+  # docs.yml calls this to build the WebAssembly AERMOD for the JupyterLite
+  # site, release variant only.
+  workflow_call:
+    inputs:
+      variants:
+        description: "JSON list of variants to build: release, debug"
+        type: string
+        default: '["release", "debug"]'
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: "EPA SCRAM AERMOD source archive URL"
+        required: false
+        default: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+
+permissions:
+  contents: read
+
+env:
+  AERMOD_SOURCE_URL: ${{ inputs.source_url || 'https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip' }}
+  # ghcr.io/r-wasm/flang-wasm:main as of 2026-11-10 (LLVM Flang 23.1.4, Emscripten 5.0.7)
+  # The Pyodide jupyterlite-pyodide-kernel 0.8.7 loads (docs/lite/requirements.txt).
+  PYODIDE_VERSION: "314.0.6"
+  FLANG_WASM_IMAGE: ghcr.io/r-wasm/flang-wasm@sha256:8d9bc80f8067550a692ccfe570660625edf251b17c9be455446a0bd592c7dd19
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.variants || '["release", "debug"]') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute EPA source cache key
+        id: src
+        run: |
+          echo "key=epa-aermod-source-$(printf '%s' "$AERMOD_SOURCE_URL" | sha256sum | cut -c1-16)-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache EPA source archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/aermod_build/aermod_source.zip
+          key: ${{ steps.src.outputs.key }}
+
+      - name: Fetch EPA AERMOD source
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
+          bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" "$AERMOD_SOURCE_URL" aermod_source.zip
+          rm -rf src && mkdir src && cd src && unzip -q ../aermod_source.zip
+          # EPA's archive extracts read-only.
+          chmod -R u+w .
+          topdir=$(unzip -Z1 ../aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
+          if [ -n "$topdir" ]; then mv "$topdir"/* . && rmdir "$topdir"; fi
+          ls ./*.f | wc -l
+
+      - name: Build AERMOD for WebAssembly (${{ matrix.variant }})
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e WASM_DEBUG=${{ matrix.variant == 'debug' && '1' || '0' }} \
+            -v "$GITHUB_WORKSPACE:/repo" -v /tmp/aermod_build:/build \
+            "$FLANG_WASM_IMAGE" \
+            bash /repo/scripts/build_aermod_wasm.sh /build/src /build/out
+          sudo chown -R "$(id -u):$(id -g)" /tmp/aermod_build/out
+          cp scripts/wasm/run_aermod_node.cjs /tmp/aermod_build/out/
+          ls -la /tmp/aermod_build/out
+          cat /tmp/aermod_build/out/BUILD.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Put the WebAssembly build on PATH as `aermod`
+        run: |
+          mkdir -p /tmp/wasmbin
+          printf '#!/bin/sh\nexec node /tmp/aermod_build/out/run_aermod_node.cjs "$@"\n' > /tmp/wasmbin/aermod
+          chmod +x /tmp/wasmbin/aermod
+          echo /tmp/wasmbin >> "$GITHUB_PATH"
+
+      - name: Run AERTEST directly (diagnostics)
+        run: |
+          set -uo pipefail
+          work=/tmp/aertest_direct && rm -rf "$work" && mkdir -p "$work" && cd "$work"
+          cp "$GITHUB_WORKSPACE"/tests/fixtures/epa_official/AERMET2.* .
+          # EPA 26135's deck names them in lower case (Linux is case-sensitive).
+          cp AERMET2.SFC aermet2.sfc && cp AERMET2.PFL aermet2.pfl
+          sed -e 's#\.\./meteorology/##I' -e 's#\.\./plotfiles/##I' -e 's#\.\./postfiles/##I' -e 's#\.\./Outputs/##I' \
+            "$GITHUB_WORKSPACE/tests/fixtures/epa_official/aertest.inp" > aermod.inp
+          start=$(date +%s)
+          aermod > stdout.txt 2> stderr.txt; code=$?
+          echo "exit code: $code, $(( $(date +%s) - start )) s"
+          echo "--- stdout (tail)"; tail -20 stdout.txt
+          echo "--- stderr (head)"; head -60 stderr.txt
+          echo "--- aermod.out (tail)"; tail -40 aermod.out 2>/dev/null || echo "(no aermod.out)"
+          ls -la
+          { echo "### AERTEST direct run (${{ matrix.variant }}): exit $code"; echo '```'; head -30 stderr.txt; tail -15 aermod.out 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyaermod
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # test_sigterm_mid_run_reports_the_signal signals a native AERMOD
+      # process; WebAssembly in a browser has no process to signal.
+      - name: Real-AERMOD tests against the WebAssembly build
+        run: >
+          pytest tests/test_real_aermod.py -v --no-cov -p no:cacheprovider
+          --deselect tests/test_real_aermod.py::test_sigterm_mid_run_reports_the_signal
+
+      - name: AERTEST through pyaermod in Pyodide (the browser path, under Node)
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python -m build --wheel --outdir /tmp/wheels .
+          mkdir -p /tmp/pyodide_smoke && cd /tmp/pyodide_smoke
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund pyodide@${{ env.PYODIDE_VERSION }}
+          cp "$GITHUB_WORKSPACE/scripts/wasm/pyodide_smoke.mjs" .
+          node pyodide_smoke.mjs /tmp/wheels/pyaermod-*.whl /tmp/aermod_build/out "$GITHUB_WORKSPACE" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aermod-wasm-${{ matrix.variant }}
+          path: /tmp/aermod_build/out
+          if-no-files-found: warn

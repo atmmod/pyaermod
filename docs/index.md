@@ -20,6 +20,7 @@ DataFrames, and exports results to geospatial formats.
 
 ## Getting Started
 
+- [Run pyaermod in your browser](browser.md) -- build, run and map an AERMOD model in a notebook, with nothing to install
 - [Quick Start Guide](quickstart.md) -- your first AERMOD run in Python
 - [Ten Common AERMOD Jobs](use-cases.md) -- runnable, tested scripts for permitting, downwash, roads, NO2, terrain, deposition and air toxics
 - [GUI User Guide](gui-guide.md) -- using the interactive web interface

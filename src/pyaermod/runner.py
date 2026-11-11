@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
+from . import wasm_runner
+
 # ============================================================================
 # AERMOD'S MESSAGE SUMMARY
 # ============================================================================
@@ -328,7 +330,14 @@ class AERMODRunner:
         self.logger.info(f"Initialized AERMOD runner with executable: {self.executable}")
 
     def _find_or_set_executable(self, path: Optional[Union[str, Path]]) -> Path:
-        """Find or validate AERMOD executable"""
+        """Find or validate AERMOD executable
+
+        Under Pyodide, where no executable can run, this is the
+        ``aermod.js`` of a WebAssembly build (see :mod:`pyaermod.wasm_runner`).
+        """
+        if wasm_runner.IS_EMSCRIPTEN:
+            return wasm_runner.find_wasm_aermod(path)
+
         if path:
             exe_path = Path(path)
             if not exe_path.exists():
@@ -428,15 +437,22 @@ class AERMODRunner:
 
         try:
             # Execute AERMOD (reads aermod.inp automatically)
-            result = subprocess.run(
-                [str(self.executable)],
-                cwd=str(work_dir),
-                stdout=stdout_fh,
-                stderr=stderr_fh,
-                text=True,
-                timeout=timeout,
-                check=False
-            )
+            result: subprocess.CompletedProcess[str]
+            if wasm_runner.IS_EMSCRIPTEN and wasm_runner.is_wasm_executable(self.executable):
+                # No timeout: WebAssembly cannot be interrupted.
+                returncode = wasm_runner.run(self.executable, work_dir,
+                                             stdout=stdout_fh, stderr=stderr_fh)
+                result = subprocess.CompletedProcess([str(self.executable)], returncode)
+            else:
+                result = subprocess.run(
+                    [str(self.executable)],
+                    cwd=str(work_dir),
+                    stdout=stdout_fh,
+                    stderr=stderr_fh,
+                    text=True,
+                    timeout=timeout,
+                    check=False
+                )
 
             if stdout_fh is not None:
                 stdout_fh.close()
@@ -511,7 +527,16 @@ class AERMODRunner:
 
         Returns:
             The running :class:`AERMODRun`.
+
+        Raises:
+            NotImplementedError: under Pyodide, which has no threads; use
+                :meth:`run` there.
         """
+        if wasm_runner.IS_EMSCRIPTEN:
+            raise NotImplementedError(
+                "Background runs need threads, which Pyodide does not have; "
+                "use AERMODRunner.run() in the browser"
+            )
         run = AERMODRun(self, input_file, working_dir, timeout,
                         on_progress=on_progress, on_finish=on_finish)
         run._launch()
@@ -1360,6 +1385,10 @@ def _acquire_dir_lock(lock_path: Path):
     log warning is issued.
     """
     fh = open(lock_path, "w")  # noqa: SIM115 — handle outlives the function
+    if wasm_runner.IS_EMSCRIPTEN:
+        # Pyodide: one interpreter, no threads, no other processes, so
+        # nothing to serialize; and its fcntl has no flock.
+        return fh
     try:
         try:
             import fcntl  # POSIX
@@ -1385,6 +1414,10 @@ def _acquire_dir_lock(lock_path: Path):
 def _release_dir_lock(fh) -> None:
     """Release a lock acquired by `_acquire_dir_lock`."""
     if fh is None:
+        return
+    if wasm_runner.IS_EMSCRIPTEN:
+        with contextlib.suppress(Exception):
+            fh.close()
         return
     try:
         try:

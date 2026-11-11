@@ -48,9 +48,10 @@ except ImportError:
     HAS_SCIPY = False
 
 try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    # A Figure made directly, not through pyplot, needs no backend; this
+    # module used to switch the whole process to Agg on import, which hid
+    # every plt.show() in the notebook that imported it.
+    from matplotlib.figure import Figure
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -544,10 +545,9 @@ class ContourGenerator:
                 zmax = zmin + 1.0
             levels = np.linspace(zmin, zmax, n_levels + 1).tolist()
 
-        # Generate contours via matplotlib (non-interactive)
-        fig, ax = plt.subplots()
+        # Generate contours via matplotlib (an off-screen figure)
+        ax = Figure().subplots()
         cs = ax.contourf(xi_grid, yi_grid, zi, levels=levels)
-        plt.close(fig)
 
         # Extract polygons from contour set.
         # matplotlib 3.8+ deprecated cs.collections; get_paths() returns one

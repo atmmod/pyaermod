@@ -8,12 +8,18 @@ on:
       - "mkdocs.yml"
       - "src/pyaermod/**/*.py"
       - ".github/workflows/docs.yml"
+      - ".github/workflows/wasm_aermod.yml"
+      - "scripts/build_aermod_wasm.sh"
+      - "scripts/wasm/**"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
       - "src/pyaermod/**/*.py"
       - ".github/workflows/docs.yml"
+      - ".github/workflows/wasm_aermod.yml"
+      - "scripts/build_aermod_wasm.sh"
+      - "scripts/wasm/**"
   workflow_dispatch:
 
 # Grant the workflow token the rights Pages + deploy-pages need
@@ -28,7 +34,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # AERMOD compiled to WebAssembly, for the in-browser site under /lite/.
+  # The called workflow also checks it against EPA's AERTEST results.
+  wasm:
+    uses: ./.github/workflows/wasm_aermod.yml
+    with:
+      variants: '["release"]'
+
   build:
+    needs: wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +70,17 @@ jobs:
 
       - name: Build docs with strict mode
         run: mkdocs build --strict --site-dir _site
+
+      - name: Download the WebAssembly AERMOD
+        uses: actions/download-artifact@v4
+        with:
+          name: aermod-wasm-release
+          path: /tmp/aermod_wasm
+
+      - name: Build the in-browser JupyterLite site into _site/lite
+        run: |
+          pip install -r docs/lite/requirements.txt
+          bash scripts/wasm/build_lite_site.sh /tmp/aermod_wasm _site/lite
 
       - name: Upload artifact for Pages
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
