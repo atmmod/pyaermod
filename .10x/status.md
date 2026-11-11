@@ -9,4 +9,4 @@
 | Codebase review | done: .10x/reviews/2026-11-11-codebase-review.md |
 | H1 plan-view hang | done: fixed with regression tests |
 | browser-gui: scope | user chose the zero-install web app (Pyodide + AERMOD-wasm, static on docs site) |
-| browser-gui: design | presenting section by section |
+| browser-gui: design | approved; spec .10x/specs/2026-11-11-browser-gui-design.md awaiting user review |
