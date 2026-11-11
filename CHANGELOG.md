@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The GUI's plan view no longer hangs the server when a source or
+  receptor sits very far from the origin. A typo such as y = 1e18 made
+  the tick loop add a 1 m step that the float could not resolve, so the
+  loop never ended and the NiceGUI event loop froze for every connected
+  user. Ticks are now counted by index and capped at 100 per axis, and a
+  project with a coordinate beyond 1e8 m, or one that is not a number,
+  gets a plan view that names those items instead of a plot.
+
 ### Removed
 
 - The downloadable desktop apps. Releases no longer build or attach the

@@ -17,6 +17,7 @@ labelled on the plot as long as there are few enough to read.
 from __future__ import annotations
 
 import math
+import textwrap
 from html import escape
 from typing import Any, Iterable, List, Sequence, Tuple
 
@@ -34,6 +35,12 @@ AXIS_COLOUR = "#616161"
 MAX_POINTS = 20_000
 #: Label sources and receptor networks on the plot only up to this many each.
 MAX_LABELS = 40
+#: Never draw more ticks than this on an axis.
+MAX_TICKS = 100
+#: Coordinates beyond this many metres from the origin are not drawn. Real
+#: projected coordinates stay far inside it (UTM northings are below 1e7 m);
+#: anything larger is a typo, and the plot cannot resolve metres out there.
+MAX_COORDINATE = 1e8
 
 _WIDTH = 640.0
 _MARGIN_LEFT = 64.0
@@ -63,13 +70,21 @@ def nice_step(span: float, target: int = 6) -> float:
 
 
 def _ticks(lo: float, hi: float) -> List[float]:
+    """Round tick values from ``lo`` to ``hi``.
+
+    Ticks are counted by index, not accumulated, and capped at
+    :data:`MAX_TICKS`: far from the origin a step can be smaller than the
+    spacing of floats there (a 1 m step at 1e18), so adding it would never
+    move the value and an accumulating loop would never end.
+    """
     step = nice_step(hi - lo)
     first = math.ceil(lo / step) * step
-    ticks = []
-    value = first
-    while value <= hi + step * 1e-9:
+    ticks: List[float] = []
+    for i in range(MAX_TICKS):
+        value = first + i * step
+        if value > hi + step * 1e-9 or (ticks and value == ticks[-1]):
+            break
         ticks.append(0.0 if abs(value) < step * 1e-9 else value)
-        value += step
     return ticks
 
 
@@ -171,10 +186,47 @@ def _thin(points: List[Point], budget: int) -> List[Point]:
     return points[::step]
 
 
+def _drawable(point: Point) -> bool:
+    return all(math.isfinite(v) and abs(v) <= MAX_COORDINATE for v in point)
+
+
+def _undrawable_svg(names: Sequence[str]) -> str:
+    """A plan view that only says which items lie too far out to draw."""
+    shown = ", ".join(names[:MAX_LABELS]) + (" and more" if len(names) > MAX_LABELS else "")
+    message = (f"Not drawn: {shown} lie too far from the origin to draw "
+               f"(beyond {MAX_COORDINATE:.0e} m) or have a coordinate that is not a number. "
+               "Check their coordinates.")
+    lines = textwrap.wrap(message, 90)
+    height = 24.0 + 18.0 * len(lines)
+    rows = "".join(f'<tspan x="16" dy="{0 if i == 0 else 18}">{escape(line)}</tspan>'
+                   for i, line in enumerate(lines))
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" role="img" '
+        f'aria-label="{escape(PLAN_VIEW_NAME)}" viewBox="0 0 {_fmt(_WIDTH)} {_fmt(height)}" '
+        f'preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;'
+        f'font-family:sans-serif;font-size:12px">'
+        f"<title>{escape(PLAN_VIEW_NAME)}</title>"
+        f"<desc>{escape(message)}</desc>"
+        f'<text x="16" y="24" fill="{SOURCE_COLOUR}">{rows}</text>'
+        "</svg>"
+    )
+
+
 def plan_view_svg(project: Any) -> str:
-    """The plan view of ``project`` as an SVG document string."""
+    """The plan view of ``project`` as an SVG document string.
+
+    If any source or receptor lies beyond :data:`MAX_COORDINATE` or has a
+    coordinate that is not finite, the SVG names those items instead of
+    drawing a plot whose metres cannot be told apart.
+    """
     footprints = _footprints(project)
     receptors = _receptor_items(project)
+    far = [f"source {fp.source_id}" for fp in footprints
+           if not all(_drawable(p) for p in fp.points())]
+    far += [f"receptor grid {name}" if name else "discrete receptors"
+            for name, _, pts in receptors if not all(_drawable(p) for p in pts)]
+    if far:
+        return _undrawable_svg(far)
     receptor_count = sum(len(pts) for _, _, pts in receptors)
     every_point: List[Point] = [p for fp in footprints for p in fp.points()]
     for _, _, pts in receptors:
@@ -286,4 +338,4 @@ def _legend(frame: _Frame, summary: str, anything: bool) -> Iterable[str]:
            f'fill="{AXIS_COLOUR}" text-anchor="end">{escape(summary)}</text>')
 
 
-__all__ = ["MAX_POINTS", "PLAN_VIEW_NAME", "nice_step", "plan_view_svg"]
+__all__ = ["MAX_COORDINATE", "MAX_POINTS", "MAX_TICKS", "PLAN_VIEW_NAME", "nice_step", "plan_view_svg"]
