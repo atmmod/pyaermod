@@ -64,10 +64,11 @@ jobs:
           mkdir -p /tmp/aermod_build && cd /tmp/aermod_build
           bash "$GITHUB_WORKSPACE/scripts/fetch_epa_source.sh" "$AERMOD_SOURCE_URL" aermod_source.zip
           rm -rf src && mkdir src && cd src && unzip -q ../aermod_source.zip
+          # EPA's archive extracts read-only.
+          chmod -R u+w .
           topdir=$(unzip -Z1 ../aermod_source.zip | awk -F/ 'NF>1{print $1; exit}')
           if [ -n "$topdir" ]; then mv "$topdir"/* . && rmdir "$topdir"; fi
-          chmod -R u+w .
-          ls
+          ls ./*.f | wc -l
 
       - name: Build AERMOD for WebAssembly (${{ matrix.variant }})
         run: |
