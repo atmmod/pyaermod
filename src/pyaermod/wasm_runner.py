@@ -62,9 +62,10 @@ _LOADER_JS = r"""
     onExit: (code) => { exitCode = code; },
     quit: (status, toThrow) => { exitCode = status; throw toThrow; },
   };
+  // Only the glue's Node code paths use these; a browser never takes them.
   const req = (typeof require === 'function') ? require : globalThis.require;
-  const load = new Function('Module', 'require', glue + '\nreturn Module;');
-  const M = load(Module, req);
+  const load = new Function('Module', 'require', '__dirname', glue + '\nreturn Module;');
+  const M = load(Module, req, globalThis.__dirname || '/');
   if (!ready) {
     throw new Error('aermod.js did not initialise synchronously; it was not built ' +
                     'by scripts/build_aermod_wasm.sh');

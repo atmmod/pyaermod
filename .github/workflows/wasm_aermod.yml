@@ -12,6 +12,7 @@ name: WebAssembly AERMOD
 on:
   push:
     paths:
+      - "src/pyaermod/wasm_runner.py"
       - "scripts/build_aermod_wasm.sh"
       - "scripts/wasm/**"
       - ".github/workflows/wasm_aermod.yml"
@@ -21,6 +22,7 @@ on:
       - "scripts/wasm/**"
       - ".github/workflows/wasm_aermod.yml"
       - "src/pyaermod/wasm_runner.py"
+      - "src/pyaermod/runner.py"
   workflow_dispatch:
     inputs:
       source_url:
@@ -34,6 +36,7 @@ permissions:
 env:
   AERMOD_SOURCE_URL: ${{ inputs.source_url || 'https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip' }}
   # ghcr.io/r-wasm/flang-wasm:main as of 2026-11-10 (LLVM Flang 23.1.4, Emscripten 5.0.7)
+  PYODIDE_VERSION: "314.0.7"
   FLANG_WASM_IMAGE: ghcr.io/r-wasm/flang-wasm@sha256:8d9bc80f8067550a692ccfe570660625edf251b17c9be455446a0bd592c7dd19
 
 jobs:
@@ -121,8 +124,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # test_sigterm_mid_run_reports_the_signal signals a native AERMOD
+      # process; WebAssembly in a browser has no process to signal.
       - name: Real-AERMOD tests against the WebAssembly build
-        run: pytest tests/test_real_aermod.py -v --no-cov -p no:cacheprovider
+        run: >
+          pytest tests/test_real_aermod.py -v --no-cov -p no:cacheprovider
+          --deselect tests/test_real_aermod.py::test_sigterm_mid_run_reports_the_signal
+
+      - name: AERTEST through pyaermod in Pyodide (the browser path, under Node)
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python -m build --wheel --outdir /tmp/wheels .
+          mkdir -p /tmp/pyodide_smoke && cd /tmp/pyodide_smoke
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund pyodide@${{ env.PYODIDE_VERSION }}
+          cp "$GITHUB_WORKSPACE/scripts/wasm/pyodide_smoke.mjs" .
+          node pyodide_smoke.mjs /tmp/wheels/pyaermod-*.whl /tmp/aermod_build/out "$GITHUB_WORKSPACE" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build
         if: always()
