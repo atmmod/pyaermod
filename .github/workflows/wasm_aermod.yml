@@ -23,6 +23,14 @@ on:
       - ".github/workflows/wasm_aermod.yml"
       - "src/pyaermod/wasm_runner.py"
       - "src/pyaermod/runner.py"
+  # docs.yml calls this to build the WebAssembly AERMOD for the JupyterLite
+  # site, release variant only.
+  workflow_call:
+    inputs:
+      variants:
+        description: "JSON list of variants to build: release, debug"
+        type: string
+        default: '["release", "debug"]'
   workflow_dispatch:
     inputs:
       source_url:
@@ -36,7 +44,8 @@ permissions:
 env:
   AERMOD_SOURCE_URL: ${{ inputs.source_url || 'https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip' }}
   # ghcr.io/r-wasm/flang-wasm:main as of 2026-11-10 (LLVM Flang 23.1.4, Emscripten 5.0.7)
-  PYODIDE_VERSION: "314.0.7"
+  # The Pyodide jupyterlite-pyodide-kernel 0.8.7 loads (docs/lite/requirements.txt).
+  PYODIDE_VERSION: "314.0.6"
   FLANG_WASM_IMAGE: ghcr.io/r-wasm/flang-wasm@sha256:8d9bc80f8067550a692ccfe570660625edf251b17c9be455446a0bd592c7dd19
 
 jobs:
@@ -46,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [release, debug]
+        variant: ${{ fromJSON(inputs.variants || '["release", "debug"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +111,7 @@ jobs:
           set -uo pipefail
           work=/tmp/aertest_direct && rm -rf "$work" && mkdir -p "$work" && cd "$work"
           cp "$GITHUB_WORKSPACE"/tests/fixtures/epa_official/AERMET2.* .
+          # EPA 26135's deck names them in lower case (Linux is case-sensitive).
           cp AERMET2.SFC aermet2.sfc && cp AERMET2.PFL aermet2.pfl
           sed -e 's#\.\./meteorology/##I' -e 's#\.\./plotfiles/##I' -e 's#\.\./postfiles/##I' -e 's#\.\./Outputs/##I' \
             "$GITHUB_WORKSPACE/tests/fixtures/epa_official/aertest.inp" > aermod.inp
@@ -148,7 +158,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aermod-wasm-${{ matrix.variant }}
-          path: |
-            /tmp/aermod_build/out
-            /tmp/aertest_direct
+          path: /tmp/aermod_build/out
           if-no-files-found: warn

@@ -1384,6 +1384,10 @@ def _acquire_dir_lock(lock_path: Path):
     log warning is issued.
     """
     fh = open(lock_path, "w")  # noqa: SIM115 — handle outlives the function
+    if wasm_runner.IS_EMSCRIPTEN:
+        # Pyodide: one interpreter, no threads, no other processes, so
+        # nothing to serialize; and its fcntl has no flock.
+        return fh
     try:
         try:
             import fcntl  # POSIX
@@ -1409,6 +1413,10 @@ def _acquire_dir_lock(lock_path: Path):
 def _release_dir_lock(fh) -> None:
     """Release a lock acquired by `_acquire_dir_lock`."""
     if fh is None:
+        return
+    if wasm_runner.IS_EMSCRIPTEN:
+        with contextlib.suppress(Exception):
+            fh.close()
         return
     try:
         try:

@@ -217,6 +217,8 @@ def test_run_returns_aermods_exit_status(tmp_path, fake_pyodide):
 def test_runner_finds_and_runs_the_webassembly_build(tmp_path, fake_pyodide, monkeypatch):
     js = _make_build(tmp_path / "build")
     monkeypatch.setenv(wasm_runner.ENV_VAR, str(js))
+    # Pyodide's fcntl has no flock; the runner must not need it there.
+    monkeypatch.setitem(sys.modules, "fcntl", types.ModuleType("fcntl"))
     deck = tmp_path / "work" / "case.inp"
     deck.parent.mkdir()
     deck.write_text("CO STARTING\n", encoding="utf-8")
