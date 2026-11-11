@@ -75,6 +75,14 @@ trap 'rm -rf "$BUILD"' EXIT
 cp "$SRC"/*.f "$BUILD"/
 cd "$BUILD"
 
+# v26135 calls DSIND, DCOSD and DTAND: gfortran's double-precision degree
+# trigonometry, which Flang does not have. Fortran 2023's generic SIND, COSD,
+# TAND (and ASIND, ATAN2D, ...) return the kind of their argument, so with
+# AERMOD's DOUBLE PRECISION arguments they are the same functions.
+# (perl: perl-base is in every Debian/Ubuntu image, and its regex is the same everywhere.)
+rewrites=$(perl -ne '$n++ if /\bDA?(SIN|COS|TAN|TAN2)D\s*\(/i; END { print $n+0 }' ./*.f)
+perl -pi -e 's/\bD(A?)(SIN|COS|TAN|TAN2)D(\s*\()/$1$2D$3/gi' ./*.f
+
 # EPA's own build order: modules.f and grsm.f define the modules the rest USE.
 FIRST=(modules grsm)
 REST=(aermod setup coset soset reset meset ouset inpsum metext iblval siggrid
@@ -98,6 +106,7 @@ version="$(grep -o "DATA VERSN /'[0-9]*'/" modules.f | grep -o "[0-9][0-9]*" || 
     echo "Flang: $("$FLANG" --version | head -1)"
     echo "Emscripten: $(emcc --version | head -1)"
     echo "Compile flags: $FFLAGS"
+    echo "Source lines rewritten (DSIND/DCOSD/DTAND -> SIND/COSD/TAND): $rewrites"
     echo "Link flags: ${LDFLAGS[*]}"
     (cd "$OUT" && sha256sum aermod.js aermod.wasm)
 } > "$OUT/BUILD.txt"
