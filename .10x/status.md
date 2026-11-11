@@ -6,5 +6,5 @@
 ## Work items
 | Item | State |
 |---|---|
-| Codebase review (4 parallel reviewers: gui_v2, runner+wasm, input/validation, outputs/regulatory) | in progress |
+| Codebase review | done: .10x/reviews/2026-11-11-codebase-review.md (6 high, ~20 medium) |
 | browser-gui: brainstorm | pending user input |
