@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- AERMOD's WebAssembly build stopped with "Sequential record missing its
+  terminator" when the surface file's last line had no line ending, which
+  EPA's executable reads. AERMOD steps back over that line every hour, and
+  Flang's runtime cannot. `wasm_runner.run` now ends the deck's surface
+  and profile files with a newline before AERMOD starts.
+- The browser GUI's source and receptor editors saved a field whose text
+  did not parse (`abc` for a stack height) by keeping its old value
+  without a word. The field now says what it needs under it, and Save
+  refuses until it is corrected.
 - `read_aermod_input(..., sandbox=True)` judged a quoted path by its
   text, quotes included, so `SURFFILE "../../etc/passwd"` passed: `"..`
   is an ordinary directory name. AERMOD drops the quotes, and so does the

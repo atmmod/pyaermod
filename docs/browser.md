@@ -90,6 +90,11 @@ Two changes to EPA's source are needed for Flang:
   (`scripts/wasm/inquire_shim.c`) makes that call correctly. The build stops if any
   other runtime call does not match.
 
+Flang's runtime also differs from gfortran's on one kind of input file. AERMOD steps back
+one line in the surface file every hour, and Flang cannot step back over a last line that
+has no line ending. EPA's executable reads such a file, so before each run pyaermod adds
+the missing line ending to the surface and profile files the deck names.
+
 ## What does not work in the browser
 
 - **AERMET, AERMAP and the other EPA programs** are not compiled. Bring AERMET output

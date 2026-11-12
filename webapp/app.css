@@ -61,6 +61,7 @@ input[type="text"], select, textarea { width: 100%; padding: 6px 8px; border: 1p
   background: var(--bg); color: var(--text); font: inherit; }
 textarea.mono, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
 [aria-invalid="true"] { border-color: var(--danger) !important; outline: 1px solid var(--danger); }
+.field-error { color: var(--danger); font-size: 13px; }
 fieldset.choices { grid-column: 1 / -1; flex-direction: row; border: 1px solid var(--border); border-radius: 5px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .choice { display: inline-flex; gap: 4px; align-items: center; }
 button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 5px;
