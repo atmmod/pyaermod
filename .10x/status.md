@@ -1,12 +1,21 @@
 # Status
 
-**Phase:** browser-gui Phase 0 (Brainstorming), design presentation in progress
+**Phase:** browser-gui Phase 4 (Implementation)
 **Branch:** claude/blissful-gauss-6n1wht
+**ADR:** ADR-001
 
-## Work items
-| Item | State |
+| Task | State |
 |---|---|
-| Codebase review | done: .10x/reviews/2026-11-11-codebase-review.md |
-| H1 plan-view hang | done: fixed with regression tests |
-| browser-gui: scope | user chose the zero-install web app (Pyodide + AERMOD-wasm, static on docs site) |
-| browser-gui: design | approved; spec .10x/specs/2026-11-11-browser-gui-design.md awaiting user review |
+| T1 reader/writer quoting (H4) | todo |
+| T2 SURFDATA numeric forms | todo |
+| T3 explicit wasm path | todo |
+| T4 wasm trap keeps .out | todo |
+| T5 readiness.py | todo |
+| T6 browser core | todo |
+| T7 import_deck/apply_terrain | todo |
+| T8 run/file | todo |
+| T9 site/app shell | todo |
+| T10 bridge + journeys + pyodide smoke | todo |
+| T11 build stage + docs | todo |
+
+Blocker (non-fatal): AERMOD-wasm not buildable/downloadable here; wasm tiers verified in CI.
