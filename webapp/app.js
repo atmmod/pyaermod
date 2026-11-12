@@ -95,6 +95,10 @@ async function upload(name, buffer) {
   if (reply.ok) {
     state.uploads.set(reply.name, data);
     await store.putFile(reply.name, data);
+    await refreshFiles();
+  } else if (reply.error.kind === 'cancelled') {
+    showError({ message: `${name} was not uploaded: a run was cancelled while it was `
+      + 'being sent. Upload it again.' });
   }
   return reply;
 }
@@ -128,7 +132,8 @@ function project() {
 
 function changed() {
   state.dirty = true;
-  store.saveDocument(state.doc);
+  // Kept in this browser only once pyaermod has accepted it (runCheck), so
+  // a value it refuses never replaces the last good copy.
   renderHeader();
   scheduleCheck();
 }
@@ -215,6 +220,7 @@ function scheduleCheck() {
 
 async function runCheck() {
   const reply = await api('check', { document: state.doc }, { quiet: true });
+  if (reply.ok) store.saveDocument(state.doc);
   state.review = reply.ok ? reply : {
     ready: false, warnings: [], deck: null, met_summary: null,
     blocking: [{ step: reply.error.step || 'project', title: stepLabel(reply.error.step || 'project'),
@@ -276,7 +282,9 @@ function render() {
   const page = { project: projectStep, sources: sourcesStep, receptors: receptorsStep,
     meteorology: meteorologyStep, output: outputStep, run: runStep, results: resultsStep }[state.step];
   const notice = state.notice ? el('div', { class: `notice ${state.notice.kind}`, role: 'status' },
-    ...state.notice.lines.map((l) => el('p', { text: l }))) : null;
+    ...state.notice.lines.map((l) => el('p', { text: l })),
+    state.notice.action ? el('button', { type: 'button', text: state.notice.action.label,
+      onclick: state.notice.action.run }) : null) : null;
   main().replaceChildren(...[el('h1', { text: stepLabel(state.step) }), notice, ...page()].filter(Boolean));
 }
 
@@ -389,7 +397,11 @@ function sourcesStep() {
       state.editing = { kind: 'source', list, index, item: structuredClone(project().sources.sources[index]) };
       render();
     },
-    (list, index) => { project().sources.sources.splice(index, 1); changed(); render(); refreshPlan(); },
+    (list, index) => {
+      project().sources.sources.splice(index, 1);
+      state.editing = null;       // its index may now name another source
+      changed(); render(); refreshPlan();
+    },
     'No sources yet.');
   return [section('Sources', 'Every source AERMOD models.', table,
     el('div', { class: 'toolbar' }, type, el('button', { type: 'button', text: 'Add source', onclick: add }))),
@@ -414,7 +426,11 @@ function receptorsStep() {
       state.editing = { kind: 'receptor', list, index, item: structuredClone(rp[list][index]) };
       render();
     },
-    (list, index) => { rp[list].splice(index, 1); changed(); render(); refreshPlan(); },
+    (list, index) => {
+      rp[list].splice(index, 1);
+      state.editing = null;       // its index may now name another network
+      changed(); render(); refreshPlan();
+    },
     'No receptors yet.');
   const terrain = async () => {
     const [file] = await pickFiles({ accept: '.out,.rou,.csv,.txt,*' });
@@ -493,11 +509,8 @@ function samplesCard() {
 }
 
 function meteorologyStep() {
-  setTimeout(async () => {
-    const before = state.files.map((f) => f.name).join();
-    await refreshFiles();
-    if (state.files.map((f) => f.name).join() !== before && state.step === 'meteorology') render();
-  }, 0);
+  // state.files is kept current by every upload and removal, so this step
+  // never re-renders under the user's typing.
   return [samplesCard(), filesCard(),
     ...groupsFor('meteorology', project().meteorology, 'MeteorologyPathway')].filter(Boolean);
 }
@@ -568,7 +581,10 @@ async function cancelRun() {
   render();
   await state.backend.restart();
   await replayUploads();
+  await refreshFiles();
   setStatus('');
+  // The new worker has the uploads back, but no run's output files.
+  state.run = null;
   state.notice = { kind: 'warn', lines: ['The run was cancelled.'] };
   await runCheck();
   render();
@@ -668,7 +684,15 @@ async function boot() {
   let doc = null;
   if (saved) {
     const reply = await api('load', { text: JSON.stringify(saved) }, { quiet: true });
-    if (reply.ok) doc = reply.document;
+    if (reply.ok) {
+      doc = reply.document;
+    } else {
+      // Not thrown away: offered as a file, and kept until a new project is accepted.
+      state.notice = { kind: 'warn', lines: [
+        `The project kept in this browser could not be opened: ${reply.error.message}`],
+      action: { label: 'Download it', run: () => download('unopened-project.json',
+        new Blob([JSON.stringify(saved, null, 2)], { type: 'application/json' })) } };
+    }
   }
   if (!doc) doc = (await api('new_project')).document;
   state.doc = doc;

@@ -370,14 +370,84 @@ def _not_uploaded(project: Any) -> List[Dict[str, Any]]:
     items: Dict[str, Dict[str, Any]] = {}
     for ref in input_files(project):
         name = unquote_path(ref.path)
-        if (work_dir() / clean_name(name)).is_file() and clean_name(name) == name:
-            continue
+        try:
+            flat = clean_name(name)
+        except BrowserError:
+            problem = f"{name!r} ({ref.keyword}) is not a file name: give the name of a file"
+        else:
+            if flat == name and (work_dir() / flat).is_file():
+                continue
+            problem = (f"{name} ({ref.keyword}) has not been uploaded: add it on the "
+                       "Meteorology step's file list, or pick a sample")
+            if flat != name:
+                problem = (f"{name} ({ref.keyword}) is in a folder; in the browser every "
+                           f"file is in one folder, so name it {flat}")
         step = _INPUT_STEPS.get(ref.keyword.split()[0], "project")
         item = items.setdefault(step, {"step": step, "title": STEP_TITLES.get(step, step),
                                        "links": [step], "problems": []})
-        item["problems"].append(f"{name} ({ref.keyword}) has not been uploaded: add it "
-                                "on the Meteorology step's file list, or pick a sample")
+        item["problems"].append(problem)
     return list(items.values())
+
+
+#: Where each part of a project is edited, by the sandbox's field names.
+_FIELD_STEPS = (("output", "output"), ("control", "project"), ("meteorology", "meteorology"),
+                ("sources", "sources"), ("receptors", "receptors"))
+
+
+def _outside(project: Any) -> List[Dict[str, Any]]:
+    """Checklist items for files AERMOD would read or write outside the working directory.
+
+    An imported deck is checked when it is read; an opened project file or
+    a typed name is checked here, so no run writes outside the folder the
+    page gave it.
+    """
+    from .gui_v2.readiness import STEP_TITLES
+    from .input_reader import PathTraversalError, _validate_paths_within
+
+    try:
+        _validate_paths_within(project, work_dir())
+    except PathTraversalError as exc:
+        items: Dict[str, Dict[str, Any]] = {}
+        for v in exc.violations:
+            step = next((st for prefix, st in _FIELD_STEPS if v.field.startswith(prefix)),
+                        "project")
+            item = items.setdefault(step, {"step": step, "title": STEP_TITLES.get(step, step),
+                                           "links": [step], "problems": []})
+            item["problems"].append(f"{v.path} ({v.field.replace('_', ' ')}) is outside the "
+                                    "browser's folder: give a file name without a folder")
+        return list(items.values())
+    return []
+
+
+def _quote_blanks(project: Any) -> None:
+    """Quote every file name with a blank, so AERMOD reads it whole.
+
+    Input files through the reader's setters (which quote); output and
+    other file fields of the control and output pathways, one level of
+    lists deep, by name (``*file*``).
+    """
+    from .input_reader import _input_file_slots
+    from .pathways import quote_path, unquote_path
+
+    for ref, set_path in _input_file_slots(project):
+        name = unquote_path(ref.path)
+        if any(c.isspace() for c in name):
+            set_path(name)
+
+    def fix(obj: Any) -> None:
+        if not dataclasses.is_dataclass(obj):
+            return
+        for f in dataclasses.fields(obj):
+            value = getattr(obj, f.name)
+            if isinstance(value, str) and "file" in f.name and not value.startswith('"') \
+                    and any(c.isspace() for c in value.strip()):
+                setattr(obj, f.name, quote_path(value.strip()))
+            elif isinstance(value, list) and "file" in f.name:
+                for entry in value:
+                    fix(entry)
+
+    fix(project.control)
+    fix(project.output)
 
 
 def _merge(found: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -395,10 +465,12 @@ def _merge(found: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dic
 
 
 def _review(project: Any) -> Dict[str, Any]:
+    """The checklist of ``project``, after quoting its file names with blanks (in place)."""
     from .gui_v2.readiness import review
 
+    _quote_blanks(project)
     found = review(_session(project), have_binary=_have_aermod())
-    blocking = _merge(_items(found.blocking), _not_uploaded(project))
+    blocking = _merge(_merge(_items(found.blocking), _not_uploaded(project)), _outside(project))
     return {"ready": not blocking, "blocking": blocking,
             "warnings": _items(found.warnings), "deck": found.deck,
             "met_summary": found.met_summary}
@@ -417,8 +489,10 @@ def deck(document: Any) -> Dict[str, Any]:
     """The AERMOD deck ``document``'s project is written as."""
     from .gui_v2.session import DeckError
 
+    project = _project(document)
+    _quote_blanks(project)
     try:
-        return {"deck": _session(_project(document)).deck_text()}
+        return {"deck": _session(project).deck_text()}
     except DeckError as exc:
         raise BrowserError(str(exc), kind="deck") from exc
 

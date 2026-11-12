@@ -237,6 +237,10 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
             continue
 
         tokens = _runstream_tokens(line)
+        # A title is free text, not fields: its words, quotes and all, as
+        # before quoted fields were kept whole.
+        if any(t.upper() in ("TITLEONE", "TITLETWO") for t in tokens[:2]):
+            tokens = line.split()
         if len(tokens) >= 2 and tokens[0] in PATHWAYS and tokens[1].upper() == "STARTING":
             if current is not None:
                 raise ValueError(

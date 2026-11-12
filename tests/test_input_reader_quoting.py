@@ -110,3 +110,12 @@ def test_anchoring_a_met_file_in_a_folder_with_blanks_quotes_it(tmp_path: Path):
     assert f'SURFFILE  "{folder / "a.sfc"}"' in project.to_aermod_input(validate=False)
     # Listed as the file AERMOD opens, without the quotes.
     assert str(folder / "a.sfc") in [ref.path for ref in input_files(project)]
+
+
+def test_a_title_with_quotes_and_blanks_reads_back_the_same():
+    """Titles are free text to AERMOD; the reader joins their words as before."""
+    project = parse_aermod_input(DECK.replace("TITLEONE  quoting test",
+                                              'TITLEONE  "Albany  stack" run').format(
+        errorfil="err.out", surf="a.sfc", prof="a.pfl", summ="a.sum"))
+    again = parse_aermod_input(project.to_aermod_input(validate=False))
+    assert again.control.title_one == project.control.title_one == '"Albany stack" run'

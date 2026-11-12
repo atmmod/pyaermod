@@ -169,3 +169,39 @@ def test_b05_every_step_fits_a_phone(app, name):
     step(app, name)
     assert not app.evaluate(
         "document.documentElement.scrollWidth > document.documentElement.clientWidth")
+
+
+def _add_point_source(page, name):
+    page.get_by_role("button", name="Add source").click()
+    box = page.get_by_label("Source id")
+    box.fill(name)
+    box.dispatch_event("change")
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.wait_for_selector(f"td:text-is('{name}')")
+
+
+def test_b06_deleting_while_editing_does_not_save_over_another_source(app):
+    step(app, "Sources")
+    for name in ("A", "B", "C"):
+        _add_point_source(app, name)
+    app.get_by_role("button", name="Edit B").click()
+    app.get_by_role("button", name="Delete A").click()
+    # The editor closed with the delete, so nothing can be saved over C.
+    assert app.get_by_role("button", name="Save", exact=True).count() == 0
+    names = app.locator("tbody tr td:first-child").all_inner_texts()
+    assert names == ["B", "C"]
+
+
+def test_b07_a_value_pyaermod_refuses_does_not_replace_the_kept_project(app):
+    title = app.get_by_label("Title one")
+    title.fill("Kept title")
+    title.dispatch_event("change")
+    app.wait_for_timeout(1200)                       # checked and kept
+    app.locator("summary:has-text('Advanced')").click()
+    chemistry = app.get_by_label("Chemistry")
+    chemistry.fill('"OLM"')                          # valid JSON, not a chemistry object
+    chemistry.dispatch_event("change")
+    app.wait_for_timeout(1200)
+    app.reload()
+    app.wait_for_selector("#app:not([hidden])")
+    assert app.get_by_label("Title one").input_value() == "Kept title"

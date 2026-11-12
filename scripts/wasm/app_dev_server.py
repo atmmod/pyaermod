@@ -11,7 +11,8 @@ developed and its journeys tested without the WebAssembly build:
 AERMOD is the ``aermod`` on PATH, or, with ``--replay NAME``, a replay of
 the recording ``tests/fixtures/gui/aermod_recordings/NAME`` through
 ``tests/e2e/fake_aermod.py``. The sample met files are served from
-``tests/fixtures``. Listens on 127.0.0.1 only; it is a development tool.
+``tests/fixtures``. Listens on 127.0.0.1 only, and answers calls only from
+the page it serves (see ``_from_this_page``); it is a development tool.
 """
 
 from __future__ import annotations
@@ -65,9 +66,26 @@ def make_handler(samples: dict, lock: threading.Lock):
                 return self._send(200, samples[path].read_bytes(), "application/octet-stream")
             return super().do_GET()
 
+        def _from_this_page(self) -> bool:
+            """Whether the request comes from the page this server serves.
+
+            A JSON content type makes another site's page ask first (a CORS
+            preflight, which is never granted); a loopback Host defeats DNS
+            rebinding; and an Origin, when sent, must be this server.
+            """
+            port = self.server.server_address[1]
+            hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+            origin = self.headers.get("Origin")
+            return ((self.headers.get("Content-Type") or "").split(";")[0].strip()
+                    == "application/json"
+                    and self.headers.get("Host") in hosts
+                    and (origin is None or origin in {f"http://{h}" for h in hosts}))
+
         def do_POST(self):
             if self.path.split("?", 1)[0] != "/api/call":
                 return self._send(404, b"not found", "text/plain")
+            if not self._from_this_page():
+                return self._send(403, b"forbidden", "text/plain")
             length = int(self.headers.get("Content-Length") or 0)
             request = json.loads(self.rfile.read(length) or b"{}")
             with lock:                       # one call at a time, as in the worker

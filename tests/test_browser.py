@@ -480,3 +480,45 @@ def test_under_pyodide_aermod_is_the_webassembly_build(monkeypatch):
 
     monkeypatch.setattr(wasm_runner, "find_wasm_aermod", missing)
     assert not browser._have_aermod()
+
+
+# ----------------------------------------------------------------------
+# Review fixes (independent review of the browser GUI)
+# ----------------------------------------------------------------------
+
+def test_an_output_outside_the_working_directory_blocks_the_run():
+    project = _albany_project()
+    project.output.summary_file = "/tmp/elsewhere/evil.sum"
+    found = ok("check", document=json.loads(project_to_json(project)))
+    assert not found["ready"]
+    (item,) = [i for i in found["blocking"] if i["step"] == "output"]
+    assert any("outside" in p and "evil.sum" in p for p in item["problems"])
+
+
+def test_a_met_file_name_with_a_blank_is_quoted_in_the_deck(replay):
+    replay("albany_success")
+    ok("put_file", name="My Met.SFC", data_b64=base64.b64encode(b"x").decode())
+    project = _albany_project()
+    project.meteorology.surface_file = "My Met.SFC"
+    found = ok("check", document=json.loads(project_to_json(project)))
+    assert 'SURFFILE  "My Met.SFC"' in found["deck"]
+    assert not any("My Met.SFC" in p for i in found["blocking"] for p in i["problems"])
+
+
+def test_an_output_name_with_a_blank_is_quoted_in_the_deck():
+    project = _albany_project()
+    project.output.summary_file = "my sum.sum"
+    found = ok("check", document=json.loads(project_to_json(project)))
+    assert 'SUMMFILE  "my sum.sum"' in found["deck"]
+    assert 'SUMMFILE  "my sum.sum"' in ok("deck", document=json.loads(
+        project_to_json(project)))["deck"]
+
+
+@pytest.mark.parametrize("name", ["met/", ".."])
+def test_a_met_path_that_is_no_file_name_is_one_item_not_an_error(name):
+    project = _albany_project()
+    project.meteorology.surface_file = name
+    found = ok("check", document=json.loads(project_to_json(project)))
+    problems = [p for i in found["blocking"] if i["step"] == "meteorology" for p in i["problems"]]
+    assert any(name in p for p in problems)
+    assert any(i["step"] == "run" or i["step"] == "meteorology" for i in found["blocking"])
