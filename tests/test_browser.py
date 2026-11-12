@@ -305,19 +305,45 @@ def test_a_csv_of_elevations_sets_matching_receptors(work):
 
 
 def test_terrain_that_matches_nothing_or_flat_terrain_is_explained():
+    from pyaermod.pathways import TerrainType
+
     put(AERMAP / "aermap_receptors.out")
-    document = json.loads(project_to_json(_albany_project()))   # flat, other coordinates
+    project = _albany_project()                                 # other coordinates
+    project.control.terrain_type = TerrainType.FLAT
+    document = json.loads(project_to_json(project))
     notes = ok("apply_terrain", document=document, name="aermap_receptors.out")["notes"]
     assert any("matched" in n for n in notes)
-    assert any("Flat" in n for n in notes) or document["project"]["control"][
-        "terrain_type"] != {"_enum": "TerrainType.FLAT"}
+    assert any("terrain is Flat" in n for n in notes)
 
 
-def test_a_bad_terrain_csv_names_the_line():
-    ok("put_file", name="bad.csv", data_b64=base64.b64encode(b"x,y,z\n1,2\n").decode())
+def test_aermap_source_output_sets_base_elevations():
+    put(AERMAP / "aermap_sources.out")
+    project = _networks_project()
+    project.sources.sources = [PointSource("STK", 500200.0, 4000300.0, stack_diameter=1.0)]
+    reply = ok("apply_terrain", document=json.loads(project_to_json(project)),
+               name="aermap_sources.out")
+    assert reply["kind"] == "sources"
+    assert reply["document"]["project"]["sources"]["sources"][0]["base_elevation"] == 113.0
+
+
+@pytest.mark.parametrize("text,expected", [
+    (b"x,y,z\n1,2\n", "line 2"),                   # too few values
+    (b"x,y,z\n1,2,3\n4,y,5\n", "line 3"),          # not a number
+    (b"x,y,z\n# nothing\n", "holds no elevations"),
+    (b"\x00\xff\x00garbage", "could not be read"),
+])
+def test_a_bad_terrain_file_says_what_is_wrong(text, expected):
+    name = "bad.csv" if expected != "could not be read" else "bad.out"
+    ok("put_file", name=name, data_b64=base64.b64encode(text).decode())
     document = json.loads(project_to_json(_networks_project()))
-    error = call("apply_terrain", document=document, name="bad.csv")["error"]
-    assert error["kind"] == "terrain" and "line 2" in error["message"]
+    error = call("apply_terrain", document=document, name=name)["error"]
+    assert error["kind"] == "terrain" and expected in error["message"], error
+
+
+def test_terrain_that_was_not_uploaded_is_refused():
+    document = json.loads(project_to_json(_networks_project()))
+    error = call("apply_terrain", document=document, name="nothing.csv")["error"]
+    assert error["step"] == "receptors" and "not been uploaded" in error["message"]
 
 
 # ----------------------------------------------------------------------
@@ -383,3 +409,74 @@ def test_a_project_that_is_not_ready_is_not_run(replay):
     document = json.loads(project_to_json(_albany_project()))     # no met files uploaded
     error = call("run", document=document)["error"]
     assert error["kind"] == "not_ready" and error["step"] == "meteorology"
+
+
+# ----------------------------------------------------------------------
+# Files, errors and where AERMOD is looked for
+# ----------------------------------------------------------------------
+
+def test_files_are_listed_fetched_and_removed():
+    put(MET / "AERMET2.SFC")
+    assert ok("list_files")["files"] == [{"name": "AERMET2.SFC",
+                                          "size": (MET / "AERMET2.SFC").stat().st_size}]
+    data = base64.b64decode(ok("get_file", name="AERMET2.SFC")["data_b64"])
+    assert data == (MET / "AERMET2.SFC").read_bytes()
+    assert ok("remove_file", name="AERMET2.SFC")["files"] == []
+    assert call("get_file", name="AERMET2.SFC")["error"]["kind"] == "file"
+
+
+def test_the_working_directory_is_made_when_first_needed(monkeypatch):
+    monkeypatch.setattr(browser, "WORK_DIR", None)
+    first = browser.work_dir()
+    assert first.is_dir() and browser.work_dir() == first
+
+
+def test_a_deck_that_cannot_be_read_or_written_says_so():
+    error = call("import_deck", name="x.inp", text="not a deck")["error"]
+    assert error["kind"] == "deck" and "could not be read" in error["message"]
+
+
+def test_a_project_the_writer_refuses_is_a_deck_error(monkeypatch):
+    from pyaermod.gui_v2.session import DeckError, Session
+
+    def refuse(self):
+        raise DeckError("project.sources[0]: cannot be written")
+
+    monkeypatch.setattr(Session, "deck_text", refuse)
+    error = call("deck", document=json.loads(project_to_json(_albany_project())))["error"]
+    assert error == {"kind": "deck", "message": "project.sources[0]: cannot be written",
+                     "step": None}
+
+
+def test_a_problem_the_pip_gui_and_the_upload_check_both_find_is_one_item():
+    project = _albany_project()
+    project.meteorology.profile_file = ""                      # the pip GUI's item
+    found = ok("check", document=json.loads(project_to_json(project)))
+    (met,) = [i for i in found["blocking"] if i["step"] == "meteorology"]
+    assert "profile file must not be empty" in met["problems"]
+    assert any("AERMET2.SFC (ME SURFFILE) has not been uploaded" in p for p in met["problems"])
+
+
+def test_arguments_must_be_an_object_and_a_bug_is_reported(monkeypatch):
+    assert json.loads(browser.call("schema", "[1]"))["error"]["kind"] == "internal"
+
+    def broken():
+        raise RuntimeError("boom")
+
+    monkeypatch.setitem(browser._OPERATIONS, "schema", broken)
+    error = json.loads(browser.call("schema"))["error"]
+    assert error["message"] == "RuntimeError: boom" and "Traceback" in error["traceback"]
+
+
+def test_under_pyodide_aermod_is_the_webassembly_build(monkeypatch):
+    from pyaermod import wasm_runner
+
+    monkeypatch.setattr(wasm_runner, "IS_EMSCRIPTEN", True)
+    monkeypatch.setattr(wasm_runner, "find_wasm_aermod", lambda: Path("/x/aermod.js"))
+    assert browser._have_aermod()
+
+    def missing():
+        raise wasm_runner.WasmAERMODNotFound("none")
+
+    monkeypatch.setattr(wasm_runner, "find_wasm_aermod", missing)
+    assert not browser._have_aermod()
