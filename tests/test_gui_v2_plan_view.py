@@ -119,3 +119,63 @@ def test_small_spans_keep_their_decimals():
     project.sources.sources += [PointSource("A", 0.0, 0.0), PointSource("B", 3.0, 2.0)]
     xs, ys = _tick_texts(ET.fromstring(plan_view_svg(project)))
     assert "0.5" in xs + ys and len(set(xs)) == len(xs) and "0" in xs
+
+
+def _finishes(fn, seconds=5.0):
+    """Run ``fn`` in a daemon thread; return (finished, result or exception)."""
+    import threading
+
+    box = {}
+
+    def target():
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # reported to the test
+            box["value"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    return not thread.is_alive(), box.get("value")
+
+
+def test_ticks_end_when_the_step_is_below_the_float_spacing():
+    """At 1e20 a 1 m step does not change the value; the ticks must still end."""
+    from pyaermod.gui_v2.plan_view import _ticks
+
+    for lo, hi in ((1e20, 1e20), (1e18, 1e18 + 1e3), (-1e300, 1e300)):
+        done, ticks = _finishes(lambda lo=lo, hi=hi: _ticks(lo, hi))
+        assert done, f"_ticks({lo}, {hi}) did not finish"
+        assert isinstance(ticks, list) and len(ticks) <= 100
+
+
+def test_coordinates_too_large_to_draw_say_so_instead_of_hanging():
+    """A typo such as y = 1e18 used to freeze the server (an endless tick loop)."""
+    project = _empty_project()
+    project.sources.sources.append(PointSource("STACK1", 0.0, 1e18))
+    done, svg = _finishes(lambda: plan_view_svg(project))
+    assert done, "plan_view_svg did not finish"
+    assert isinstance(svg, str), svg
+    root = ET.fromstring(svg)
+    text = "".join(root.itertext())
+    assert "too far from the origin to draw" in text
+    assert "STACK1" in text                          # names what to fix
+
+
+def test_non_finite_coordinates_say_so():
+    project = _empty_project()
+    project.sources.sources.append(PointSource("STACK1", float("nan"), 0.0))
+    project.receptors.discrete_receptors.append(DiscreteReceptor(float("inf"), 0.0))
+    done, svg = _finishes(lambda: plan_view_svg(project))
+    assert done and isinstance(svg, str), svg
+    text = "".join(ET.fromstring(svg).itertext())
+    assert "STACK1" in text and "discrete receptors" in text
+
+
+def test_utm_scale_coordinates_still_draw():
+    """The bound sits far above any real projected coordinate (UTM northing < 1e7 m)."""
+    project = _empty_project()
+    project.sources.sources.append(PointSource("STACK1", 833_978.0, 9_999_000.0))
+    svg = plan_view_svg(project)
+    assert "too far from the origin" not in svg
+    assert any(el.tag == f"{SVG}circle" for el in ET.fromstring(svg).iter())

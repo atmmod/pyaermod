@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pyaermod in the browser</title>
+  <meta name="description" content="Build an AERMOD run, run AERMOD and see its results, all in the browser. Not for regulatory use.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the step</a>
+  <header class="top">
+    <div class="brand">pyaermod <span class="sub">in the browser</span></div>
+    <div id="project-title" class="project-title"></div>
+    <div id="version" class="version"></div>
+  </header>
+  <p id="banner" class="banner" role="note">AERMOD compiled to WebAssembly by pyaermod. Not EPA's executable; not for regulatory use.</p>
+  <div id="loading" class="loading">
+    <p><span class="spinner" aria-hidden="true"></span> Starting...</p>
+  </div>
+  <div id="app" class="layout" hidden>
+    <nav aria-label="Steps"><ol id="steps" class="steps"></ol></nav>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <div id="error" class="error" role="alert"></div>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+</body>
+</html>

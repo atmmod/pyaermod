@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A browser GUI on the documentation site, under `/app/`: the seven
+  steps of `pyaermod-app` with nothing to install, no signed download and
+  no server. pyaermod and AERMOD's WebAssembly build run in Pyodide in a
+  Web Worker, so the page stays usable during a run and Cancel stops it.
+  It opens and saves the same project files as `pyaermod-app`, imports
+  decks, offers two sample met data sets (Albany 1988, Houston 1996) or
+  uploaded AERMET files, and takes receptor and source elevations from
+  AERMAP output or a CSV. Not for regulatory use. The page is in
+  `webapp/`; `scripts/wasm/build_lite_site.sh` builds it beside the
+  JupyterLite site, and `scripts/wasm/app_dev_server.py` serves it
+  against CPython for development.
+- `pyaermod.browser`: every operation of the browser GUI as one JSON
+  entry point, `call(operation, arguments)`, which never raises.
+- `pyaermod.gui_v2.readiness`: the Review & Run checklist without UI,
+  shared by both GUIs. `pages/run.py` re-exports its names.
+- `pathways.unquote_path` and `pathways.quote_path` (also importable from
+  `pyaermod.input_reader`): a runstream file field as AERMOD opens it,
+  and a file name as a runstream field.
+
+### Fixed
+
+- `read_aermod_input(..., sandbox=True)` judged a quoted path by its
+  text, quotes included, so `SURFFILE "../../etc/passwd"` passed: `"..`
+  is an ordinary directory name. AERMOD drops the quotes, and so does the
+  sandbox now.
+- A quoted file name with blanks (`SURFFILE "My Met/a.sfc"`) was split at
+  the blank, and a kept line's name came back with two blanks in it. The
+  reader keeps a quoted field whole, quotes included, so the deck is
+  written back as it was read; anchoring a file into a folder with blanks
+  quotes its full path.
+- `SURFDATA 14735.0 1988.0`, which AERMOD runs, made the reader raise; a
+  station id or year that is not a whole number is now an error naming
+  the line.
+- `wasm_runner.find_wasm_aermod(path)` fell back to `$PYAERMOD_AERMOD_WASM`
+  or the installed `aermod_wasm` when `path` held no build. A path given
+  is now the only place it looks.
+- A trap inside the WebAssembly AERMOD skipped collecting the run's
+  output, so the `.out` written up to the trap was lost. It is now a
+  failed run whose error names the trap, with the output kept.
+
+- The GUI's plan view no longer hangs the server when a source or
+  receptor sits very far from the origin. A typo such as y = 1e18 made
+  the tick loop add a 1 m step that the float could not resolve, so the
+  loop never ended and the NiceGUI event loop froze for every connected
+  user. Ticks are now counted by index and capped at 100 per axis, and a
+  project with a coordinate beyond 1e8 m, or one that is not a number,
+  gets a plan view that names those items instead of a plot.
+
 ### Removed
 
 - The downloadable desktop apps. Releases no longer build or attach the

@@ -24,7 +24,7 @@ if (!wheel || !wasmDir || !repo) {
 globalThis.require = createRequire(import.meta.url);
 
 const py = await loadPyodide();
-await py.loadPackage(['micropip', 'numpy', 'pandas']);
+await py.loadPackage(['micropip', 'numpy', 'pandas', 'matplotlib']);
 
 const put = (src, dest) => py.FS.writeFile(dest, fs.readFileSync(src));
 py.FS.mkdirTree('/tmp/wheels');
@@ -76,3 +76,42 @@ f"receptors={len(ref)} worst_rel_diff={worst:.3e} outside_tolerance={len(bad)} r
 `);
 console.log(`pyodide-smoke: ${verdict}`);
 if (!verdict.includes('outside_tolerance=0')) process.exit(1);
+
+// The browser GUI's path: everything through pyaermod.browser.call, as the
+// worker does, with files uploaded as base64.
+const recording = path.join(repo, 'tests', 'fixtures', 'gui', 'aermod_recordings', 'albany_success');
+const b64 = (file) => fs.readFileSync(file).toString('base64');
+py.globals.set('deck_text', fs.readFileSync(path.join(recording, 'aermod.inp'), 'utf8'));
+py.globals.set('manifest', fs.readFileSync(path.join(recording, 'manifest.json'), 'utf8'));
+py.globals.set('sfc_b64', b64(path.join(fixtures, 'AERMET2.SFC')));
+py.globals.set('pfl_b64', b64(path.join(fixtures, 'AERMET2.PFL')));
+const gui = py.runPython(`
+import json
+import matplotlib
+matplotlib.use("Agg")
+from pyaermod import browser
+
+def call(op, **kw):
+    reply = json.loads(browser.call(op, json.dumps(kw)))
+    assert reply["ok"], (op, reply.get("error"))
+    return reply
+
+assert str(browser.WORK_DIR) == "/home/pyodide/work", browser.WORK_DIR
+call("put_file", name="AERMET2.SFC", data_b64=sfc_b64)
+call("put_file", name="AERMET2.PFL", data_b64=pfl_b64)
+doc = call("import_deck", name="aermod.inp", text=deck_text)["document"]
+check = call("check", document=doc)
+assert check["ready"], check["blocking"]
+run = call("run", document=doc)
+assert run["status"] == "Succeeded", run["status_text"]
+want = json.loads(manifest)["maxima"]
+got = {m["period"].replace("-", "").replace(" ", ""): m for m in run["results"]["maxima"]}
+assert len(got) == len(want), (sorted(got), sorted(want))
+for key, w in want.items():
+    g = got[key]
+    assert abs(float(g["value"]) - w["value"]) <= 1e-4 * abs(w["value"]) + 1e-5, (key, g, w)
+    assert (g["x"], g["y"]) == (w["x"], w["y"]), (key, g, w)
+assert run["results"]["maps"], "no concentration map"
+f"periods={len(got)} maps={len(run['results']['maps'])} seconds={run['seconds']}"
+`);
+console.log(`pyodide-smoke (browser GUI): ${gui}`);

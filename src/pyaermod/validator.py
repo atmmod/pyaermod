@@ -20,6 +20,7 @@ from .pathways import (
     TURBULENCE_OPTIONS,
     WIND_CATEGORY_COUNT,
     dayrange_field_is_valid,
+    unquote_path,
 )
 
 # Valid AERMOD averaging periods
@@ -1879,12 +1880,12 @@ class Validator:
             ))
 
         if check_files:
-            if met.surface_file and not Path(met.surface_file).exists():
+            if met.surface_file and not Path(unquote_path(met.surface_file)).exists():
                 result.errors.append(ValidationError(
                     pathway, "surface_file",
                     f"file not found: '{met.surface_file}'"
                 ))
-            if met.profile_file and not Path(met.profile_file).exists():
+            if met.profile_file and not Path(unquote_path(met.profile_file)).exists():
                 result.errors.append(ValidationError(
                     pathway, "profile_file",
                     f"file not found: '{met.profile_file}'"

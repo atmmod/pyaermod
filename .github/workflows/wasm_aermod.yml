@@ -13,6 +13,11 @@ on:
   push:
     paths:
       - "src/pyaermod/wasm_runner.py"
+      - "src/pyaermod/runner.py"
+      - "src/pyaermod/browser.py"
+      - "src/pyaermod/gui_v2/**"
+      - "webapp/**"
+      - "tests/e2e/test_b02_browser_app_wasm.py"
       - "scripts/build_aermod_wasm.sh"
       - "scripts/wasm/**"
       - ".github/workflows/wasm_aermod.yml"
@@ -23,6 +28,10 @@ on:
       - ".github/workflows/wasm_aermod.yml"
       - "src/pyaermod/wasm_runner.py"
       - "src/pyaermod/runner.py"
+      - "src/pyaermod/browser.py"
+      - "src/pyaermod/gui_v2/**"
+      - "webapp/**"
+      - "tests/e2e/test_b02_browser_app_wasm.py"
   # docs.yml calls this to build the WebAssembly AERMOD for the JupyterLite
   # site, release variant only.
   workflow_call:
@@ -152,6 +161,20 @@ jobs:
           cp "$GITHUB_WORKSPACE/scripts/wasm/pyodide_smoke.mjs" .
           node pyodide_smoke.mjs /tmp/wheels/pyaermod-*.whl /tmp/aermod_build/out "$GITHUB_WORKSPACE" \
             | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The browser GUI as published (webapp/ built into /app/): Pyodide in
+      # a Web Worker loading this build, driven by Playwright in Chromium.
+      - name: Browser GUI journeys (Pyodide worker, this WebAssembly build)
+        if: matrix.variant == 'release'
+        env:
+          PYODIDE_VERSION: ${{ env.PYODIDE_VERSION }}
+        run: |
+          set -euo pipefail
+          pip install -r docs/lite/requirements.txt "playwright>=1.45"
+          python -m playwright install --with-deps chromium
+          bash scripts/wasm/build_lite_site.sh /tmp/aermod_build/out /tmp/site/lite
+          PYAERMOD_APP_SITE=/tmp/site/app pytest -o addopts="" -p no:cacheprovider \
+            -m e2e tests/e2e/test_b02_browser_app_wasm.py -v
 
       - name: Upload build
         if: always()
