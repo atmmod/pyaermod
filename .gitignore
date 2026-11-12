@@ -43,6 +43,8 @@ coverage.xml
 !tests/fixtures/epa_official/*.PFL
 !tests/fixtures/epa_style/*.inp
 !tests/fixtures/epa_style/*.inp.expected
+# Exception: teaching decks for the browser app
+!docs/teaching/practice/*.inp
 !tests/fixtures/epa_aerscreen/**/*.inp
 !tests/fixtures/epa_aerscreen/**/*.out
 !tests/fixtures/epa_aerscreen/**/*.OUT
