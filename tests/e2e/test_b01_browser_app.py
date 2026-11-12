@@ -91,6 +91,16 @@ def test_b01_import_a_deck_run_it_and_read_aermods_maxima(app):
     with app.expect_download() as download:
         app.get_by_role("button", name=re.compile(r"\.out$")).click()
     assert b"AERMOD Finishes Successfully" in Path(download.value.path()).read_bytes()
+    assert app.get_by_role("heading", name="Run 1 succeeded").count() == 1
+
+    # A second run is Run 2, and the runner's own files stay off the file list.
+    step(app, "Review & Run")
+    app.get_by_role("button", name="Run AERMOD").click()
+    app.wait_for_selector("main h2:has-text('Run 2 succeeded')", timeout=30000)
+    step(app, "Meteorology")
+    listed = app.locator("main table").first.inner_text()
+    assert "AERMET2.SFC" in listed
+    assert ".pyaermod" not in listed and "subproc" not in listed
 
 
 def test_b02_build_a_project_with_forms_and_save_it(app):
@@ -205,3 +215,24 @@ def test_b07_a_value_pyaermod_refuses_does_not_replace_the_kept_project(app):
     app.reload()
     app.wait_for_selector("#app:not([hidden])")
     assert app.get_by_label("Title one").input_value() == "Kept title"
+
+
+def test_b08_a_value_that_does_not_parse_stops_the_editor_saving(app):
+    step(app, "Sources")
+    _add_point_source(app, "STACK1")
+    app.get_by_role("button", name="Edit STACK1").click()
+    height = app.get_by_label("Stack height")
+    height.fill("abc")
+    height.dispatch_event("change")
+    assert app.locator(".field-error:visible").inner_text() == "Enter a number."
+    app.get_by_role("button", name="Save", exact=True).click()
+    # Refused, named, and still open with the text to correct.
+    assert "Not saved: correct Stack height" in app.locator("#error").inner_text()
+    assert height.input_value() == "abc"
+    height.fill("65")
+    height.dispatch_event("change")
+    assert app.locator(".field-error:visible").count() == 0
+    app.get_by_role("button", name="Save", exact=True).click()
+    app.wait_for_selector("button:has-text('Add source')")
+    source = saved_document(app)["project"]["sources"]["sources"][0]
+    assert source["stack_height"] == 65

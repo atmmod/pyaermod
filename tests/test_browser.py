@@ -209,6 +209,26 @@ def test_a_met_file_nobody_uploaded_blocks_the_run(replay):
                                 "the Meteorology step's file list, or pick a sample"]
 
 
+def test_a_surface_file_nobody_uploaded_is_said_once(replay, work):
+    """Not also as the pip GUI's warning, which names the browser's own folder."""
+    replay("albany_success")
+    put(MET / "AERMET2.PFL")
+    found = ok("check", document=json.loads(project_to_json(_albany_project())))
+    (item,) = found["blocking"]
+    assert item["problems"] == ["AERMET2.SFC (ME SURFFILE) has not been uploaded: add it on "
+                                "the Meteorology step's file list, or pick a sample"]
+    assert found["warnings"] == []
+
+
+def test_a_surface_file_that_cannot_be_read_is_named_without_its_folder(replay, work):
+    replay("albany_success")
+    put(MET / "AERMET2.PFL")
+    (work / "AERMET2.SFC").mkdir(parents=True)
+    found = ok("check", document=json.loads(project_to_json(_albany_project())))
+    problems = [p for i in found["warnings"] for p in i["problems"]]
+    assert problems == ["surface file AERMET2.SFC is a directory, not a surface file"]
+
+
 def test_without_aermod_the_checklist_says_the_build_did_not_load(work):
     document = json.loads(project_to_json(_albany_project()))
     found = ok("check", document=document)
@@ -304,6 +324,41 @@ def test_a_csv_of_elevations_sets_matching_receptors(work):
     assert reply["kind"] == "csv" and (rec["z_elev"], rec["z_hill"]) == (42.5, 60.0)
 
 
+@pytest.mark.parametrize("origin_source", [False, True])
+def test_a_csv_of_elevations_sets_a_polar_grid(work, origin_source):
+    import math
+
+    from pyaermod.receptors import PolarGrid
+
+    project = _networks_project()
+    x0, y0 = 500000.0, 4000000.0
+    grid = PolarGrid(grid_name="P1", x_origin=x0, y_origin=y0, dist_init=100.0, dist_num=2,
+                     dist_delta=100.0, dir_init=0.0, dir_num=4, dir_delta=90.0)
+    if origin_source:
+        project.sources.sources[0].x_coord, project.sources.sources[0].y_coord = x0, y0
+        grid.x_origin = grid.y_origin = 0.0
+        grid.origin_source_id = "STACK1"
+    project.receptors.polar_grids.append(grid)
+    # Every receptor but one, rounded to 0.1 m as a GIS export would be.
+    rows = ["x,y,elevation,hill"]
+    for i, angle in enumerate(grid.direction_angles()):
+        for j, dist in enumerate(grid.ring_distances()):
+            if (i, j) == (3, 1):
+                continue
+            x = round(x0 + dist * math.sin(math.radians(angle)), 1)
+            y = round(y0 + dist * math.cos(math.radians(angle)), 1)
+            rows.append(f"{x},{y},{10 * i + j},{100 + 10 * i + j}")
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "polar.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    reply = ok("apply_terrain", document=json.loads(project_to_json(project)), name="polar.csv")
+
+    polar = reply["document"]["project"]["receptors"]["polar_grids"][0]
+    assert polar["elevations"] == [[0.0, 1.0], [10.0, 11.0], [20.0, 21.0], [30.0, 0.0]]
+    assert polar["hills"] == [[100.0, 101.0], [110.0, 111.0], [120.0, 121.0], [130.0, 0.0]]
+    assert reply["notes"] == []
+
+
 def test_terrain_that_matches_nothing_or_flat_terrain_is_explained():
     from pyaermod.pathways import TerrainType
 
@@ -392,16 +447,56 @@ def test_a_deck_named_aermod_inp_imports_and_runs(replay, work):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the replay wrapper is a shell script")
-def test_a_failed_run_shows_aermods_errors_and_no_values(replay):
+def test_a_failed_run_shows_aermods_errors_and_no_values(replay, work):
+    # A surface file pyaermod cannot read: the checklist warns and lets it
+    # run, and AERMOD stops at setup (recorded with the file missing: E500).
+    replay("missing_met")
+    put(MET / "AERMET2.PFL")
+    ok("put_file", name="MISSING.SFC", data_b64=base64.b64encode(b"not met data").decode())
+    text = (RECORDINGS / "missing_met" / "aermod.inp").read_text()
+    document = ok("import_deck", name="albany.inp", text=text)["document"]
+    found = ok("check", document=document)
+    assert found["ready"], found["blocking"]
+    assert all(str(work) not in p for i in found["warnings"] for p in i["problems"])
+    reply = ok("run", document=document)
+    assert reply["status"] == "Failed"
+    assert not reply["results"]["succeeded"] and reply["results"]["maxima"] == []
+    assert any(m["code"] == "E500" for m in reply["messages"])
+
+
+def test_a_new_project_runs_on_either_sample():
+    """Not ANNUAL, which neither sample's few days or weeks of met data allow."""
+    document = ok("new_project")["document"]
+    assert document["project"]["control"]["averaging_periods"] == ["1", "PERIOD"]
+
+
+def test_annual_with_less_than_a_year_of_met_blocks_the_run(replay):
+    """AERMOD would run every hour and then stop with E480; the browser does not start it."""
     replay("albany_e480")
     put(MET / "AERMET2.SFC")
     put(MET / "AERMET2.PFL")
     text = (RECORDINGS / "albany_e480" / "aermod.inp").read_text()
     document = ok("import_deck", name="albany.inp", text=text)["document"]
-    reply = ok("run", document=document)
-    assert reply["status"] == "Failed"
-    assert not reply["results"]["succeeded"] and reply["results"]["maxima"] == []
-    assert any(m["code"] == "E480" for m in reply["messages"])
+    found = ok("check", document=document)
+    assert not found["ready"]
+    (item,) = found["blocking"]
+    assert item["step"] == "meteorology" and "project" in item["links"]
+    (problem,) = item["problems"]
+    assert problem.startswith("ANNUAL averages need at least one full year of met data")
+    assert not any("ANNUAL" in p for i in found["warnings"] for p in i["problems"])
+    error = call("run", document=document)["error"]
+    assert error["kind"] == "not_ready" and "ANNUAL" in error["message"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the replay wrapper is a shell script")
+def test_runs_are_numbered_by_the_page(replay):
+    replay("albany_success")
+    put(MET / "AERMET2.SFC")
+    put(MET / "AERMET2.PFL")
+    text = (RECORDINGS / "albany_success" / "aermod.inp").read_text()
+    document = ok("import_deck", name="albany.inp", text=text)["document"]
+    assert ok("run", document=document)["results"]["headline"] == "Run 1 succeeded"
+    assert ok("run", document=document, number=3)["results"]["headline"] == "Run 3 succeeded"
 
 
 def test_a_project_that_is_not_ready_is_not_run(replay):
@@ -423,6 +518,14 @@ def test_files_are_listed_fetched_and_removed():
     assert data == (MET / "AERMET2.SFC").read_bytes()
     assert ok("remove_file", name="AERMET2.SFC")["files"] == []
     assert call("get_file", name="AERMET2.SFC")["error"]["kind"] == "file"
+
+
+def test_the_runners_own_files_are_not_listed(work):
+    put(MET / "AERMET2.SFC")
+    for name in (".pyaermod.lock", ".pyaermod-aermod-inp.sha256", "pyaermod_gui.subproc.stdout",
+                 "pyaermod_gui.subproc.stderr"):
+        (work / name).write_text("", encoding="utf-8")
+    assert [f["name"] for f in ok("list_files")["files"]] == ["AERMET2.SFC"]
 
 
 def test_the_working_directory_is_made_when_first_needed(monkeypatch):

@@ -210,6 +210,33 @@ def test_run_returns_aermods_exit_status(tmp_path, fake_pyodide):
     assert wasm_runner.run(js, tmp_path, stdout=io.StringIO(), stderr=io.StringIO()) == 2
 
 
+@pytest.mark.parametrize("exit_code, kept", [(0, False), (2, True)])
+def test_run_deletes_aermods_scratch_files_when_aermod_ends(tmp_path, fake_pyodide,
+                                                            exit_code, kept):
+    """EPA's AERMOD deletes ERRMSG.TMP and EVENT.TMP as it ends; Flang's leaves them."""
+    js = _make_build(tmp_path / "build")
+    work = tmp_path / "work"
+    work.mkdir()
+
+    def leaves_scratch(glue, wasm, pyfs, mounts, cwd, out, err):
+        for name in ("ERRMSG.TMP", "EVENT.TMP"):
+            (Path(cwd) / name).write_text("scratch\n", encoding="utf-8")
+        return exit_code
+    sys.modules["pyodide.code"].run_js = lambda source: leaves_scratch
+
+    wasm_runner.run(js, work, stdout=io.StringIO(), stderr=io.StringIO())
+    # A run that crashed keeps them, as EPA's executable would: AERMOD
+    # never reached its last statement.
+    assert (work / "ERRMSG.TMP").exists() is kept
+    assert (work / "EVENT.TMP").exists() is kept
+
+
+def test_remove_scratch_files_ignores_files_not_there(tmp_path):
+    (tmp_path / "EVENT.TMP").write_text("x", encoding="utf-8")
+    assert wasm_runner.remove_scratch_files(tmp_path) == [tmp_path / "EVENT.TMP"]
+    assert wasm_runner.remove_scratch_files(tmp_path) == []
+
+
 # ---------------------------------------------------------------------------
 # AERMODRunner under Pyodide
 # ---------------------------------------------------------------------------
@@ -276,3 +303,61 @@ def test_a_trap_keeps_aermods_partial_output(tmp_path, fake_pyodide, monkeypatch
     assert "unreachable" in (result.error_message or "")
     assert result.output_file and Path(result.output_file) == deck.with_suffix(".out")
     assert deck.with_suffix(".out").read_text().startswith("partial output")
+
+
+# ---------------------------------------------------------------------------
+# Met files without a final line terminator
+# ---------------------------------------------------------------------------
+# AERMOD BACKSPACEs over the surface file every hour (metext.f). Flang's
+# runtime cannot backspace over a last record with no terminator and aborts;
+# gfortran reads it. So the runner ends both met files with a newline.
+
+_DECK = """CO STARTING
+CO FINISHED
+ME STARTING
+** SURFFILE  commented.sfc
+   SURFFILE  {sfc}
+   proffile  {pfl}  FREE
+ME FINISHED
+"""
+
+
+def _met_case(tmp_path, sfc="site.sfc", pfl="site.pfl", sfc_text=b"1\n2", pfl_text=b"1\n2"):
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    (work / "aermod.inp").write_text(_DECK.format(sfc=sfc, pfl=pfl), encoding="utf-8")
+    sfc_path = work / sfc.strip('"')
+    pfl_path = work / pfl.strip('"')
+    sfc_path.parent.mkdir(parents=True, exist_ok=True)
+    sfc_path.write_bytes(sfc_text)
+    pfl_path.write_bytes(pfl_text)
+    return work, sfc_path, pfl_path
+
+
+def test_run_ends_both_met_files_with_a_newline(tmp_path, fake_pyodide):
+    js = _make_build(tmp_path / "build")
+    work, sfc, pfl = _met_case(tmp_path)
+    wasm_runner.run(js, work, stdout=io.StringIO(), stderr=io.StringIO())
+    assert sfc.read_bytes() == b"1\n2\n"
+    assert pfl.read_bytes() == b"1\n2\n"
+
+
+@pytest.mark.parametrize("ending", [b"2\n", b"2\r\n"])
+def test_met_files_that_end_a_line_are_left_alone(tmp_path, ending):
+    work, sfc, _ = _met_case(tmp_path, sfc_text=b"1\n" + ending)
+    wasm_runner.terminate_met_files(work)
+    assert sfc.read_bytes() == b"1\n" + ending
+
+
+def test_met_files_at_quoted_and_relative_paths(tmp_path):
+    work, sfc, pfl = _met_case(tmp_path, sfc='"met dir/a site.sfc"', pfl="../other.pfl")
+    assert wasm_runner.terminate_met_files(work) == [sfc.resolve(), pfl.resolve()]
+    assert sfc.read_bytes().endswith(b"\n") and pfl.read_bytes().endswith(b"\n")
+
+
+def test_missing_or_empty_met_files_and_no_deck_are_not_an_error(tmp_path):
+    work, sfc, pfl = _met_case(tmp_path, sfc_text=b"")
+    pfl.unlink()
+    assert wasm_runner.terminate_met_files(work) == []
+    assert sfc.read_bytes() == b""
+    assert wasm_runner.terminate_met_files(tmp_path / "nowhere") == []

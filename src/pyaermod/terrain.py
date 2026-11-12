@@ -1076,9 +1076,14 @@ class TerrainProcessor:
         """Fill each PolarGrid's ``elevations`` and ``hills`` from the rows under its name.
 
         One row per direction, one value per ring distance, as
-        ``PolarGrid.to_aermod_input`` writes them.
+        ``PolarGrid.to_aermod_input`` writes them. A frame without a
+        ``network`` column (a CSV of x, y, elevation) is matched by
+        coordinates instead, within 0.5 m of each receptor.
         """
-        if rec_df.empty or "network" not in rec_df.columns:
+        if rec_df.empty:
+            return
+        if "network" not in rec_df.columns:
+            self._match_polar_grids_by_position(project, rec_df)
             return
         for grid in project.receptors.polar_grids:
             arrays = self._network_arrays(
@@ -1086,6 +1091,41 @@ class TerrainProcessor:
             )
             if arrays is not None:
                 grid.elevations, grid.hills = arrays
+
+    @staticmethod
+    def _match_polar_grids_by_position(project, rec_df):
+        """Fill each PolarGrid's ``elevations`` and ``hills`` from rows at its receptors."""
+        import math
+
+        where = {getattr(s, "source_id", None): (getattr(s, "x_coord", None),
+                                                 getattr(s, "y_coord", None))
+                 for s in project.sources.sources}
+        xs, ys = rec_df["x"].to_numpy(dtype=float), rec_df["y"].to_numpy(dtype=float)
+        for grid in project.receptors.polar_grids:
+            x0, y0 = grid.x_origin, grid.y_origin
+            if grid.origin_source_id:
+                x0, y0 = where.get(grid.origin_source_id, (None, None))
+                if x0 is None or y0 is None:
+                    continue
+            elevations, hills, has_data = [], [], False
+            for angle in grid.direction_angles():
+                s, c = math.sin(math.radians(angle)), math.cos(math.radians(angle))
+                elev_row, hill_row = [], []
+                for dist in grid.ring_distances():
+                    hits = ((abs(xs - (x0 + dist * s)) < 0.5)
+                            & (abs(ys - (y0 + dist * c)) < 0.5)).nonzero()[0]
+                    if len(hits):
+                        row = rec_df.iloc[hits[0]]
+                        elev_row.append(float(row["zelev"]))
+                        hill_row.append(float(row["zhill"]))
+                        has_data = True
+                    else:
+                        elev_row.append(0.0)
+                        hill_row.append(0.0)
+                elevations.append(elev_row)
+                hills.append(hill_row)
+            if has_data:
+                grid.elevations, grid.hills = elevations, hills
 
     def _update_source_elevations(self, project, src_df):
         """Update source base elevations from AERMAP source output.

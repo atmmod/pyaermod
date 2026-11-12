@@ -46,9 +46,16 @@ export function fieldInput(field, value, onChange) {
   const describedBy = help ? `${id}-help` : null;
   let input;
 
+  // Shown under a value that does not parse, which changes nothing; an
+  // item editor will not save while one shows (fieldsInvalid).
+  const error = el('div', { class: 'field-error', id: `${id}-error`, hidden: true });
   const invalid = (node, bad, message) => {
     node.setAttribute('aria-invalid', bad ? 'true' : 'false');
     node.title = bad ? message : '';
+    error.textContent = bad ? message : '';
+    error.hidden = !bad;
+    const ids = [describedBy, bad ? error.id : null].filter(Boolean).join(' ');
+    if (ids) node.setAttribute('aria-describedby', ids); else node.removeAttribute('aria-describedby');
   };
 
   switch (field.kind) {
@@ -66,7 +73,7 @@ export function fieldInput(field, value, onChange) {
       input.addEventListener('change', () => {
         const v = parseNumber(input.value, field.kind === 'integer');
         const bad = v === undefined || (v === null && !field.optional);
-        invalid(input, bad, field.kind === 'integer' ? 'a whole number' : 'a number');
+        invalid(input, bad, field.kind === 'integer' ? 'Enter a whole number.' : 'Enter a number.');
         if (!bad) onChange(v);
       });
       break;
@@ -117,7 +124,7 @@ export function fieldInput(field, value, onChange) {
         if (!numeric) { onChange(parts); return; }
         const nums = parts.map((p) => parseNumber(p, field.item === 'integer'));
         const bad = nums.some((n) => n === undefined || n === null);
-        invalid(input, bad, 'numbers separated by commas');
+        invalid(input, bad, 'Enter numbers separated by commas.');
         if (bad) return;
         if (field.kind === 'numbers') onChange(nums.length === 0 ? null : nums.length === 1 ? nums[0] : nums);
         else onChange(nums);
@@ -132,7 +139,7 @@ export function fieldInput(field, value, onChange) {
         const rows = input.value.split('\n').map((l) => l.trim()).filter((l) => l);
         const points = rows.map((r) => r.split(/[ ,;\t]+/).map((s) => parseNumber(s, false)));
         const bad = points.some((p) => p.length !== field.width || p.some((n) => n === null || n === undefined));
-        invalid(input, bad, `${field.width} numbers on each line`);
+        invalid(input, bad, `Enter ${field.width} numbers on each line.`);
         if (!bad) onChange(points);
       });
       break;
@@ -146,7 +153,7 @@ export function fieldInput(field, value, onChange) {
           invalid(input, false, '');
           onChange(v);
         } catch (err) {
-          invalid(input, true, 'not valid JSON');
+          invalid(input, true, 'This is not valid JSON.');
         }
       });
       break;
@@ -159,7 +166,15 @@ export function fieldInput(field, value, onChange) {
       });
     }
   }
-  return el('div', { class: `field field-${field.kind}` }, label, input, help);
+  return el('div', { class: `field field-${field.kind}` }, label, input, error, help);
+}
+
+// The names of the fields in `root` whose text does not parse.
+export function fieldsInvalid(root) {
+  return [...root.querySelectorAll('[aria-invalid="true"]')].map((input) => {
+    const label = root.querySelector(`label[for="${input.id}"]`);
+    return label ? label.firstChild.textContent.trim() : input.id;
+  });
 }
 
 // The fields of `obj` that `names` lists, in that order, as one group; or,
