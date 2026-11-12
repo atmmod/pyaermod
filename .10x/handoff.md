@@ -1,8 +1,7 @@
 # Handoff
 
-From: SDE (Phase 4 complete)
-To: QA + Security (Phase 5)
+From: DevOps + SRE (Phase 6)
+To: Maintainer
 
-Built: see .10x/decisions/sde/browser-gui.md. Review targets: src/pyaermod/browser.py, webapp/*.js, scripts/wasm/app_dev_server.py, input_reader quoting/sandbox changes, wasm_runner/runner changes, build_lite_site.sh /app stage, workflows.
-To test: full suite; journeys tests/e2e/test_b01 (local), test_b02 + pyodide smoke (CI only).
-Known unverified here: anything that needs Pyodide or the wasm build.
+Branch claude/blissful-gauss-6n1wht is ready for a PR (not opened). Before merging, confirm wasm_aermod.yml passes on the branch: it is the first run of the app with the real Pyodide worker and AERMOD-wasm, which this container could not reach.
+Runbook: .10x/decisions/sre/browser-gui.md. Open debt: .10x/decisions/sde/browser-gui.md ("Tech debt"), review findings M/L not in scope (.10x/reviews/2026-11-11-codebase-review.md).
