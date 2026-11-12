@@ -25,6 +25,7 @@ const state = {
   review: null,
   run: null,
   running: null,          // {started, timer} while AERMOD runs
+  runs: 0,                // runs started on this page, cancelled ones too
   dirty: false,
   fileName: null,
   uploads: new Map(),     // name -> base64, replayed into a new worker
@@ -571,7 +572,8 @@ async function startRun() {
     const node = document.getElementById('elapsed');
     if (node) node.textContent = `${Math.round((Date.now() - state.running.started) / 1000)} s`;
   }, 500);
-  const reply = await api('run', { document: state.doc });
+  state.runs += 1;                            // "Run 2 succeeded": numbered on this page
+  const reply = await api('run', { document: state.doc, number: state.runs });
   const running = state.running;
   if (!running) return;                       // cancelled meanwhile
   clearInterval(running.timer);

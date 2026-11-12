@@ -210,6 +210,33 @@ def test_run_returns_aermods_exit_status(tmp_path, fake_pyodide):
     assert wasm_runner.run(js, tmp_path, stdout=io.StringIO(), stderr=io.StringIO()) == 2
 
 
+@pytest.mark.parametrize("exit_code, kept", [(0, False), (2, True)])
+def test_run_deletes_aermods_scratch_files_when_aermod_ends(tmp_path, fake_pyodide,
+                                                            exit_code, kept):
+    """EPA's AERMOD deletes ERRMSG.TMP and EVENT.TMP as it ends; Flang's leaves them."""
+    js = _make_build(tmp_path / "build")
+    work = tmp_path / "work"
+    work.mkdir()
+
+    def leaves_scratch(glue, wasm, pyfs, mounts, cwd, out, err):
+        for name in ("ERRMSG.TMP", "EVENT.TMP"):
+            (Path(cwd) / name).write_text("scratch\n", encoding="utf-8")
+        return exit_code
+    sys.modules["pyodide.code"].run_js = lambda source: leaves_scratch
+
+    wasm_runner.run(js, work, stdout=io.StringIO(), stderr=io.StringIO())
+    # A run that crashed keeps them, as EPA's executable would: AERMOD
+    # never reached its last statement.
+    assert (work / "ERRMSG.TMP").exists() is kept
+    assert (work / "EVENT.TMP").exists() is kept
+
+
+def test_remove_scratch_files_ignores_files_not_there(tmp_path):
+    (tmp_path / "EVENT.TMP").write_text("x", encoding="utf-8")
+    assert wasm_runner.remove_scratch_files(tmp_path) == [tmp_path / "EVENT.TMP"]
+    assert wasm_runner.remove_scratch_files(tmp_path) == []
+
+
 # ---------------------------------------------------------------------------
 # AERMODRunner under Pyodide
 # ---------------------------------------------------------------------------

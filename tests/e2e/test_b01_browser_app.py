@@ -91,6 +91,16 @@ def test_b01_import_a_deck_run_it_and_read_aermods_maxima(app):
     with app.expect_download() as download:
         app.get_by_role("button", name=re.compile(r"\.out$")).click()
     assert b"AERMOD Finishes Successfully" in Path(download.value.path()).read_bytes()
+    assert app.get_by_role("heading", name="Run 1 succeeded").count() == 1
+
+    # A second run is Run 2, and the runner's own files stay off the file list.
+    step(app, "Review & Run")
+    app.get_by_role("button", name="Run AERMOD").click()
+    app.wait_for_selector("main h2:has-text('Run 2 succeeded')", timeout=30000)
+    step(app, "Meteorology")
+    listed = app.locator("main table").first.inner_text()
+    assert "AERMET2.SFC" in listed
+    assert ".pyaermod" not in listed and "subproc" not in listed
 
 
 def test_b02_build_a_project_with_forms_and_save_it(app):

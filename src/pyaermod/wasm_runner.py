@@ -209,6 +209,30 @@ def terminate_met_files(working_dir: Union[str, Path]) -> List[Path]:
     return changed
 
 
+#: The scratch files AERMOD deletes when it ends (aermod.f: CLOSE with
+#: STATUS='DELETE'). Flang's runtime leaves them in place under WebAssembly.
+_SCRATCH_FILES = ("ERRMSG.TMP", "EVENT.TMP")
+
+
+def remove_scratch_files(working_dir: Union[str, Path]) -> List[Path]:
+    """Delete AERMOD's ``ERRMSG.TMP`` and ``EVENT.TMP`` from ``working_dir``.
+
+    EPA's executable deletes both as its last act, whether the run
+    succeeded or stopped on a fatal error. The WebAssembly build closes
+    them without deleting them, so the runner does it after a run that
+    reached that point (exit status 0). Returns the files deleted.
+    """
+    removed = []
+    for name in _SCRATCH_FILES:
+        path = Path(working_dir) / name
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return removed
+
+
 def _line_writer(stream: Optional[TextIO], fallback: TextIO) -> Callable[[str], None]:
     target = stream if stream is not None else fallback
 
@@ -254,4 +278,6 @@ def run(executable: Union[str, Path], working_dir: Union[str, Path], *,
     finally:
         out.destroy()
         err.destroy()
+    if int(code) == 0:
+        remove_scratch_files(cwd)
     return int(code)

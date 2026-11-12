@@ -23,16 +23,18 @@ files, so a project saved in one opens in the other.
   AERTEST; Houston, February 1996, with rain, from EPA's AERMET test case EX04), or upload
   your own AERMET `.SFC` and `.PFL` files.
 - **Terrain.** With elevated terrain, upload AERMAP's receptor or source output, or a CSV
-  of `x, y, elevation, hill height`, on the Receptors step. AERMAP does not run in the
-  browser.
+  of `x, y, elevation, hill height`, on the Receptors step. A CSV row sets the receptor
+  within 0.5 m of it, on a grid or not. AERMAP does not run in the browser.
 - **Import deck** reads an AERMOD `.inp` file. Pick the met files and any other files it
   names in the same dialog. Every file the deck reads is looked for by its name alone
   (`../meteorology/a.sfc` becomes `a.sfc`), and a deck that has AERMOD write a file
   outside its own folder is refused.
 - **Review & Run** lists what still blocks a run, including files the deck names that
-  have not been uploaded, and shows the deck. AERMOD runs in a background worker, so the
-  page stays usable; **Cancel** stops the run by restarting the worker, which reloads
-  Python (a few seconds once the browser has it cached).
+  have not been uploaded and ANNUAL averages with less than a year of met data (AERMOD
+  would stop with error E480 after running every hour), and shows the deck. A new project
+  averages over 1 hour and the whole period, which both samples allow. AERMOD runs in a
+  background worker, so the page stays usable; **Cancel** stops the run by restarting the
+  worker, which reloads Python (a few seconds once the browser has it cached).
 - **Results** shows AERMOD's maxima for each averaging period, maps from the plot files,
   the NAAQS comparison, every summary table (the first 500 rows of each; download the
   `.out` file for all) and the output files to download.
@@ -93,7 +95,9 @@ Two changes to EPA's source are needed for Flang:
 Flang's runtime also differs from gfortran's on one kind of input file. AERMOD steps back
 one line in the surface file every hour, and Flang cannot step back over a last line that
 has no line ending. EPA's executable reads such a file, so before each run pyaermod adds
-the missing line ending to the surface and profile files the deck names.
+the missing line ending to the surface and profile files the deck names. Flang's runtime
+also leaves AERMOD's scratch files, `ERRMSG.TMP` and `EVENT.TMP`, where EPA's executable
+deletes them, so pyaermod deletes them after each run.
 
 ## What does not work in the browser
 
