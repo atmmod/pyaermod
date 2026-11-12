@@ -244,3 +244,35 @@ def test_runner_has_no_background_runs_under_pyodide(tmp_path, fake_pyodide, mon
     monkeypatch.setenv(wasm_runner.ENV_VAR, str(_make_build(tmp_path / "build")))
     with pytest.raises(NotImplementedError, match="run\\(\\)"):
         AERMODRunner().start(tmp_path / "case.inp")
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: an explicit path is final; a trap keeps AERMOD's .out
+# ---------------------------------------------------------------------------
+
+def test_find_does_not_fall_back_when_the_path_given_holds_no_build(tmp_path, monkeypatch):
+    """A typo in an explicit path must not quietly run another build."""
+    monkeypatch.setenv(wasm_runner.ENV_VAR, str(_make_build(tmp_path / "other")))
+    with pytest.raises(wasm_runner.WasmAERMODNotFound, match="the path given"):
+        wasm_runner.find_wasm_aermod(tmp_path / "missing" / "aermod.js")
+
+
+def test_a_trap_keeps_aermods_partial_output(tmp_path, fake_pyodide, monkeypatch):
+    monkeypatch.setenv(wasm_runner.ENV_VAR, str(_make_build(tmp_path / "build")))
+    monkeypatch.setitem(sys.modules, "fcntl", types.ModuleType("fcntl"))
+
+    def trapping_loader(glue, wasm, pyfs, mounts, cwd, out, err):
+        (Path(cwd) / "aermod.out").write_text("partial output before the trap\n")
+        raise RuntimeError("RuntimeError: unreachable")
+
+    sys.modules["pyodide.code"].run_js = lambda source: trapping_loader
+    deck = tmp_path / "work" / "case.inp"
+    deck.parent.mkdir()
+    deck.write_text("CO STARTING\n", encoding="utf-8")
+
+    result = AERMODRunner().run(deck)
+
+    assert not result.success
+    assert "unreachable" in (result.error_message or "")
+    assert result.output_file and Path(result.output_file) == deck.with_suffix(".out")
+    assert deck.with_suffix(".out").read_text().startswith("partial output")

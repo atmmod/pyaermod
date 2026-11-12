@@ -97,21 +97,24 @@ class WasmAERMODNotFound(FileNotFoundError):
 def find_wasm_aermod(path: Optional[Union[str, Path]] = None) -> Path:
     """The ``aermod.js`` of a WebAssembly AERMOD build.
 
-    Looks, in order, at ``path`` (the ``aermod.js`` file or the directory
-    holding it), the directory or file named by the ``PYAERMOD_AERMOD_WASM``
-    environment variable, and the ``aermod_wasm`` package that the
-    JupyterLite site installs. ``aermod.wasm`` must sit beside ``aermod.js``.
+    Looks at ``path`` (the ``aermod.js`` file or the directory holding it)
+    when one is given, and only there. Otherwise looks, in order, at the
+    directory or file named by the ``PYAERMOD_AERMOD_WASM`` environment
+    variable and the ``aermod_wasm`` package that the JupyterLite site
+    installs. ``aermod.wasm`` must sit beside ``aermod.js``.
 
     Raises:
         WasmAERMODNotFound: when none of them holds a build.
     """
     candidates: List[Tuple[str, Path]] = []
     if path is not None:
+        # A path given is final: falling back to another build would run
+        # something the caller did not ask for, without saying so.
         candidates.append(("the path given", Path(path)))
-    env = os.environ.get(ENV_VAR)
+    env = os.environ.get(ENV_VAR) if path is None else None
     if env:
         candidates.append((f"${ENV_VAR}", Path(env)))
-    spec = find_spec(WASM_PACKAGE)
+    spec = find_spec(WASM_PACKAGE) if path is None else None
     if spec is not None and spec.submodule_search_locations:
         for location in spec.submodule_search_locations:
             candidates.append((f"the {WASM_PACKAGE} package", Path(location)))

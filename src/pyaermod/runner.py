@@ -435,13 +435,22 @@ class AERMODRunner:
             stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
             stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
 
+        trap: Optional[str] = None
         try:
             # Execute AERMOD (reads aermod.inp automatically)
             result: subprocess.CompletedProcess[str]
             if wasm_runner.IS_EMSCRIPTEN and wasm_runner.is_wasm_executable(self.executable):
                 # No timeout: WebAssembly cannot be interrupted.
-                returncode = wasm_runner.run(self.executable, work_dir,
-                                             stdout=stdout_fh, stderr=stderr_fh)
+                try:
+                    returncode = wasm_runner.run(self.executable, work_dir,
+                                                 stdout=stdout_fh, stderr=stderr_fh)
+                except Exception as exc:  # a trap or an abort inside AERMOD
+                    # AERMOD's .out up to the trap says where it stopped:
+                    # collect it like any other failed run.
+                    trap = f"AERMOD's WebAssembly build stopped: {exc}"
+                    if stderr_fh is not None:
+                        stderr_fh.write(trap + "\n")
+                    returncode = 1
                 result = subprocess.CompletedProcess([str(self.executable)], returncode)
             else:
                 result = subprocess.run(
@@ -466,8 +475,13 @@ class AERMODRunner:
                 result.stdout = _read_capped(stdout_path, 1_000_000)
                 result.stderr = _read_capped(stderr_path, 1_000_000)
 
-            return self._collect(result, input_path, work_dir, start_time,
-                                 capture_output=capture_output)
+            collected = self._collect(result, input_path, work_dir, start_time,
+                                      capture_output=capture_output)
+            if trap is not None:
+                collected.success = False
+                collected.error_message = (
+                    f"{trap}; {collected.error_message}" if collected.error_message else trap)
+            return collected
 
         except subprocess.TimeoutExpired:
             # subprocess.run has killed AERMOD.

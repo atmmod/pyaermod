@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -325,6 +326,25 @@ def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
         (rec.keyword, _expand_shorthand(rec.fields), rec.lineno)
         for rec in block.records
     ]
+
+
+def _whole_number(token: str, keyword: str, lineno: int) -> int:
+    """An integer field that AERMOD also accepts written as a real (``1988.0``).
+
+    Anything that is not a whole number is an error naming the line, not a
+    bare ``int()`` traceback.
+    """
+    try:
+        return int(token)
+    except ValueError:
+        pass
+    try:
+        value = fortran_float(token)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value) or value != int(value):
+        raise ValueError(f"line {lineno}: {keyword} expects a whole number, got {token!r}")
+    return int(value)
 
 
 def _drop(dropped: Optional[List[int]], lineno: int) -> None:
@@ -1830,10 +1850,10 @@ def _parse_meteorology(block: _PathwayBlock,
         elif kw == "PROFFILE" and toks:
             kw_map["profile_file"] = toks[0]
         elif kw == "SURFDATA" and len(toks) >= 2:
-            kw_map["surface_station_id"] = int(toks[0])
-            kw_map["data_start_year"] = int(toks[1])
+            kw_map["surface_station_id"] = _whole_number(toks[0], kw, ln)
+            kw_map["data_start_year"] = _whole_number(toks[1], kw, ln)
         elif kw == "UAIRDATA" and len(toks) >= 2:
-            kw_map["upper_air_station_id"] = int(toks[0])
+            kw_map["upper_air_station_id"] = _whole_number(toks[0], kw, ln)
         elif kw == "PROFBASE" and toks:
             kw_map["profile_base_elevation"] = float(toks[0])
         elif kw == "STARTEND" and len(toks) in (6, 8):
