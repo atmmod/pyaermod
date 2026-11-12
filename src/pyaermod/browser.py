@@ -1,7 +1,7 @@
 """
 The browser GUI's Python side: every GUI operation as JSON in, JSON out.
 
-The browser GUI (``site/app/`` on the documentation site, under ``/app/``)
+The browser GUI (``webapp/`` on the documentation site, under ``/app/``)
 runs pyaermod and AERMOD's WebAssembly build in Pyodide inside a Web
 Worker. Its JavaScript calls exactly one function here, :func:`call`,
 with an operation name and a JSON text of arguments, and gets a JSON text
@@ -453,13 +453,18 @@ def import_deck(name: str, text: str) -> Dict[str, Any]:
     )
     from .pathways import unquote_path
 
-    path = work_dir() / clean_name(name or "deck.inp")
-    path.write_text(text, encoding="utf-8")
+    # Read from a scratch folder and not kept: the deck becomes the project,
+    # and a file left as aermod.inp (the name AERMOD reads) would block runs.
+    scratch = Path(tempfile.mkdtemp(prefix="import_", dir=work_dir()))
+    path = scratch / clean_name(name or "deck.inp")
     try:
+        path.write_text(text, encoding="utf-8")
         project = read_aermod_input(path)
     except (ValueError, UnicodeDecodeError) as exc:
         raise BrowserError(f"The deck could not be read: {exc}", kind="deck",
                            step="project") from exc
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     renamed = []
     for ref, set_path in _input_file_slots(project):
         written = unquote_path(ref.path)

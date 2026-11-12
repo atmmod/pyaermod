@@ -1,0 +1,32 @@
+[
+  {
+    "id": "albany",
+    "label": "Albany, NY, 1-4 March 1988",
+    "description": "Four days of AERMET output from EPA's AERMOD test cases (AERTEST): surface station 14735, upper air 14735.",
+    "source": "tests/fixtures/epa_official",
+    "files": [
+      {"name": "AERMET2.SFC", "url": "samples/albany/AERMET2.SFC"},
+      {"name": "AERMET2.PFL", "url": "samples/albany/AERMET2.PFL"}
+    ],
+    "meteorology": {
+      "surface_file": "AERMET2.SFC", "profile_file": "AERMET2.PFL",
+      "surface_station_id": 14735, "upper_air_station_id": 14735, "data_start_year": 1988,
+      "profile_base_elevation": 0.0
+    }
+  },
+  {
+    "id": "houston",
+    "label": "Houston, TX, 26-29 February 1996 (with rain)",
+    "description": "Four days of AERMET output from EPA's AERMET test case EX04: surface station 12960, upper air 3937 (Lake Charles). Has precipitation, for wet deposition.",
+    "source": "tests/fixtures/deposition_met",
+    "files": [
+      {"name": "HOUSTON_1996-02-26_29.SFC", "url": "samples/houston/HOUSTON_1996-02-26_29.SFC"},
+      {"name": "HOUSTON_1996-02-26_29.PFL", "url": "samples/houston/HOUSTON_1996-02-26_29.PFL"}
+    ],
+    "meteorology": {
+      "surface_file": "HOUSTON_1996-02-26_29.SFC", "profile_file": "HOUSTON_1996-02-26_29.PFL",
+      "surface_station_id": 12960, "upper_air_station_id": 3937, "data_start_year": 1996,
+      "profile_base_elevation": 0.0
+    }
+  }
+]

@@ -354,6 +354,18 @@ def test_a_run_returns_aermods_maxima(replay):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the replay wrapper is a shell script")
+def test_a_deck_named_aermod_inp_imports_and_runs(replay, work):
+    """aermod.inp is the name AERMOD reads; an imported deck must not be left under it."""
+    replay("albany_success")
+    put(MET / "AERMET2.SFC")
+    put(MET / "AERMET2.PFL")
+    text = (RECORDINGS / "albany_success" / "aermod.inp").read_text()
+    document = ok("import_deck", name="aermod.inp", text=text)["document"]
+    assert not (work / "aermod.inp").exists()
+    assert ok("run", document=document)["status"] == "Succeeded"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the replay wrapper is a shell script")
 def test_a_failed_run_shows_aermods_errors_and_no_values(replay):
     replay("albany_e480")
     put(MET / "AERMET2.SFC")
