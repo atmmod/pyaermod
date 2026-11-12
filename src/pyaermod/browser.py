@@ -1,7 +1,7 @@
 """
 The browser GUI's Python side: every GUI operation as JSON in, JSON out.
 
-The browser GUI (``webapp/`` on the documentation site, under ``/app/``)
+The browser GUI (``webapp/``, published under ``/app/`` of the documentation site)
 runs pyaermod and AERMOD's WebAssembly build in Pyodide inside a Web
 Worker. Its JavaScript calls exactly one function here, :func:`call`,
 with an operation name and a JSON text of arguments, and gets a JSON text

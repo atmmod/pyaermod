@@ -11,6 +11,7 @@ on:
       - ".github/workflows/wasm_aermod.yml"
       - "scripts/build_aermod_wasm.sh"
       - "scripts/wasm/**"
+      - "webapp/**"
   pull_request:
     paths:
       - "docs/**"
@@ -20,6 +21,7 @@ on:
       - ".github/workflows/wasm_aermod.yml"
       - "scripts/build_aermod_wasm.sh"
       - "scripts/wasm/**"
+      - "webapp/**"
   workflow_dispatch:
 
 # Grant the workflow token the rights Pages + deploy-pages need
@@ -77,7 +79,7 @@ jobs:
           name: aermod-wasm-release
           path: /tmp/aermod_wasm
 
-      - name: Build the in-browser JupyterLite site into _site/lite
+      - name: Build the in-browser JupyterLite site into _site/lite and the GUI into _site/app
         run: |
           pip install -r docs/lite/requirements.txt
           bash scripts/wasm/build_lite_site.sh /tmp/aermod_wasm _site/lite

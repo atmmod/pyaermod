@@ -11,6 +11,12 @@ The same codebase runs in two modes:
   who would rather not have it in a browser. See
   [Desktop Window](desktop.md).
 
+To try the GUI without installing anything, the documentation site has
+[an app with the same seven steps](browser.md#the-app) that runs pyaermod
+and AERMOD (compiled to WebAssembly) in the browser. It opens the same
+project files. It is not for regulatory use and cannot run AERMET or
+AERMAP.
+
 ## Install
 
 The GUI is part of the `pyaermod` package on
