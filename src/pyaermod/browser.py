@@ -262,7 +262,7 @@ def class_schema(cls: type) -> Dict[str, Any]:
             default = _encode(f.default_factory())
         fields.append({
             "name": f.name,
-            "label": f.name.replace("_", " "),
+            "label": f.name.replace("_", " ").capitalize(),
             "kind": kind,
             "optional": optional,
             "required": required,

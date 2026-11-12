@@ -54,7 +54,7 @@ details.card > summary { cursor: pointer; font-weight: 600; }
 .field-check { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
 .field-check .help { flex-basis: 100%; }
 .field-label { font-weight: 600; font-size: 13px; }
-.field-label::first-letter, legend::first-letter { text-transform: uppercase; }
+
 .units { font-weight: 400; color: var(--muted); }
 .field-json, .field-points { grid-column: 1 / -1; }
 input[type="text"], select, textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px;
