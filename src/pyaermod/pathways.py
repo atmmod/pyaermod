@@ -40,6 +40,26 @@ def _normalize_title(text: Optional[str]) -> str:
     return " ".join((text or "").split())
 
 
+def unquote_path(raw: str) -> str:
+    """The file name AERMOD opens for a runstream field.
+
+    A field that starts with a double quote loses it and its closing quote
+    (setup.f DEFINE); any other field is the name as written.
+
+    >>> unquote_path('"My Met/a.sfc"'), unquote_path('x"y')
+    ('My Met/a.sfc', 'x"y')
+    """
+    if raw.startswith('"'):
+        return raw[1:-1] if len(raw) > 1 and raw.endswith('"') else raw[1:]
+    return raw
+
+
+def quote_path(name: str) -> str:
+    """``name`` as a runstream field: double-quoted when it holds a blank."""
+    return f'"{name}"' if any(c.isspace() for c in name) else name
+
+
+
 # ============================================================================
 # ENUMS
 # ============================================================================

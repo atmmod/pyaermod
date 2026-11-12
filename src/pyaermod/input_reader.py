@@ -139,6 +139,8 @@ from .pathways import (
     TURBULENCE_OPTIONS,
     plot_file_group_fields,
     plot_rank_number,
+    quote_path,
+    unquote_path,
 )
 from .unparsed import UnparsedLine, unparsed_summary
 
@@ -233,7 +235,7 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
         if not line or line.startswith("**") or line.startswith("!"):
             continue
 
-        tokens = line.split()
+        tokens = _runstream_tokens(line)
         if len(tokens) >= 2 and tokens[0] in PATHWAYS and tokens[1].upper() == "STARTING":
             if current is not None:
                 raise ValueError(
@@ -2269,6 +2271,37 @@ def read_aermod_input(
     return project
 
 
+def _runstream_tokens(line: str) -> List[str]:
+    """Split a runstream line into fields, keeping a quoted field whole.
+
+    As in :func:`runstream_fields`, a field that starts with a double quote
+    runs to the next double quote (or the end of the line) and may hold
+    blanks, but here the quotes stay on it. The model then holds the field
+    as the deck wrote it, so the writer puts back what AERMOD read; code
+    that opens the file strips the quotes with :func:`unquote_path`.
+
+    >>> _runstream_tokens('SURFFILE  "My Met/a.sfc"  FREE')
+    ['SURFFILE', '"My Met/a.sfc"', 'FREE']
+    """
+    fields: List[str] = []
+    i, n = 0, len(line)
+    while i < n:
+        if line[i].isspace():
+            i += 1
+        elif line[i] == '"':
+            end = line.find('"', i + 1)
+            end = n if end < 0 else end + 1
+            fields.append(line[i:end])
+            i = end
+        else:
+            end = i
+            while end < n and not line[end].isspace():
+                end += 1
+            fields.append(line[i:end])
+            i = end
+    return fields
+
+
 def runstream_fields(text: str) -> List[str]:
     """Split the data part of a runstream line into fields as AERMOD does.
 
@@ -2350,7 +2383,8 @@ def _validate_paths_within(project: AERMODProject, base: Path) -> None:
     def _check(label: str, raw: Optional[str]) -> None:
         if not raw:
             return
-        candidate = Path(raw)
+        # Judge the file AERMOD opens: a quoted field without its quotes.
+        candidate = Path(unquote_path(raw))
         full = candidate if candidate.is_absolute() else base / candidate
         try:
             full = full.resolve()
@@ -2496,8 +2530,10 @@ def _input_file_slots(project: AERMODProject) -> List[Tuple[InputFile, Any]]:
     def attr(obj: Any, name: str, keyword: str) -> None:
         value = getattr(obj, name, None)
         if value:
-            slots.append((InputFile(keyword, value),
-                          lambda new, o=obj, n=name: setattr(o, n, new)))
+            # Paths are listed and set as the file AERMOD opens; the
+            # field keeps AERMOD's quotes when the name has a blank.
+            slots.append((InputFile(keyword, unquote_path(value)),
+                          lambda new, o=obj, n=name: setattr(o, n, quote_path(new))))
 
     met = project.meteorology
     attr(met, "surface_file", "ME SURFFILE")
@@ -2575,11 +2611,12 @@ def anchor_input_files(
     base = Path(deck_dir).absolute()
     changed: List[Tuple[InputFile, Path]] = []
     for ref, set_path in _input_file_slots(project):
-        if Path(ref.path).is_absolute():
+        name = unquote_path(ref.path)
+        if Path(name).is_absolute():
             continue
-        candidate = Path(os.path.normpath(base / ref.path))
+        candidate = Path(os.path.normpath(base / name))
         if candidate.is_file():
-            set_path(str(candidate))
+            set_path(str(candidate))        # the setter quotes a name with blanks
             changed.append((ref, candidate))
     return changed
 
@@ -2591,6 +2628,8 @@ __all__ = [
     "anchor_input_files",
     "input_files",
     "parse_aermod_input",
+    "quote_path",
     "read_aermod_input",
     "runstream_fields",
+    "unquote_path",
 ]
