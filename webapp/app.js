@@ -6,7 +6,7 @@
 // are kept here as well as in the worker, so a cancelled run (which ends the
 // worker) or a reload loses nothing.
 
-import { el, fieldGroup } from './forms.js';
+import { el, fieldGroup, fieldsInvalid } from './forms.js';
 import { HttpBackend, WorkerBackend } from './rpc.js';
 import * as store from './store.js';
 
@@ -25,6 +25,7 @@ const state = {
   review: null,
   run: null,
   running: null,          // {started, timer} while AERMOD runs
+  runs: 0,                // runs started on this page, cancelled ones too
   dirty: false,
   fileName: null,
   uploads: new Map(),     // name -> base64, replayed into a new worker
@@ -349,7 +350,17 @@ function editor(kind) {
   const e = state.editing;
   if (!e || e.kind !== kind) return null;
   const cls = state.schema.classes[e.item._type];
+  let card = null;
   const save = async () => {
+    // A field whose text does not parse still holds its old value; saving
+    // would keep that value while the form shows something else.
+    const bad = fieldsInvalid(card);
+    if (bad.length) {
+      showError({ step: kind === 'source' ? 'sources' : 'receptors',
+        message: `Not saved: correct ${bad.join(', ')}, or Cancel.` });
+      card.querySelector('[aria-invalid="true"]').focus();
+      return;
+    }
     const target = kind === 'source' ? project().sources.sources : project().receptors[e.list];
     const before = target.slice();
     if (e.index === null) target.push(e.item); else target[e.index] = e.item;
@@ -362,11 +373,12 @@ function editor(kind) {
     render();
     refreshPlan();
   };
-  return section(`${e.index === null ? 'New' : 'Edit'} ${e.item._type}`, cls.doc,
+  card = section(`${e.index === null ? 'New' : 'Edit'} ${e.item._type}`, cls.doc,
     fieldGroup(cls, e.item, null),
     el('div', { class: 'toolbar' },
       el('button', { type: 'button', class: 'primary', text: 'Save', onclick: save }),
       el('button', { type: 'button', text: 'Cancel', onclick: () => { state.editing = null; render(); } })));
+  return card;
 }
 
 async function refreshPlan() {
@@ -560,7 +572,8 @@ async function startRun() {
     const node = document.getElementById('elapsed');
     if (node) node.textContent = `${Math.round((Date.now() - state.running.started) / 1000)} s`;
   }, 500);
-  const reply = await api('run', { document: state.doc });
+  state.runs += 1;                            // "Run 2 succeeded": numbered on this page
+  const reply = await api('run', { document: state.doc, number: state.runs });
   const running = state.running;
   if (!running) return;                       // cancelled meanwhile
   clearInterval(running.timer);

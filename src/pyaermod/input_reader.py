@@ -156,6 +156,19 @@ _ORDINAL_WORDS = {
     "SIXTH": 6, "SEVENTH": 7, "EIGHTH": 8, "NINTH": 9, "TENTH": 10,
 }
 
+
+def _rectable_rank(token: str) -> Optional[int]:
+    """The highest rank a RECTABLE rank field names, or None if it names none.
+
+    A range ("1-10", "FIRST-THIRD") counts by its upper end; "8TH" and
+    "8" both mean rank 8.
+    """
+    rank_tok = token.upper().rsplit("-", 1)[-1]
+    if rank_tok in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[rank_tok]
+    digits = _LEADING_DIGITS_RE.match(rank_tok)
+    return int(digits.group()) if digits else None
+
 # ---------------------------------------------------------------------------
 # Lexer / pathway splitter
 # ---------------------------------------------------------------------------
@@ -1963,20 +1976,15 @@ def _parse_output(block: _PathwayBlock,
 
     for kw, toks, ln in _group_keywords(block):
         if kw == "RECTABLE" and len(toks) >= 2:
+            # ouset.f OUHIGH reads every field after the averaging period
+            # as a bare rank ("8"), a range ("1-10") or an ordinal word
+            # ("FIRST", "FIRST-THIRD", "8TH"), and AERMOD prints up to the
+            # highest rank over every RECTABLE line (NHIVAL). The model
+            # holds that highest rank alone.
+            ranks = [r for r in (_rectable_rank(tok) for tok in toks[1:]) if r is not None]
+            if ranks:
+                rect_rank = max(ranks) if not receptor_table else max(rect_rank, *ranks)
             receptor_table = True
-            # AERMOD accepts a bare rank ("8"), a numeric range ("1-10"),
-            # or the ordinal-word forms ("FIRST", "FIRST-THIRD"). All are
-            # represented here by their highest rank.
-            rank_tok = toks[1].upper()
-            if "-" in rank_tok:
-                rank_tok = rank_tok.rsplit("-", 1)[-1]
-            if rank_tok in _ORDINAL_WORDS:
-                rect_rank = _ORDINAL_WORDS[rank_tok]
-            else:
-                # "8TH" and "8" both mean rank 8.
-                digits = _LEADING_DIGITS_RE.match(rank_tok)
-                if digits:
-                    rect_rank = int(digits.group())
         elif kw == "MAXTABLE" and len(toks) >= 2:
             max_table = True
             with contextlib.suppress(ValueError):

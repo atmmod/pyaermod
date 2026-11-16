@@ -159,6 +159,80 @@ def _mount_points(pyfs, cwd: Path) -> List[str]:
     return sorted(mounts)
 
 
+_MET_KEYWORDS = frozenset({"SURFFILE", "PROFFILE"})
+
+
+def _met_file_names(deck: str) -> List[str]:
+    """The SURFFILE and PROFFILE names in ``deck``, as AERMOD reads them."""
+    names = []
+    for line in deck.splitlines():
+        words = line.split()
+        if words and words[0].upper() == "ME":
+            words = words[1:]
+        if len(words) < 2 or words[0].upper() not in _MET_KEYWORDS:
+            continue
+        rest = line[line.upper().index(words[0].upper()) + len(words[0]):].lstrip()
+        if rest.startswith('"') and '"' in rest[1:]:
+            names.append(rest[1:rest.index('"', 1)])
+        else:
+            names.append(words[1])
+    return names
+
+
+def terminate_met_files(working_dir: Union[str, Path]) -> List[Path]:
+    """End the deck's surface and profile files with a newline if they lack one.
+
+    AERMOD backspaces over the surface file every hour (``metext.f``).
+    Flang's runtime, unlike gfortran's, cannot backspace over a last record
+    with no line terminator: AERMOD aborts with "Sequential record missing
+    its terminator". A file saved without a final newline is otherwise
+    valid, so the runner adds one. Returns the files changed.
+    """
+    cwd = Path(working_dir)
+    try:
+        deck = (cwd / "aermod.inp").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    changed = []
+    for name in _met_file_names(deck):
+        path = (cwd / name).resolve()
+        try:
+            with path.open("rb+") as f:
+                if f.seek(0, os.SEEK_END) == 0:
+                    continue
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    f.write(b"\n")
+                    changed.append(path)
+        except OSError:
+            continue
+    return changed
+
+
+#: The scratch files AERMOD deletes when it ends (aermod.f: CLOSE with
+#: STATUS='DELETE'). Flang's runtime leaves them in place under WebAssembly.
+_SCRATCH_FILES = ("ERRMSG.TMP", "EVENT.TMP")
+
+
+def remove_scratch_files(working_dir: Union[str, Path]) -> List[Path]:
+    """Delete AERMOD's ``ERRMSG.TMP`` and ``EVENT.TMP`` from ``working_dir``.
+
+    EPA's executable deletes both as its last act, whether the run
+    succeeded or stopped on a fatal error. The WebAssembly build closes
+    them without deleting them, so the runner does it after a run that
+    reached that point (exit status 0). Returns the files deleted.
+    """
+    removed = []
+    for name in _SCRATCH_FILES:
+        path = Path(working_dir) / name
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return removed
+
+
 def _line_writer(stream: Optional[TextIO], fallback: TextIO) -> Callable[[str], None]:
     target = stream if stream is not None else fallback
 
@@ -194,6 +268,7 @@ def run(executable: Union[str, Path], working_dir: Union[str, Path], *,
 
     glue, wasm = _read_build(Path(executable))
     cwd = Path(working_dir).resolve()
+    terminate_met_files(cwd)
     pyfs = pyodide_js.FS
     out = create_proxy(_line_writer(stdout, sys.stdout))
     err = create_proxy(_line_writer(stderr, sys.stderr))
@@ -203,4 +278,6 @@ def run(executable: Union[str, Path], working_dir: Union[str, Path], *,
     finally:
         out.destroy()
         err.destroy()
+    if int(code) == 0:
+        remove_scratch_files(cwd)
     return int(code)

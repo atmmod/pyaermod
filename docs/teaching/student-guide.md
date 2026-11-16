@@ -174,6 +174,16 @@ The PyAERMOD GUI walks you through each of these steps in order.
 
 ## 3. Setting Up PyAERMOD
 
+> **Want to see AERMOD run before you install anything?** Go to
+> **https://atmmod.github.io/pyaermod/browser/** and click **Open the
+> notebooks**. In a few minutes, inside your web browser, the notebooks
+> build a model of one smokestack, run AERMOD and draw a map of the
+> concentrations. Nothing is installed on your computer. The notebooks use
+> short Python code rather than the GUI, so they do not replace the
+> tutorials below. The AERMOD they run is an
+> unofficial build of EPA's code, fine for learning but not for regulatory
+> work.
+
 ### 3.1 Install
 
 Open a terminal (Command Prompt on Windows, Terminal on Mac/Linux) and run:
@@ -209,6 +219,9 @@ themselves. Those are separate Fortran executables maintained by the U.S. EPA.
 
 Tutorials 1–2 only generate input files, so you can **skip this step
 initially** and come back when you're ready for Tutorial 3.
+
+If you cannot install programs on your computer (a shared lab computer, for
+example), the [browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb) run AERMOD without these executables.
 
 #### Option A: Download pre-compiled binaries (macOS Apple Silicon)
 

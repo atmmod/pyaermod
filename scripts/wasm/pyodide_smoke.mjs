@@ -83,7 +83,10 @@ const recording = path.join(repo, 'tests', 'fixtures', 'gui', 'aermod_recordings
 const b64 = (file) => fs.readFileSync(file).toString('base64');
 py.globals.set('deck_text', fs.readFileSync(path.join(recording, 'aermod.inp'), 'utf8'));
 py.globals.set('manifest', fs.readFileSync(path.join(recording, 'manifest.json'), 'utf8'));
-py.globals.set('sfc_b64', b64(path.join(fixtures, 'AERMET2.SFC')));
+// Without its final newline, which Flang's runtime cannot backspace over:
+// wasm_runner.terminate_met_files must put it back before AERMOD runs.
+const sfc = fs.readFileSync(path.join(fixtures, 'AERMET2.SFC'));
+py.globals.set('sfc_b64', Buffer.from(sfc.toString('latin1').replace(/[\r\n]+$/, ''), 'latin1').toString('base64'));
 py.globals.set('pfl_b64', b64(path.join(fixtures, 'AERMET2.PFL')));
 const gui = py.runPython(`
 import json

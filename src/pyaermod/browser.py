@@ -104,9 +104,24 @@ def put_file(name: str, data_b64: str) -> Dict[str, Any]:
     return {"name": target.name, "size": len(data)}
 
 
+#: Endings of the files the runner keeps beside a run for itself: AERMOD's
+#: captured console output. Not listed: nobody uploaded them.
+_RUNNER_FILE_ENDINGS = (".subproc.stdout", ".subproc.stderr")
+
+
+def _listed(path: Path) -> bool:
+    """Whether the file list shows ``path``: not the runner's lock, marker or captures."""
+    return (path.is_file() and not path.name.startswith(".")
+            and not path.name.endswith(_RUNNER_FILE_ENDINGS))
+
+
 def list_files() -> Dict[str, Any]:
-    """The files in the working directory, by name, with their sizes."""
-    files = sorted((p for p in work_dir().iterdir() if p.is_file()), key=lambda p: p.name.lower())
+    """The files in the working directory, by name, with their sizes.
+
+    The runner's own files (its lock, its copy marker and AERMOD's
+    captured console output) are left out.
+    """
+    files = sorted((p for p in work_dir().iterdir() if _listed(p)), key=lambda p: p.name.lower())
     return {"files": [{"name": p.name, "size": p.stat().st_size} for p in files]}
 
 
@@ -148,11 +163,20 @@ def _step_named_by(message: str) -> Optional[str]:
     return None
 
 
+#: The averaging periods a new project starts with. ``pyaermod-app``'s 1
+#: and ANNUAL need a year of met data, which neither sample holds, and in
+#: the browser ANNUAL on less than a year blocks the run; PERIOD works with
+#: any length.
+NEW_PROJECT_PERIODS = ["1", "PERIOD"]
+
+
 def new_project() -> Dict[str, Any]:
-    """The project New starts from, the same as ``pyaermod-app``'s."""
+    """The project New starts from: ``pyaermod-app``'s, averaged over 1 hour and the period."""
     from .gui_v2.state import _empty_project
 
-    return {"document": _document(_empty_project())}
+    project = _empty_project()
+    project.control.averaging_periods = list(NEW_PROJECT_PERIODS)
+    return {"document": _document(project)}
 
 
 def load(text: str) -> Dict[str, Any]:
@@ -464,15 +488,53 @@ def _merge(found: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dic
                   if i["step"] in STEP_IDS else len(STEP_IDS))
 
 
+def _met_warnings(session: Any, warnings: List[Dict[str, Any]],
+                  ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """``warnings`` as the browser shows them, and those it blocks on.
+
+    The surface file's problem is said with its name alone (the working
+    directory's path means nothing on the page), and not at all when the
+    file is missing: :func:`_not_uploaded` already blocks on that. ANNUAL
+    with less than a year of met data blocks the run: AERMOD runs every
+    hour and then stops with E480, and in the browser that wait cannot be
+    spent on anything else. (``pyaermod-app`` warns and lets the user run.)
+    """
+    coverage = session.met_coverage()
+    path, problem = coverage.path, coverage.problem
+    renamed: Dict[str, Optional[str]] = {}
+    if problem is not None and path is not None:
+        said = f"surface file {problem}"
+        renamed[said] = None if not path.exists() else said.replace(str(path), path.name)
+    annual = {finding.message for finding in coverage.warnings}
+
+    kept: List[Dict[str, Any]] = []
+    blocking: List[Dict[str, Any]] = []
+    for item in warnings:
+        problems, blocks = [], []
+        for p in item["problems"]:
+            if p in annual:
+                blocks.append(p)
+            elif renamed.get(p, p) is not None:
+                problems.append(renamed.get(p, p))
+        if problems:
+            kept.append({**item, "problems": problems})
+        if blocks:
+            blocking.append({**item, "problems": blocks})
+    return kept, blocking
+
+
 def _review(project: Any) -> Dict[str, Any]:
     """The checklist of ``project``, after quoting its file names with blanks (in place)."""
     from .gui_v2.readiness import review
 
     _quote_blanks(project)
-    found = review(_session(project), have_binary=_have_aermod())
-    blocking = _merge(_merge(_items(found.blocking), _not_uploaded(project)), _outside(project))
+    session = _session(project)
+    found = review(session, have_binary=_have_aermod())
+    warnings, annual = _met_warnings(session, _items(found.warnings))
+    blocking = _merge(_merge(_merge(_items(found.blocking), _not_uploaded(project)),
+                             _outside(project)), annual)
     return {"ready": not blocking, "blocking": blocking,
-            "warnings": _items(found.warnings), "deck": found.deck,
+            "warnings": warnings, "deck": found.deck,
             "met_summary": found.met_summary}
 
 
@@ -651,12 +713,14 @@ def _runner() -> Any:
     return AERMODRunner(log_level="WARNING")
 
 
-def run(document: Any) -> Dict[str, Any]:
+def run(document: Any, number: int = 1) -> Dict[str, Any]:
     """Run AERMOD on ``document``'s project in the working directory; return its results.
 
     Refused (nothing run) while the checklist has items. The run is
     synchronous: under Pyodide it holds the worker until AERMOD ends, and
-    the page cancels it by ending the worker.
+    the page cancels it by ending the worker. ``number`` is the run's
+    number on the page ("Run 3 succeeded"): each call is a new session,
+    and the page counts its runs.
     """
     from .gui_v2.pages.run import message_counts_text, run_status_text
     from .gui_v2.run_results import view_of
@@ -670,6 +734,8 @@ def run(document: Any) -> Dict[str, Any]:
     session = _session(project)
     record = session.start_run(working_dir=work_dir(), background=False, runner=_runner(),
                                timeout=24 * 3600)
+    if isinstance(number, int) and not isinstance(number, bool) and number > 1:
+        record = dataclasses.replace(record, number=number)
     result = record.result
     messages = []
     if result is not None:

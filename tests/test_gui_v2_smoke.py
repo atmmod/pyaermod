@@ -177,6 +177,11 @@ async def gui(monkeypatch, caplog):
 
     # index() looks ``_session_for`` up on its module at call time.
     monkeypatch.setattr(app_module, "_session_for", _capturing)
+    # NiceGUI's teardown clears each client's delete handlers before deleting
+    # it, so a test's pages never release their sessions from ``_OWNERS``.
+    # Their sessions are then collected, and a later test's session can get
+    # the same id and look owned by a dead page. Each test starts empty.
+    monkeypatch.setattr(app_module, "_OWNERS", {})
     caplog.set_level(logging.INFO)
 
     async with user_simulation(root=None) as user:

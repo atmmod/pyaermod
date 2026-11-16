@@ -8,6 +8,11 @@ Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
 PyAERMOD automates input file generation, model execution, output parsing, and result visualization — replacing manual text-file editing with a type-safe Python API.
 
+**Try it without installing anything:** [open the browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb).
+They build an AERMOD project with pyaermod, run AERMOD and map the results inside your
+web browser. The AERMOD there is EPA's source compiled to WebAssembly: fine for learning,
+not for regulatory work. [More about the browser notebooks](https://atmmod.github.io/pyaermod/browser/).
+
 ## Installation
 
 PyAERMOD needs Python 3.11 or later. Install it into a virtual
@@ -197,6 +202,7 @@ docs/                    # Architecture and quickstart guides
 
 ## Documentation
 
+- [Run pyaermod in your browser](https://atmmod.github.io/pyaermod/browser/) (no install)
 - [Quick Start Guide](docs/quickstart.md)
 - [Ten Common AERMOD Jobs](docs/use-cases.md)
 - [GUI User Guide](docs/gui-guide.md)

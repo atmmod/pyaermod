@@ -1,0 +1,56 @@
+** Practice deck: a small aggregate plant, PM10, Albany NY met (1-4 March 1988)
+** For learning only. Emission rates and stack parameters are made up.
+CO STARTING
+   TITLEONE Practice: small aggregate plant, PM10
+   TITLETWO Dryer stack, crusher vent, storage pile and haul road
+   MODELOPT DFAULT CONC
+   AVERTIME 1 24 PERIOD
+   POLLUTID PM10
+   RUNORNOT RUN
+CO FINISHED
+
+SO STARTING
+** Dryer stack (POINT): Qs(g/s) Hs(m) Ts(K) Vs(m/s) Ds(m)
+   LOCATION DRYER    POINT     0.0     0.0   0.0
+   SRCPARAM DRYER    2.5  30.0  420.0  15.0  1.2
+** Crusher building vent (VOLUME): Qs(g/s) Hrel(m) Syinit(m) Szinit(m)
+   LOCATION CRUSHER  VOLUME   60.0   -40.0   0.0
+   SRCPARAM CRUSHER  0.16  5.0  4.65  4.65
+** Storage pile (AREA, SW corner): Qs(g/s/m2) Hrel(m) Xinit(m) Yinit(m) Angle(deg)
+   LOCATION PILE     AREA   -150.0  -100.0   0.0
+   SRCPARAM PILE     4.0E-6  3.0  80.0  50.0  0.0
+** Haul road (LINE): Qs(g/s/m2) Hrel(m) Width(m)
+   LOCATION ROAD     LINE   -200.0   150.0   200.0   150.0   0.0
+   SRCPARAM ROAD     2.0E-6  1.5  10.0
+   SRCGROUP STACKS   DRYER
+   SRCGROUP FUGITIVE CRUSHER PILE ROAD
+   SRCGROUP ALL
+SO FINISHED
+
+RE STARTING
+   GRIDCART GRID1 STA
+                  XYINC  -1000.0  21  100.0  -1000.0  21  100.0
+   GRIDCART GRID1 END
+** Nearest house and a school
+   DISCCART   450.0   300.0
+   DISCCART  -600.0  -350.0
+RE FINISHED
+
+ME STARTING
+   SURFFILE AERMET2.SFC
+   PROFFILE AERMET2.PFL
+   SURFDATA 14735 1988 ALBANY,NY
+   UAIRDATA 14735 1988 ALBANY,NY
+   PROFBASE 0.0 METERS
+ME FINISHED
+
+OU STARTING
+   RECTABLE ALLAVE FIRST-SECOND
+   MAXTABLE ALLAVE 10
+   PLOTFILE 1      ALL      FIRST pm10_1hr_all.plt
+   PLOTFILE 24     ALL      FIRST pm10_24hr_all.plt
+   PLOTFILE PERIOD ALL            pm10_period_all.plt
+   PLOTFILE PERIOD STACKS         pm10_period_stacks.plt
+   PLOTFILE PERIOD FUGITIVE       pm10_period_fugitive.plt
+   SUMMFILE practice_quarry.sum
+OU FINISHED

@@ -1374,6 +1374,20 @@ OU FINISHED
         out = self._deck(ou_body="   RECTABLE ALLAVE EIGHTH").output
         assert out.receptor_table and out.receptor_table_rank == 8
 
+    @pytest.mark.parametrize("ou_body, rank", [
+        # ouset.f OUHIGH reads every field after the averaging period as a
+        # rank or range, and prints up to the highest one.
+        ("   RECTABLE ALLAVE FIRST SECOND", 2),
+        ("   RECTABLE ALLAVE 2ND 1ST", 2),
+        ("   RECTABLE ALLAVE FIRST 4-6 THIRD", 6),
+        # NHIVAL is the highest rank over every RECTABLE line, whatever
+        # order the averaging periods come in.
+        ("   RECTABLE 24 SECOND\n   RECTABLE 1 FIRST", 2),
+    ])
+    def test_rectable_highest_of_every_rank_field(self, ou_body, rank):
+        out = self._deck(ou_body=ou_body).output
+        assert out.receptor_table and out.receptor_table_rank == rank
+
     def test_maxtable(self):
         out = self._deck(ou_body="   MAXTABLE ALLAVE 50").output
         assert out.max_table and out.max_table_rank == 50
