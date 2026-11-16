@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pyaermod import (
@@ -16,6 +18,7 @@ from pyaermod import (
     SourcePathway,
     TerrainType,
 )
+from pyaermod.input_reader import parse_aermod_input
 from pyaermod.regulatory import (
     ALL_PROFILES,
     EPA_APPENDIX_W_2017,
@@ -24,6 +27,18 @@ from pyaermod.regulatory import (
     RegulatoryProfile,
     get_profile,
 )
+
+#: Every MODELOPT token without a field of its own that coset.f MODOPT
+#: drops (W206) or refuses (E204, E133, E198, E203) when DFAULT is on the
+#: line, as the reader stores it in extra_model_options (probe decks
+#: scripts/oracle_decks/31a-31f, AERMOD v26135). ALPHA, BETA and PSDCREDIT have fields.
+DFAULT_TOKENS = [
+    "FLAT", "NOSTD", "NOCHKD", "SCREEN",
+    "AREADPLT", "SCIM", "TOXICS", "HBP", "TTRM2", "FASTAREA", "FASTALL",
+    "NOURBTRAN", "AREAMNDR",
+    "LOW_WIND", "TTRM", "RLINEFDH",
+    "LOWWIND1", "LOWWIND2", "LOWWIND3",
+]
 
 
 def _make_project(**ctrl_kw) -> AERMODProject:
@@ -63,15 +78,36 @@ class TestApply:
         assert any("terrain_type" in c for c in changes)
         assert project.control.terrain_type == "ELEV"
 
-    def test_apply_disables_nondefault_flags(self):
-        project = _make_project()
-        project.control.flat_terrain = True
-        project.control.no_stack_tip_downwash = True
+    @pytest.mark.parametrize("token", DFAULT_TOKENS)
+    def test_apply_removes_nondefault_modelopt_token(self, token):
+        project = _make_project(terrain_type="ELEV", extra_model_options=[token, "NOWARN"])
         changes = EPA_APPENDIX_W_2017.apply(project)
-        assert any("flat_terrain" in c for c in changes)
-        assert any("no_stack_tip_downwash" in c for c in changes)
-        assert project.control.flat_terrain is False
-        assert project.control.no_stack_tip_downwash is False
+        assert any(token in c for c in changes)
+        assert project.control.extra_model_options == ["NOWARN"]
+        assert token not in project.control._model_options()
+
+    @pytest.mark.parametrize("field_name", ["alpha", "beta", "psd_credit"])
+    def test_apply_clears_nondefault_switch(self, field_name):
+        project = _make_project(terrain_type="ELEV", **{field_name: True})
+        changes = EPA_APPENDIX_W_2017.apply(project)
+        assert any(field_name in c for c in changes)
+        assert getattr(project.control, field_name) is False
+
+    def test_apply_clears_low_wind_card(self):
+        # CO LOW_WIND needs ALPHA (E133), and DFAULT refuses ALPHA (E204).
+        project = _make_project(terrain_type="ELEV", low_wind_option="0.5")
+        changes = EPA_APPENDIX_W_2017.apply(project)
+        assert any("low_wind_option" in c for c in changes)
+        assert project.control.low_wind_option is None
+        assert "LOW_WIND" not in project.control.to_aermod_input()
+
+    def test_apply_leaves_a_clean_project_clean(self):
+        project = _make_project(
+            terrain_type=TerrainType.FLAT, alpha=True, beta=True,
+            low_wind_option="0.5", extra_model_options=["NOSTD", "FASTALL"],
+        )
+        EPA_APPENDIX_W_2017.apply(project)
+        assert EPA_APPENDIX_W_2017.check(project) == []
 
     def test_apply_is_idempotent(self):
         project = _make_project()
@@ -96,11 +132,49 @@ class TestCheck:
         warnings = EPA_APPENDIX_W_2017.check(project)
         assert any("terrain_type" in w for w in warnings)
 
-    def test_forbidden_flag_warns(self):
-        project = _make_project()
-        project.control.use_lowwind1 = True
+    @pytest.mark.parametrize("token", DFAULT_TOKENS)
+    def test_nondefault_modelopt_token_warns(self, token):
+        project = _make_project(terrain_type="ELEV", extra_model_options=[token])
         warnings = EPA_APPENDIX_W_2017.check(project)
-        assert any("use_lowwind1" in w for w in warnings)
+        assert len(warnings) == 1
+        assert token in warnings[0]
+
+    @pytest.mark.parametrize("field_name, token", [
+        ("alpha", "ALPHA"), ("beta", "BETA"), ("psd_credit", "PSDCREDIT"),
+    ])
+    def test_nondefault_switch_warns(self, field_name, token):
+        project = _make_project(terrain_type="ELEV", **{field_name: True})
+        warnings = EPA_APPENDIX_W_2017.check(project)
+        assert any(token in w and "E204" in w for w in warnings)
+
+    def test_nostd_names_the_override(self):
+        project = _make_project(terrain_type="ELEV", extra_model_options=["NOSTD"])
+        (warning,) = EPA_APPENDIX_W_2017.check(project)
+        assert "W206" in warning
+
+    def test_a_deck_read_from_disk_is_flagged_and_fixed(self):
+        # The case the old attribute names could never see: NOSTD read
+        # from a real deck lands in extra_model_options.
+        deck = Path(__file__).parents[1] / "scripts" / "oracle_decks" / "31a_modelopt_dfault_overrides.inp"
+        project = parse_aermod_input(deck.read_text())
+        warnings = EPA_APPENDIX_W_2017.check(project)
+        for token in ("NOSTD", "NOCHKD", "SCREEN", "ALPHA", "BETA"):
+            assert any(token in w for w in warnings), token
+        EPA_APPENDIX_W_2017.apply(project)
+        assert EPA_APPENDIX_W_2017.check(project) == []
+        assert "NOSTD" not in project.control.to_aermod_input()
+
+    def test_dfault_accepted_options_do_not_warn(self):
+        project = _make_project(
+            terrain_type="ELEV",
+            extra_model_options=["NOWARN", "WARNCHKD", "NODRYDPLT"],
+        )
+        assert EPA_APPENDIX_W_2017.check(project) == []
+
+    def test_low_wind_card_warns_under_dfault(self):
+        project = _make_project(terrain_type="ELEV", low_wind_option="0.5")
+        warnings = EPA_APPENDIX_W_2017.check(project)
+        assert any("low_wind_option" in w and "E133" in w for w in warnings)
 
     def test_disallowed_low_wind_warns(self):
         project = _make_project(low_wind_option="LOWWIND1")

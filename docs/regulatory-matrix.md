@@ -11,10 +11,10 @@ checklist when building a modeling protocol — the profile API
 | DFAULT option in MODELOPT | `ControlPathway.regulatory_default=True` |
 | Elevated terrain | `ControlPathway.terrain_type = TerrainType.ELEVATED` |
 | Rural/urban dispersion | `ControlPathway.urban_option` per source if urban |
-| LOWWIND | only `LOWWIND3` is currently accepted with documentation |
+| LOWWIND | not available under DFAULT: the CO LOW_WIND card (`low_wind_option`) and the `LOW_WIND` MODELOPT token need ALPHA (AERMOD E133), and the old `LOWWIND1`/`LOWWIND2`/`LOWWIND3` tokens are no longer MODELOPT options (E203) |
 | NO2 chemistry | OLM or PVMRM (set via `ChemistryOptions`) — GRSM and PVMRM2 remain BETA through 2023 |
-| Stack-tip downwash | on by default; **don't** set `no_stack_tip_downwash` |
-| BETA / experimental options | not permitted under DFAULT |
+| Stack-tip downwash | on by default; `NOSTD` in `ControlPathway.extra_model_options` is dropped under DFAULT (AERMOD W206), and the profiles remove it |
+| ALPHA / BETA / experimental options | refused under DFAULT (E204): keep `alpha`, `beta` and `psd_credit` False and leave `FASTAREA`, `FASTALL`, `SCIM`, `NOURBTRAN` and the other refused tokens out of `extra_model_options`; `SCREEN` and `NOCHKD` are dropped with W206 (full list: `pyaermod.pathways.DFAULT_MODELOPT_CONFLICTS`) |
 
 Apply with:
 
@@ -67,12 +67,11 @@ CARB_DRAFT_2024 = RegulatoryProfile(
     description="California draft 2024 modeling guidance",
     regulatory_default=True,
     terrain_type="ELEVATED",
-    allowed_low_wind=("LOWWIND3",),
     allow_chemistry_methods=("OLM", "PVMRM", "PVMRM2", "GRSM"),  # BETA incl.
-    forbid_nondefault_flags=(
-        "flat_terrain", "no_stack_tip_downwash",
-        "use_lowwind1", "use_lowwind2",
-    ),
+    # MODELOPT tokens, as ControlPathway writes them from alpha, beta,
+    # psd_credit, terrain_type, chemistry and extra_model_options. The
+    # default is every token DFAULT refuses or drops.
+    forbid_model_options=("NOSTD", "NOCHKD", "SCREEN", "BETA", "ALPHA"),
 )
 ```
 

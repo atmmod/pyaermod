@@ -7,6 +7,8 @@ import pytest
 from pyaermod import (
     AERMODProject,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     DiscreteReceptor,
     MeteorologyPathway,
@@ -25,6 +27,17 @@ from pyaermod.validator_advanced import (
     _receptor_bbox,
     advanced_validate,
 )
+
+# What coset.f MODOPT does with each non-default MODELOPT token when
+# DFAULT is on the line (probe decks scripts/oracle_decks/31a-31f, AERMOD v26135).
+W206_TOKENS = ["FLAT", "NOSTD", "NOCHKD", "SCREEN"]
+REFUSED_TOKENS = [
+    ("AREADPLT", "E204"), ("SCIM", "E204"), ("TOXICS", "E204"),
+    ("HBP", "E204"), ("TTRM2", "E204"), ("FASTAREA", "E204"),
+    ("FASTALL", "E204"), ("NOURBTRAN", "E204"), ("AREAMNDR", "E204"),
+    ("LOW_WIND", "E133"), ("TTRM", "E198"), ("RLINEFDH", "E198"),
+    ("LOWWIND1", "E203"), ("LOWWIND2", "E203"), ("LOWWIND3", "E203"),
+]
 
 
 def _good_control(**kw):
@@ -148,23 +161,66 @@ class TestReceptorChecks:
 
 class TestDFAULTConsistency:
     def test_clean_project_no_errors(self):
-        control = _good_control(regulatory_default=True)
+        # ELEV: the default terrain_type FLAT is itself W206 under DFAULT.
+        control = _good_control(regulatory_default=True, terrain_type="ELEV")
         findings = _check_dfault_consistency(control)
         assert findings == []
 
-    def test_nondefault_flag_with_regulatory_default_errors(self):
-        control = _good_control(regulatory_default=True)
-        # Fake a non-default option
-        control.flat_terrain = True
-        findings = _check_dfault_consistency(control)
-        assert len(findings) == 1
-        assert "regulatory_default" in findings[0].field
+    @pytest.mark.parametrize("token", W206_TOKENS)
+    def test_overridden_modelopt_token_warns(self, token):
+        control = _good_control(terrain_type="ELEV", extra_model_options=[token])
+        (finding,) = _check_dfault_consistency(control)
+        assert finding.severity == "warning"
+        assert token in finding.message and "W206" in finding.message
 
-    def test_nondefault_flag_without_regulatory_default_ok(self):
-        control = _good_control(regulatory_default=False)
-        control.flat_terrain = True
-        findings = _check_dfault_consistency(control)
-        assert findings == []
+    @pytest.mark.parametrize("token, code", REFUSED_TOKENS)
+    def test_refused_modelopt_token_errors(self, token, code):
+        control = _good_control(terrain_type="ELEV", extra_model_options=[token])
+        (finding,) = _check_dfault_consistency(control)
+        assert finding.severity == "error"
+        assert token in finding.message and code in finding.message
+
+    @pytest.mark.parametrize("field_name, token", [
+        ("alpha", "ALPHA"), ("beta", "BETA"), ("psd_credit", "PSDCREDIT"),
+    ])
+    def test_nondefault_switch_errors(self, field_name, token):
+        control = _good_control(terrain_type="ELEV", **{field_name: True})
+        (finding,) = _check_dfault_consistency(control)
+        assert finding.severity == "error"
+        assert token in finding.message and "E204" in finding.message
+
+    def test_flat_terrain_warns(self):
+        control = _good_control(terrain_type="FLAT")
+        (finding,) = _check_dfault_consistency(control)
+        assert "FLAT" in finding.message and finding.severity == "warning"
+
+    def test_low_wind_card_errors(self):
+        control = _good_control(terrain_type="ELEV", low_wind_option="0.5")
+        (finding,) = _check_dfault_consistency(control)
+        assert finding.field == "low_wind_option"
+        assert "E133" in finding.message and finding.severity == "error"
+
+    def test_ttrm_chemistry_errors(self):
+        control = _good_control(
+            terrain_type="ELEV",
+            chemistry=ChemistryOptions(method=ChemistryMethod.TTRM, default_no2_ratio=0.5),
+        )
+        (finding,) = _check_dfault_consistency(control)
+        assert "TTRM" in finding.message and "E198" in finding.message
+
+    def test_dfault_accepted_options_pass(self):
+        control = _good_control(
+            terrain_type="ELEV",
+            extra_model_options=["NOWARN", "WARNCHKD", "VECTORWS", "NODRYDPLT"],
+        )
+        assert _check_dfault_consistency(control) == []
+
+    def test_nondefault_options_without_regulatory_default_ok(self):
+        control = _good_control(
+            regulatory_default=False, terrain_type="FLAT", alpha=True, beta=True,
+            low_wind_option="0.5", extra_model_options=["NOSTD", "FASTALL"],
+        )
+        assert _check_dfault_consistency(control) == []
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +328,12 @@ class TestAdvancedValidateEnd2End:
         findings = advanced_validate(self._project())
         # May still find minor warnings; ensure no errors
         assert not any(f.severity == "error" for f in findings)
+
+    def test_reports_nostd_on_a_dfault_run(self):
+        project = self._project()
+        project.control.terrain_type = "ELEV"
+        project.control.extra_model_options = ["NOSTD"]
+        assert any("NOSTD" in f.message for f in advanced_validate(project))
 
     def test_catches_bad_point_source(self):
         findings = advanced_validate(self._project(emission_rate=0.0))

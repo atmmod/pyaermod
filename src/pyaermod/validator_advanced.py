@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
+from .pathways import DFAULT_MODELOPT_CONFLICTS
 from .validator import ValidationError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -248,38 +249,46 @@ def _check_receptors(receptors: Any, sources: Any) -> List[ValidationError]:
 # DFAULT / NONDFAULT consistency
 # ---------------------------------------------------------------------------
 
-# Options that change AERMOD from regulatory-default behavior. If any of
-# these are set *and* regulatory_default is True, the model will warn
-# (AERMOD itself will in fact abort); we flag it earlier.
-NONDEFAULT_OPTION_FLAGS = (
-    "use_nondefault",    # explicit override toggle
-    "flat_terrain",      # FLAT option is non-default
-    "no_stack_tip_downwash",  # NOSTD option
-    "use_lowwind1",
-    "use_lowwind2",
-    "use_lowwind3",
-    "use_area_rural",    # ARM mode (regulatory is urban/rural per-source)
-    "beta_options",      # BETA experimental options
-)
+# MODELOPT tokens DFAULT refuses (E204, E133, E198, E203) or drops (W206),
+# from coset.f MODOPT; ControlPathway.dfault_conflicts finds them on the
+# real fields. Kept under this name for callers that imported it.
+NONDEFAULT_OPTION_FLAGS = tuple(DFAULT_MODELOPT_CONFLICTS)
 
 
 def _check_dfault_consistency(control: Any) -> List[ValidationError]:
-    errors: List[ValidationError] = []
-    reg = getattr(control, "regulatory_default", True)
-    if not reg:
-        return errors  # User explicitly chose NONDFAULT — nothing to check
+    """Non-default options on a DFAULT run, one finding per option.
 
-    triggered = []
-    for opt in NONDEFAULT_OPTION_FLAGS:
-        val = getattr(control, opt, None)
-        if val:  # truthy (True, non-empty string, non-empty list)
-            triggered.append(opt)
-    if triggered:
+    A W206 option is a warning (AERMOD drops it and runs); every other
+    code stops AERMOD at setup and is an error.
+    """
+    errors: List[ValidationError] = []
+    if not getattr(control, "regulatory_default", True):
+        return errors  # NONDFAULT run: these options are allowed
+    conflicts = getattr(control, "dfault_conflicts", None)
+    if conflicts is None:
+        return errors
+    for opt, code in conflicts():
+        if opt == "LOW_WIND card":
+            errors.append(ValidationError(
+                "ControlPathway", "low_wind_option",
+                f"low_wind_option={control.low_wind_option!r} writes a CO "
+                "LOW_WIND card, which needs the ALPHA option (AERMOD E133), "
+                "and DFAULT refuses ALPHA; set regulatory_default=False or "
+                "clear low_wind_option",
+                severity="error",
+            ))
+            continue
+        if code == "W206":
+            message = (f"MODELOPT {opt} with regulatory_default=True: AERMOD "
+                       "drops it under DFAULT (W206) and runs without it")
+            severity = "warning"
+        else:
+            message = (f"MODELOPT {opt} with regulatory_default=True: AERMOD "
+                       f"refuses it under DFAULT ({code}); set "
+                       "regulatory_default=False or remove it")
+            severity = "error"
         errors.append(ValidationError(
-            "ControlPathway", "regulatory_default",
-            f"regulatory_default=True but non-default options set: "
-            f"{triggered}; set regulatory_default=False or remove these",
-            severity="error",
+            "ControlPathway", "regulatory_default", message, severity=severity,
         ))
     return errors
 

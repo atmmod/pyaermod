@@ -28,6 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List
 
+from .pathways import DFAULT_MODELOPT_CONFLICTS
+
 _TERRAIN_ALIASES = {
     "ELEV": {"ELEV", "ELEVATED"},
     "ELEVATED": {"ELEV", "ELEVATED"},
@@ -62,13 +64,16 @@ class RegulatoryProfile:
         mandate "ELEVATED" since it subsumes flat cases (AERMOD also
         accepts the short form "ELEV").
     allowed_low_wind : tuple of str
-        Which LOWWIND options are acceptable.  Appendix W (2017) allows
-        LOWWIND3 for specific documented cases.
+        Which ``low_wind_option`` values are acceptable when the profile
+        does not require DFAULT. Under DFAULT any CO LOW_WIND card is
+        refused, since it needs the ALPHA option (AERMOD E133).
     allow_chemistry_methods : tuple of str
         Names of ChemistryMethod enum values that are acceptable for
         regulatory NO2 modeling (typically OLM, PVMRM, GRSM).
-    forbid_nondefault_flags : tuple of str
-        Attribute names on ControlPathway that must NOT be truthy.
+    forbid_model_options : tuple of str
+        MODELOPT tokens the project must not write, as
+        :meth:`ControlPathway.dfault_conflicts` reports them. Defaults to
+        every token DFAULT refuses or drops (``DFAULT_MODELOPT_CONFLICTS``).
     notes : list of str
         Free-form explanatory text.
     """
@@ -78,13 +83,7 @@ class RegulatoryProfile:
     terrain_type: str = "ELEVATED"
     allowed_low_wind: tuple = ("LOWWIND3",)
     allow_chemistry_methods: tuple = ("OLM", "PVMRM", "GRSM")
-    forbid_nondefault_flags: tuple = (
-        "flat_terrain",  # FLAT is a non-default in DFAULT mode
-        "no_stack_tip_downwash",
-        "use_lowwind1",
-        "use_lowwind2",
-        "beta_options",
-    )
+    forbid_model_options: tuple = tuple(DFAULT_MODELOPT_CONFLICTS)
     notes: List[str] = field(default_factory=list)
 
     # --- application --------------------------------------------------
@@ -112,11 +111,25 @@ class RegulatoryProfile:
             ctrl.terrain_type = self.terrain_type
             changes.append(f"terrain_type {current_terrain} -> {self.terrain_type}")
 
-        # Forbid non-default flags
-        for attr in self.forbid_nondefault_flags:
-            if getattr(ctrl, attr, None):
+        # Non-default MODELOPT options. Chemistry methods are left to
+        # check(): swapping one NO2 method for another is not a fix
+        # pyaermod should make silently.
+        forbidden = {opt.upper() for opt in self.forbid_model_options}
+        for attr, token in (("alpha", "ALPHA"), ("beta", "BETA"),
+                            ("psd_credit", "PSDCREDIT")):
+            if token in forbidden and getattr(ctrl, attr):
                 setattr(ctrl, attr, False)
-                changes.append(f"disabled non-default {attr}")
+                changes.append(f"{attr} -> False (removes {token})")
+        kept = [opt for opt in ctrl.extra_model_options
+                if str(opt).upper() not in forbidden]
+        for opt in ctrl.extra_model_options:
+            if str(opt).upper() in forbidden:
+                changes.append(f"removed {str(opt).upper()} from extra_model_options")
+        ctrl.extra_model_options = kept
+
+        if self.regulatory_default and ctrl.low_wind_option:
+            changes.append(f"low_wind_option {ctrl.low_wind_option} -> None")
+            ctrl.low_wind_option = None
 
         return changes
 
@@ -142,21 +155,33 @@ class RegulatoryProfile:
             if hasattr(ctrl.terrain_type, "value")
             else ctrl.terrain_type
         )
-        if not _terrain_matches(current_terrain, self.terrain_type):
+        terrain_ok = _terrain_matches(current_terrain, self.terrain_type)
+        if not terrain_ok:
             warnings.append(
                 f"{self.name}: terrain_type='{current_terrain}' but profile "
                 f"expects '{self.terrain_type}'"
             )
 
-        for attr in self.forbid_nondefault_flags:
-            if getattr(ctrl, attr, None):
-                warnings.append(
-                    f"{self.name}: non-default option '{attr}' is set — "
-                    "regulatory profile forbids it"
-                )
+        forbidden = {opt.upper() for opt in self.forbid_model_options}
+        extra = {str(opt).upper() for opt in ctrl.extra_model_options}
+        for opt, code in ctrl.dfault_conflicts():
+            if opt not in forbidden:
+                continue
+            if opt == "FLAT" and not terrain_ok and "FLAT" not in extra:
+                continue  # the terrain_type warning above covers it
+            warnings.append(
+                f"{self.name}: MODELOPT {opt} is a non-default option "
+                f"(AERMOD {code} under DFAULT); the profile forbids it"
+            )
 
         lwo = getattr(ctrl, "low_wind_option", None)
-        if lwo and lwo not in self.allowed_low_wind:
+        if lwo and self.regulatory_default:
+            warnings.append(
+                f"{self.name}: low_wind_option='{lwo}' writes a CO LOW_WIND "
+                "card, which needs the ALPHA option (AERMOD E133); DFAULT "
+                "refuses ALPHA"
+            )
+        elif lwo and lwo not in self.allowed_low_wind:
             warnings.append(
                 f"{self.name}: low_wind_option='{lwo}' is not in allowed "
                 f"set {self.allowed_low_wind}"

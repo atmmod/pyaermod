@@ -123,6 +123,44 @@ TERRAIN_MODELOPT_TOKENS = {
     "FLATSRCS": ("FLAT", "ELEV"),
 }
 
+#: MODELOPT tokens a DFAULT run cannot carry, with the message coset.f
+#: MODOPT gives for each when DFAULT is on the line (AERMOD v26135,
+#: probe decks scripts/oracle_decks/31a-31f). DFAULT is read first and
+#: clears every non-default switch, so the order of the tokens does not
+#: matter. W206 drops the option and the run goes on without it; E204
+#: refuses it (TOXICS, HBP and AREAMNDR add W198, E198 or E139). The
+#: ALPHA-only options fail with E133 or E198 because DFAULT refuses
+#: ALPHA itself, and LOWWIND1/2/3 are no longer options at all (E203,
+#: with or without DFAULT).
+DFAULT_MODELOPT_CONFLICTS: Dict[str, str] = {
+    # Dropped with a warning (W206)
+    "FLAT": "W206",
+    "NOSTD": "W206",
+    "NOCHKD": "W206",
+    "SCREEN": "W206",
+    # Refused (E204)
+    "ALPHA": "E204",
+    "BETA": "E204",
+    "PSDCREDIT": "E204",
+    "AREADPLT": "E204",
+    "SCIM": "E204",
+    "TOXICS": "E204",
+    "HBP": "E204",
+    "TTRM2": "E204",
+    "FASTAREA": "E204",
+    "FASTALL": "E204",
+    "NOURBTRAN": "E204",
+    "AREAMNDR": "E204",
+    # Need ALPHA, which DFAULT refuses
+    "LOW_WIND": "E133",
+    "TTRM": "E198",
+    "RLINEFDH": "E198",
+    # Not MODELOPT options in current AERMOD
+    "LOWWIND1": "E203",
+    "LOWWIND2": "E203",
+    "LOWWIND3": "E203",
+}
+
 #: The option names CO DEBUGOPT recognises (coset.f DEBOPT,
 #: DEBUGOPT_ARRAY, v26135). Any other field on the line is the file
 #: name of the option before it. LINE is accepted as a spelling of AREA.
@@ -697,6 +735,24 @@ class ControlPathway:
         """
         opts = {opt.upper() for opt in self._model_options()}
         return bool({"DFAULT", "DEFAULT", "ELEV"} & opts) or "FLAT" not in opts
+
+    def dfault_conflicts(self) -> List[Tuple[str, str]]:
+        """The options this run sets that DFAULT refuses or drops.
+
+        Each entry is ``(option, AERMOD message code)``: a MODELOPT token
+        from :data:`DFAULT_MODELOPT_CONFLICTS`, as :meth:`_model_options`
+        writes it from ``terrain_type``, ``alpha``, ``beta``,
+        ``psd_credit``, ``chemistry`` and ``extra_model_options``, then
+        ``("LOW_WIND card", "E133")`` when ``low_wind_option`` is set,
+        since the CO LOW_WIND card also needs ALPHA. The list does not
+        depend on ``regulatory_default``; callers decide whether DFAULT
+        applies.
+        """
+        found = [(opt, DFAULT_MODELOPT_CONFLICTS[opt]) for opt in self._model_options()
+                 if opt in DFAULT_MODELOPT_CONFLICTS]
+        if self.low_wind_option:
+            found.append(("LOW_WIND card", "E133"))
+        return found
 
     def _model_options(self) -> List[str]:
         """The MODELOPT tokens, in the order the writer emits them."""

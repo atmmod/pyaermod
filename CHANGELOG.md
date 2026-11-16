@@ -30,6 +30,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The regulatory profiles (`RegulatoryProfile.check` and `apply`) and
+  `advanced_validate`'s DFAULT check looked for non-default options on
+  `ControlPathway` attributes that do not exist (`flat_terrain`,
+  `no_stack_tip_downwash`, `use_lowwind1`, `beta_options`, ...), so on a
+  real project they never fired: a deck with `MODELOPT DFAULT NOSTD`
+  passed both. They now read the fields the writer turns into MODELOPT
+  (`terrain_type`, `alpha`, `beta`, `psd_credit`, `chemistry`,
+  `extra_model_options`) and the CO LOW_WIND card (`low_wind_option`),
+  through the new `ControlPathway.dfault_conflicts()` and the
+  `DFAULT_MODELOPT_CONFLICTS` table taken from coset.f MODOPT and checked
+  against AERMOD v26135 with probe decks `scripts/oracle_decks/31a`-`31f`.
+  FLAT, NOSTD, NOCHKD and SCREEN, which AERMOD drops under DFAULT (W206),
+  are warnings; the options it refuses
+  (E204 for ALPHA, BETA, PSDCREDIT, FASTAREA, FASTALL, SCIM and the rest;
+  E133 or E198 for the ALPHA-only LOW_WIND, TTRM and RLINEFDH; E203 for
+  the retired LOWWIND1/2/3 tokens) are errors. `apply()` clears `alpha`,
+  `beta`, `psd_credit` and `low_wind_option` and removes the tokens from
+  `extra_model_options`. `RegulatoryProfile.forbid_nondefault_flags` is
+  replaced by `forbid_model_options`, a tuple of MODELOPT tokens.
 - AERMOD's WebAssembly build stopped with "Sequential record missing its
   terminator" when the surface file's last line had no line ending, which
   EPA's executable reads. AERMOD steps back over that line every hour, and

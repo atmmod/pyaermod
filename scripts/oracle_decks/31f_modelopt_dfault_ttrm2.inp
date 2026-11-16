@@ -1,4 +1,5 @@
 ** Probe: the TTRM2 NO2 option under DFAULT. Setup pass only.
+** AERMOD v26135 said: E198 (needs ALPHA) and E204 for TTRM2.
 CO STARTING
    TITLEONE  oracle 31f: TTRM2 under DFAULT
    MODELOPT  CONC  DFAULT  TTRM2
