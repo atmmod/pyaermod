@@ -35,6 +35,7 @@ nav:
   - Run in Your Browser: browser.md
   - Ten Common AERMOD Jobs: use-cases.md
   - GUI User Guide: gui-guide.md
+  - Desktop Window: desktop.md
   - Guides:
       - AERMET Tuning: aermet-tuning-guide.md
       - AERMAP Troubleshooting: aermap-troubleshooting.md
@@ -47,12 +48,13 @@ nav:
   - Keyword Audit (v26135): keyword-audit-v26135.md
   - Benchmarks: benchmarks.md
   - Release Notes:
+      - v2.3.0 (draft): release-notes/v2.3.0.md
       - v2.2.0: release-notes/v2.2.0.md
-  - Desktop Window: desktop.md
   - Architecture: architecture.md
   - Teaching:
       - Student Guide: teaching/student-guide.md
       - Refinery Assignments: teaching/refinery-assignments.md
+      - Practice Deck (browser app): teaching/practice/README.md
       - README: teaching/README.md
   - API Reference:
       - Overview: api/index.md

@@ -12,7 +12,7 @@ Student-facing guides for learning atmospheric dispersion modeling with PyAERMOD
 Students need:
 
 - Python 3.11+ installed
-- PyAERMOD with GUI extras: `pip install pyaermod[gui]`
+- PyAERMOD with GUI extras: `pip install "pyaermod[gui]"` (the quotes matter in zsh, the macOS default shell); or nothing at all for the [browser app](https://atmmod.github.io/pyaermod/app/), which runs the same seven steps and has a [practice deck](practice/README.md)
 - A web browser (Chrome, Firefox, Safari, or Edge)
 - AERMOD executable from [EPA SCRAM](https://www.epa.gov/scram) (needed for Tutorials 3+); students without it can run AERMOD in the [browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb)
 - AERMET executable from [EPA SCRAM](https://www.epa.gov/scram) (needed for Tutorials 5--6)

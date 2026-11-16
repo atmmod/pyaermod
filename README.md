@@ -8,10 +8,11 @@ Python wrapper for EPA's AERMOD atmospheric dispersion model.
 
 PyAERMOD automates input file generation, model execution, output parsing, and result visualization — replacing manual text-file editing with a type-safe Python API.
 
-**Try it without installing anything:** [open the browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb).
-They build an AERMOD project with pyaermod, run AERMOD and map the results inside your
+**Try it without installing anything:** [open the app](https://atmmod.github.io/pyaermod/app/)
+(the GUI's seven steps) or [the notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb).
+Both build an AERMOD project with pyaermod, run AERMOD and show the results inside your
 web browser. The AERMOD there is EPA's source compiled to WebAssembly: fine for learning,
-not for regulatory work. [More about the browser notebooks](https://atmmod.github.io/pyaermod/browser/).
+not for regulatory work. [More about running in the browser](https://atmmod.github.io/pyaermod/browser/).
 
 ## Installation
 
@@ -48,7 +49,7 @@ separate desktop downloads.
 ### conda
 
 PyAERMOD is not on conda-forge yet (the recipe is in
-[`conda-recipe/`](conda-recipe/)). Once the conda-forge package is
+[`conda-recipe/`](https://github.com/atmmod/pyaermod/tree/main/conda-recipe)). Once the conda-forge package is
 published, `conda install -c conda-forge pyaermod` will install the
 library and `conda install -c conda-forge pyaermod-gui` the library with
 the graphical interface. Until then, use pip inside a conda environment.
@@ -66,7 +67,7 @@ the graphical interface. Until then, use pip inside a conda environment.
   from wheels alone; with a newer Python, pick one of those
   (`uv tool install --python 3.13 "pyaermod[gui]"`).
 
-More in the [GUI User Guide](docs/gui-guide.md#install).
+More in the [GUI User Guide](https://atmmod.github.io/pyaermod/gui-guide/#install).
 
 For development:
 ```bash
@@ -145,8 +146,8 @@ print(dep.data[dep.column_for("WDEP")].max())  # the wet_depo column
 
 ## Features
 
-### Source Types (10)
-POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
+### Source Types (13)
+POINT, POINTCAP, POINTHOR, SWPOINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 
 ### Advanced Modeling
 - **Background concentrations** — uniform, period-specific, or sector-dependent
@@ -169,7 +170,7 @@ POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 - Input validation across all AERMOD pathways
 - Building downwash / BPIP integration (point, area, and volume sources)
 - Batch processing with parallel execution
-- Interactive NiceGUI app (`pyaermod-app` browser, `pyaermod-desktop` native window)
+- Graphical interface (`pyaermod-app` in a browser tab, `pyaermod-desktop` in a window, or [the app on the documentation site](https://atmmod.github.io/pyaermod/app/) with nothing installed)
 
 ## Project Structure
 
@@ -189,7 +190,9 @@ src/pyaermod/
     geospatial.py        # Coordinate transforms, GIS export
     bpip.py              # Building downwash calculations
     gui_v2/              # NiceGUI app + pywebview desktop wrapper
-tests/                   # 2,200+ tests on every CI leg, coverage gated at 95%
+    browser.py           # the browser app's Python side (Pyodide)
+webapp/                  # the browser app's page
+tests/                   # run in CI on every change, coverage gated at 95%
 examples/                # Example scripts and Jupyter notebooks
 docs/                    # Architecture and quickstart guides
 ```
@@ -203,17 +206,17 @@ docs/                    # Architecture and quickstart guides
 ## Documentation
 
 - [Run pyaermod in your browser](https://atmmod.github.io/pyaermod/browser/) (no install)
-- [Quick Start Guide](docs/quickstart.md)
-- [Ten Common AERMOD Jobs](docs/use-cases.md)
-- [GUI User Guide](docs/gui-guide.md)
-- [Architecture](docs/architecture.md)
+- [Quick Start Guide](https://atmmod.github.io/pyaermod/quickstart/)
+- [Ten Common AERMOD Jobs](https://atmmod.github.io/pyaermod/use-cases/)
+- [GUI User Guide](https://atmmod.github.io/pyaermod/gui-guide/)
+- [Architecture](https://atmmod.github.io/pyaermod/architecture/)
 - [API Reference](https://atmmod.github.io/pyaermod/api/)
-- [Examples](examples/)
+- [Examples](https://github.com/atmmod/pyaermod/tree/main/examples)
 
 ## Citing PyAERMOD
 
 If PyAERMOD contributes to published work, please cite the archival release.
-The repository's [`CITATION.cff`](CITATION.cff) carries the metadata in a
+The repository's [`CITATION.cff`](https://github.com/atmmod/pyaermod/blob/main/CITATION.cff) carries the metadata in a
 form GitHub, Zenodo and reference managers read directly (GitHub's
 "Cite this repository" button renders it as APA or BibTeX):
 
@@ -241,8 +244,8 @@ pyaermod's own file handling. A batch of 32 such runs through
 `AERMODRunner.run_batch` goes from 440 to 520 runs per minute at one
 worker to 1,370 to 1,410 at four on four-CPU machines (a 2.7× to 3.1×
 speed-up). The numbers, the machines and the command that reproduces
-them are in [docs/benchmarks.md](docs/benchmarks.md).
+them are in [the benchmarks page](https://atmmod.github.io/pyaermod/benchmarks/).
 
 ## Disclaimer
 
-PyAERMOD is a wrapper around AERMOD, not a reimplementation. It uses official EPA binaries for all calculations and maintains regulatory acceptance. PyAERMOD is validated against EPA AERMOD v26135 / AERMET v26135 (EPA reference archives of 2026-07-09) — a gfortran build driven by pyaermod reproduces EPA's AERTEST plotfile bit-for-bit and every POSTFILE in EPA's test suite within EPA's own tolerance (see [docs/validation.md](docs/validation.md)); v24142 remains supported for cross-version regression. Always validate results against EPA test cases for your specific use case.
+PyAERMOD is a wrapper around AERMOD, not a reimplementation: every concentration comes from AERMOD itself. Installed with pip, it runs the AERMOD executable you provide (EPA's, or one built from EPA's source); the browser app and notebooks run EPA's source compiled to WebAssembly, which is not for regulatory use. PyAERMOD is validated against EPA AERMOD v26135 / AERMET v26135 (EPA reference archives of 2026-07-09) — a gfortran build driven by pyaermod reproduces EPA's AERTEST plotfile bit-for-bit and every POSTFILE in EPA's test suite within EPA's own tolerance (see [the validation report](https://atmmod.github.io/pyaermod/validation/)); v24142 remains supported for cross-version regression. Always validate results against EPA test cases for your specific use case.

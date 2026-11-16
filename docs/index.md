@@ -9,7 +9,7 @@ DataFrames, and exports results to geospatial formats.
 
 ## Features
 
-- **10 source types**: POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
+- **13 source types**: POINT, POINTCAP, POINTHOR, SWPOINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT
 - **Run AERMOD** directly from Python with `run_aermod()`
 - **Parse output** to pandas DataFrames with `parse_aermod_output()`
 - **POSTFILE support**: formatted (PLOT) and binary (UNFORM) with timestep-level data
@@ -17,6 +17,7 @@ DataFrames, and exports results to geospatial formats.
 - **Preprocessors**: AERMET (Stage 1 and METPREP runstreams), AERMAP (terrain), BPIP (building downwash)
 - **Geospatial export**: GeoTIFF, GeoPackage, Shapefile, GeoJSON
 - **Interactive GUI**: a seven-step NiceGUI app (`pyaermod-app` in the browser, `pyaermod-desktop` as a native window)
+- **Nothing to install**: the same seven steps, and Jupyter notebooks, [run in your browser](browser.md) with AERMOD compiled to WebAssembly (not for regulatory use)
 
 ## Getting Started
 

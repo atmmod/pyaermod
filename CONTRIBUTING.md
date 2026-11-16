@@ -59,7 +59,8 @@ file and the `>=` floors in `pyproject.toml` in sync.
 Or call pytest directly:
 
 ```bash
-# Run full test suite with coverage
+# Run the default suite with coverage (pytest.ini leaves out the
+# slow tests and the browser journeys)
 pytest
 
 # Run a specific test file
@@ -68,8 +69,13 @@ pytest tests/test_input_generator.py
 # Run tests matching a keyword
 pytest -k "test_point_source"
 
-# Skip slow property-based tests
-pytest -m "not slow"
+# Include the slow tests (-m replaces pytest.ini's marker filter, so
+# keep "not e2e" unless Playwright and its Chromium are installed)
+pytest -m "not e2e"
+
+# The browser journeys (tests/e2e; needs `pip install -e ".[e2e]"` and
+# `python -m playwright install chromium`)
+pytest -o addopts="" -m e2e tests/e2e
 ```
 
 CI gates coverage at **95%** (`--cov-fail-under=95` in

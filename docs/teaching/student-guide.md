@@ -12,11 +12,11 @@ and run one short Python script.
 1. [What Is Air Dispersion Modeling?](#1-what-is-air-dispersion-modeling)
 2. [Key Concepts](#2-key-concepts)
 3. [Setting Up PyAERMOD](#3-setting-up-pyaermod)
-4. [Tutorial 1 — Your First Point Source](#4-tutorial-1--your-first-point-source)
-5. [Tutorial 2 — Comparing Stack Heights](#5-tutorial-2--comparing-stack-heights)
-6. [Tutorial 3 — Running AERMOD and Reading Results](#6-tutorial-3--running-aermod-and-reading-results)
-7. [Tutorial 4 — Area Sources: Modeling a Facility with Fugitive Emissions](#7-tutorial-4--area-sources-modeling-a-facility-with-fugitive-emissions)
-8. [Tutorial 5 — Processing Meteorological Data with AERMET](#8-tutorial-5--processing-meteorological-data-with-aermet)
+4. [Tutorial 1 — Your First Point Source](#4-tutorial-1-your-first-point-source)
+5. [Tutorial 2 — Comparing Stack Heights](#5-tutorial-2-comparing-stack-heights)
+6. [Tutorial 3 — Running AERMOD and Reading Results](#6-tutorial-3-running-aermod-and-reading-results)
+7. [Tutorial 4 — Area Sources: Modeling a Facility with Fugitive Emissions](#7-tutorial-4-area-sources-modeling-a-facility-with-fugitive-emissions)
+8. [Tutorial 5 — Processing Meteorological Data with AERMET](#8-tutorial-5-processing-meteorological-data-with-aermet)
 9. [What's Next?](#9-whats-next)
 10. [Glossary](#10-glossary)
 
@@ -189,7 +189,7 @@ The PyAERMOD GUI walks you through each of these steps in order.
 Open a terminal (Command Prompt on Windows, Terminal on Mac/Linux) and run:
 
 ```bash
-pip install pyaermod[gui]
+pip install "pyaermod[gui]"
 ```
 
 This installs the core package plus everything needed for the graphical
@@ -198,10 +198,12 @@ interface (NiceGUI and the matplotlib plots the Results step draws).
 To verify the install worked:
 
 ```bash
-pyaermod
+pyaermod info
 ```
 
-You should see version information and a feature list.
+You should see the PyAERMOD version and a list of the features that can run
+on this computer. (Keep the quotes in the `pip install` command: without them
+the default macOS shell, zsh, reads the square brackets as a file pattern.)
 
 ### 3.2 Install the AERMOD and AERMET Executables
 
@@ -223,57 +225,11 @@ initially** and come back when you're ready for Tutorial 3.
 If you cannot install programs on your computer (a shared lab computer, for
 example), the [browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb) run AERMOD without these executables.
 
-#### Option A: Download pre-compiled binaries (macOS Apple Silicon)
+#### Option A: Compile from source (macOS and Linux)
 
-Pre-compiled macOS binaries for `aermod` and `aermap` are attached to each
-PyAERMOD release on GitHub.
-
-1. Go to **https://github.com/atmmod/pyaermod/releases/latest**
-2. Scroll down to the **Assets** section at the bottom of the page.
-3. Click on `aermod` and `aermap` to download them.
-
-> **Note:** Your browser may warn that these are "unverified" downloads.
-> This is normal for command-line executables — click **Keep** or
-> **Allow** to save the files.
-
-4. Move them to a permanent location and make them executable:
-
-```bash
-mkdir -p ~/bin
-mv ~/Downloads/aermod ~/Downloads/aermap ~/bin/
-chmod +x ~/bin/aermod ~/bin/aermap
-```
-
-5. Add `~/bin` to your PATH so PyAERMOD can find them. Add this line to your
-   `~/.zshrc` (or `~/.bashrc` on Linux):
-
-```bash
-export PATH="$HOME/bin:$PATH"
-```
-
-Then **restart your terminal** (close and reopen it), or run
-`source ~/.zshrc` in your current session.
-
-6. Verify they work:
-
-```bash
-which aermod
-aermod
-```
-
-The `which` command should print `~/bin/aermod` (or the full expanded path).
-Running `aermod` alone will print a version header and then exit with an error
-about missing input files — **that's normal** and means it's installed
-correctly.
-
-> **AERMET is not included in the release binaries.** If you need AERMET
-> for Tutorial 5, use Option B below to compile it from source, or ask your
-> instructor for a pre-compiled copy.
-
-#### Option B: Compile from source (macOS Intel, Linux, or to get AERMET)
-
-This option compiles **all three executables** (AERMOD, AERMAP, and AERMET)
-from the Fortran source code included in the PyAERMOD repository.
+PyAERMOD's build script downloads EPA's public-domain Fortran source and
+compiles **all three executables** (AERMOD, AERMAP and AERMET). EPA does not
+publish macOS or Linux executables, and PyAERMOD releases do not include any.
 
 **Prerequisites:** You need `gfortran` (the GNU Fortran compiler).
 
@@ -304,14 +260,30 @@ mkdir -p ~/bin
 cp bin/aermod bin/aermap ~/bin/
 ```
 
-If AERMET source is available in the `aermet/` directory, the build script
-will compile it too. Copy it the same way:
+and AERMET the same way:
 
 ```bash
 cp bin/aermet ~/bin/
 ```
 
-Then add `~/bin` to your PATH as described in Option A, step 5 above.
+Then add `~/bin` to your PATH so PyAERMOD can find them. Add this line to
+your `~/.zshrc` (or `~/.bashrc` on Linux):
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+Then **restart your terminal** (close and reopen it), or run
+`source ~/.zshrc` in your current session, and check:
+
+```bash
+which aermod
+aermod
+```
+
+`which` should print the path to `aermod`. Running `aermod` alone prints a
+version header and then stops with an error about a missing input file:
+**that is normal** and means it is installed.
 
 To build straight into another directory instead of `bin/`, set `BIN_DIR`
 (a relative path is taken from the directory you run the script in):
@@ -332,7 +304,7 @@ script tells you when it does). To keep a second AERMOD, for example one
 built from source you have changed, give it another name with
 `AERMOD_EXE_NAME=aermod_test` or build it into its own `BIN_DIR`.
 
-#### Option C: Windows
+#### Option B: Windows
 
 The EPA provides official Windows executables:
 
@@ -357,7 +329,7 @@ aermod
 After installing by any method, you can verify everything is set up with:
 
 ```bash
-pyaermod            # Should show PyAERMOD version and feature list
+pyaermod info       # Should show the PyAERMOD version and feature list
 which aermod        # Should print the path to the aermod executable
 aermod              # Should print AERMOD version (error about input is OK)
 ```
@@ -1095,10 +1067,8 @@ meteorological files.
 **Prerequisites:**
 - PyAERMOD generates AERMET *input files*, but to actually process them you
   need the `aermet` executable installed on your computer.
-- **macOS/Linux:** If you followed [Section 3.2, Option B](#32-install-the-aermod-and-aermet-executables)
-  (compile from source), you already have it. If you used Option A (download
-  binaries), note that the release binaries include `aermod` and `aermap` but
-  **not** `aermet` — go back and use Option B to compile it.
+- **macOS/Linux:** If you followed [Section 3.2, Option A](#32-install-the-aermod-and-aermet-executables)
+  (compile from source), you already have it.
 - **Windows:** The EPA's AERMOD Modeling System download from the
   [SCRAM website](https://www.epa.gov/scram/air-quality-dispersion-modeling-preferred-and-recommended-models)
   includes `aermet.exe` alongside `aermod.exe`.
@@ -1425,7 +1395,7 @@ where aermet        # Windows — should print a path like C:\AERMOD\aermet.exe
 
 If nothing is printed, go back to
 [Section 3.2](#32-install-the-aermod-and-aermet-executables) to install it
-(Option B for Mac/Linux, Option C for Windows).
+(Option A for Mac/Linux, Option B for Windows).
 
 Then, in a terminal, navigate to the directory containing your
 input files and run each stage:
