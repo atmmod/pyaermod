@@ -1,4 +1,5 @@
 ** Probe: MODELOPT tokens expected to pass under DFAULT. Setup pass only.
+** AERMOD v26135 said: no errors; W116 for VECTORWS.
 CO STARTING
    TITLEONE  oracle 31e: options DFAULT accepts
    MODELOPT  CONC  DFAULT  ELEV  NOWARN  WARNCHKD  VECTORWS  NODRYDPLT  NOWETDPLT

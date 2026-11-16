@@ -1,5 +1,7 @@
 ** Probe: LOWWIND3 as a MODELOPT token without DFAULT, and the CO LOW_WIND
 ** card as pyaermod writes low_wind_option (LOW_WIND LOWWIND3). Setup pass only.
+** AERMOD v26135 said: E203 for LOWWIND3 even without DFAULT, and E208
+** (illegal numerical field) for LOW_WIND LOWWIND3: the card takes numbers.
 CO STARTING
    TITLEONE  oracle 31d: low-wind options without DFAULT
    MODELOPT  CONC  ELEV  ALPHA  BETA  LOWWIND3

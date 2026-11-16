@@ -1,5 +1,8 @@
 ** Probe: LOWWIND1/2/3 and LOW_WIND as MODELOPT tokens, the CO LOW_WIND
 ** card, PSDCREDIT and TTRM, all under DFAULT. Setup pass only.
+** AERMOD v26135 said: E203 (invalid parameter) for LOWWIND1, LOWWIND2 and
+** LOWWIND3; E133 (needs ALPHA) for the LOW_WIND token and again for the CO
+** LOW_WIND card; E204 for PSDCREDIT; E198 for TTRM.
 CO STARTING
    TITLEONE  oracle 31c: low-wind and ALPHA-gated options under DFAULT
    MODELOPT  CONC  DFAULT  LOWWIND1  LOWWIND2  LOWWIND3  LOW_WIND  PSDCREDIT  TTRM

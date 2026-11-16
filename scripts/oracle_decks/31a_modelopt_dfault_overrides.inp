@@ -1,5 +1,7 @@
 ** Probe: which MODELOPT tokens DFAULT drops (W206) and which it refuses
 ** (E204), for regulatory.py and validator_advanced.py. Setup pass only.
+** AERMOD v26135 said: W206 (DFAULT overrides) for FLAT, NOSTD, NOCHKD and
+** SCREEN; E204 (DFAULT conflicts) for ALPHA and BETA.
 CO STARTING
    TITLEONE  oracle 31a: MODELOPT options DFAULT overrides
    MODELOPT  CONC  DFAULT  FLAT  NOSTD  NOCHKD  SCREEN  ALPHA  BETA
