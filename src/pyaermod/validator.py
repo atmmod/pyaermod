@@ -22,6 +22,7 @@ from .pathways import (
     WIND_CATEGORY_COUNT,
     dayrange_field_is_valid,
     unquote_path,
+    value_list,
 )
 
 # Valid AERMOD averaging periods
@@ -450,8 +451,12 @@ class Validator:
         A deck with a sector HOURLY file is kept whole in ``unparsed_lines``
         and ``sources.background`` is None. A modelled background set on
         top writes a second set of cards and AERMOD stops (probe 33c:
-        E203). A whole-domain ``BACKGRND HOURLY file`` kept verbatim beside
-        a whole-domain flag is a valid pair (probe 32d).
+        E203). A modelled whole-domain background beside a verbatim
+        whole-domain BACKGRND line that is not HOURLY (a second flag, or a
+        value with none) is two value options for the domain (E165, or
+        E201 for the bare value). A whole-domain ``BACKGRND HOURLY file``
+        kept verbatim beside a whole-domain flag is a valid pair (probe
+        32d).
         """
         background = getattr(project.sources, "background", None)
         if background is None:
@@ -465,10 +470,13 @@ class Validator:
             conflicting = kept
             modelled = "a sector background (sectors)"
         elif background.uniform_value is not None or background.period_values:
+            # Every verbatim line but a whole-domain HOURLY file: the
+            # sector form (BGSECTOR, SECTn), or a second whole-domain
+            # value line.
             conflicting = [
                 ln for ln in kept
-                if str(ln.keyword).upper() == "BGSECTOR"
-                or (ln.fields and str(ln.fields[0]).upper().startswith("SECT"))]
+                if not (str(ln.keyword).upper() == "BACKGRND" and ln.fields
+                        and str(ln.fields[0]).upper() == "HOURLY")]
             modelled = "a whole-domain background (uniform_value/period_values)"
         else:
             return
@@ -481,7 +489,8 @@ class Validator:
             "BackgroundConcentration", "unparsed_lines",
             f"{modelled} is set, and the project also keeps SO BACKGRND/BGSECTOR "
             f"lines verbatim from the source deck ({shown}{more}); both are written "
-            "and AERMOD stops (E203). Remove those lines from "
+            "and AERMOD stops (E203 for a second sector form, E165 for a second "
+            "whole-domain flag, E201 for a value without one). Remove those lines from "
             "project.unparsed_lines, or remove the modelled background "
             "(sources.background = None)"
         ))
@@ -491,9 +500,11 @@ class Validator:
         """Problems with one temporal-variation profile, as soset.f reads
         BACKGRND, O3VALUES and NOX_VALS: a flag of EMISFACT's table
         (:data:`TEMPORAL_FLAG_COUNTS`), exactly its number of values, and
-        every value a number. ``values`` may be a single value."""
+        every value a number. ``values`` may be a single value or any
+        non-string iterable of values (a numpy array, a pandas Series, a
+        range); a string is one value, and not a number."""
         from .pathways import TEMPORAL_FLAG_COUNTS
-        values = list(values) if isinstance(values, (list, tuple)) else [values]
+        values = value_list(values)
         problems: List[str] = []
         expected = TEMPORAL_FLAG_COUNTS.get(str(flag).upper())
         if expected is None:
@@ -519,7 +530,7 @@ class Validator:
         flag of EMISFACT's table and exactly its number of values."""
         for message in cls._check_temporal_values(flag, values, where=where):
             result.errors.append(ValidationError(pathway, field_name, message))
-        values = list(values) if isinstance(values, (list, tuple)) else [values]
+        values = value_list(values)
         if any(_is_number(v) and v < 0 for v in values):
             result.errors.append(ValidationError(
                 pathway, field_name,

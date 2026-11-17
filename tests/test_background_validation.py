@@ -170,3 +170,90 @@ def test_a_background_flag_message_names_the_sector():
                                  sector_values={(1, "WEEKLY"): 5.0, (2, "ANNUAL"): 4.0})
     errors = _background_errors(_project_with(bg))
     assert any("unknown temporal flag 'WEEKLY' for sector 1" in e.message for e in errors), errors
+
+
+# ----------------------------------------------------------------------
+# Review finding 3: arrays, Series and ranges are sequences of values
+# ----------------------------------------------------------------------
+
+def test_an_array_series_or_range_of_values_validates():
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+    for values in (np.array([1.0, 2.0, 3.0, 4.0]),
+                   pd.Series([1.0, 2.0, 3.0, 4.0], index=[7, 8, 9, 10]),
+                   range(1, 5)):
+        assert Validator._check_temporal_values("SEASON", values) == [], type(values)
+        bg = BackgroundConcentration(period_values={"SEASON": values})
+        assert _background_errors(_project_with(bg)) == [], type(values)
+
+
+def test_a_negative_value_in_an_array_is_an_error():
+    np = pytest.importorskip("numpy")
+    bg = BackgroundConcentration(period_values={"SEASON": np.array([1.0, -2.0, 3.0, 4.0])})
+    errors = _background_errors(_project_with(bg))
+    assert any(">= 0" in e.message for e in errors), errors
+
+
+def test_a_string_of_values_is_one_non_numeric_value():
+    problems = Validator._check_temporal_values("SEASON", "1 2 3 4")
+    assert any("needs 4 values, got 1" in p for p in problems), problems
+    assert any("number" in p for p in problems), problems
+
+
+def test_an_array_ozone_profile_validates():
+    np = pytest.importorskip("numpy")
+    from pyaermod.pathways import TemporalValues
+
+    assert Validator._check_temporal_values(
+        "MONTH", TemporalValues("MONTH", np.full(12, 40.0)).values) == []
+
+
+# ----------------------------------------------------------------------
+# Review finding 6: a modelled whole-domain background beside a verbatim
+# whole-domain non-HOURLY BACKGRND line is two flags for the domain (E165)
+# ----------------------------------------------------------------------
+
+_MONTH_TYPO = "   BACKGRND  MONTH  1  2  x  4  5  6  7  8  9  10  11  12"
+
+
+@pytest.mark.parametrize("bg", [
+    BackgroundConcentration(uniform_value=5.0),
+    BackgroundConcentration(period_values={"SEASON": [1.0, 2.0, 3.0, 4.0]}),
+])
+def test_a_whole_domain_background_beside_a_verbatim_flag_line_is_an_error(bg):
+    project = parse_aermod_input(_deck("   BACKGRND  ANNUAL  5\n" + _MONTH_TYPO))
+    assert [u.fields[0] for u in project.unparsed_lines if u.keyword == "BACKGRND"] == [
+        "MONTH"]
+    project.sources.background = bg
+    errors = _background_errors(project)
+    assert any(e.field == "unparsed_lines" and "E165" in e.message for e in errors), errors
+
+
+def test_a_whole_domain_background_beside_a_verbatim_bare_value_is_an_error():
+    project = parse_aermod_input(_deck("   BACKGRND  5.0\n   BACKGRND  6.0"))
+    assert project.sources.background is None
+    project.sources.background = BackgroundConcentration(uniform_value=4.0)
+    errors = _background_errors(project)
+    assert any(e.field == "unparsed_lines" for e in errors), errors
+
+
+def test_a_whole_domain_background_beside_a_verbatim_hourly_file_validates():
+    project = parse_aermod_input(_deck("   BACKGRND  HOURLY  bg.dat"))
+    for bg in (BackgroundConcentration(uniform_value=5.0),
+               BackgroundConcentration(period_values={"SEASON": [1.0, 2.0, 3.0, 4.0]})):
+        project.sources.background = bg
+        assert _background_errors(project) == [], bg
+
+
+@pytest.mark.parametrize("so", [
+    "   BACKGRND  HOURLY  bg.dat\n   BACKGRND  ANNUAL  5.0",
+    "   BACKGRND  ANNUAL  5.0\n   BACKGRND  HOURLY  bg.dat  (F10.3)",
+    "   BACKGRND  HOURLY  bg.dat\n   BACKGRND  MONTH  12*3.0",
+    "   BACKGRND  HOURLY  bg.dat\n   BACKGRND  5.0",
+    "   BACKGRND  SEASON  1  2\n   BACKGRND  SEASON  3  4",
+    # AERMOD reads values with STODBL, which takes a D exponent
+    "   BACKGRND  MONTH  1  2  3  4  5  6\n   BACKGRND  MONTH  7D0  8  9  10  11  12",
+    "   BACKGRND  HOURLY  bg.dat\n   BACKGRND  5.0D0",
+])
+def test_a_valid_whole_domain_deck_reads_to_a_valid_project(so):
+    assert _background_errors(parse_aermod_input(_deck(so))) == []

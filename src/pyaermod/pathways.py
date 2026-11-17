@@ -162,6 +162,22 @@ def _num(value: float) -> str:
     return f"{value:.10g}"
 
 
+def value_list(values) -> list:
+    """The values of a profile as a list.
+
+    A profile's values may be one value or any iterable of them: a list,
+    a tuple, a numpy array, a pandas Series (its values, in order, not
+    its index) or a range. A string is one value, not a sequence of
+    characters, and so is anything that is not iterable.
+    """
+    if isinstance(values, (str, bytes)):
+        return [values]
+    try:
+        return list(values)
+    except TypeError:
+        return [values]
+
+
 def continued_value_lines(keyword: str, prefix: str, values,
                           per_line: int = 12) -> List[str]:
     """Runstream lines for a value profile continued over several lines.
@@ -169,11 +185,10 @@ def continued_value_lines(keyword: str, prefix: str, values,
     AERMOD reads the values of ``O3VALUES``, ``NOX_VALS`` and ``BACKGRND``
     profiles over as many lines as needed, each repeating the keyword
     and ``prefix`` (the temporal flag, after ``SECTn`` for a sector).
-    ``values`` is a number or a sequence of numbers; ``per_line`` values
-    go on each line.
+    ``values`` is a number or any non-string iterable of numbers (see
+    :func:`value_list`); ``per_line`` values go on each line.
     """
-    if not isinstance(values, (list, tuple)):
-        values = [values]
+    values = value_list(values)
     return [f"   {keyword}  {prefix}  "
             f"{' '.join(_num(v) for v in values[start:start + per_line])}".rstrip()
             for start in range(0, max(len(values), 1), per_line)]

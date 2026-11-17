@@ -913,7 +913,8 @@ def _parse_sources(block: _PathwayBlock,
     open_barrier: Optional[SolidBarrier] = None
 
     # Background concentration accumulation
-    bg_uniform: Optional[float] = None
+    bg_bare: List[Tuple[int, float]] = []   # whole-domain value lines with no flag
+    bg_domain_value_lines = 0         # whole-domain BACKGRND lines other than HOURLY
     bg_period_values: Dict[str, List[float]] = {}
     bg_sectors: List[BackgroundSector] = []
     bg_sector_values: Dict[Tuple[int, str], List[float]] = {}
@@ -1122,11 +1123,14 @@ def _parse_sources(block: _PathwayBlock,
             # flag of EMISFACT's table (ANNUAL 1 value, SEASON 4, MONTH
             # 12, ...), the values continued over lines that repeat the
             # flag; or ``[SECTn] HOURLY file [format]``. A bare value is
-            # pyaermod's old uniform form.
+            # pyaermod's old uniform form, modelled only when it is the
+            # deck's one whole-domain value line (see below).
             bg_lines.append(ln)
             sector, rest = _split_sector(toks)
             if sector is None:
                 bg_domain_lines = True
+                if not rest or rest[0].upper() != "HOURLY":
+                    bg_domain_value_lines += 1
             if not rest:
                 _drop(dropped, ln)
                 bg_sector_partial = bg_sector_partial or sector is not None
@@ -1138,21 +1142,22 @@ def _parse_sources(block: _PathwayBlock,
                     _drop(dropped, ln)
                 else:
                     bg_sector_partial = True
+            elif sector is not None and len(rest) < 2:
+                # ``SECTn 5`` (a value, no flag: E201) or ``SECTn ANNUAL``
+                # (a flag, no values): not a sector profile, so the
+                # sector form is kept whole (below).
+                bg_sector_partial = True
             elif sector is None and len(rest) == 1:
                 # AERMOD refuses a value without a flag (E201); older
-                # pyaermod wrote it. Read as one value for every hour,
-                # which the writer gives the ANNUAL flag.
+                # pyaermod wrote it. A number is decided on below; a
+                # flag with no values is kept verbatim.
                 try:
-                    bg_uniform = float(rest[0])
+                    bg_bare.append((ln, _fortran_float(rest[0])))
                 except ValueError:
                     _drop(dropped, ln)
-                else:
-                    logger.warning(
-                        "line %d: BACKGRND %s has no temporal flag, which AERMOD "
-                        "refuses (E201); read as BACKGRND ANNUAL %s", ln, rest[0], rest[0])
             else:
                 try:
-                    values = [float(t) for t in rest[1:]]
+                    values = [_fortran_float(t) for t in rest[1:]]
                 except ValueError:
                     _drop(dropped, ln)
                     bg_sector_partial = bg_sector_partial or sector is not None
@@ -1170,7 +1175,7 @@ def _parse_sources(block: _PathwayBlock,
             bgsector_lines += 1
             try:
                 bg_sectors.extend([
-                    BackgroundSector(sector_id=idx, start_direction=float(tok))
+                    BackgroundSector(sector_id=idx, start_direction=_fortran_float(tok))
                     for idx, tok in enumerate(toks, start=1)])
             except ValueError:
                 bg_sector_partial = True
@@ -1632,9 +1637,10 @@ def _parse_sources(block: _PathwayBlock,
     # Build BackgroundConcentration if any BACKGRND keywords were found.
     # The sector form (BGSECTOR, BACKGRND SECTn) is modelled whole or not
     # at all: a sector's hourly file, a sector line or BGSECTOR direction
-    # that does not parse, sector lines without exactly one BGSECTOR (or a
-    # BGSECTOR without sector values), or whole-domain lines beside them
-    # keep every BGSECTOR and BACKGRND line verbatim, in deck order, so
+    # that does not parse, a sector line without both a flag and values
+    # (``SECTn 5``, ``SECTn ANNUAL``), sector lines without exactly one
+    # BGSECTOR (or a BGSECTOR without sector values), or whole-domain
+    # lines beside them keep every BGSECTOR and BACKGRND line verbatim, in deck order, so
     # nothing is lost and the sectors are written once and before the
     # lines that use them.
     background: Optional[BackgroundConcentration] = None
@@ -1642,7 +1648,29 @@ def _parse_sources(block: _PathwayBlock,
     def _one_or_all(values: List[float]) -> Union[float, List[float]]:
         return values[0] if len(values) == 1 else values
 
+    # A bare value (no flag) is read as one value for every hour, which
+    # the writer gives the ANNUAL flag, only when it is the deck's one
+    # whole-domain BACKGRND line other than HOURLY and there is no sector
+    # form. Beside a flag line or a second bare value it is not
+    # pyaermod's old uniform form but a deck AERMOD refuses (E201, E165),
+    # and every bare line is kept verbatim rather than one of them lost.
     sector_form = bgsector_lines > 0 or bool(bg_sector_values) or bg_sector_partial
+    bg_uniform: Optional[float] = None
+    if len(bg_bare) == 1 and bg_domain_value_lines == 1 and not sector_form:
+        bare_line, bg_uniform = bg_bare[0]
+        logger.warning(
+            "line %d: BACKGRND %s has no temporal flag, which AERMOD refuses "
+            "(E201); read as BACKGRND ANNUAL %s", bare_line, bg_uniform, bg_uniform)
+    elif bg_bare:
+        for bare_line, _value in bg_bare:
+            _drop(dropped, bare_line)
+        if not sector_form:
+            logger.warning(
+                "SO BACKGRND: line%s %s give%s a value without a temporal flag (AERMOD "
+                "E201) in a deck with other whole-domain BACKGRND values; kept "
+                "verbatim, not read as a uniform background",
+                "s" if len(bg_bare) > 1 else "",
+                ", ".join(str(n) for n, _v in bg_bare), "" if len(bg_bare) > 1 else "s")
     if sector_form and (bg_sector_partial or bgsector_lines != 1 or bg_domain_lines
                         or not bg_sectors or not bg_sector_values):
         for lineno in bg_lines:

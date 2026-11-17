@@ -1674,6 +1674,9 @@ class BackgroundConcentration:
     3. Sector-dependent: ``sectors`` and ``sector_values``, which maps
        ``(sector_id, flag)`` to a value or list of values.
 
+    A list of values may be any non-string iterable: a tuple, a numpy
+    array, a pandas Series (its values in order) or a range.
+
     An hourly background file (``BACKGRND [SECTn] HOURLY file``) is kept
     verbatim from a deck in :attr:`AERMODProject.unparsed_lines`.
     """

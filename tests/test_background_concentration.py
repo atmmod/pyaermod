@@ -208,6 +208,60 @@ def test_a_bare_value_in_a_deck_is_read_as_uniform():
         "BACKGRND ANNUAL 5"]
 
 
+def _kept_background(project) -> list:
+    return [" ".join([u.keyword, *u.fields]) for u in project.unparsed_lines
+            if u.keyword in ("BGSECTOR", "BACKGRND")]
+
+
+# Review finding 2: a bare value is modelled only when it is the deck's
+# one whole-domain BACKGRND value line; otherwise every bare line is kept.
+
+@pytest.mark.parametrize("so,modelled", [
+    ("   BACKGRND  5.0\n   BACKGRND  SEASON  1  2  3  4",
+     {"SEASON": [1.0, 2.0, 3.0, 4.0]}),
+    ("   BACKGRND  SEASON  1  2  3  4\n   BACKGRND  5.0",
+     {"SEASON": [1.0, 2.0, 3.0, 4.0]}),
+])
+def test_a_bare_value_beside_a_flag_line_is_kept_verbatim(so, modelled):
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background.period_values == modelled
+    assert project.sources.background.uniform_value is None
+    assert _kept_background(project) == ["BACKGRND 5.0"]
+    # Both lines are written back, and the validator says AERMOD refuses
+    # the pair, as it refuses the deck.
+    assert sorted(_background_lines(project.to_aermod_input(validate=False))) == sorted(
+        " ".join(ln.split()) for ln in so.splitlines())
+    assert any(e.field == "unparsed_lines" for e in _background_errors(project))
+
+
+def test_a_bare_value_beside_an_unreadable_flag_line_is_kept_verbatim():
+    so = "   BACKGRND  5.0\n   BACKGRND  ANNUAL  x4"
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background is None
+    assert _kept_background(project) == ["BACKGRND 5.0", "BACKGRND ANNUAL x4"]
+
+
+def test_two_bare_values_are_both_kept_verbatim_in_order():
+    so = "   BACKGRND  5.0\n   BACKGRND  6.0"
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background is None
+    assert _kept_background(project) == ["BACKGRND 5.0", "BACKGRND 6.0"]
+    assert _background_lines(project.to_aermod_input()) == ["BACKGRND 5.0", "BACKGRND 6.0"]
+
+
+def test_a_bare_value_beside_a_whole_domain_hourly_file_is_read_as_uniform():
+    project = parse_aermod_input(_deck("   BACKGRND  HOURLY  bg.dat\n   BACKGRND  5.0"))
+    assert project.sources.background.uniform_value == 5.0
+    assert _kept_background(project) == ["BACKGRND HOURLY bg.dat"]
+    assert _background_errors(project) == []
+
+
+def test_a_whole_domain_flag_without_values_is_kept_verbatim():
+    project = parse_aermod_input(_deck("   BACKGRND  ANNUAL"))
+    assert project.sources.background is None
+    assert _kept_background(project) == ["BACKGRND ANNUAL"]
+
+
 def test_two_flags_for_the_whole_domain_are_an_error():
     """E165: inconsistent non-HOURLY BACKGRND options for the same sector."""
     bg = BackgroundConcentration(period_values={"ANNUAL": 5.0, "SEASON": [1.0, 2.0, 3.0, 4.0]})
@@ -266,6 +320,13 @@ def test_sectors_aermod_refuses_are_an_error(directions):
     # two BGSECTOR lines
     "   BGSECTOR  0  180\n   BGSECTOR  90  270\n"
     "   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  ANNUAL  6.0",
+    # a sector line with a value and no flag (review finding 5)
+    "   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  5",
+    # a sector line with a flag and no values
+    "   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  ANNUAL",
+    # a bare whole-domain value beside the sector form
+    "   BGSECTOR  0  180\n   BACKGRND  4.0\n"
+    "   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  ANNUAL  6.0",
 ])
 def test_a_sector_form_that_is_not_modelled_is_kept_verbatim_in_order(so):
     project = parse_aermod_input(_deck(so))
@@ -304,3 +365,38 @@ def test_continued_value_lines_repeats_the_prefix_on_every_line():
     assert continued_value_lines("O3VALUES", "ANNUAL", [40.0], per_line=5) == [
         "   O3VALUES  ANNUAL  40"]
 
+
+
+# ----------------------------------------------------------------------
+# Review finding 3: any non-string iterable is a sequence of values
+# ----------------------------------------------------------------------
+
+def _sequences():
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+    return [np.array([1.0, 2.0, 3.0, 4.0]),
+            pd.Series([1.0, 2.0, 3.0, 4.0], index=[10, 11, 12, 13]),
+            range(1, 5)]
+
+
+def test_continued_value_lines_takes_arrays_series_and_ranges():
+    from pyaermod.pathways import continued_value_lines
+
+    for values in _sequences():
+        assert continued_value_lines("BACKGRND", "SEASON", values) == [
+            "   BACKGRND  SEASON  1 2 3 4"], type(values)
+        assert continued_value_lines("BACKGRND", "SEASON", values, per_line=3) == [
+            "   BACKGRND  SEASON  1 2 3", "   BACKGRND  SEASON  4"], type(values)
+
+
+def test_a_background_profile_given_as_an_array_is_written():
+    for values in _sequences():
+        bg = BackgroundConcentration(period_values={"SEASON": values})
+        assert _background_lines(bg.to_aermod_input()) == ["BACKGRND SEASON 1 2 3 4"]
+
+
+def test_a_string_is_one_value_not_a_sequence_of_characters():
+    from pyaermod.pathways import continued_value_lines
+
+    with pytest.raises((TypeError, ValueError)):
+        continued_value_lines("BACKGRND", "SEASON", "1234")
