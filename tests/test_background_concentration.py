@@ -237,3 +237,70 @@ def test_sectors_aermod_refuses_are_an_error(directions):
                                  sector_values={(1, "ANNUAL"): 5.0})
     errors = _background_errors(_project_with(bg))
     assert any(e.field == "sectors" for e in errors), directions
+
+
+# ----------------------------------------------------------------------
+# A sector form the model cannot hold is kept whole, never in part
+# (review finding 10: ``BGSECTOR 0 180`` + an unreadable SECT1 line used
+# to lose the BGSECTOR line, and AERMOD then stops with E171)
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("so", [
+    # no sector line is modelled
+    "   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  x5",
+    # one sector line of two is unreadable
+    "   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  5.0\n"
+    "   BACKGRND  SECT2  ANNUAL  x6",
+    # a sector line with no flag
+    "   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2",
+    # a BGSECTOR direction that does not parse
+    "   BGSECTOR  0  1x80\n   BACKGRND  SECT1  ANNUAL  5.0\n"
+    "   BACKGRND  SECT2  ANNUAL  6.0",
+    # BGSECTOR without any BACKGRND line
+    "   BGSECTOR  0  180",
+    # sector lines without BGSECTOR
+    "   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  ANNUAL  6.0",
+    # a whole-domain profile beside the sector form
+    "   BGSECTOR  0  180\n   BACKGRND  ANNUAL  4.0\n"
+    "   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  ANNUAL  6.0",
+    # two BGSECTOR lines
+    "   BGSECTOR  0  180\n   BGSECTOR  90  270\n"
+    "   BACKGRND  SECT1  ANNUAL  5.0\n   BACKGRND  SECT2  ANNUAL  6.0",
+])
+def test_a_sector_form_that_is_not_modelled_is_kept_verbatim_in_order(so):
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background is None
+    original = [" ".join(ln.split()) for ln in so.splitlines()]
+    kept = [" ".join([u.keyword, *u.fields]) for u in project.unparsed_lines
+            if u.keyword in ("BGSECTOR", "BACKGRND")]
+    assert kept == original
+    assert _background_lines(project.to_aermod_input()) == original
+
+
+def test_a_fully_modelled_sector_form_is_not_kept_verbatim():
+    so = ("   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  5.0\n"
+          "   BACKGRND  SECT2  ANNUAL  6.0")
+    project = parse_aermod_input(_deck(so))
+    assert [u for u in project.unparsed_lines
+            if u.keyword in ("BGSECTOR", "BACKGRND")] == []
+    assert project.sources.background.sector_values == {(1, "ANNUAL"): 5.0,
+                                                         (2, "ANNUAL"): 6.0}
+
+
+# ----------------------------------------------------------------------
+# One continuation writer for BACKGRND, O3VALUES and NOX_VALS
+# (review finding 8)
+# ----------------------------------------------------------------------
+
+def test_continued_value_lines_repeats_the_prefix_on_every_line():
+    from pyaermod.pathways import continued_value_lines
+
+    lines = continued_value_lines("BACKGRND", "SECT1  HROFDY",
+                                  [float(i) + 0.5 for i in range(24)])
+    assert lines == [
+        "   BACKGRND  SECT1  HROFDY  " + " ".join(f"{i + 0.5:g}" for i in range(12)),
+        "   BACKGRND  SECT1  HROFDY  " + " ".join(f"{i + 0.5:g}" for i in range(12, 24)),
+    ]
+    assert continued_value_lines("O3VALUES", "ANNUAL", [40.0], per_line=5) == [
+        "   O3VALUES  ANNUAL  40"]
+

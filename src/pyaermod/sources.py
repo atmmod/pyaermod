@@ -22,7 +22,7 @@ from typing import Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, 
 
 from ._fields import described
 from .hourly_emissions import write_hourly_emissions
-from .pathways import ChemistryOptions
+from .pathways import ChemistryOptions, continued_value_lines
 
 # ============================================================================
 # DEPOSITION PARAMETERS
@@ -1688,12 +1688,8 @@ class BackgroundConcentration:
 
     @classmethod
     def _value_lines(cls, prefix: str, values) -> List[str]:
-        if not isinstance(values, (list, tuple)):
-            values = [values]
-        n = cls.VALUES_PER_LINE
-        return [f"   BACKGRND  {prefix}  "
-                + " ".join(f"{v:.10g}" for v in values[i:i + n])
-                for i in range(0, max(len(values), 1), n)]
+        return continued_value_lines("BACKGRND", prefix, values,
+                                     per_line=cls.VALUES_PER_LINE)
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD BACKGRND / BGSECTOR keywords."""

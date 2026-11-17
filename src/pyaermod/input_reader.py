@@ -918,7 +918,9 @@ def _parse_sources(block: _PathwayBlock,
     bg_sectors: List[BackgroundSector] = []
     bg_sector_values: Dict[Tuple[int, str], List[float]] = {}
     bg_lines: List[int] = []          # every BGSECTOR and BACKGRND line
-    bg_sector_hourly = False          # a SECTn HOURLY line, not modelled
+    bgsector_lines = 0                # BGSECTOR lines seen
+    bg_domain_lines = False           # a BACKGRND line without SECTn
+    bg_sector_partial = False         # a sector line or direction not modelled
 
     saw_srcgroup = False   # any SRCGROUP or PSDGROUP line
     saw_all_group = False  # a SRCGROUP ALL line, bare or with members
@@ -1123,8 +1125,11 @@ def _parse_sources(block: _PathwayBlock,
             # pyaermod's old uniform form.
             bg_lines.append(ln)
             sector, rest = _split_sector(toks)
+            if sector is None:
+                bg_domain_lines = True
             if not rest:
                 _drop(dropped, ln)
+                bg_sector_partial = bg_sector_partial or sector is not None
             elif rest[0].upper() == "HOURLY":
                 # The whole-domain file is kept verbatim beside the
                 # modelled values; a sector's file is not modelled, and
@@ -1132,7 +1137,7 @@ def _parse_sources(block: _PathwayBlock,
                 if sector is None:
                     _drop(dropped, ln)
                 else:
-                    bg_sector_hourly = True
+                    bg_sector_partial = True
             elif sector is None and len(rest) == 1:
                 # AERMOD refuses a value without a flag (E201); older
                 # pyaermod wrote it. Read as one value for every hour,
@@ -1150,6 +1155,7 @@ def _parse_sources(block: _PathwayBlock,
                     values = [float(t) for t in rest[1:]]
                 except ValueError:
                     _drop(dropped, ln)
+                    bg_sector_partial = bg_sector_partial or sector is not None
                 else:
                     flag = rest[0].upper()
                     if sector is None:
@@ -1158,12 +1164,16 @@ def _parse_sources(block: _PathwayBlock,
                         bg_sector_values.setdefault((sector, flag), []).extend(values)
         elif kw == "BGSECTOR":
             # BGSECTOR <dir1> <dir2> ...  — sector starting directions (degrees)
+            # A line whose directions do not all parse is not modelled in
+            # part: the whole sector form is then kept verbatim (below).
             bg_lines.append(ln)
-            for idx, tok in enumerate(toks, start=1):
-                with contextlib.suppress(ValueError):
-                    bg_sectors.append(BackgroundSector(
-                        sector_id=idx, start_direction=float(tok)
-                    ))
+            bgsector_lines += 1
+            try:
+                bg_sectors.extend([
+                    BackgroundSector(sector_id=idx, start_direction=float(tok))
+                    for idx, tok in enumerate(toks, start=1)])
+            except ValueError:
+                bg_sector_partial = True
         elif kw == "BACKUNIT":
             _drop(dropped, ln)  # Recognized (PPB/UG/M3); no structural field
 
@@ -1620,15 +1630,21 @@ def _parse_sources(block: _PathwayBlock,
             sources.append(src)
 
     # Build BackgroundConcentration if any BACKGRND keywords were found.
-    # A sector's hourly file is not modelled: then every BGSECTOR and
-    # BACKGRND line is kept verbatim, in deck order, so the sectors are
-    # written once and before the lines that use them.
+    # The sector form (BGSECTOR, BACKGRND SECTn) is modelled whole or not
+    # at all: a sector's hourly file, a sector line or BGSECTOR direction
+    # that does not parse, sector lines without exactly one BGSECTOR (or a
+    # BGSECTOR without sector values), or whole-domain lines beside them
+    # keep every BGSECTOR and BACKGRND line verbatim, in deck order, so
+    # nothing is lost and the sectors are written once and before the
+    # lines that use them.
     background: Optional[BackgroundConcentration] = None
 
     def _one_or_all(values: List[float]) -> Union[float, List[float]]:
         return values[0] if len(values) == 1 else values
 
-    if bg_sector_hourly:
+    sector_form = bgsector_lines > 0 or bool(bg_sector_values) or bg_sector_partial
+    if sector_form and (bg_sector_partial or bgsector_lines != 1 or bg_domain_lines
+                        or not bg_sectors or not bg_sector_values):
         for lineno in bg_lines:
             _drop(dropped, lineno)
     elif bg_sectors and bg_sector_values:

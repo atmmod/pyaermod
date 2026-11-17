@@ -162,6 +162,23 @@ def _num(value: float) -> str:
     return f"{value:.10g}"
 
 
+def continued_value_lines(keyword: str, prefix: str, values,
+                          per_line: int = 12) -> List[str]:
+    """Runstream lines for a value profile continued over several lines.
+
+    AERMOD reads the values of ``O3VALUES``, ``NOX_VALS`` and ``BACKGRND``
+    profiles over as many lines as needed, each repeating the keyword
+    and ``prefix`` (the temporal flag, after ``SECTn`` for a sector).
+    ``values`` is a number or a sequence of numbers; ``per_line`` values
+    go on each line.
+    """
+    if not isinstance(values, (list, tuple)):
+        values = [values]
+    return [f"   {keyword}  {prefix}  "
+            f"{' '.join(_num(v) for v in values[start:start + per_line])}".rstrip()
+            for start in range(0, max(len(values), 1), per_line)]
+
+
 @dataclass
 class TemporalValues:
     """A background concentration that varies by season, month, hour...
@@ -326,11 +343,8 @@ def _background_lines(spec: BackgroundSpec, keywords: Tuple[str, str, str],
             line += f"  {spec.file_format}"
         lines.append(line)
     if spec.varying is not None:
-        values = spec.varying.values
-        per_line = 12
-        for start in range(0, max(len(values), 1), per_line):
-            chunk = " ".join(_num(v) for v in values[start:start + per_line])
-            lines.append(f"   {vals_kw}  {tag}{spec.varying.flag}  {chunk}".rstrip())
+        lines += continued_value_lines(vals_kw, f"{tag}{spec.varying.flag}",
+                                       list(spec.varying.values))
     return lines
 
 
