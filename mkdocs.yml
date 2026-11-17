@@ -52,7 +52,17 @@ nav:
       - v2.2.0: release-notes/v2.2.0.md
   - Architecture: architecture.md
   - Teaching:
-      - Student Guide: teaching/student-guide.md
+      - Student Guide:
+          - Overview: teaching/student-guide/index.md
+          - Concepts: teaching/student-guide/concepts.md
+          - Setting Up: teaching/student-guide/setup.md
+          - "Tutorial 1: First Point Source": teaching/student-guide/tutorial-1.md
+          - "Tutorial 2: Stack Heights": teaching/student-guide/tutorial-2.md
+          - "Tutorial 3: Running AERMOD": teaching/student-guide/tutorial-3.md
+          - "Tutorial 4: Area Sources": teaching/student-guide/tutorial-4.md
+          - "Tutorial 5: AERMET": teaching/student-guide/tutorial-5.md
+          - What's Next: teaching/student-guide/next-steps.md
+          - Glossary: teaching/student-guide/glossary.md
       - Refinery Assignments: teaching/refinery-assignments.md
       - Practice Deck (browser app): teaching/practice/README.md
       - README: teaching/README.md

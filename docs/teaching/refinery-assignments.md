@@ -3,7 +3,7 @@
 Advanced tutorials for PyAERMOD: from meteorological preprocessing
 through terrain processing to a complete oil refinery dispersion model.
 
-These three tutorials build on [Tutorials 1--5](student-guide.md) and assume
+These three tutorials build on [Tutorials 1--5](student-guide/index.md) and assume
 you are comfortable with the PyAERMOD GUI (`pyaermod-app`), point/area
 sources, receptor grids, and basic AERMET concepts. The model is built in
 the GUI; the steps the GUI does not cover (AERMET input files, AERMAP

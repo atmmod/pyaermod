@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The student guide is one page per part on the documentation site
+  (concepts, setup, Tutorials 1 to 5, what's next, glossary) instead of
+  one 10,000-word page; its old address shows the overview, and
+  `docs/teaching/md_to_pdf.py` still builds the single PDF from the
+  pages. Tutorial 5 no longer describes AERMET's Stage 2, which current
+  AERMET does not have.
 - `pyaermod[all]` includes `pywebview`, so it can run `pyaermod-desktop`.
 - License metadata is the SPDX string `license = "MIT"` with
   `license-files`, and the build needs `setuptools>=77.0.3`; setuptools
