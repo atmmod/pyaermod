@@ -111,6 +111,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which AERMOD refuses. It now checks the flag against EMISFACT's table and
   the number of values each flag needs. The quickstart's example used the
   averaging-period form and now uses a flag.
+- `BackgroundConcentration(uniform_value=...)` wrote `BACKGRND 5`, a
+  value without a flag, which AERMOD stops on (E201, soset.f BACK_GRND).
+  It is now written `BACKGRND ANNUAL 5`; a deck with the old form is read
+  as the same uniform value, with a warning. The validator now refuses two
+  flags for the whole domain or for one sector (E165), and checks
+  `BGSECTOR` as AERMOD does: 2 to 6 directions, ascending, sectors at least
+  30 degrees wide. It used to allow 12.
 - A sector's hourly background file (`BACKGRND SECTn HOURLY file`) was
   dropped from a deck without a trace. A deck that has one now keeps its
   `BGSECTOR` and `BACKGRND` lines verbatim, in order, and lists the file

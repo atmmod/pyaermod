@@ -371,19 +371,21 @@ class Validator:
             for flag, values in background.period_values.items():
                 cls._validate_background_profile(
                     pathway, "period_values", str(flag), values, result)
+            if len(background.period_values) > 1:
+                result.errors.append(ValidationError(
+                    pathway, "period_values",
+                    "BACKGRND takes one temporal flag, got "
+                    f"{', '.join(map(str, background.period_values))} (AERMOD E165)"
+                ))
 
         if background.sectors:
-            if len(background.sectors) > 12:
-                result.errors.append(ValidationError(
-                    pathway, "sectors",
-                    f"AERMOD supports max 12 background sectors, got {len(background.sectors)}"
-                ))
-            for s in background.sectors:
-                if not (0 <= s.start_direction <= 360):
-                    result.errors.append(ValidationError(
-                        pathway, "sectors",
-                        f"sector {s.sector_id} start_direction must be 0-360"
-                    ))
+            # soset.f BGSECTOR: 2 to 6 directions, ascending, sectors at
+            # least 30 degrees wide (E222/E227), as O3SECTOR and NOXSECTR.
+            cls._validate_sectors(
+                "sectors",
+                [s.start_direction for s in sorted(background.sectors,
+                                                   key=lambda s: s.sector_id)],
+                pathway, result)
 
         if background.sectors and background.sector_values:
             valid_ids = {s.sector_id for s in background.sectors}
@@ -396,6 +398,16 @@ class Validator:
                 cls._validate_background_profile(
                     pathway, "sector_values", str(flag), values, result,
                     where=f" for sector {sid}")
+            flags: dict = {}
+            for sid, flag in background.sector_values:
+                flags.setdefault(sid, []).append(str(flag))
+            for sid, names in sorted(flags.items()):
+                if len(names) > 1:
+                    result.errors.append(ValidationError(
+                        pathway, "sector_values",
+                        f"BACKGRND takes one temporal flag for sector {sid}, got "
+                        f"{', '.join(names)} (AERMOD E165)"
+                    ))
 
     @classmethod
     def _validate_background_profile(cls, pathway, field_name, flag, values, result,

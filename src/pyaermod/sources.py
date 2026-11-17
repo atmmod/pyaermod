@@ -1667,7 +1667,8 @@ class BackgroundConcentration:
     ANNUAL takes 1 value, SEASON 4, MONTH 12, HROFDY 24, ...), not an
     averaging period. Three modes:
 
-    1. Uniform: ``uniform_value``, one value for every hour.
+    1. Uniform: ``uniform_value``, one value for every hour, written
+       ``BACKGRND ANNUAL value``.
     2. Temporally varying: ``period_values`` maps a flag to its value
        (ANNUAL) or list of values (``{"SEASON": [w, sp, su, f]}``).
     3. Sector-dependent: ``sectors`` and ``sector_values``, which maps
@@ -1708,7 +1709,9 @@ class BackgroundConcentration:
             for flag, values in self.period_values.items():
                 lines += self._value_lines(flag, values)
         elif self.uniform_value is not None:
-            lines.append(f"   BACKGRND  {self.uniform_value:.6g}")
+            # A value without a flag is E201 in AERMOD; ANNUAL is one
+            # value for every hour.
+            lines += self._value_lines("ANNUAL", self.uniform_value)
         return "\n".join(lines)
 
 

@@ -1160,7 +1160,8 @@ class TestBackgroundValidation:
         result = Validator.validate(self._project_with_background(
             BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
         ))
-        bg_errors = [e for e in result.errors if "sectors" in e.field and "12" in e.message]
+        # soset.f BGSECTOR takes 2 to 6 directions (E202 beyond six).
+        bg_errors = [e for e in result.errors if "sectors" in e.field and "2 to 6" in e.message]
         assert len(bg_errors) >= 1
 
     def test_invalid_sector_direction(self):
@@ -1168,7 +1169,7 @@ class TestBackgroundValidation:
         result = Validator.validate(self._project_with_background(
             BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
         ))
-        bg_errors = [e for e in result.errors if "start_direction" in e.message]
+        bg_errors = [e for e in result.errors if "0..360" in e.message]
         assert len(bg_errors) >= 1
 
     def test_invalid_sector_id_in_values(self):

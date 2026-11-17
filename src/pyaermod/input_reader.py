@@ -1134,10 +1134,17 @@ def _parse_sources(block: _PathwayBlock,
                 else:
                     bg_sector_hourly = True
             elif sector is None and len(rest) == 1:
+                # AERMOD refuses a value without a flag (E201); older
+                # pyaermod wrote it. Read as one value for every hour,
+                # which the writer gives the ANNUAL flag.
                 try:
                     bg_uniform = float(rest[0])
                 except ValueError:
                     _drop(dropped, ln)
+                else:
+                    logger.warning(
+                        "line %d: BACKGRND %s has no temporal flag, which AERMOD "
+                        "refuses (E201); read as BACKGRND ANNUAL %s", ln, rest[0], rest[0])
             else:
                 try:
                     values = [float(t) for t in rest[1:]]

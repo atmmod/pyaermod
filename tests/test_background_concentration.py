@@ -189,3 +189,51 @@ def test_sector_hourly_file_is_listed_as_an_input_file():
 
     project = parse_aermod_input(_deck(_SECTOR_HOURLY))
     assert "bg1.dat" in [f.path for f in input_files(project)]
+
+
+# ----------------------------------------------------------------------
+# Rules from soset.f BACK_GRND and BGSECTOR (v26135)
+# ----------------------------------------------------------------------
+
+def test_a_uniform_value_is_written_with_the_annual_flag():
+    """``BACKGRND 5.0`` has no flag: AERMOD stops with E201."""
+    text = BackgroundConcentration(uniform_value=5.0).to_aermod_input()
+    assert _background_lines(text) == ["BACKGRND ANNUAL 5"]
+
+
+def test_a_bare_value_in_a_deck_is_read_as_uniform():
+    project = parse_aermod_input(_deck("   BACKGRND  5.0"))
+    assert project.sources.background.uniform_value == 5.0
+    assert _background_lines(project.sources.background.to_aermod_input()) == [
+        "BACKGRND ANNUAL 5"]
+
+
+def test_two_flags_for_the_whole_domain_are_an_error():
+    """E165: inconsistent non-HOURLY BACKGRND options for the same sector."""
+    bg = BackgroundConcentration(period_values={"ANNUAL": 5.0, "SEASON": [1.0, 2.0, 3.0, 4.0]})
+    errors = _background_errors(_project_with(bg))
+    assert any("one temporal flag" in e.message for e in errors)
+
+
+def test_two_flags_for_one_sector_are_an_error():
+    bg = BackgroundConcentration(
+        sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+        sector_values={(1, "ANNUAL"): 5.0, (1, "SEASON"): [1.0, 2.0, 3.0, 4.0],
+                       (2, "ANNUAL"): 4.0})
+    errors = _background_errors(_project_with(bg))
+    assert any("one temporal flag" in e.message and "sector 1" in e.message
+               for e in errors)
+
+
+@pytest.mark.parametrize("directions", [
+    [0.0],                                   # BGSECTOR needs 2 to 6
+    [0.0, 60.0, 120.0, 180.0, 240.0, 300.0, 330.0],
+    [180.0, 0.0],                            # out of order (E222)
+    [0.0, 20.0],                             # narrower than 30 degrees (E227)
+])
+def test_sectors_aermod_refuses_are_an_error(directions):
+    sectors = [BackgroundSector(i + 1, d) for i, d in enumerate(directions)]
+    bg = BackgroundConcentration(sectors=sectors,
+                                 sector_values={(1, "ANNUAL"): 5.0})
+    errors = _background_errors(_project_with(bg))
+    assert any(e.field == "sectors" for e in errors), directions
