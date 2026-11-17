@@ -1660,32 +1660,53 @@ class BackgroundSector:
 @dataclass
 class BackgroundConcentration:
     """
-    AERMOD background concentration configuration (SO BACKGRND / BGSECTOR).
+    AERMOD background concentration (SO BACKGRND / BGSECTOR).
 
-    Supports three modes:
-    1. Uniform: single value for all hours/directions
-    2. Period-specific: mapping of averaging period to value
-    3. Sector-dependent: sectors + per-sector, per-period values
+    ``BACKGRND [SECTn] flag values...`` in ``soset.f``: the flag is one of
+    EMISFACT's temporal-variation flags (:data:`TEMPORAL_FLAG_COUNTS`:
+    ANNUAL takes 1 value, SEASON 4, MONTH 12, HROFDY 24, ...), not an
+    averaging period. Three modes:
+
+    1. Uniform: ``uniform_value``, one value for every hour.
+    2. Temporally varying: ``period_values`` maps a flag to its value
+       (ANNUAL) or list of values (``{"SEASON": [w, sp, su, f]}``).
+    3. Sector-dependent: ``sectors`` and ``sector_values``, which maps
+       ``(sector_id, flag)`` to a value or list of values.
+
+    An hourly background file (``BACKGRND [SECTn] HOURLY file``) is kept
+    verbatim from a deck in :attr:`AERMODProject.unparsed_lines`.
     """
     uniform_value: Optional[float] = None
     period_values: Optional[dict] = None
     sectors: Optional[List[BackgroundSector]] = None
     sector_values: Optional[dict] = None
 
+    #: Values per BACKGRND line when a profile is written; AERMOD reads
+    #: the rest from further lines that repeat the flag.
+    VALUES_PER_LINE: ClassVar[int] = 12
+
+    @classmethod
+    def _value_lines(cls, prefix: str, values) -> List[str]:
+        if not isinstance(values, (list, tuple)):
+            values = [values]
+        n = cls.VALUES_PER_LINE
+        return [f"   BACKGRND  {prefix}  "
+                + " ".join(f"{v:.10g}" for v in values[i:i + n])
+                for i in range(0, max(len(values), 1), n)]
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD BACKGRND / BGSECTOR keywords."""
-        lines = []
+        lines: List[str] = []
         if self.sectors and self.sector_values:
             # BGSECTOR takes starting directions only (up to 6)
             sorted_sectors = sorted(self.sectors, key=lambda s: s.sector_id)
             dir_parts = [f"{s.start_direction:.1f}" for s in sorted_sectors]
             lines.append(f"   BGSECTOR  {' '.join(dir_parts)}")
-            # BACKGRND with sectors: BACKGRND SECTn period value
-            for (sid, period), value in sorted(self.sector_values.items()):
-                lines.append(f"   BACKGRND  SECT{sid}  {period}  {value:.6g}")
+            for (sid, flag), values in sorted(self.sector_values.items()):
+                lines += self._value_lines(f"SECT{sid}  {flag}", values)
         elif self.period_values:
-            for period, value in self.period_values.items():
-                lines.append(f"   BACKGRND  {period}  {value:.6g}")
+            for flag, values in self.period_values.items():
+                lines += self._value_lines(flag, values)
         elif self.uniform_value is not None:
             lines.append(f"   BACKGRND  {self.uniform_value:.6g}")
         return "\n".join(lines)

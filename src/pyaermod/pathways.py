@@ -1051,10 +1051,12 @@ class MeteorologyPathway:
         # Station data (mandatory)
         lines.append(f"   SURFDATA  {self.surface_station_id}  {self.data_start_year}")
         lines.append(f"   UAIRDATA  {self.upper_air_station_id}  {self.data_start_year}")
-        # One decimal, matching EPA's own decks. A profile base elevation
-        # is metres MSL; sub-decimetre precision is not meaningful and
-        # writing it would churn the golden reference deck.
-        lines.append(f"   PROFBASE  {self.profile_base_elevation:.1f}  METERS")
+        # One decimal, matching EPA's own decks, unless the value needs
+        # more (a base read in FEET and converted), so a rewrite reads
+        # back the same height.
+        base = self.profile_base_elevation
+        text = f"{base:.1f}" if float(f"{base:.1f}") == base else _num(base)
+        lines.append(f"   PROFBASE  {text}  METERS")
 
         # Date range (if specified; not dispatched in an EVENT run)
         if not event_processing and all(

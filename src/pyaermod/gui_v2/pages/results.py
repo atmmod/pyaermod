@@ -497,8 +497,9 @@ def _naaqs(ui: Any, view: RunView) -> None:
     ).classes("w-full").props('aria-label="Comparison with the NAAQS" flat bordered').mark(
         "results-naaqs")
     ui.label("A screening comparison uses the highest value of the period, which no "
-             "design value can exceed; the NAAQS itself is set on a design value over "
-             "several years.").classes("text-caption text-grey-8")
+             "design value can exceed. A lower bound is AERMOD's average of several "
+             "years' annual means, which the annual NO2 design value, the highest "
+             "single year, cannot be below.").classes("text-caption text-grey-8")
 
 
 # ----------------------------------------------------------------------

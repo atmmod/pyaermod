@@ -349,7 +349,7 @@ class NaaqsCheck:
     level_ugm3: float
     value: Optional[float]         # µg/m³
     location: Optional[Tuple[float, float]]
-    basis: str                     # "design value", "screening" or "not compared"
+    basis: str                     # "design value", "screening", "lower bound" or "not compared"
     how: str                       # where the value comes from
     verdict: str
 
@@ -476,6 +476,10 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
             continue
         if basis == "design value":
             verdict = "Above the NAAQS" if value > level else "Below the NAAQS"
+        elif basis == "lower bound":
+            verdict = ("Above the NAAQS (so is the highest single year)" if value > level
+                       else "Multi-year average below the NAAQS; the design value is "
+                            "the highest single year's mean, which can be above it")
         elif value <= level:
             verdict = "Below the NAAQS (so is any design value)"
         else:
@@ -502,9 +506,17 @@ def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
         return None
     if period == "ANNUAL" and standard.form.lower() == "annual mean":
         years = _years_in(top.title or "")
+        source = f"AERMOD's table \"{top.title}\""
+        if years and years > 1 and pollutant == "NO2":
+            # The annual NO2 standard is one calendar year's mean (40 CFR
+            # 50.11(e)); AERMOD's ANNUAL value over several years is the
+            # average of the years' means, which the highest year's mean
+            # at that receptor is at least.
+            return (float(top.max_value), tuple(top.max_location), "lower bound",
+                    f"{source}: the average of {years} annual means")
         return (float(top.max_value), tuple(top.max_location), "design value",
-                f"AERMOD's table \"{top.title}\""
-                + (f" ({years} year{'s' if years != 1 else ''} of met data)" if years else ""))
+                source + (f" ({years} year{'s' if years != 1 else ''} of met data)"
+                          if years else ""))
     qualifier = table_qualifier(top.title)
     if qualifier:
         # Only a design-value table (say the 8th-highest) holds this

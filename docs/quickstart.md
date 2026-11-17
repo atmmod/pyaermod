@@ -236,19 +236,20 @@ sources = SourcePathway()
 # Uniform background — one value applied to every hour
 sources.background = BackgroundConcentration(uniform_value=12.0)  # ug/m3
 
-# Or per-averaging-period
+# Or varying in time: a flag of EMISFACT's table and its values
+# (SEASON: winter, spring, summer, fall; MONTH takes 12, HROFDY 24)
 sources.background = BackgroundConcentration(
-    period_values={"ANNUAL": 12.0, "24": 35.0},
+    period_values={"SEASON": [14.0, 11.0, 9.0, 12.0]},
 )
 
-# Or sector-dependent — define starting directions + per-sector values
+# Or sector-dependent: starting directions, then each sector's values
 sources.background = BackgroundConcentration(
     sectors=[
         BackgroundSector(sector_id=1, start_direction=0.0),
         BackgroundSector(sector_id=2, start_direction=90.0),
     ],
-    sector_values={(1, "ANNUAL"): 12.0, (1, "24"): 35.0,
-                   (2, "ANNUAL"): 8.0, (2, "24"): 25.0},
+    sector_values={(1, "ANNUAL"): 12.0,
+                   (2, "SEASON"): [9.0, 8.0, 7.0, 8.0]},
 )
 ```
 

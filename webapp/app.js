@@ -643,7 +643,8 @@ function resultsStep() {
   }
   if (res.naaqs.length) {
     cards.push(section('Comparison with the NAAQS', 'A screening comparison uses the highest value of the '
-      + 'period, which no design value can exceed.',
+      + 'period, which no design value can exceed. A lower bound is AERMOD\'s average of several years\' '
+      + 'annual means, which the annual NO2 design value, the highest single year, cannot be below.',
     table([['standard', 'Standard'], ['level', 'NAAQS'], ['value', 'This run (µg/m³)'], ['basis', 'Compared'],
       ['verdict', 'Result'], ['how', 'Value from']], res.naaqs, 'Comparison with the NAAQS')));
   }

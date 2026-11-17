@@ -442,7 +442,8 @@ by AERMOD's own rounding.
 `SITEDATA` (ME): the on-site station ID and year, which AERMOD reads and
 prints but does not use (the surface file carries the data).
 
-**Forms of handled keywords.** A BACKGRND hourly file, a PLOTFILE whose
+**Forms of handled keywords.** A BACKGRND hourly file (and, when a
+sector has one, every BGSECTOR and BACKGRND line), a PLOTFILE whose
 rank is not the highest value or that carries a unit, every POSTFILE
 after the first, a bare EVENTFIL (AERMOD's EVENTS.INP), a second
 turbulence keyword (E135), an EVENTLOC for an event the deck does not

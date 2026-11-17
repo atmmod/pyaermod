@@ -914,9 +914,11 @@ def _parse_sources(block: _PathwayBlock,
 
     # Background concentration accumulation
     bg_uniform: Optional[float] = None
-    bg_period_values: Dict[str, float] = {}
+    bg_period_values: Dict[str, List[float]] = {}
     bg_sectors: List[BackgroundSector] = []
-    bg_sector_values: Dict[Tuple[int, str], float] = {}
+    bg_sector_values: Dict[Tuple[int, str], List[float]] = {}
+    bg_lines: List[int] = []          # every BGSECTOR and BACKGRND line
+    bg_sector_hourly = False          # a SECTn HOURLY line, not modelled
 
     saw_srcgroup = False   # any SRCGROUP or PSDGROUP line
     saw_all_group = False  # a SRCGROUP ALL line, bare or with members
@@ -1114,33 +1116,42 @@ def _parse_sources(block: _PathwayBlock,
         # Background concentration keywords
         # ------------------------------------------------------------------
         elif kw == "BACKGRND":
-            # Forms:
-            #   BACKGRND <uniform_value>
-            #   BACKGRND <period> <value>
-            #   BACKGRND SECT<n> <period> <value>
-            #   BACKGRND <period> <filename>  (file-based, not stored structurally)
-            if not toks:
-                pass
-            elif len(toks) == 1:
-                with contextlib.suppress(ValueError):
-                    bg_uniform = float(toks[0])
-            elif toks[0].upper().startswith("SECT") and len(toks) >= 3:
-                sect_str = toks[0].upper().lstrip("SECT")
-                with contextlib.suppress(ValueError):
-                    sect_id = int(sect_str)
-                    value = float(toks[2])
-                    bg_sector_values[(sect_id, toks[1].upper())] = value
-            else:
-                # "PERIOD VALUE" or "PERIOD FILENAME"
-                try:
-                    value = float(toks[1])
-                    bg_period_values[toks[0].upper()] = value
-                except (ValueError, IndexError):
-                    # File-based background (BACKGRND HOURLY file): no
-                    # structural field, kept verbatim.
+            # soset.f BACKGRND: ``[SECTn] flag values...`` with a temporal
+            # flag of EMISFACT's table (ANNUAL 1 value, SEASON 4, MONTH
+            # 12, ...), the values continued over lines that repeat the
+            # flag; or ``[SECTn] HOURLY file [format]``. A bare value is
+            # pyaermod's old uniform form.
+            bg_lines.append(ln)
+            sector, rest = _split_sector(toks)
+            if not rest:
+                _drop(dropped, ln)
+            elif rest[0].upper() == "HOURLY":
+                # The whole-domain file is kept verbatim beside the
+                # modelled values; a sector's file is not modelled, and
+                # then neither are the sectors (see below).
+                if sector is None:
                     _drop(dropped, ln)
+                else:
+                    bg_sector_hourly = True
+            elif sector is None and len(rest) == 1:
+                try:
+                    bg_uniform = float(rest[0])
+                except ValueError:
+                    _drop(dropped, ln)
+            else:
+                try:
+                    values = [float(t) for t in rest[1:]]
+                except ValueError:
+                    _drop(dropped, ln)
+                else:
+                    flag = rest[0].upper()
+                    if sector is None:
+                        bg_period_values.setdefault(flag, []).extend(values)
+                    else:
+                        bg_sector_values.setdefault((sector, flag), []).extend(values)
         elif kw == "BGSECTOR":
             # BGSECTOR <dir1> <dir2> ...  — sector starting directions (degrees)
+            bg_lines.append(ln)
             for idx, tok in enumerate(toks, start=1):
                 with contextlib.suppress(ValueError):
                     bg_sectors.append(BackgroundSector(
@@ -1601,14 +1612,26 @@ def _parse_sources(block: _PathwayBlock,
                 _apply_per_source(src, seg.source_id)
             sources.append(src)
 
-    # Build BackgroundConcentration if any BACKGRND keywords were found
+    # Build BackgroundConcentration if any BACKGRND keywords were found.
+    # A sector's hourly file is not modelled: then every BGSECTOR and
+    # BACKGRND line is kept verbatim, in deck order, so the sectors are
+    # written once and before the lines that use them.
     background: Optional[BackgroundConcentration] = None
-    if bg_sectors and bg_sector_values:
+
+    def _one_or_all(values: List[float]) -> Union[float, List[float]]:
+        return values[0] if len(values) == 1 else values
+
+    if bg_sector_hourly:
+        for lineno in bg_lines:
+            _drop(dropped, lineno)
+    elif bg_sectors and bg_sector_values:
         background = BackgroundConcentration(
-            sectors=bg_sectors, sector_values=bg_sector_values,
+            sectors=bg_sectors,
+            sector_values={k: _one_or_all(v) for k, v in bg_sector_values.items()},
         )
     elif bg_period_values:
-        background = BackgroundConcentration(period_values=bg_period_values)
+        background = BackgroundConcentration(
+            period_values={k: _one_or_all(v) for k, v in bg_period_values.items()})
     elif bg_uniform is not None:
         background = BackgroundConcentration(uniform_value=bg_uniform)
 
@@ -1872,7 +1895,12 @@ def _parse_meteorology(block: _PathwayBlock,
         elif kw == "UAIRDATA" and len(toks) >= 2:
             kw_map["upper_air_station_id"] = _whole_number(toks[0], kw, ln)
         elif kw == "PROFBASE" and toks:
-            kw_map["profile_base_elevation"] = float(toks[0])
+            # meset.f PRBASE: ``elev [METERS|FEET]``; AERMOD converts FEET
+            # to metres, and the field is in metres.
+            elevation = float(toks[0])
+            if len(toks) > 1 and toks[1].upper() == "FEET":
+                elevation *= 0.3048
+            kw_map["profile_base_elevation"] = elevation
         elif kw == "STARTEND" and len(toks) in (6, 8):
             # meset.f STAEND: yr mo dy yr mo dy, or with an hour after
             # each date (eight fields).

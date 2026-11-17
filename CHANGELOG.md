@@ -99,6 +99,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `SO BACKGRND` with a temporal flag kept only the first value
+  (`SEASON 1 2 3 4` became `SEASON 1`), and a line continuing a profile
+  became an entry of its own. Every value is now read, a profile continued
+  over several lines is one profile, and the writer splits a long profile
+  over lines that repeat the flag, as AERMOD reads them.
+  `BackgroundConcentration.period_values` and `sector_values` take a list
+  for a flag with more than one value (`{"SEASON": [w, sp, su, f]}`).
+- The validator read `BACKGRND`'s flag as an averaging period, so it
+  refused a valid `SEASON` or `MONTH` profile and passed `{"24": 35.0}`,
+  which AERMOD refuses. It now checks the flag against EMISFACT's table and
+  the number of values each flag needs. The quickstart's example used the
+  averaging-period form and now uses a flag.
+- A sector's hourly background file (`BACKGRND SECTn HOURLY file`) was
+  dropped from a deck without a trace. A deck that has one now keeps its
+  `BGSECTOR` and `BACKGRND` lines verbatim, in order, and lists the file
+  among the deck's input files.
+- `PROFBASE 328 FEET` was read as 328 metres. The reader now converts
+  feet to metres, as AERMOD does, and the writer keeps the precision a
+  converted value needs.
+- The annual NO2 design value from `naaqs_compliance_report("NO2_annual",
+  ...)` averaged the years' annual means. The standard is one calendar
+  year's mean (40 CFR 50.11(e), Appendix S), so the design value is now
+  the highest year's mean at each receptor;
+  `no2_annual="multi_year_mean"` keeps the average for an agency that
+  accepts it. The GUIs' NAAQS check called AERMOD's multi-year ANNUAL
+  value the NO2 design value; it is now a lower bound, above the NAAQS
+  only when it exceeds the level.
 - AERMOD's WebAssembly build stopped with "Sequential record missing its
   terminator" when the surface file's last line had no line ending, which
   EPA's executable reads. AERMOD steps back over that line every hour, and

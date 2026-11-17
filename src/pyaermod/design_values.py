@@ -311,10 +311,11 @@ def annual_mean(
 ) -> pd.DataFrame:
     """Annual-mean design-value calculation.
 
-    Used for the PM2.5 annual NAAQS (40 CFR 50.18) and the NO2 annual
-    NAAQS (40 CFR 50.11). The standard form is the multi-year average
-    of annual means; this returns per-receptor *annual* means — caller
-    averages across years if a 3-year design value is wanted.
+    Used for the PM2.5 annual NAAQS (40 CFR 50.18), whose form is the
+    three-year average of annual means, and the NO2 annual NAAQS (40 CFR
+    50.11(e)), whose form is one calendar year's mean. This returns the
+    mean of each year at each receptor; :func:`naaqs_compliance_report`
+    combines the years in the form of each standard.
 
     Returns one row per (x, y, year) with column ``concentration``.
     """
@@ -643,12 +644,18 @@ def naaqs_output_pathway(
     )
 
 
+#: How :func:`naaqs_compliance_report` combines the years' annual NO2
+#: means: the CFR form, one calendar year (the highest), or their average.
+_NO2_ANNUAL_FORMS = {"highest_year": "max", "multi_year_mean": "mean"}
+
+
 def naaqs_compliance_report(
     pollutant: str,
     df: pd.DataFrame,
     *,
     background: Optional[Union[float, dict, pd.Series]] = None,
     n_years: int = 3,
+    no2_annual: str = "highest_year",
 ) -> pd.DataFrame:
     """One-stop compliance roll-up: design value + NAAQS comparison.
 
@@ -672,6 +679,14 @@ def naaqs_compliance_report(
     Supported pollutants: PM2.5 (24-hour), PM10, NO2 (1-hour), SO2,
     O3, plus annual forms via ``pollutant="PM2.5_annual"`` /
     ``"NO2_annual"``.
+
+    The annual PM2.5 form is the average of the annual means (40 CFR 50.18,
+    Appendix N). The annual NO2 standard is a single calendar year's mean
+    (40 CFR 50.11(e), Appendix S), so with several years of data
+    ``no2_annual="highest_year"`` (the default) takes the highest year's
+    mean at each receptor. ``no2_annual="multi_year_mean"`` averages the
+    years instead, which some reviewing agencies accept for five years of
+    NWS met data; it can be below the highest year.
     """
     from .naaqs import get_naaqs  # local import to avoid cycles
 
@@ -694,9 +709,12 @@ def naaqs_compliance_report(
         dv = no2_1hr_design_value(work, n_years=n_years)
         std = get_naaqs("NO2", "1-hour")
     elif pollutant == "NO2_ANNUAL":
+        if no2_annual not in _NO2_ANNUAL_FORMS:
+            raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
+                             f"got {no2_annual!r}")
         dv = (annual_mean(work)
               .groupby(["x", "y"], as_index=False, sort=False)
-              ["concentration"].mean())
+              ["concentration"].agg(_NO2_ANNUAL_FORMS[no2_annual]))
         std = get_naaqs("NO2", "annual")
     elif pollutant == "SO2":
         dv = so2_1hr_design_value(work, n_years=n_years)

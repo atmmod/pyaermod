@@ -368,17 +368,9 @@ class Validator:
             ))
 
         if background.period_values:
-            for period, value in background.period_values.items():
-                if period not in VALID_AVERAGING_PERIODS:
-                    result.errors.append(ValidationError(
-                        pathway, "period_values",
-                        f"invalid averaging period '{period}'"
-                    ))
-                if value < 0:
-                    result.errors.append(ValidationError(
-                        pathway, "period_values",
-                        f"value for period '{period}' must be >= 0, got {value}"
-                    ))
+            for flag, values in background.period_values.items():
+                cls._validate_background_profile(
+                    pathway, "period_values", str(flag), values, result)
 
         if background.sectors:
             if len(background.sectors) > 12:
@@ -395,22 +387,41 @@ class Validator:
 
         if background.sectors and background.sector_values:
             valid_ids = {s.sector_id for s in background.sectors}
-            for (sid, period), val in background.sector_values.items():
+            for (sid, flag), values in background.sector_values.items():
                 if sid not in valid_ids:
                     result.errors.append(ValidationError(
                         pathway, "sector_values",
                         f"sector_id {sid} not defined in sectors list"
                     ))
-                if period not in VALID_AVERAGING_PERIODS:
-                    result.errors.append(ValidationError(
-                        pathway, "sector_values",
-                        f"invalid averaging period '{period}' for sector {sid}"
-                    ))
-                if val < 0:
-                    result.errors.append(ValidationError(
-                        pathway, "sector_values",
-                        f"value for sector {sid} period '{period}' must be >= 0"
-                    ))
+                cls._validate_background_profile(
+                    pathway, "sector_values", str(flag), values, result,
+                    where=f" for sector {sid}")
+
+    @classmethod
+    def _validate_background_profile(cls, pathway, field_name, flag, values, result,
+                                     *, where=""):
+        """One BACKGRND flag and its values, as soset.f reads them: a
+        flag of EMISFACT's table and exactly its number of values."""
+        from .pathways import TEMPORAL_FLAG_COUNTS
+        values = list(values) if isinstance(values, (list, tuple)) else [values]
+        expected = TEMPORAL_FLAG_COUNTS.get(flag.upper())
+        if expected is None:
+            result.errors.append(ValidationError(
+                pathway, field_name,
+                f"invalid temporal flag '{flag}'{where}: BACKGRND takes one of "
+                f"{', '.join(TEMPORAL_FLAG_COUNTS)}, not an averaging period"
+            ))
+        elif len(values) != expected:
+            result.errors.append(ValidationError(
+                pathway, field_name,
+                f"{flag}{where} needs {expected} value{'s' if expected != 1 else ''}, "
+                f"got {len(values)}"
+            ))
+        if any(v < 0 for v in values):
+            result.errors.append(ValidationError(
+                pathway, field_name,
+                f"values for '{flag}'{where} must be >= 0"
+            ))
 
     @classmethod
     def _validate_source_options(cls, source, control, result: ValidationResult):
