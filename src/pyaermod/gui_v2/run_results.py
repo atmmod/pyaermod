@@ -488,6 +488,21 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
     return checks
 
 
+def naaqs_caption(checks: Sequence[NaaqsCheck]) -> str:
+    """The note under the NAAQS table, explaining the bases its rows use.
+
+    The lower-bound sentence is there only when a row is a lower bound
+    (AERMOD's multi-year ANNUAL average against the annual NO2 standard).
+    """
+    caption = ("A screening comparison uses the highest value of the period, which no "
+               "design value can exceed.")
+    if any(c.basis == "lower bound" for c in checks):
+        caption += (" A lower bound is AERMOD's average of several years' annual means, "
+                    "which the annual NO2 design value, the highest single year, cannot "
+                    "be below.")
+    return caption
+
+
 def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
                   pollutant: str, postfiles: Sequence[Path]):
     if standard.percentile is not None:
@@ -829,6 +844,7 @@ __all__ = [
     "cached_view",
     "completed_runs",
     "deck_lines",
+    "naaqs_caption",
     "naaqs_checks",
     "overwritten_by",
     "period_label",

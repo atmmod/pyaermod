@@ -648,6 +648,58 @@ def naaqs_output_pathway(
 #: means: the CFR form, one calendar year (the highest), or their average.
 _NO2_ANNUAL_FORMS = {"highest_year": "max", "multi_year_mean": "mean"}
 
+#: 40 CFR 50 Appendix S: an annual NO2 mean is valid when at
+#: least 75 % of the year is covered.
+_NO2_ANNUAL_COMPLETENESS = 0.75
+
+
+def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
+    """Highest annual mean per receptor, over the years at least 75 % covered.
+
+    Coverage is the share of the calendar year's days (365 or 366) that
+    have at least one row for that receptor, so it reads the same from
+    hourly and daily POSTFILEs. A year below 75 % is left out with a
+    warning; a receptor with no year at 75 % falls back to all its years,
+    also with a warning, rather than reporting nothing.
+    """
+    work = _dedupe_receptors(_one_source_group(df))
+    covered = (
+        work.assign(_year=_parse_yymmddhh_to_year(work["date"]),
+                    _d=work["date"].astype(str).str.zfill(8).str.slice(0, 6))
+        .groupby(["x", "y", "_year"], sort=False)["_d"].nunique()
+        .rename("_days").reset_index()
+    )
+    leap = covered["_year"].map(
+        lambda y: y % 4 == 0 and (y % 100 != 0 or y % 400 == 0))
+    covered["_ok"] = (covered["_days"]
+                      >= _NO2_ANNUAL_COMPLETENESS * np.where(leap, 366, 365))
+
+    means = annual_mean(work).merge(
+        covered.rename(columns={"_year": "year"}), on=["x", "y", "year"],
+        how="left",
+    )
+    any_ok = means.groupby(["x", "y"], sort=False)["_ok"].transform("any")
+    used = means[means["_ok"] | ~any_ok]
+
+    dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "year"]})
+    if dropped:
+        warnings.warn(
+            "the annual NO2 design value leaves out "
+            f"{', '.join(map(str, dropped))}: data on fewer than 75% of the "
+            "year's days at some receptor (40 CFR 50 Appendix S) is too "
+            "little for a valid annual mean.",
+            stacklevel=3,
+        )
+    if (~any_ok).any():
+        warnings.warn(
+            "no year has data on at least 75% of its days (40 CFR 50 "
+            "Appendix S), so the annual NO2 design value is the highest "
+            "of the incomplete years' means.",
+            stacklevel=3,
+        )
+    return (used.groupby(["x", "y"], as_index=False, sort=False)
+            ["concentration"].max())
+
 
 def naaqs_compliance_report(
     pollutant: str,
@@ -684,9 +736,15 @@ def naaqs_compliance_report(
     Appendix N). The annual NO2 standard is a single calendar year's mean
     (40 CFR 50.11(e), Appendix S), so with several years of data
     ``no2_annual="highest_year"`` (the default) takes the highest year's
-    mean at each receptor. ``no2_annual="multi_year_mean"`` averages the
-    years instead, which some reviewing agencies accept for five years of
-    NWS met data; it can be below the highest year.
+    mean at each receptor. Only years with data on at least 75% of their
+    days count (Appendix S treats an annual mean as valid from 75%
+    coverage), so a few days of a following year cannot set the design
+    value; the years left out are named in a :class:`UserWarning`. If no
+    year at a receptor reaches 75%, all its years are used and a warning
+    says so. ``no2_annual="multi_year_mean"`` averages the years instead,
+    which some reviewing agencies accept for five years of NWS met data;
+    it can be below the highest year, and it averages every year present,
+    complete or not.
     """
     from .naaqs import get_naaqs  # local import to avoid cycles
 
@@ -712,9 +770,12 @@ def naaqs_compliance_report(
         if no2_annual not in _NO2_ANNUAL_FORMS:
             raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
                              f"got {no2_annual!r}")
-        dv = (annual_mean(work)
-              .groupby(["x", "y"], as_index=False, sort=False)
-              ["concentration"].agg(_NO2_ANNUAL_FORMS[no2_annual]))
+        if no2_annual == "highest_year":
+            dv = _no2_highest_complete_year(work)
+        else:
+            dv = (annual_mean(work)
+                  .groupby(["x", "y"], as_index=False, sort=False)
+                  ["concentration"].mean())
         std = get_naaqs("NO2", "annual")
     elif pollutant == "SO2":
         dv = so2_1hr_design_value(work, n_years=n_years)

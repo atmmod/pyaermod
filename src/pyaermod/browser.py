@@ -819,12 +819,14 @@ def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
 def _results(view: Any) -> Dict[str, Any]:
     from .gui_v2.pages.results import _UNITS
     from .gui_v2.results_map import concentration_map_png
+    from .gui_v2.run_results import naaqs_caption
 
     out: Dict[str, Any] = {
         "succeeded": view.succeeded, "ran": view.ran, "headline": view.headline,
         "detail": view.detail, "fatal": list(view.fatal), "notes": list(view.notes),
         "files": [{"name": f.name, "label": f.label, "size": f.size} for f in view.files],
-        "maxima": [], "deposition": [], "naaqs": [], "tables": [], "maps": [],
+        "maxima": [], "deposition": [], "naaqs": [], "naaqs_caption": "", "tables": [],
+        "maps": [],
     }
     if not view.succeeded or view.results is None:
         return out
@@ -839,6 +841,7 @@ def _results(view: Any) -> Dict[str, Any]:
         "y": None if c.location is None else _cell(c.location[1]),
         "basis": c.basis, "verdict": c.verdict, "how": c.how,
     } for c in view.naaqs]
+    out["naaqs_caption"] = naaqs_caption(view.naaqs)
     sources = tuple((s.source_id, float(s.x_coord), float(s.y_coord))
                     for s in view.results.sources)
     for plot in view.plots[:MAX_MAPS]:

@@ -118,6 +118,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flags for the whole domain or for one sector (E165), and checks
   `BGSECTOR` as AERMOD does: 2 to 6 directions, ascending, sectors at least
   30 degrees wide. It used to allow 12.
+- The validator now refuses, as AERMOD does: a declared background sector
+  without values (E238), sector IDs other than 1..N in `BGSECTOR` order
+  (E203), and a modelled background that conflicts with `BACKGRND` or
+  `BGSECTOR` lines kept verbatim from a deck (E203). A non-numeric value in
+  a `BACKGRND`, `O3VALUES` or `NOX_VALS` profile is a validation error
+  instead of a `TypeError`.
+- A deck whose sector background cannot be modelled whole (an unreadable
+  `SECTn` line, `SECTn` lines without `BGSECTOR`, whole-domain values beside
+  sectors) lost its `BGSECTOR` line on rewrite, which AERMOD rejects
+  (E171). Every `BGSECTOR` and `BACKGRND` line is now kept verbatim in
+  order.
 - A sector's hourly background file (`BACKGRND SECTn HOURLY file`) was
   dropped from a deck without a trace. A deck that has one now keeps its
   `BGSECTOR` and `BACKGRND` lines verbatim, in order, and lists the file
@@ -130,9 +141,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   year's mean (40 CFR 50.11(e), Appendix S), so the design value is now
   the highest year's mean at each receptor;
   `no2_annual="multi_year_mean"` keeps the average for an agency that
-  accepts it. The GUIs' NAAQS check called AERMOD's multi-year ANNUAL
-  value the NO2 design value; it is now a lower bound, above the NAAQS
-  only when it exceeds the level.
+  accepts it. Only years with data on at least 75% of their days count
+  toward the highest year; a year left out is named in a warning. The
+  GUIs' NAAQS check called AERMOD's multi-year ANNUAL value the NO2
+  design value; it is now a lower bound, above the NAAQS only when it
+  exceeds the level, and the note explaining it appears only then.
 - AERMOD's WebAssembly build stopped with "Sequential record missing its
   terminator" when the surface file's last line had no line ending, which
   EPA's executable reads. AERMOD steps back over that line every hour, and
