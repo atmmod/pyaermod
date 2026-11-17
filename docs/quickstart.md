@@ -9,7 +9,7 @@ pip install "pyaermod[all]"          # with plotting, GIS export and the GUI
 
 Keep the quotes in zsh, the default shell on macOS. Other ways to install,
 and what to do when an install fails, are in the
-[GUI guide](gui-guide.md#install). AERMOD itself is a separate program from
+[Install](install.md) page. AERMOD itself is a separate program from
 [EPA SCRAM](https://www.epa.gov/scram).
 
 ## 5-Minute Example

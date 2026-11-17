@@ -16,65 +16,18 @@ not for regulatory work. [More about running in the browser](https://atmmod.gith
 
 ## Installation
 
-PyAERMOD needs Python 3.11 or later. Install it into a virtual
-environment (`python -m venv .venv`, then activate it):
+PyAERMOD needs Python 3.11 or later:
 
 ```bash
-pip install pyaermod               # core (input generation + output parsing)
-pip install "pyaermod[viz]"        # + matplotlib/folium visualization
-pip install "pyaermod[geo]"        # + geospatial export (GeoTIFF, Shapefile)
-pip install "pyaermod[gui]"        # + the graphical interface
-pip install "pyaermod[all]"        # everything
+pip install pyaermod               # the library: numpy and pandas
+pip install "pyaermod[all]"        # with plotting, GIS export and the GUI
+pipx install "pyaermod[gui]"       # just the GUI, then run: pyaermod-app
 ```
 
 Keep the quotes: zsh, the default shell on macOS, otherwise reads the
-square brackets as a file pattern.
-
-### The graphical interface
-
-To get the app without setting up an environment, install it with
-[pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/), then
-start it:
-
-```bash
-pipx install "pyaermod[gui]"       # or: uv tool install "pyaermod[gui]"
-pyaermod-app                       # opens the GUI in a browser tab
-```
-
-After `pip install "pyaermod[gui]"` the same command is available in that
-environment, also as `pyaermod gui`. `"pyaermod[gui-desktop]"` adds
-`pyaermod-desktop`, the same app in a window of its own. There are no
-separate desktop downloads.
-
-### conda
-
-PyAERMOD is not on conda-forge yet (the recipe is in
-[`conda-recipe/`](https://github.com/atmmod/pyaermod/tree/main/conda-recipe)). Once the conda-forge package is
-published, `conda install -c conda-forge pyaermod` will install the
-library and `conda install -c conda-forge pyaermod-gui` the library with
-the graphical interface. Until then, use pip inside a conda environment.
-
-### Troubleshooting
-
-- `zsh: no matches found: pyaermod[gui]`: quote the name, as above.
-- `pyaermod-app: command not found`: activate the environment you
-  installed into; after `pipx install` run `pipx ensurepath`, after
-  `uv tool install` run `uv tool update-shell`. `python -m pyaermod.gui_v2`
-  starts the app without the command being on `PATH`.
-- `Cannot listen on 127.0.0.1 port 8080`: the port is in use; start with
-  `pyaermod-app --port 8081`.
-- pip compiles packages and fails: Python 3.11 to 3.14 install the GUI
-  from wheels alone; with a newer Python, pick one of those
-  (`uv tool install --python 3.13 "pyaermod[gui]"`).
-
-More in the [GUI User Guide](https://atmmod.github.io/pyaermod/gui-guide/#install).
-
-For development:
-```bash
-git clone https://github.com/atmmod/pyaermod.git
-cd pyaermod
-pip install -e ".[dev,all]"
-```
+square brackets as a file pattern. AERMOD itself is installed separately.
+[Install](https://atmmod.github.io/pyaermod/install/) has every option
+(extras, uv, conda, getting AERMOD) and what to do when an install fails.
 
 ## Quick Start
 
@@ -209,7 +162,7 @@ docs/                    # Architecture and quickstart guides
 - [Quick Start Guide](https://atmmod.github.io/pyaermod/quickstart/)
 - [Ten Common AERMOD Jobs](https://atmmod.github.io/pyaermod/use-cases/)
 - [GUI User Guide](https://atmmod.github.io/pyaermod/gui-guide/)
-- [Architecture](https://atmmod.github.io/pyaermod/architecture/)
+- [How pyaermod is organised](https://atmmod.github.io/pyaermod/architecture/)
 - [API Reference](https://atmmod.github.io/pyaermod/api/)
 - [Examples](https://github.com/atmmod/pyaermod/tree/main/examples)
 

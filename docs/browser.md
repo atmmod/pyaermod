@@ -50,7 +50,7 @@ use the browser's cache.
 
 The app cannot run AERMET, AERMAP or BPIP, export KMZ or GeoTIFF files, or keep a run
 history beyond the current page. For those, install the GUI (`pipx install
-"pyaermod[gui]"`; see the [GUI User Guide](gui-guide.md#install)).
+"pyaermod[gui]"`; see [Install](install.md)).
 
 ## The notebooks
 

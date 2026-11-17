@@ -173,10 +173,16 @@ class TestCondaRecipe:
         assert len(text) > 400
         assert "not on conda-forge yet" in text
         assert "streamlit" not in text.lower()
-        for name in ("README.md", "docs/index.md", "docs/gui-guide.md"):
-            page = " ".join((REPO / name).read_text(encoding="utf-8").split())
-            assert "not on conda-forge yet" in page, name
-            assert "Once the conda-forge package is published" in page, name
+        # docs/install.md owns installation and says where conda stands.
+        page = " ".join((REPO / "docs" / "install.md").read_text(encoding="utf-8").split())
+        assert "not on conda-forge yet" in page
+        assert "Once the conda-forge package is published" in page
+        # No other page offers a conda install as if the package existed.
+        for name in ("README.md", "docs/index.md", "docs/gui-guide.md", "docs/quickstart.md",
+                     "docs/desktop.md", "docs/browser.md"):
+            other = " ".join((REPO / name).read_text(encoding="utf-8").split())
+            if "conda install" in other:
+                assert "not on conda-forge yet" in other, name
 
 
 
