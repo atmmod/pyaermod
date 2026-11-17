@@ -140,7 +140,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   among the deck's input files.
 - `PROFBASE 328 FEET` was read as 328 metres. The reader now converts
   feet to metres, as AERMOD does, and the writer keeps the precision a
-  converted value needs.
+  converted value needs. Another unit is read as metres with a warning
+  (AERMOD's W203), a D exponent is accepted, and a value that is not a
+  number is kept verbatim instead of stopping the reader.
 - The annual NO2 design value from `naaqs_compliance_report("NO2_annual",
   ...)` averaged the years' annual means. The standard is one calendar
   year's mean (40 CFR 50.11(e), Appendix S), so the design value is now

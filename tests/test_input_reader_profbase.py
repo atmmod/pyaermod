@@ -72,3 +72,55 @@ def test_profbase_rewrite_reads_back_unchanged():
 def test_profbase_with_one_decimal_is_still_written_with_one():
     met = parse_aermod_input(_deck("0.0  METERS")).meteorology
     assert "PROFBASE  0.0  METERS" in met.to_aermod_input()
+
+
+# ----------------------------------------------------------------------
+# A unit other than METERS/FEET (meset.f PRBASE: W203, value taken as
+# metres; AERMOD probe 33e), a D exponent, and a value that is no number
+# ----------------------------------------------------------------------
+
+def test_an_unknown_unit_is_read_as_metres_with_a_warning(caplog):
+    with caplog.at_level("WARNING", logger="pyaermod.input_reader"):
+        project = parse_aermod_input(_deck("100.0  YARDS"))
+    assert project.meteorology.profile_base_elevation == 100.0
+    assert project.unparsed_lines == []
+    messages = [r.getMessage() for r in caplog.records if "PROFBASE" in r.getMessage()]
+    assert len(messages) == 1, messages
+    assert "W203" in messages[0] and "YARDS" in messages[0] and "metres" in messages[0]
+    assert "line " in messages[0]
+
+
+@pytest.mark.parametrize("profbase", ["100.0  METERS", "328.0  FEET", "100.0"])
+def test_a_known_unit_gives_no_warning(caplog, profbase):
+    with caplog.at_level("WARNING", logger="pyaermod.input_reader"):
+        parse_aermod_input(_deck(profbase))
+    assert not [r for r in caplog.records if "PROFBASE" in r.getMessage()]
+
+
+def test_a_fortran_d_exponent_is_read():
+    met = parse_aermod_input(_deck("1.5D2  METERS")).meteorology
+    assert met.profile_base_elevation == 150.0
+
+
+def test_a_value_that_is_no_number_is_kept_verbatim():
+    project = parse_aermod_input(_deck("abc  METERS"))
+    assert project.meteorology.profile_base_elevation == 0.0
+    kept = [ln for ln in project.unparsed_lines if ln.keyword == "PROFBASE"]
+    assert len(kept) == 1 and kept[0].fields[0] == "abc"
+
+
+@pytest.mark.parametrize("feet", [1234.567, 328.1, 0.1, 99999.99, 1.0 / 3.0])
+def test_profbase_written_from_feet_reads_back_exactly(feet):
+    project = parse_aermod_input(_deck(f"{feet!r}  FEET"))
+    base = project.meteorology.profile_base_elevation
+    again = parse_aermod_input(project.to_aermod_input())
+    assert again.meteorology.profile_base_elevation == base
+
+
+@pytest.mark.parametrize("base", [376.29602160000003, 1.0 / 3.0, 1e-7, 123456789.123])
+def test_any_profbase_in_metres_reads_back_exactly(base):
+    from pyaermod.pathways import MeteorologyPathway
+    met = MeteorologyPathway(surface_file="a.sfc", profile_file="a.pfl",
+                             profile_base_elevation=base)
+    line = next(ln for ln in met.to_aermod_input().splitlines() if "PROFBASE" in ln)
+    assert float(line.split()[1]) == base

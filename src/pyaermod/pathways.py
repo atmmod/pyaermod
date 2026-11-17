@@ -1081,10 +1081,11 @@ class MeteorologyPathway:
         lines.append(f"   SURFDATA  {self.surface_station_id}  {self.data_start_year}")
         lines.append(f"   UAIRDATA  {self.upper_air_station_id}  {self.data_start_year}")
         # One decimal, matching EPA's own decks, unless the value needs
-        # more (a base read in FEET and converted), so a rewrite reads
-        # back the same height.
-        base = self.profile_base_elevation
-        text = f"{base:.1f}" if float(f"{base:.1f}") == base else _num(base)
+        # more (a base read in FEET and converted): then the shortest
+        # text that reads back to exactly the same float, so a rewrite
+        # reads back the same height.
+        base = float(self.profile_base_elevation)
+        text = f"{base:.1f}" if float(f"{base:.1f}") == base else repr(base)
         lines.append(f"   PROFBASE  {text}  METERS")
 
         # Date range (if specified; not dispatched in an EVENT run)

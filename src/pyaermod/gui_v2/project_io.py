@@ -19,9 +19,10 @@ Top-level JSON dict::
 
 Every dataclass is a JSON object of its fields plus a ``_type`` tag naming
 its class, so a list of sources (or a field holding a subclass) reads back
-as the right class. Enums are ``{"_enum": "EnumClass.MEMBER"}``, tuples,
-ranges, numpy arrays and pandas Series (a background profile may be any
-of them) are lists, and a dict whose keys are not all strings is
+as the right class. Enums are ``{"_enum": "EnumClass.MEMBER"}``; tuples,
+ranges and anything with a ``tolist()`` (numpy arrays, pandas Series,
+Index and Categorical: a background profile may be any of them) are
+lists, numpy scalars plain numbers; and a dict whose keys are not all strings is
 ``{"_items": [[key, value], ...]}``.
 
 Reading is driven by the dataclass annotations, not by the file: each
@@ -87,23 +88,17 @@ def _encode(obj: Any) -> Any:
         return [_encode(v) for v in obj]
     if isinstance(obj, Path):
         return str(obj)
-    try:  # numpy scalars when the user mixed numpy values into the project
-        import numpy as np
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return [_encode(v) for v in obj.tolist()]
-    except ImportError:  # pragma: no cover - numpy is a core dependency
-        pass
-    if type(obj).__module__.split(".")[0] == "pandas" and callable(getattr(obj, "tolist", None)):
-        # A pandas Series given as a profile (BackgroundConcentration
-        # takes any sequence of values): its values in order, not its
-        # index. Recognised by module so pandas is never imported here.
-        return [_encode(v) for v in obj.tolist()]
+    if isinstance(obj, (bytes, bytearray, memoryview)):
+        # No JSON form; a memoryview's tolist() would turn it into numbers.
+        raise TypeError(f"cannot save a {type(obj).__name__} in a project file")
+    tolist = getattr(obj, "tolist", None)
+    if callable(tolist):
+        # numpy scalars and arrays, and pandas Series, Index and
+        # Categorical (BackgroundConcentration takes any sequence of
+        # values as a profile): tolist() gives plain Python values, a
+        # Series its values in order, not its index. Neither library is
+        # imported here.
+        return _encode(tolist())
     raise TypeError(f"cannot save a {type(obj).__name__} in a project file")
 
 

@@ -323,3 +323,24 @@ def test_more_than_one_background_mode_is_an_error(kwargs, named):
 def test_one_background_mode_is_not_a_mode_error(kwargs):
     errors = _background_errors(_project_with(BackgroundConcentration(**kwargs)))
     assert not [e for e in errors if "mode" in e.message], errors
+
+
+# ----------------------------------------------------------------------
+# sector_values without sectors: the writer needs both, so the
+# background would vanish from the deck without a word
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("sectors", [None, []])
+def test_sector_values_without_sectors_are_an_error(sectors):
+    bg = BackgroundConcentration(sectors=sectors, sector_values={(1, "ANNUAL"): 5.0})
+    assert "BACKGRND" not in bg.to_aermod_input()
+    errors = _background_errors(_project_with(bg))
+    assert any(e.field == "sector_values" and "sectors" in e.message
+               and "E171" in e.message for e in errors), errors
+
+
+@pytest.mark.parametrize("sector_values", [None, {}])
+def test_sectors_without_sector_values_are_an_error_per_sector(sector_values):
+    bg = BackgroundConcentration(sectors=_two_sectors(), sector_values=sector_values)
+    errors = _background_errors(_project_with(bg))
+    assert sum("E238" in e.message for e in errors) == 2, errors

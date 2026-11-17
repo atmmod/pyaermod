@@ -447,6 +447,19 @@ class Validator:
                         f"E238 (Not Enough BACKGRND Concentration Values, SECT{sid})"
                     ))
 
+        if background.sector_values and not background.sectors:
+            # The writer emits BACKGRND SECTn lines only beside BGSECTOR
+            # sectors, so these values would leave no trace in the deck;
+            # AERMOD itself rejects SECTn without BGSECTOR (E171).
+            result.errors.append(ValidationError(
+                pathway, "sector_values",
+                "sector_values are set without sectors: the writer writes no "
+                "BACKGRND SECTn line without BGSECTOR sectors, so the background "
+                "would be left out of the deck (AERMOD rejects SECTn without "
+                "BGSECTOR, E171); give sectors, or use period_values for one "
+                "whole-domain profile"
+            ))
+
         if background.sectors and background.sector_values:
             valid_ids = {s.sector_id for s in background.sectors}
             for (sid, flag), values in background.sector_values.items():
@@ -521,20 +534,17 @@ class Validator:
         ))
 
     @classmethod
-    def _check_temporal_values(cls, flag, values, *, where: str = "") -> List[str]:
+    def _check_temporal_values(cls, flag, values, *, where: str = "",
+                               non_negative: bool = False) -> List[str]:
         """Problems with one temporal-variation profile, as soset.f reads
         BACKGRND, O3VALUES and NOX_VALS: a flag of EMISFACT's table
         (:data:`TEMPORAL_FLAG_COUNTS`), exactly its number of values, and
-        every value a number. ``values`` may be a single value or any
-        non-string iterable of values (a numpy array, a pandas Series, a
-        range); a string is one value, and not a number."""
-        return cls._check_temporal_list(flag, value_list(values), where=where)
-
-    @classmethod
-    def _check_temporal_list(cls, flag, values: list, *, where: str = "") -> List[str]:
-        """:meth:`_check_temporal_values` for values already made a list
-        by :func:`~pyaermod.pathways.value_list`."""
+        every value a number (and, with ``non_negative``, none below 0).
+        ``values`` may be a single value or any non-string iterable of
+        values (a numpy array, a pandas Series, a range); a string is one
+        value, and not a number."""
         from .pathways import TEMPORAL_FLAG_COUNTS
+        values = value_list(values)
         problems: List[str] = []
         expected = TEMPORAL_FLAG_COUNTS.get(str(flag).upper())
         if expected is None:
@@ -551,21 +561,19 @@ class Validator:
             problems.append(
                 f"values for {flag!r}{where} must be numbers, got "
                 f"{', '.join(repr(v) for v in bad[:4])}")
+        if non_negative and any(_is_number(v) and v < 0 for v in values):
+            problems.append(f"values for '{flag}'{where} must be >= 0")
         return problems
 
     @classmethod
     def _validate_background_profile(cls, pathway, field_name, flag, values, result,
                                      *, where=""):
         """One BACKGRND flag and its values, as soset.f reads them: a
-        flag of EMISFACT's table and exactly its number of values."""
-        values = value_list(values)
-        for message in cls._check_temporal_list(flag, values, where=where):
+        flag of EMISFACT's table and exactly its number of values, none
+        of them negative."""
+        for message in cls._check_temporal_values(flag, values, where=where,
+                                                  non_negative=True):
             result.errors.append(ValidationError(pathway, field_name, message))
-        if any(_is_number(v) and v < 0 for v in values):
-            result.errors.append(ValidationError(
-                pathway, field_name,
-                f"values for '{flag}'{where} must be >= 0"
-            ))
 
     @classmethod
     def _validate_source_options(cls, source, control, result: ValidationResult):

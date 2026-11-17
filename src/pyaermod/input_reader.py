@@ -69,7 +69,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from ._fortran import fortran_float
 from .input_generator import (
@@ -872,6 +872,108 @@ def _floats(toks: List[str]) -> Optional[List[float]]:
         return None
 
 
+class _BgLine(NamedTuple):
+    """One SO BACKGRND or BGSECTOR line, as :func:`_parse_sources` reads it."""
+
+    lineno: int
+    keyword: str                    # "BACKGRND" or "BGSECTOR"
+    sector: Optional[int]           # n of a BACKGRND SECTn line, else None
+    flag: Optional[str]             # temporal flag or HOURLY; None for a bare value
+    values: Optional[List[float]]   # values (BGSECTOR: directions); None if not read
+
+
+def _background_from(entries: List[_BgLine],
+                     dropped: Optional[List[int]]) -> Optional[BackgroundConcentration]:
+    """The deck's background, decided once from all its BACKGRND and
+    BGSECTOR lines; every line it does not model is kept verbatim."""
+
+    def _keep(lines: List[_BgLine]) -> None:
+        for entry in lines:
+            _drop(dropped, entry.lineno)
+
+    def _one_or_all(values: List[float]) -> Union[float, List[float]]:
+        return values[0] if len(values) == 1 else values
+
+    domain = [e for e in entries if e.keyword == "BACKGRND" and e.sector is None]
+
+    # The sector form (BGSECTOR, BACKGRND SECTn) is modelled whole or not
+    # at all. It is kept verbatim, every BGSECTOR and BACKGRND line in
+    # deck order (so nothing is lost and the sectors are written once and
+    # before the lines that use them), when: a sector names an hourly file
+    # (not modelled; beside modelled sectors AERMOD stops, probe 33c), a
+    # sector line or BGSECTOR direction does not parse, a sector line has
+    # no flag or no values (``SECTn 5`` is E201, ``SECTn ANNUAL``), there
+    # is not exactly one BGSECTOR (SECTn without it is E171), BGSECTOR
+    # has no directions or no sector gives values, or whole-domain lines
+    # stand beside the sectors (AERMOD takes one form, E165).
+    bgsector = [e for e in entries if e.keyword == "BGSECTOR"]
+    sector_lines = [e for e in entries if e.sector is not None]
+    if bgsector or sector_lines:
+        if (len(bgsector) != 1 or not bgsector[0].values or domain or not sector_lines
+                or any(e.values is None for e in sector_lines)):
+            _keep(entries)
+            return None
+        sector_values: Dict[Tuple[int, str], List[float]] = {}
+        for e in sector_lines:
+            assert e.sector is not None and e.flag is not None and e.values is not None
+            sector_values.setdefault((e.sector, e.flag), []).extend(e.values)
+        return BackgroundConcentration(
+            sectors=[BackgroundSector(sector_id=idx, start_direction=direction)
+                     for idx, direction in enumerate(bgsector[0].values, start=1)],
+            sector_values={k: _one_or_all(v) for k, v in sector_values.items()},
+        )
+
+    # A whole-domain hourly file is not modelled: it is always kept
+    # verbatim, which beside a modelled whole-domain flag is a pair AERMOD
+    # takes (probe 32d).
+    _keep([e for e in domain if e.flag == "HOURLY"])
+    value_lines = [e for e in domain if e.flag != "HOURLY"]
+    bare = [e for e in value_lines if e.flag is None and e.values is not None]
+
+    # A bare value (no flag) is read as one value for every hour, which
+    # the writer gives the ANNUAL flag, only when it is the deck's one
+    # whole-domain BACKGRND line other than HOURLY. Beside a flag line or
+    # a second bare value it is not pyaermod's old uniform form but a
+    # deck AERMOD refuses (E201, E165), and every bare line is kept
+    # verbatim rather than one of them lost.
+    if len(bare) == 1 and len(value_lines) == 1:
+        (line,) = bare
+        assert line.values is not None
+        uniform = line.values[0]
+        logger.warning(
+            "line %d: BACKGRND %s has no temporal flag, which AERMOD refuses "
+            "(E201); read as BACKGRND ANNUAL %s", line.lineno, uniform, uniform)
+        return BackgroundConcentration(uniform_value=uniform)
+    if bare:
+        logger.warning(
+            "SO BACKGRND: line%s %s give%s a value without a temporal flag (AERMOD "
+            "E201) in a deck with other whole-domain BACKGRND values; kept "
+            "verbatim, not read as a uniform background",
+            "s" if len(bare) > 1 else "",
+            ", ".join(str(e.lineno) for e in bare), "" if len(bare) > 1 else "s")
+
+    # The whole-domain values are modelled whole or not at all, as the
+    # sector form is: when one whole-domain line other than HOURLY is
+    # kept verbatim (a value without a flag, a flag without values, a
+    # value that does not parse), every one of them is, in deck order,
+    # rather than a profile modelled in part beside the rest of it.
+    if bare or any(e.values is None for e in value_lines):
+        logger.warning(
+            "SO BACKGRND: a whole-domain line is not modelled, so lines %s are kept "
+            "verbatim and no whole-domain background is modelled",
+            ", ".join(str(e.lineno) for e in value_lines))
+        _keep(value_lines)
+        return None
+    if not value_lines:
+        return None
+    period_values: Dict[str, List[float]] = {}
+    for e in value_lines:
+        assert e.flag is not None and e.values is not None
+        period_values.setdefault(e.flag, []).extend(e.values)
+    return BackgroundConcentration(
+        period_values={k: _one_or_all(v) for k, v in period_values.items()})
+
+
 def _parse_sources(block: _PathwayBlock,
                    dropped: Optional[List[int]] = None) -> SourcePathway:
     # LOCATION gives us each source's type and coordinates; SRCPARAM fills
@@ -912,17 +1014,9 @@ def _parse_sources(block: _PathwayBlock,
     solid_barriers: List[SolidBarrier] = []
     open_barrier: Optional[SolidBarrier] = None
 
-    # Background concentration accumulation
-    bg_bare: List[Tuple[int, float]] = []   # whole-domain value lines with no flag
-    bg_domain_value_lns: List[int] = []   # whole-domain BACKGRND lines other than HOURLY
-    bg_domain_partial = False         # one of them not modelled
-    bg_period_values: Dict[str, List[float]] = {}
-    bg_sectors: List[BackgroundSector] = []
-    bg_sector_values: Dict[Tuple[int, str], List[float]] = {}
-    bg_lines: List[int] = []          # every BGSECTOR and BACKGRND line
-    bgsector_lines = 0                # BGSECTOR lines seen
-    bg_domain_lines = False           # a BACKGRND line without SECTn
-    bg_sector_partial = False         # a sector line or direction not modelled
+    # Background concentration: one entry per BACKGRND/BGSECTOR line, in
+    # deck order, decided on once every line is seen (_background_from).
+    bg_entries: List[_BgLine] = []
 
     saw_srcgroup = False   # any SRCGROUP or PSDGROUP line
     saw_all_group = False  # a SRCGROUP ALL line, bare or with members
@@ -1123,66 +1217,24 @@ def _parse_sources(block: _PathwayBlock,
             # soset.f BACKGRND: ``[SECTn] flag values...`` with a temporal
             # flag of EMISFACT's table (ANNUAL 1 value, SEASON 4, MONTH
             # 12, ...), the values continued over lines that repeat the
-            # flag; or ``[SECTn] HOURLY file [format]``. A bare value is
-            # pyaermod's old uniform form, modelled only when it is the
-            # deck's one whole-domain value line (see below).
-            bg_lines.append(ln)
+            # flag; or ``[SECTn] HOURLY file [format]``. A whole-domain
+            # line of one field is a bare value (no flag, AERMOD E201),
+            # pyaermod's old uniform form. Values that do not parse, and
+            # a line without both a flag and values, are recorded as None.
             sector, rest = _split_sector(toks)
-            if sector is None:
-                bg_domain_lines = True
-                if not rest or rest[0].upper() != "HOURLY":
-                    bg_domain_value_lns.append(ln)
-            if not rest:
-                _drop(dropped, ln)
-                bg_sector_partial = bg_sector_partial or sector is not None
-                bg_domain_partial = bg_domain_partial or sector is None
-            elif rest[0].upper() == "HOURLY":
-                # The whole-domain file is kept verbatim beside the
-                # modelled values; a sector's file is not modelled, and
-                # then neither are the sectors (see below).
-                if sector is None:
-                    _drop(dropped, ln)
-                else:
-                    bg_sector_partial = True
-            elif sector is not None and len(rest) < 2:
-                # ``SECTn 5`` (a value, no flag: E201) or ``SECTn ANNUAL``
-                # (a flag, no values): not a sector profile, so the
-                # sector form is kept whole (below).
-                bg_sector_partial = True
+            bg_flag: Optional[str] = rest[0].upper() if rest else None
+            bg_values: Optional[List[float]] = None
+            if bg_flag == "HOURLY":
+                pass
             elif sector is None and len(rest) == 1:
-                # AERMOD refuses a value without a flag (E201); older
-                # pyaermod wrote it. A number is decided on below; a
-                # flag with no values is kept verbatim.
-                try:
-                    bg_bare.append((ln, _fortran_float(rest[0])))
-                except ValueError:
-                    _drop(dropped, ln)
-                    bg_domain_partial = True
-            else:
-                try:
-                    values = [_fortran_float(t) for t in rest[1:]]
-                except ValueError:
-                    _drop(dropped, ln)
-                    bg_sector_partial = bg_sector_partial or sector is not None
-                    bg_domain_partial = bg_domain_partial or sector is None
-                else:
-                    flag = rest[0].upper()
-                    if sector is None:
-                        bg_period_values.setdefault(flag, []).extend(values)
-                    else:
-                        bg_sector_values.setdefault((sector, flag), []).extend(values)
+                bg_flag, bg_values = None, _floats(rest)
+            elif len(rest) >= 2:
+                bg_values = _floats(rest[1:])
+            bg_entries.append(_BgLine(ln, "BACKGRND", sector, bg_flag, bg_values))
         elif kw == "BGSECTOR":
-            # BGSECTOR <dir1> <dir2> ...  — sector starting directions (degrees)
-            # A line whose directions do not all parse is not modelled in
-            # part: the whole sector form is then kept verbatim (below).
-            bg_lines.append(ln)
-            bgsector_lines += 1
-            try:
-                bg_sectors.extend([
-                    BackgroundSector(sector_id=idx, start_direction=_fortran_float(tok))
-                    for idx, tok in enumerate(toks, start=1)])
-            except ValueError:
-                bg_sector_partial = True
+            # BGSECTOR <dir1> <dir2> ...  — sector starting directions
+            # (degrees); None when one does not parse.
+            bg_entries.append(_BgLine(ln, "BGSECTOR", None, None, _floats(toks)))
         elif kw == "BACKUNIT":
             _drop(dropped, ln)  # Recognized (PPB/UG/M3); no structural field
 
@@ -1638,73 +1690,7 @@ def _parse_sources(block: _PathwayBlock,
                 _apply_per_source(src, seg.source_id)
             sources.append(src)
 
-    # Build BackgroundConcentration if any BACKGRND keywords were found.
-    # The sector form (BGSECTOR, BACKGRND SECTn) is modelled whole or not
-    # at all: a sector's hourly file, a sector line or BGSECTOR direction
-    # that does not parse, a sector line without both a flag and values
-    # (``SECTn 5``, ``SECTn ANNUAL``), sector lines without exactly one
-    # BGSECTOR (or a BGSECTOR without sector values), or whole-domain
-    # lines beside them keep every BGSECTOR and BACKGRND line verbatim, in deck order, so
-    # nothing is lost and the sectors are written once and before the
-    # lines that use them.
-    background: Optional[BackgroundConcentration] = None
-
-    def _one_or_all(values: List[float]) -> Union[float, List[float]]:
-        return values[0] if len(values) == 1 else values
-
-    # A bare value (no flag) is read as one value for every hour, which
-    # the writer gives the ANNUAL flag, only when it is the deck's one
-    # whole-domain BACKGRND line other than HOURLY and there is no sector
-    # form. Beside a flag line or a second bare value it is not
-    # pyaermod's old uniform form but a deck AERMOD refuses (E201, E165),
-    # and every bare line is kept verbatim rather than one of them lost.
-    sector_form = bgsector_lines > 0 or bool(bg_sector_values) or bg_sector_partial
-    bg_uniform: Optional[float] = None
-    if len(bg_bare) == 1 and len(bg_domain_value_lns) == 1 and not sector_form:
-        bare_line, bg_uniform = bg_bare[0]
-        logger.warning(
-            "line %d: BACKGRND %s has no temporal flag, which AERMOD refuses "
-            "(E201); read as BACKGRND ANNUAL %s", bare_line, bg_uniform, bg_uniform)
-    elif bg_bare:
-        for bare_line, _value in bg_bare:
-            _drop(dropped, bare_line)
-        bg_domain_partial = True
-        if not sector_form:
-            logger.warning(
-                "SO BACKGRND: line%s %s give%s a value without a temporal flag (AERMOD "
-                "E201) in a deck with other whole-domain BACKGRND values; kept "
-                "verbatim, not read as a uniform background",
-                "s" if len(bg_bare) > 1 else "",
-                ", ".join(str(n) for n, _v in bg_bare), "" if len(bg_bare) > 1 else "s")
-    # The whole-domain values are modelled whole or not at all, as the
-    # sector form is: when one whole-domain line other than HOURLY is
-    # kept verbatim (a value without a flag, a flag without values, a
-    # value that does not parse), every one of them is, in deck order,
-    # rather than a profile modelled in part beside the rest of it.
-    if bg_domain_partial:
-        if not sector_form:
-            logger.warning(
-                "SO BACKGRND: a whole-domain line is not modelled, so lines %s are kept "
-                "verbatim and no whole-domain background is modelled",
-                ", ".join(str(n) for n in bg_domain_value_lns))
-        for lineno in bg_domain_value_lns:
-            _drop(dropped, lineno)
-        bg_period_values = {}
-        bg_uniform = None
-    if sector_form and (bg_sector_partial or bgsector_lines != 1 or bg_domain_lines
-                        or not bg_sectors or not bg_sector_values):
-        for lineno in bg_lines:
-            _drop(dropped, lineno)
-    elif bg_sectors and bg_sector_values:
-        background = BackgroundConcentration(
-            sectors=bg_sectors,
-            sector_values={k: _one_or_all(v) for k, v in bg_sector_values.items()},
-        )
-    elif bg_period_values:
-        background = BackgroundConcentration(
-            period_values={k: _one_or_all(v) for k, v in bg_period_values.items()})
-    elif bg_uniform is not None:
-        background = BackgroundConcentration(uniform_value=bg_uniform)
+    background = _background_from(bg_entries, dropped)
 
     group_defs = [SourceGroupDefinition(group_name=name, member_source_ids=members)
                   for name, members in src_groups.items()]
@@ -1966,11 +1952,24 @@ def _parse_meteorology(block: _PathwayBlock,
         elif kw == "UAIRDATA" and len(toks) >= 2:
             kw_map["upper_air_station_id"] = _whole_number(toks[0], kw, ln)
         elif kw == "PROFBASE" and toks:
-            # meset.f PRBASE: ``elev [METERS|FEET]``; AERMOD converts FEET
-            # to metres, and the field is in metres.
-            elevation = float(toks[0])
-            if len(toks) > 1 and toks[1].upper() == "FEET":
+            # meset.f PRBASE: ``elev [METERS|FEET]``, read by STODBL (so a
+            # D exponent is a number); AERMOD converts FEET to metres, and
+            # the field is in metres. Another unit is warning W203 and
+            # AERMOD takes the value as metres (probe 33e), as here. A
+            # value that is no number (AERMOD E208) is kept verbatim and
+            # the field left at its default, as for STARTEND and NUMYEARS.
+            try:
+                elevation = _fortran_float(toks[0])
+            except ValueError:
+                _drop(dropped, ln)
+                continue
+            unit = toks[1].upper() if len(toks) > 1 else "METERS"
+            if unit == "FEET":
                 elevation *= 0.3048
+            elif unit != "METERS":
+                logger.warning(
+                    "line %d: PROFBASE unit %s is neither METERS nor FEET; AERMOD gives "
+                    "W203 and treats the value as metres, as read here", ln, toks[1])
             kw_map["profile_base_elevation"] = elevation
         elif kw == "STARTEND" and len(toks) in (6, 8):
             # meset.f STAEND: yr mo dy yr mo dy, or with an hour after

@@ -488,6 +488,36 @@ class TestSavingRefusesWhatOpeningWould:
         assert reopened.sources.sources[2].vertices == [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
         assert reopened.meteorology.surface_file == str(Path("met") / "x.sfc")
 
+    def test_numpy_scalars_are_saved_as_python_values(self):
+        np = pytest.importorskip("numpy")
+        from pyaermod.gui_v2.project_io import _encode
+        encoded = [_encode(np.bool_(True)), _encode(np.int64(3)), _encode(np.float32(0.5))]
+        assert encoded == [True, 3, 0.5]
+        assert [type(v) for v in encoded] == [bool, int, float]
+        assert _encode(np.array(2.5)) == 2.5
+
+    @pytest.mark.parametrize("kind", ["index", "categorical"])
+    def test_pandas_index_and_categorical_profiles_are_saved_as_lists(self, kind):
+        # Anything with a tolist() is its values as a list: a pandas
+        # Index or Categorical given as a profile reads back as that list.
+        pd = pytest.importorskip("pandas")
+        values = [1.0, 2.0, 3.0, 4.0]
+        make = {"index": pd.Index, "categorical": pd.Categorical}[kind]
+        project = _deposition_project()
+        project.sources.background = BackgroundConcentration(
+            period_values={"SEASON": make(values)})
+        deck = project.to_aermod_input(validate=False)
+        reopened = project_from_json(project_to_json(project))
+        assert reopened.sources.background.period_values == {"SEASON": values}
+        assert reopened.to_aermod_input(validate=False) == deck
+
+    @pytest.mark.parametrize("value", [b"5", bytearray(b"5"), memoryview(b"5")])
+    def test_bytes_are_a_type_error_not_a_list_of_numbers(self, value):
+        project = _full_project()
+        project.sources.sources[0].source_id = value
+        with pytest.raises(TypeError, match=r"cannot save a \w+ in a project file"):
+            project_to_json(project)
+
 
 class TestEveryRefusalNamesTheField:
     """Each way a document can be malformed gives its own message."""
