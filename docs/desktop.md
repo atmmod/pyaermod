@@ -14,7 +14,7 @@ pyaermod-desktop
 
 The `gui-desktop` extra adds pywebview to what `pyaermod[gui]` installs.
 For other ways to install the GUI, see the
-[installation section of the GUI guide](gui-guide.md#install).
+[Install](install.md).
 
 - **Windows**: pywebview uses the Edge WebView2 runtime, which is part
   of Windows 11 and of an up-to-date Windows 10. Nothing else to
@@ -121,7 +121,7 @@ the [releases page](https://github.com/atmmod/pyaermod/releases) (for
 Windows and Linux, and for Apple-silicon macOS in v2.0.0). They are
 no longer built: later releases attach none, and the ones already
 published get no fixes. The supported way to install the GUI is pip, as above (see
-the [installation section of the GUI guide](gui-guide.md#install)); a
+[Install](install.md)); a
 conda-forge package is planned.
 
 Those downloads are unsigned. On macOS, Gatekeeper blocks them ("Apple

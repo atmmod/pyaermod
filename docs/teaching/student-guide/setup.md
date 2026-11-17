@@ -207,3 +207,5 @@ You can visit the steps in any order. The GUI calls an AERMOD input file a
 All coordinates in the GUI are AERMOD's model coordinates: easting and
 northing in UTM meters. There is no map to click and no latitude/longitude
 setting.
+
+![The GUI when it opens: the header with the readiness line and Save, the step list on the left with a badge per step, and the Project step](../../images/gui/layout.png)

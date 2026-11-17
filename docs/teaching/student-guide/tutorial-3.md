@@ -93,6 +93,8 @@ When it finishes, the status line reads either:
   Read the messages — the most common issue is AERMOD not finding the
   meteorological files.
 
+![A finished run: "Succeeded", AERMOD's message counts and the table of its messages (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/run-finished.png)
+
 ## Step 4: Explore the Results
 
 Click **Results** in the step list. The step shows the run in several
@@ -152,6 +154,10 @@ unless you untick **POSTFILE for every averaging period** on the **Output**
 step. The GUI does not animate them. From Python,
 `pyaermod.postfile.read_postfile` reads one into a table. This is optional
 for beginners.
+
+![The Results step: the run's status card and AERMOD's maximum for each averaging period (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/results.png)
+
+![The concentration map: filled contours of the highest 1-hour values, the receptors as dots and the maximum ringed (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/results-map.png)
 
 ## Step 5: Interpret What You See
 

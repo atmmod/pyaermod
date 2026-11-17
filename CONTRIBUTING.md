@@ -145,7 +145,30 @@ benchmarks/            # Performance benchmarks
 5. Update `__init__.py` exports and `__all__`
 6. Add tests in `tests/test_input_generator.py` and
    `tests/test_gui_v2_sources.py`
-7. Update documentation in `docs/quickstart.md`
+7. Add it to the source-type lists in `README.md` and `docs/index.md`
+
+### How the GUI's editors are built
+
+Every editor is generated from the source's dataclass by a shared form
+helper (`pyaermod.gui_v2._form`). The widget follows the field's type:
+
+| Field annotation | Widget |
+|---|---|
+| `str` / `Optional[str]` | text input; full width when the field names a file |
+| `float` / `Optional[float]` | numeric input (clearable when Optional) |
+| `int` / `Optional[int]` | integer input that stores an `int` |
+| `bool` | checkbox |
+| `List[Tuple[float, float]]` | text area, one `x, y` pair per line |
+| `List[str]`, `List[float]` | text area, one entry per line |
+| `Optional[Union[float, List[float]]]` (building dimensions) | numeric input while the value is a scalar; text area once it holds 36 sector values |
+| anything else | read-only summary |
+
+Fields the helper does not model (lists of dataclasses, enums, nested
+deposition objects) are shown read-only in `pyaermod-app`; the browser
+app's editor (`pyaermod.browser.schema`, `webapp/forms.js`) takes them
+as JSON text. A number box never
+writes an empty value into a required field: emptying it shows
+"Required" and keeps the value.
 
 ## Submitting Changes
 

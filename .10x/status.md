@@ -33,3 +33,10 @@ Blocker (non-fatal): AERMOD-wasm not buildable/downloadable here; wasm tiers ver
 | PR A: release-blocking docs fixes + v2.3.0 prep | in review |
 | PR B: docs restructure + screenshots (quickstart, GUI guide, student-guide tutorials) | next |
 | Regulatory flag checks (code bug) | queued as separate task |
+
+## 2026-11-17: docs PR B
+| Item | State |
+|---|---|
+| #68 (docs fixes, v2.3.0 prep, student-guide split) | merged |
+| PR B: screenshots, GUI guide, quickstart, docs-examples test | in review |
+| Follow-up: single install page, architecture.md, Validation nav section | next |

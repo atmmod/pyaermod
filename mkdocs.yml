@@ -31,6 +31,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Install: install.md
   - Quick Start: quickstart.md
   - Run in Your Browser: browser.md
   - Ten Common AERMOD Jobs: use-cases.md
@@ -43,14 +44,6 @@ nav:
       - Ensembles: ensemble.md
       - Regulatory Matrix: regulatory-matrix.md
       - Particle Size Distributions: psd.md
-  - Validation: validation.md
-  - Design-Value Validation: design-value-validation.md
-  - Keyword Audit (v26135): keyword-audit-v26135.md
-  - Benchmarks: benchmarks.md
-  - Release Notes:
-      - v2.3.0 (draft): release-notes/v2.3.0.md
-      - v2.2.0: release-notes/v2.2.0.md
-  - Architecture: architecture.md
   - Teaching:
       - Student Guide:
           - Overview: teaching/student-guide/index.md
@@ -66,6 +59,15 @@ nav:
       - Refinery Assignments: teaching/refinery-assignments.md
       - Practice Deck (browser app): teaching/practice/README.md
       - README: teaching/README.md
+  - Validation:
+      - Validation Report: validation.md
+      - Design-Value Validation: design-value-validation.md
+      - Keyword Audit (v26135): keyword-audit-v26135.md
+      - Benchmarks: benchmarks.md
+  - Release Notes:
+      - v2.3.0 (draft): release-notes/v2.3.0.md
+      - v2.2.0: release-notes/v2.2.0.md
+  - How pyaermod Is Organised: architecture.md
   - API Reference:
       - Overview: api/index.md
       - Project building:

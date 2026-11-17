@@ -19,6 +19,8 @@ the Python install. It has the same steps as `pyaermod-app`: Project, Sources, R
 Meteorology, Output, Review & Run and Results. Its project files are the same `.json`
 files, so a project saved in one opens in the other.
 
+![The app on its Sources step with EPA's Albany example imported: one stack, and the plan view of the stack and its polar receptor grid](images/app/sources.png)
+
 - **Meteorology.** Pick one of the two samples (Albany, NY, March 1988, from EPA's
   AERTEST; Houston, February 1996, with rain, from EPA's AERMET test case EX04), or upload
   your own AERMET `.SFC` and `.PFL` files.
@@ -39,6 +41,8 @@ files, so a project saved in one opens in the other.
   the NAAQS comparison, every summary table (the first 500 rows of each; download the
   `.out` file for all) and the output files to download.
 
+![The app's Results step after running the Albany example: the run's status, the maximum for each averaging period, and the first concentration map](images/app/results.png)
+
 The project and the uploaded files are kept in this browser between visits, until you
 clear the site's data. The first visit downloads about 30 MB (Python, numpy, pandas and
 matplotlib from the jsDelivr CDN, and pyaermod and AERMOD from this site); later visits
@@ -46,7 +50,7 @@ use the browser's cache.
 
 The app cannot run AERMET, AERMAP or BPIP, export KMZ or GeoTIFF files, or keep a run
 history beyond the current page. For those, install the GUI (`pipx install
-"pyaermod[gui]"`; see the [GUI User Guide](gui-guide.md#install)).
+"pyaermod[gui]"`; see [Install](install.md)).
 
 ## The notebooks
 

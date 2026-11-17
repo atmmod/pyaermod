@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `tests/test_docs_examples.py` runs the Python examples of the
+  quickstart and the student guide as a reader would paste them. A block
+  that needs an AERMOD run or the reader's own files is marked in the
+  page with `<!-- docs-example: skip (reason) -->`; every other block
+  must run.
 - A browser GUI on the documentation site, under `/app/`: the seven
   steps of `pyaermod-app` with nothing to install, no signed download and
   no server. pyaermod and AERMOD's WebAssembly build run in Pyodide in a
@@ -45,6 +50,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Installation has one page, `docs/install.md`: the library and its
+  extras, the GUI on its own (pipx, uv), conda's status, getting AERMOD
+  and the other EPA programs, and what to do when an install fails. The
+  README, the home page, the quickstart, the GUI guide and the desktop
+  page keep a few lines and link to it.
+- `docs/architecture.md`, a design proposal from before the code existed
+  (it showed APIs that were never built), is now a short, accurate map
+  of the code: the project model, reading and writing decks, validation,
+  running, reading results, the GUIs and the browser path. The
+  validation report, the design-value validation, the keyword audit and
+  the benchmarks are grouped under Validation in the site's navigation.
+- The quickstart is less than half as long: the five-minute example,
+  running, reading and mapping the results, the common patterns and a
+  figure, with the recipes the Ten Common AERMOD Jobs already run
+  (deposition, NO2 chemistry, design values, terrain), the keyword lists
+  (the keyword audit) and the feature list (the home page) linked rather
+  than repeated. It now shows how to read an existing deck.
+- The GUI guide, the browser page and the student guide show
+  screenshots of the GUI at each step they describe, taken by
+  `scripts/docs_screenshots.py` from `pyaermod-app` and the browser app
+  with AERMOD replayed from a recorded run; `tests/test_docs_images.py`
+  checks that every image a page shows exists and every screenshot is
+  shown. The student guide's PDF embeds them. The GUI guide is shorter:
+  the screenshots carry the layout, and the table of how the editors are
+  built moved to `CONTRIBUTING.md`.
 - The student guide is one page per part on the documentation site
   (concepts, setup, Tutorials 1 to 5, what's next, glossary) instead of
   one 10,000-word page; its old address shows the overview, and

@@ -26,7 +26,7 @@ DataFrames, and exports results to geospatial formats.
 - [Ten Common AERMOD Jobs](use-cases.md) -- runnable, tested scripts for permitting, downwash, roads, NO2, terrain, deposition and air toxics
 - [GUI User Guide](gui-guide.md) -- using the interactive web interface
 - [API Reference](api/index.md) -- module-by-module documentation
-- [Architecture](architecture.md) -- technical design overview
+- [How pyaermod is organised](architecture.md) -- a map of the code for contributors
 
 ### Practitioner guides
 
@@ -37,45 +37,13 @@ DataFrames, and exports results to geospatial formats.
 
 ## Installation
 
-PyAERMOD needs Python 3.11 or later. Install it into a virtual
-environment (`python -m venv .venv`, then activate it):
-
 ```bash
-# Core (input generation, running, parsing)
-pip install pyaermod
-
-# With visualization
-pip install "pyaermod[viz]"
-
-# With geospatial export
-pip install "pyaermod[geo]"
-
-# With the graphical interface ("pyaermod[gui-desktop]" adds the native window)
-pip install "pyaermod[gui]"
-
-# Everything
-pip install "pyaermod[all]"
+pip install pyaermod               # the library
+pip install "pyaermod[all]"        # with plotting, GIS export and the GUI
 ```
 
-Keep the quotes: zsh, the default shell on macOS, otherwise reads the
-square brackets as a file pattern.
-
-To get the graphical interface without setting up an environment, install
-it with [pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/)
-and start it with `pyaermod-app`:
-
-```bash
-pipx install "pyaermod[gui]"       # or: uv tool install "pyaermod[gui]"
-pyaermod-app
-```
-
-PyAERMOD is not on conda-forge yet. Once the conda-forge package is
-published, `conda install -c conda-forge pyaermod` will install the
-library and `conda install -c conda-forge pyaermod-gui` the library with
-the graphical interface; until then, use pip inside a conda environment.
-
-The [GUI User Guide](gui-guide.md#install) has each of these in full and
-a list of what can go wrong.
+[Install](install.md) has the extras, the GUI on its own, conda, getting
+AERMOD itself, and what to do when an install fails.
 
 ## Requirements
 

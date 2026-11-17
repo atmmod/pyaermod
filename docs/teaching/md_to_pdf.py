@@ -23,6 +23,7 @@ from reportlab.platypus import (
     PageBreak,
     KeepTogether,
     HRFlowable,
+    Image,
 )
 
 
@@ -267,7 +268,7 @@ def combined_markdown(guide_dir):
     return "\n\n---\n\n".join(parts) + "\n"
 
 
-def convert_md_to_pdf(md_path, pdf_path, md_text=None):
+def convert_md_to_pdf(md_path, pdf_path, md_text=None, base_dir=None):
     """Main conversion function."""
     if md_text is None:
         md_text = Path(md_path).read_text(encoding="utf-8")
@@ -283,6 +284,27 @@ def convert_md_to_pdf(md_path, pdf_path, md_text=None):
 
         # Skip empty lines
         if not stripped:
+            i += 1
+            continue
+
+        # An image on a line of its own: the picture, at most the text's
+        # width and half a page high, with its alt text as a caption.
+        image_match = re.match(r"^!\[([^\]]*)\]\(([^)\s]+)\)$", stripped)
+        if image_match:
+            alt, target = image_match.groups()
+            folder = Path(base_dir) if base_dir else Path(md_path).parent
+            picture = (folder / target).resolve()
+            if picture.is_file():
+                from reportlab.lib.utils import ImageReader
+
+                width_px, height_px = ImageReader(str(picture)).getSize()
+                scale = min(6.5 * inch / width_px, 4.6 * inch / height_px)
+                story.append(Spacer(1, 4))
+                story.append(Image(str(picture), width=width_px * scale,
+                                   height=height_px * scale))
+                caption = alt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                story.append(Paragraph(f"<i>{caption}</i>", styles["Normal"]))
+                story.append(Spacer(1, 6))
             i += 1
             continue
 
@@ -472,4 +494,5 @@ if __name__ == "__main__":
         None,
         base / "student-guide.pdf",
         md_text=combined_markdown(base / "student-guide"),
+        base_dir=base / "student-guide",
     )
