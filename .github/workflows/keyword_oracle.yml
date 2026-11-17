@@ -131,7 +131,10 @@ jobs:
           python scripts/keyword_oracle.py run ./bin/aermod scripts/oracle_decks tests/fixtures/epa_official
 
       - name: Run pytest selection with the binary on PATH
-        if: inputs.pytest_args != ''
+        # Needs EPA's test decks and meteorology (test_cases/), so it runs
+        # only when they were fetched; a skipped step here means the fetch
+        # failed, not that the selection passed.
+        if: inputs.pytest_args != '' && steps.testdecks.outcome == 'success'
         run: |
           PATH="$PWD/bin:$PATH" python -m pytest -o addopts="" -p no:cacheprovider \
             --strict-markers --tb=short -rA ${{ inputs.pytest_args }}
