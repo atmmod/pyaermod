@@ -1,11 +1,14 @@
 ** Probe: BACKGRND SEASON continued over two lines, run for two January
 ** days. The background-only group BGD must be 1.0 (the winter value) in
 ** every hour if AERMOD joins the lines into one four-value profile.
+** POLLUTID OTHER: SO2 brings 1-hour NAAQS processing, which stopped a
+** two-day run in the runtime phase (oracle run 44172179842). Setup there
+** reported one SEASON profile, so the two lines were joined.
 CO STARTING
    TITLEONE  oracle 32f: BACKGRND SEASON over two lines, January run
    MODELOPT  CONC  FLAT
    AVERTIME  1  PERIOD
-   POLLUTID  SO2
+   POLLUTID  OTHER
    RUNORNOT  RUN
 CO FINISHED
 
