@@ -91,6 +91,7 @@ That's it! You now have a valid AERMOD input file.
 
 ## Running AERMOD from Python
 
+<!-- docs-example: skip (runs AERMOD) -->
 ```python
 from pyaermod.runner import run_aermod
 
@@ -106,6 +107,7 @@ print(f"Output: {result.output_file}")
 
 ## Parsing Output
 
+<!-- docs-example: skip (reads the output of that run) -->
 ```python
 from pyaermod.output_parser import parse_aermod_output
 
@@ -119,6 +121,7 @@ print(f"Max concentration: {df['concentration'].max():.4g}")
 highest ten or so receptors, not the whole grid. The value at every
 receptor is in the PLOTFILEs that `period_plot_files` asked for:
 
+<!-- docs-example: skip (reads a plot file of that run) -->
 ```python
 from pyaermod.aermod_outputs import read_plotfile
 
@@ -130,6 +133,7 @@ grid = read_plotfile(plot_names["ANNUAL"]).to_dataframe()   # X, Y, AVERAGE_CONC
 
 Contour the grid from the period's PLOTFILE:
 
+<!-- docs-example: skip (maps the output of that run) -->
 ```python
 from pyaermod.visualization import AERMODVisualizer
 
@@ -279,6 +283,7 @@ Naming `ALL` adds nothing, since every source is in it.
 
 ### POSTFILE Parsing
 
+<!-- docs-example: skip (reads a POSTFILE of a run) -->
 ```python
 from pyaermod.postfile import read_postfile
 
@@ -319,6 +324,7 @@ per pathway and keyword, and written back into its pathway by
 `project.write()` / `project.to_aermod_input()`. Pass
 `preserve_unparsed=False` to write only what the model represents.
 
+<!-- docs-example: skip (reads a deck of your own) -->
 ```python
 import logging
 from pyaermod.input_reader import read_aermod_input

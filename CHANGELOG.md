@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `tests/test_docs_examples.py` runs the Python examples of the
+  quickstart and the student guide as a reader would paste them. A block
+  that needs an AERMOD run or the reader's own files is marked in the
+  page with `<!-- docs-example: skip (reason) -->`; every other block
+  must run.
 - A browser GUI on the documentation site, under `/app/`: the seven
   steps of `pyaermod-app` with nothing to install, no signed download and
   no server. pyaermod and AERMOD's WebAssembly build run in Pyodide in a
