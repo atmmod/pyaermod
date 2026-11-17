@@ -1,8 +1,7 @@
-** Probe: sector-dependent BACKGRND, one sector an hourly file with a
-** monthly profile for its missing hours, the other a seasonal profile
-** (review H3). Setup pass only.
+** Probe: BACKGRND with a temporal flag whose values continue on a second
+** line that repeats the flag (review H2). Setup pass only.
 CO STARTING
-   TITLEONE  oracle 31c: BACKGRND sectors with HOURLY
+   TITLEONE  oracle 32: BACKGRND SEASON over two lines
    MODELOPT  CONC  FLAT
    AVERTIME  1  24  ANNUAL
    POLLUTID  SO2
@@ -12,11 +11,9 @@ CO FINISHED
 SO STARTING
    LOCATION  STACK1  POINT  0.0  0.0  0.0
    SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
-   BGSECTOR  0  180
    BACKUNIT  PPB
-   BACKGRND  SECT1  HOURLY  o3probe.dat
-   BACKGRND  SECT1  MONTH  12*3.0
-   BACKGRND  SECT2  SEASON  1.0  2.0  3.0  4.0
+   BACKGRND  SEASON  1.0  2.0
+   BACKGRND  SEASON  3.0  4.0
    SRCGROUP  ALL
 SO FINISHED
 

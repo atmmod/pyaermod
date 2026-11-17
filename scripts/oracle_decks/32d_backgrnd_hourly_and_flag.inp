@@ -1,7 +1,7 @@
-** Probe: BACKGRND with a value and no temporal flag, the form pyaermod's
-** BackgroundConcentration(uniform_value=...) writes. Setup pass only.
+** Probe: whole-domain BACKGRND hourly file with an ANNUAL value for the
+** hours it is missing. Setup pass only.
 CO STARTING
-   TITLEONE  oracle 31b: BACKGRND with a bare value
+   TITLEONE  oracle 32d: BACKGRND HOURLY and a flag
    MODELOPT  CONC  FLAT
    AVERTIME  1  24  ANNUAL
    POLLUTID  SO2
@@ -11,7 +11,8 @@ CO FINISHED
 SO STARTING
    LOCATION  STACK1  POINT  0.0  0.0  0.0
    SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
-   BACKGRND  5.0
+   BACKGRND  HOURLY  o3probe.dat
+   BACKGRND  ANNUAL  5.0
    SRCGROUP  ALL
 SO FINISHED
 

@@ -99,6 +99,10 @@ jobs:
           key: ${{ steps.keys.outputs.tc }}
 
       - name: Fetch EPA test decks
+        # EPA's server sometimes stalls; the probe decks below need
+        # only the met files in the repository, so they still run.
+        timeout-minutes: 10
+        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p /tmp/epa_tc && cd /tmp/epa_tc
@@ -110,6 +114,7 @@ jobs:
           ls "$GITHUB_WORKSPACE/test_cases/aermet26135_aermod26135/inputs" | wc -l
 
       - name: EPA decks using each keyword
+        continue-on-error: true
         run: |
           python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs ${{ inputs.keywords }}
 

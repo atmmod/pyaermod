@@ -1,20 +1,22 @@
-** Probe: BACKGRND with a temporal flag whose values continue on a second
-** line that repeats the flag (review H2). Setup pass only.
+** Probe: BACKGRND SEASON continued over two lines, run for two January
+** days. The background-only group BGD must be 1.0 (the winter value) in
+** every hour if AERMOD joins the lines into one four-value profile.
 CO STARTING
-   TITLEONE  oracle 31: BACKGRND SEASON over two lines
+   TITLEONE  oracle 32f: BACKGRND SEASON over two lines, January run
    MODELOPT  CONC  FLAT
-   AVERTIME  1  24  ANNUAL
+   AVERTIME  1  PERIOD
    POLLUTID  SO2
-   RUNORNOT  NOT
+   RUNORNOT  RUN
 CO FINISHED
 
 SO STARTING
    LOCATION  STACK1  POINT  0.0  0.0  0.0
    SRCPARAM  STACK1  500.0  65.00  425.  15.0  5.
-   BACKUNIT  PPB
+   BACKUNIT  UG/M3
    BACKGRND  SEASON  1.0  2.0
    BACKGRND  SEASON  3.0  4.0
-   SRCGROUP  ALL
+   SRCGROUP  ALL  BACKGROUND
+   SRCGROUP  BGD  BACKGROUND
 SO FINISHED
 
 RE STARTING
@@ -27,6 +29,7 @@ ME STARTING
    SURFDATA  14735  1988
    UAIRDATA  14735  1988
    PROFBASE  0.0  METERS
+   STARTEND  1988  1  1  1988  1  2
 ME FINISHED
 
 OU STARTING
