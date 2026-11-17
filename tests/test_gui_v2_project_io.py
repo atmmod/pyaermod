@@ -329,6 +329,31 @@ class TestEverythingRoundTrips:
         assert reopened == project
         assert reopened.to_aermod_input(validate=False) == project.to_aermod_input(validate=False)
 
+    @pytest.mark.parametrize("kind", ["numpy", "series", "range"])
+    def test_background_profiles_given_as_sequences_are_saved_as_lists(self, kind):
+        # BackgroundConcentration accepts any non-string iterable as a
+        # profile; a project file holds it as a JSON list.
+        np = pytest.importorskip("numpy")
+        pd = pytest.importorskip("pandas")
+        make = {"numpy": np.array, "series": lambda v: pd.Series(v, index=range(10, 10 + len(v))),
+                "range": lambda v: range(int(v[0]), int(v[-1]) + 1)}[kind]
+        for bg in (
+            BackgroundConcentration(period_values={"MONTH": make([float(i) for i in range(1, 13)])}),
+            BackgroundConcentration(
+                sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+                sector_values={(1, "SEASON"): make([1.0, 2.0, 3.0, 4.0]),
+                               (2, "SEASON"): make([5.0, 6.0, 7.0, 8.0])}),
+        ):
+            project = _deposition_project()
+            project.sources.background = bg
+            deck = project.to_aermod_input(validate=False)
+            text = project_to_json(project)
+            reopened = project_from_json(text)
+            assert reopened.to_aermod_input(validate=False) == deck
+            values = (reopened.sources.background.period_values
+                      or reopened.sources.background.sector_values)
+            assert all(isinstance(v, list) for v in values.values()), values
+
     def test_files_without_nested_type_tags_still_load(self):
         # Before the tags covered nested objects, only list elements had them.
         doc = json.loads(project_to_json(_deposition_project()))

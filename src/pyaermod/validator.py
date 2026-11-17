@@ -101,7 +101,8 @@ class Validator:
 
     @classmethod
     def validate(cls, project, check_files: bool = False,
-                 advanced: bool = True) -> ValidationResult:
+                 advanced: bool = True, *,
+                 preserve_unparsed: bool = True) -> ValidationResult:
         """
         Validate an entire AERMODProject.
 
@@ -117,6 +118,11 @@ class Validator:
             receptor-domain extent, DFAULT consistency, ANNUAL met
             coverage). Pass ``advanced=False`` to restrict output to
             only the base per-field checks.
+        preserve_unparsed : bool
+            Whether the deck will carry :attr:`AERMODProject.unparsed_lines`
+            (``to_aermod_input(preserve_unparsed=...)``). True (default)
+            also checks those lines against the modelled project; False
+            skips the checks that only matter when they are written.
 
         Returns
         -------
@@ -126,7 +132,8 @@ class Validator:
         event_run = bool(getattr(project, "event_processing", False))
         cls._validate_control(project.control, result)
         cls._validate_sources(project.sources, project.control, result)
-        cls._validate_background_verbatim(project, result)
+        if preserve_unparsed:
+            cls._validate_background_verbatim(project, result)
         if not event_run:
             # An EVENT deck has no RE pathway; its receptors are the
             # EVENTLOC cards.
@@ -370,6 +377,24 @@ class Validator:
     def _validate_background(cls, background, result: ValidationResult):
         pathway = "BackgroundConcentration"
 
+        # The writer emits one mode (sectors, else period_values, else
+        # uniform_value) and drops the others without a word.
+        modes = [name for name, is_set in (
+            ("uniform_value", background.uniform_value is not None),
+            ("period_values", bool(background.period_values)),
+            ("sectors/sector_values",
+             bool(background.sectors) or bool(background.sector_values)),
+        ) if is_set]
+        if len(modes) > 1:
+            result.errors.append(ValidationError(
+                pathway, modes[0],
+                f"{' and '.join(modes)} are {'both' if len(modes) == 2 else 'all'} set; "
+                "give one of the three background modes (uniform_value, period_values, "
+                "sectors/sector_values): the deck holds only one (AERMOD takes one "
+                "flag per sector or for the whole domain, E165), so the writer writes "
+                "one of them and drops the others"
+            ))
+
         if background.uniform_value is not None:
             if not _is_number(background.uniform_value):
                 result.errors.append(ValidationError(
@@ -503,8 +528,13 @@ class Validator:
         every value a number. ``values`` may be a single value or any
         non-string iterable of values (a numpy array, a pandas Series, a
         range); a string is one value, and not a number."""
+        return cls._check_temporal_list(flag, value_list(values), where=where)
+
+    @classmethod
+    def _check_temporal_list(cls, flag, values: list, *, where: str = "") -> List[str]:
+        """:meth:`_check_temporal_values` for values already made a list
+        by :func:`~pyaermod.pathways.value_list`."""
         from .pathways import TEMPORAL_FLAG_COUNTS
-        values = value_list(values)
         problems: List[str] = []
         expected = TEMPORAL_FLAG_COUNTS.get(str(flag).upper())
         if expected is None:
@@ -528,9 +558,9 @@ class Validator:
                                      *, where=""):
         """One BACKGRND flag and its values, as soset.f reads them: a
         flag of EMISFACT's table and exactly its number of values."""
-        for message in cls._check_temporal_values(flag, values, where=where):
-            result.errors.append(ValidationError(pathway, field_name, message))
         values = value_list(values)
+        for message in cls._check_temporal_list(flag, values, where=where):
+            result.errors.append(ValidationError(pathway, field_name, message))
         if any(_is_number(v) and v < 0 for v in values):
             result.errors.append(ValidationError(
                 pathway, field_name,

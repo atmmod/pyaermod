@@ -216,22 +216,19 @@ def _kept_background(project) -> list:
 # Review finding 2: a bare value is modelled only when it is the deck's
 # one whole-domain BACKGRND value line; otherwise every bare line is kept.
 
-@pytest.mark.parametrize("so,modelled", [
-    ("   BACKGRND  5.0\n   BACKGRND  SEASON  1  2  3  4",
-     {"SEASON": [1.0, 2.0, 3.0, 4.0]}),
-    ("   BACKGRND  SEASON  1  2  3  4\n   BACKGRND  5.0",
-     {"SEASON": [1.0, 2.0, 3.0, 4.0]}),
+@pytest.mark.parametrize("so", [
+    "   BACKGRND  5.0\n   BACKGRND  SEASON  1  2  3  4",
+    "   BACKGRND  SEASON  1  2  3  4\n   BACKGRND  5.0",
 ])
-def test_a_bare_value_beside_a_flag_line_is_kept_verbatim(so, modelled):
+def test_a_bare_value_beside_a_flag_line_is_kept_verbatim(so):
+    # A whole-domain value line kept verbatim keeps them all verbatim
+    # (review finding 4 of the second round), so the pair is written
+    # back as the deck had it, in its order, and nothing is modelled.
     project = parse_aermod_input(_deck(so))
-    assert project.sources.background.period_values == modelled
-    assert project.sources.background.uniform_value is None
-    assert _kept_background(project) == ["BACKGRND 5.0"]
-    # Both lines are written back, and the validator says AERMOD refuses
-    # the pair, as it refuses the deck.
-    assert sorted(_background_lines(project.to_aermod_input(validate=False))) == sorted(
-        " ".join(ln.split()) for ln in so.splitlines())
-    assert any(e.field == "unparsed_lines" for e in _background_errors(project))
+    assert project.sources.background is None
+    deck_lines = [" ".join(ln.split()) for ln in so.splitlines()]
+    assert _kept_background(project) == deck_lines
+    assert _background_lines(project.to_aermod_input(validate=False)) == deck_lines
 
 
 def test_a_bare_value_beside_an_unreadable_flag_line_is_kept_verbatim():
@@ -400,3 +397,47 @@ def test_a_string_is_one_value_not_a_sequence_of_characters():
 
     with pytest.raises((TypeError, ValueError)):
         continued_value_lines("BACKGRND", "SEASON", "1234")
+
+
+# ----------------------------------------------------------------------
+# Review round 2, finding 4: the whole-domain profile is modelled whole
+# or not at all, as the sector form is
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("so", [
+    # the second line of a MONTH profile does not parse
+    "   BACKGRND  MONTH  1  2  3  4  5  6\n   BACKGRND  MONTH  7  8  9  10  11  x",
+    # the first line does not parse
+    "   BACKGRND  MONTH  1  2  x  4  5  6\n   BACKGRND  MONTH  7  8  9  10  11  12",
+    # beside a whole-domain hourly file, which stays where the deck had it
+    "   BACKGRND  HOURLY  bg.dat\n   BACKGRND  SEASON  1  2\n   BACKGRND  SEASON  3  x",
+    "   BACKGRND  SEASON  1  2\n   BACKGRND  HOURLY  bg.dat\n   BACKGRND  SEASON  3  x",
+    # a flag without values beside a full profile
+    "   BACKGRND  ANNUAL\n   BACKGRND  SEASON  1  2  3  4",
+])
+def test_a_whole_domain_profile_with_a_line_kept_verbatim_is_kept_whole(so):
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background is None
+    deck_lines = [" ".join(ln.split()) for ln in so.splitlines()]
+    assert _kept_background(project) == deck_lines
+    assert _background_lines(project.to_aermod_input(validate=False)) == deck_lines
+    assert [e for e in _background_errors(project) if e.field == "unparsed_lines"] == []
+
+
+@pytest.mark.parametrize("so,modelled,kept", [
+    ("   BACKGRND  HOURLY  bg.dat\n   BACKGRND  ANNUAL  5.0",
+     {"ANNUAL": 5.0}, ["BACKGRND HOURLY bg.dat"]),
+    ("   BACKGRND  SEASON  1  2\n   BACKGRND  SEASON  3  4",
+     {"SEASON": [1.0, 2.0, 3.0, 4.0]}, []),
+    ("   BACKGRND  MONTH  1  2  3  4  5  6\n   BACKGRND  MONTH  7D0  8  9  10  11  12",
+     {"MONTH": [float(i) for i in range(1, 13)]}, []),
+    ("   BACKGRND  HOURLY  bg.dat\n   BACKGRND  5.0D0", None, ["BACKGRND HOURLY bg.dat"]),
+])
+def test_a_valid_whole_domain_deck_is_still_modelled(so, modelled, kept):
+    project = parse_aermod_input(_deck(so))
+    bg = project.sources.background
+    if modelled is None:
+        assert bg.uniform_value == 5.0
+    else:
+        assert bg.period_values == modelled
+    assert _kept_background(project) == kept

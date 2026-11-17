@@ -222,8 +222,10 @@ _MONTH_TYPO = "   BACKGRND  MONTH  1  2  x  4  5  6  7  8  9  10  11  12"
 ])
 def test_a_whole_domain_background_beside_a_verbatim_flag_line_is_an_error(bg):
     project = parse_aermod_input(_deck("   BACKGRND  ANNUAL  5\n" + _MONTH_TYPO))
+    # One whole-domain line kept verbatim keeps them all (round 2, finding 4).
+    assert project.sources.background is None
     assert [u.fields[0] for u in project.unparsed_lines if u.keyword == "BACKGRND"] == [
-        "MONTH"]
+        "ANNUAL", "MONTH"]
     project.sources.background = bg
     errors = _background_errors(project)
     assert any(e.field == "unparsed_lines" and "E165" in e.message for e in errors), errors
@@ -257,3 +259,67 @@ def test_a_whole_domain_background_beside_a_verbatim_hourly_file_validates():
 ])
 def test_a_valid_whole_domain_deck_reads_to_a_valid_project(so):
     assert _background_errors(parse_aermod_input(_deck(so))) == []
+
+
+# ----------------------------------------------------------------------
+# Review round 2, finding 3: the verbatim conflict matters only when the
+# verbatim lines are written
+# ----------------------------------------------------------------------
+
+def _modelled_beside_verbatim():
+    project = parse_aermod_input(_deck("   BACKGRND  5.0\n   BACKGRND  6.0"))
+    assert project.sources.background is None
+    project.sources.background = BackgroundConcentration(uniform_value=4.0)
+    return project
+
+
+def test_the_conflict_is_not_an_error_when_verbatim_lines_are_not_written():
+    project = _modelled_beside_verbatim()
+    text = project.to_aermod_input(validate=True, preserve_unparsed=False)
+    assert [" ".join(ln.split()) for ln in text.splitlines()
+            if ln.split()[:1] == ["BACKGRND"]] == ["BACKGRND ANNUAL 4"]
+    assert [e for e in Validator.validate(project, preserve_unparsed=False).errors
+            if e.field == "unparsed_lines"] == []
+
+
+def test_the_conflict_is_an_error_when_verbatim_lines_are_written():
+    project = _modelled_beside_verbatim()
+    with pytest.raises(ValueError, match="unparsed_lines"):
+        project.to_aermod_input(validate=True)
+    assert any(e.field == "unparsed_lines" for e in Validator.validate(project).errors)
+
+
+# ----------------------------------------------------------------------
+# Review round 2, finding 6: one background mode at a time
+# ----------------------------------------------------------------------
+
+_SECTOR_MODE = dict(sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+                    sector_values={(1, "ANNUAL"): 5.0, (2, "ANNUAL"): 4.0})
+
+
+@pytest.mark.parametrize("kwargs,named", [
+    (dict(uniform_value=5.0, period_values={"ANNUAL": 4.0}),
+     ["uniform_value", "period_values"]),
+    (dict(uniform_value=5.0, **_SECTOR_MODE), ["uniform_value", "sectors"]),
+    (dict(period_values={"ANNUAL": 4.0}, **_SECTOR_MODE), ["period_values", "sectors"]),
+    (dict(uniform_value=5.0, period_values={"ANNUAL": 4.0}, **_SECTOR_MODE),
+     ["uniform_value", "period_values", "sectors"]),
+    (dict(uniform_value=5.0, sectors=_SECTOR_MODE["sectors"]),
+     ["uniform_value", "sectors"]),
+])
+def test_more_than_one_background_mode_is_an_error(kwargs, named):
+    errors = _background_errors(_project_with(BackgroundConcentration(**kwargs)))
+    modes = [e for e in errors if "one of" in e.message and "mode" in e.message]
+    assert len(modes) == 1, errors
+    assert all(name in modes[0].message for name in named), modes[0].message
+
+
+@pytest.mark.parametrize("kwargs", [
+    dict(uniform_value=5.0),
+    dict(period_values={"ANNUAL": 4.0}),
+    dict(**_SECTOR_MODE),
+    dict(uniform_value=None, period_values={}, sectors=None, sector_values=None),
+])
+def test_one_background_mode_is_not_a_mode_error(kwargs):
+    errors = _background_errors(_project_with(BackgroundConcentration(**kwargs)))
+    assert not [e for e in errors if "mode" in e.message], errors

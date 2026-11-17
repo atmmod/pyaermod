@@ -359,7 +359,7 @@ def _background_lines(spec: BackgroundSpec, keywords: Tuple[str, str, str],
         lines.append(line)
     if spec.varying is not None:
         lines += continued_value_lines(vals_kw, f"{tag}{spec.varying.flag}",
-                                       list(spec.varying.values))
+                                       spec.varying.values)
     return lines
 
 

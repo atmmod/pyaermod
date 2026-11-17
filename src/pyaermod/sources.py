@@ -1685,15 +1685,6 @@ class BackgroundConcentration:
     sectors: Optional[List[BackgroundSector]] = None
     sector_values: Optional[dict] = None
 
-    #: Values per BACKGRND line when a profile is written; AERMOD reads
-    #: the rest from further lines that repeat the flag.
-    VALUES_PER_LINE: ClassVar[int] = 12
-
-    @classmethod
-    def _value_lines(cls, prefix: str, values) -> List[str]:
-        return continued_value_lines("BACKGRND", prefix, values,
-                                     per_line=cls.VALUES_PER_LINE)
-
     def to_aermod_input(self) -> str:
         """Generate AERMOD BACKGRND / BGSECTOR keywords."""
         lines: List[str] = []
@@ -1703,14 +1694,14 @@ class BackgroundConcentration:
             dir_parts = [f"{s.start_direction:.1f}" for s in sorted_sectors]
             lines.append(f"   BGSECTOR  {' '.join(dir_parts)}")
             for (sid, flag), values in sorted(self.sector_values.items()):
-                lines += self._value_lines(f"SECT{sid}  {flag}", values)
+                lines += continued_value_lines("BACKGRND", f"SECT{sid}  {flag}", values)
         elif self.period_values:
             for flag, values in self.period_values.items():
-                lines += self._value_lines(flag, values)
+                lines += continued_value_lines("BACKGRND", flag, values)
         elif self.uniform_value is not None:
             # A value without a flag is E201 in AERMOD; ANNUAL is one
             # value for every hour.
-            lines += self._value_lines("ANNUAL", self.uniform_value)
+            lines += continued_value_lines("BACKGRND", "ANNUAL", self.uniform_value)
         return "\n".join(lines)
 
 

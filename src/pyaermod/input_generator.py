@@ -201,7 +201,8 @@ class AERMODProject:
             If True (default), every :attr:`unparsed_lines` entry is
             written back into its pathway, just before the pathway's
             ``FINISHED`` line, under a ``**`` comment banner. Pass
-            ``False`` to write only what the model represents.
+            ``False`` to write only what the model represents; validation
+            then skips the checks of the model against those lines.
         event_processing : bool, optional
             Write the EVENT-run layout (``CO SO ME EV OU``, see
             :attr:`event_processing`); the default is the project's own
@@ -213,7 +214,8 @@ class AERMODProject:
         """
         if validate:
             from pyaermod.validator import Validator
-            result = Validator.validate(self, check_files=check_files)
+            result = Validator.validate(self, check_files=check_files,
+                                        preserve_unparsed=preserve_unparsed)
             if not result.is_valid:
                 raise ValueError(str(result))
 

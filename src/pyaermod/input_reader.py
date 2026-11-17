@@ -914,7 +914,8 @@ def _parse_sources(block: _PathwayBlock,
 
     # Background concentration accumulation
     bg_bare: List[Tuple[int, float]] = []   # whole-domain value lines with no flag
-    bg_domain_value_lines = 0         # whole-domain BACKGRND lines other than HOURLY
+    bg_domain_value_lns: List[int] = []   # whole-domain BACKGRND lines other than HOURLY
+    bg_domain_partial = False         # one of them not modelled
     bg_period_values: Dict[str, List[float]] = {}
     bg_sectors: List[BackgroundSector] = []
     bg_sector_values: Dict[Tuple[int, str], List[float]] = {}
@@ -1130,10 +1131,11 @@ def _parse_sources(block: _PathwayBlock,
             if sector is None:
                 bg_domain_lines = True
                 if not rest or rest[0].upper() != "HOURLY":
-                    bg_domain_value_lines += 1
+                    bg_domain_value_lns.append(ln)
             if not rest:
                 _drop(dropped, ln)
                 bg_sector_partial = bg_sector_partial or sector is not None
+                bg_domain_partial = bg_domain_partial or sector is None
             elif rest[0].upper() == "HOURLY":
                 # The whole-domain file is kept verbatim beside the
                 # modelled values; a sector's file is not modelled, and
@@ -1155,12 +1157,14 @@ def _parse_sources(block: _PathwayBlock,
                     bg_bare.append((ln, _fortran_float(rest[0])))
                 except ValueError:
                     _drop(dropped, ln)
+                    bg_domain_partial = True
             else:
                 try:
                     values = [_fortran_float(t) for t in rest[1:]]
                 except ValueError:
                     _drop(dropped, ln)
                     bg_sector_partial = bg_sector_partial or sector is not None
+                    bg_domain_partial = bg_domain_partial or sector is None
                 else:
                     flag = rest[0].upper()
                     if sector is None:
@@ -1656,7 +1660,7 @@ def _parse_sources(block: _PathwayBlock,
     # and every bare line is kept verbatim rather than one of them lost.
     sector_form = bgsector_lines > 0 or bool(bg_sector_values) or bg_sector_partial
     bg_uniform: Optional[float] = None
-    if len(bg_bare) == 1 and bg_domain_value_lines == 1 and not sector_form:
+    if len(bg_bare) == 1 and len(bg_domain_value_lns) == 1 and not sector_form:
         bare_line, bg_uniform = bg_bare[0]
         logger.warning(
             "line %d: BACKGRND %s has no temporal flag, which AERMOD refuses "
@@ -1664,6 +1668,7 @@ def _parse_sources(block: _PathwayBlock,
     elif bg_bare:
         for bare_line, _value in bg_bare:
             _drop(dropped, bare_line)
+        bg_domain_partial = True
         if not sector_form:
             logger.warning(
                 "SO BACKGRND: line%s %s give%s a value without a temporal flag (AERMOD "
@@ -1671,6 +1676,21 @@ def _parse_sources(block: _PathwayBlock,
                 "verbatim, not read as a uniform background",
                 "s" if len(bg_bare) > 1 else "",
                 ", ".join(str(n) for n, _v in bg_bare), "" if len(bg_bare) > 1 else "s")
+    # The whole-domain values are modelled whole or not at all, as the
+    # sector form is: when one whole-domain line other than HOURLY is
+    # kept verbatim (a value without a flag, a flag without values, a
+    # value that does not parse), every one of them is, in deck order,
+    # rather than a profile modelled in part beside the rest of it.
+    if bg_domain_partial:
+        if not sector_form:
+            logger.warning(
+                "SO BACKGRND: a whole-domain line is not modelled, so lines %s are kept "
+                "verbatim and no whole-domain background is modelled",
+                ", ".join(str(n) for n in bg_domain_value_lns))
+        for lineno in bg_domain_value_lns:
+            _drop(dropped, lineno)
+        bg_period_values = {}
+        bg_uniform = None
     if sector_form and (bg_sector_partial or bgsector_lines != 1 or bg_domain_lines
                         or not bg_sectors or not bg_sector_values):
         for lineno in bg_lines:

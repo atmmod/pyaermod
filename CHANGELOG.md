@@ -121,14 +121,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The validator now refuses, as AERMOD does: a declared background sector
   without values (E238), sector IDs other than 1..N in `BGSECTOR` order
   (E203), and a modelled background that conflicts with `BACKGRND` or
-  `BGSECTOR` lines kept verbatim from a deck (E203). A non-numeric value in
+  `BGSECTOR` lines kept verbatim from a deck (E203, E165), and more than one
+  of the uniform, temporal and sector modes at once, which the writer
+  would silently reduce to one. A non-numeric value in
   a `BACKGRND`, `O3VALUES` or `NOX_VALS` profile is a validation error
   instead of a `TypeError`.
 - A deck whose sector background cannot be modelled whole (an unreadable
   `SECTn` line, `SECTn` lines without `BGSECTOR`, whole-domain values beside
   sectors) lost its `BGSECTOR` line on rewrite, which AERMOD rejects
   (E171). Every `BGSECTOR` and `BACKGRND` line is now kept verbatim in
-  order.
+  order. The whole-domain lines follow the same rule: if one of them
+  cannot be modelled, all are kept verbatim instead of half a profile
+  being modelled. Background profiles may be numpy arrays, pandas Series or
+  ranges, and project files save them as lists.
 - A sector's hourly background file (`BACKGRND SECTn HOURLY file`) was
   dropped from a deck without a trace. A deck that has one now keeps its
   `BGSECTOR` and `BACKGRND` lines verbatim, in order, and lists the file
@@ -141,8 +146,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   year's mean (40 CFR 50.11(e), Appendix S), so the design value is now
   the highest year's mean at each receptor;
   `no2_annual="multi_year_mean"` keeps the average for an agency that
-  accepts it. Only years with data on at least 75% of their days count
-  toward the highest year; a year left out is named in a warning. The
+  accepts it. Only years at least 75% complete count toward the highest
+  year (days for hourly and daily values, months for MONTH); a year left
+  out is named in a warning, and a receptor with no complete year gets the
+  mean over the whole record, with a warning. AERMOD's ANNUAL POSTFILE
+  value over several years, an average of the years' means, is refused
+  rather than reported as one year; mixed averaging periods are refused. The
   GUIs' NAAQS check called AERMOD's multi-year ANNUAL value the NO2
   design value; it is now a lower bound, above the NAAQS only when it
   exceeds the level, and the note explaining it appears only then.
