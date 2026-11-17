@@ -19,6 +19,7 @@ pollutant pairing rules are in the function docstring.
 
 from __future__ import annotations
 
+import calendar
 import math
 import warnings
 from dataclasses import dataclass
@@ -644,55 +645,100 @@ def naaqs_output_pathway(
     )
 
 
-#: How :func:`naaqs_compliance_report` combines the years' annual NO2
+#: How :func:`naaqs_compliance_report` may combine the years' annual NO2
 #: means: the CFR form, one calendar year (the highest), or their average.
-_NO2_ANNUAL_FORMS = {"highest_year": "max", "multi_year_mean": "mean"}
+_NO2_ANNUAL_FORMS = ("highest_year", "multi_year_mean")
 
 #: 40 CFR 50 Appendix S: an annual NO2 mean is valid when at
 #: least 75 % of the year is covered.
 _NO2_ANNUAL_COMPLETENESS = 0.75
 
 
+def _coverage_unit(ave: object) -> str:
+    """The unit a year's coverage is counted in for one POSTFILE ``ave``.
+
+    ``"month"`` for MONTH values, ``"year"`` for ANNUAL values (each is a
+    whole year's mean), ``"period"`` for PERIOD values (one mean over the
+    whole run) and ``"day"`` for everything else: 1-HR, 3-HR, 24-HR ...
+    """
+    text = str(ave).strip().upper()
+    return {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}.get(text, "day")
+
+
 def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
     """Highest annual mean per receptor, over the years at least 75 % covered.
 
-    Coverage is the share of the calendar year's days (365 or 366) that
-    have at least one row for that receptor, so it reads the same from
-    hourly and daily POSTFILEs. A year below 75 % is left out with a
-    warning; a receptor with no year at 75 % falls back to all its years,
-    also with a warning, rather than reporting nothing.
-    """
-    work = _dedupe_receptors(_one_source_group(df))
-    covered = (
-        work.assign(_year=_parse_yymmddhh_to_year(work["date"]),
-                    _d=work["date"].astype(str).str.zfill(8).str.slice(0, 6))
-        .groupby(["x", "y", "_year"], sort=False)["_d"].nunique()
-        .rename("_days").reset_index()
-    )
-    leap = covered["_year"].map(
-        lambda y: y % 4 == 0 and (y % 100 != 0 or y % 400 == 0))
-    covered["_ok"] = (covered["_days"]
-                      >= _NO2_ANNUAL_COMPLETENESS * np.where(leap, 366, 365))
+    Coverage is counted in the unit of the averaging period (the ``ave``
+    column): the share of the calendar year's days (365 or 366) with at
+    least one row for that receptor for hourly to 24-hour values, so it
+    reads the same from hourly and daily POSTFILEs, and the share of its
+    12 months for MONTH values. An ANNUAL value is a whole year's mean, so
+    its year is complete. A PERIOD value is one mean over the whole run,
+    which cannot be split into calendar years; it is used as it is, with
+    a warning. Without an ``ave`` column coverage is counted in days.
 
-    means = annual_mean(work).merge(
-        covered.rename(columns={"_year": "year"}), on=["x", "y", "year"],
-        how="left",
-    )
+    A year below 75 % is left out with a warning; a receptor with no year
+    at 75 % falls back to all its years, also with a warning, rather than
+    reporting nothing.
+    """
+    work = _one_source_group(df)
+    if "ave" in work.columns:
+        aves = pd.unique(work["ave"].astype(str).str.strip().str.upper())
+        units = {_coverage_unit(a) for a in aves} or {"day"}
+    else:
+        aves, units = [], {"day"}
+    if len(units) > 1:
+        raise ValueError(
+            "an annual NO2 mean cannot pool averaging periods counted in "
+            f"different units ({', '.join(sorted(aves))}); pass one "
+            "averaging period, e.g. df[df['ave'] == 'MONTH']."
+        )
+    [unit] = units
+
+    # Dedupe after the unit check: rows of different periods that end on
+    # the same hour would otherwise read as repeats of each other.
+    work = _dedupe_receptors(work)
+    keys = ["x", "y", "_year"]
+    work = work.assign(_year=_parse_yymmddhh_to_year(work["date"]))
+    if unit in ("day", "month"):
+        stamp = _parse_yymmddhh_to_date(work["date"])
+        work["_unit"] = stamp if unit == "day" else stamp.dt.month
+        means = work.groupby(keys, as_index=False, sort=False).agg(
+            concentration=("concentration", "mean"), _n=("_unit", "nunique"))
+        if unit == "day":
+            whole = np.where(means["_year"].map(calendar.isleap), 366, 365)
+        else:
+            whole = 12
+        means["_ok"] = means["_n"] >= _NO2_ANNUAL_COMPLETENESS * whole
+    else:
+        means = (work.groupby(keys, as_index=False, sort=False)
+                 ["concentration"].mean())
+        means["_ok"] = True
+    if unit == "period":
+        warnings.warn(
+            "a PERIOD average is one mean over the whole run, not a "
+            "calendar year's mean, so the annual NO2 design value is the "
+            "PERIOD mean; it equals the annual mean (40 CFR 50 Appendix S) "
+            "only for a run of one calendar year.",
+            stacklevel=3,
+        )
+
     any_ok = means.groupby(["x", "y"], sort=False)["_ok"].transform("any")
     used = means[means["_ok"] | ~any_ok]
 
-    dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "year"]})
+    noun = "months" if unit == "month" else "days"
+    dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "_year"]})
     if dropped:
         warnings.warn(
             "the annual NO2 design value leaves out "
             f"{', '.join(map(str, dropped))}: data on fewer than 75% of the "
-            "year's days at some receptor (40 CFR 50 Appendix S) is too "
+            f"year's {noun} at some receptor (40 CFR 50 Appendix S) is too "
             "little for a valid annual mean.",
             stacklevel=3,
         )
     if (~any_ok).any():
         warnings.warn(
-            "no year has data on at least 75% of its days (40 CFR 50 "
+            f"no year has data on at least 75% of its {noun} (40 CFR 50 "
             "Appendix S), so the annual NO2 design value is the highest "
             "of the incomplete years' means.",
             stacklevel=3,
@@ -739,7 +785,10 @@ def naaqs_compliance_report(
     mean at each receptor. Only years with data on at least 75% of their
     days count (Appendix S treats an annual mean as valid from 75%
     coverage), so a few days of a following year cannot set the design
-    value; the years left out are named in a :class:`UserWarning`. If no
+    value; the years left out are named in a :class:`UserWarning`. A
+    MONTH POSTFILE counts months instead of days, an ANNUAL row is a
+    complete year, and a PERIOD mean, which covers the whole run rather
+    than one calendar year, is used as it is with a warning. If no
     year at a receptor reaches 75%, all its years are used and a warning
     says so. ``no2_annual="multi_year_mean"`` averages the years instead,
     which some reviewing agencies accept for five years of NWS met data;

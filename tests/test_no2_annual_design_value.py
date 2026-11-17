@@ -130,6 +130,69 @@ def test_coverage_is_judged_per_receptor():
     assert by_x[100.0] == pytest.approx(60.0)
 
 
+# ----------------------------------------------------------------------
+# Coverage is counted in the unit of the averaging period
+# ----------------------------------------------------------------------
+
+def _rows(ave: str, rows: list[tuple[str, float]]) -> pd.DataFrame:
+    """POSTFILE rows at one receptor: ``(YYMMDDHH, value)`` with one ``ave``."""
+    return pd.DataFrame({"x": 0.0, "y": 0.0,
+                         "concentration": [v for _, v in rows],
+                         "date": [d for d, _ in rows], "ave": ave, "group": "ALL"})
+
+
+def _month_end(year: int, month: int) -> str:
+    """AERMOD's end-of-period stamp for a MONTH value: the month's last hour."""
+    last = pd.Timestamp(year=year, month=month, day=1) + pd.offsets.MonthEnd(0)
+    return f"{last:%y%m%d}24"
+
+
+def test_a_monthly_postfile_counts_months_not_days():
+    df = _rows("MONTH", [(_month_end(2019, m), 40.0) for m in range(1, 13)]
+               + [(_month_end(2020, 1), 150.0)])
+    with pytest.warns(UserWarning, match="2020") as caught:
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(40.0)]
+    assert report["exceeds"].tolist() == [False]
+    assert not any("no year" in str(w.message) for w in caught)
+
+
+def test_nine_months_of_a_monthly_postfile_make_a_complete_year():
+    df = _rows("MONTH", [(_month_end(2019, m), 40.0) for m in range(1, 13)]
+               + [(_month_end(2020, m), 150.0) for m in range(1, 10)])
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(150.0)]
+
+
+def test_an_annual_postfile_row_is_a_complete_year():
+    import warnings
+    df = _rows("ANNUAL", [("19123124", 40.0), ("20123124", 120.0)])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(120.0)]
+    assert report["exceeds"].tolist() == [True]
+
+
+def test_a_period_average_is_used_with_a_warning_that_it_is_not_a_calendar_year():
+    df = _rows("PERIOD", [("20123124", 45.0)])
+    with pytest.warns(UserWarning, match="PERIOD") as caught:
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(45.0)]
+    assert not any("no year" in str(w.message) for w in caught)
+
+
+def test_averaging_periods_with_different_coverage_units_are_refused():
+    df = pd.concat([_hours(2019, 40.0),
+                    _rows("MONTH", [(_month_end(2019, m), 40.0) for m in range(1, 13)])],
+                   ignore_index=True)
+    with pytest.raises(ValueError, match="MONTH"):
+        naaqs_compliance_report("NO2_annual", df)
+
+
 def test_the_multi_year_mean_still_averages_every_year():
     import warnings
     df = pd.concat([_hours(2019, 40.0), _hours(2020, 150.0, days=1)], ignore_index=True)
