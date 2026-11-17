@@ -665,67 +665,109 @@ def _coverage_unit(ave: object) -> str:
     return {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}.get(text, "day")
 
 
+def _annual_numyrs(date_col: pd.Series) -> Optional[int]:
+    """The number of years behind ANNUAL POSTFILE rows, or None if unknown.
+
+    AERMOD writes NUMYRS (I8.8) where a POSTFILE has the date, so a value
+    averaged over five years reads ``00000005``. A field that is a date, or
+    is not one count shared by every row, says nothing about the length.
+    """
+    text = date_col.astype(str).str.strip()
+    if text.empty or not text.str.fullmatch(r"\d{1,8}").all():
+        return None
+    counts = text.map(int).unique()
+    # A real YYMMDDHH has a month of 01-12; a count below 1e6 has month 00.
+    if len(counts) != 1 or not 1 <= counts[0] < 1_000_000:
+        return None
+    return int(counts[0])
+
+
 def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
     """Highest annual mean per receptor, over the years at least 75 % covered.
 
-    Coverage is counted in the unit of the averaging period (the ``ave``
-    column): the share of the calendar year's days (365 or 366) with at
-    least one row for that receptor for hourly to 24-hour values, so it
-    reads the same from hourly and daily POSTFILEs, and the share of its
-    12 months for MONTH values. An ANNUAL value is a whole year's mean, so
-    its year is complete. A PERIOD value is one mean over the whole run,
-    which cannot be split into calendar years; it is used as it is, with
-    a warning. Without an ``ave`` column coverage is counted in days.
+    The frame must hold one averaging period (one ``ave`` value). Coverage
+    is counted in its unit: the share of the calendar year's days (365 or
+    366) with at least one row for that receptor for hourly to 24-hour
+    values, so it reads the same from hourly and daily POSTFILEs, and the
+    share of its 12 months for MONTH values. Without an ``ave`` column
+    coverage is counted in days.
 
-    A year below 75 % is left out with a warning; a receptor with no year
-    at 75 % falls back to all its years, also with a warning, rather than
-    reporting nothing.
+    An ANNUAL value is a whole year's mean only when the run covered one
+    year: AERMOD's ANNUAL value over several years is the average of the
+    years' means, a lower bound on the highest year, so it is refused, as
+    is one whose number of years cannot be read. A PERIOD value is one
+    mean over the whole run, which cannot be split into calendar years; it
+    is used as it is, with a warning.
+
+    A year below 75 % is left out with a warning. A receptor with no
+    calendar year at 75 % gets the mean over its whole record instead,
+    also with a warning, rather than its highest partial year.
     """
     work = _one_source_group(df)
     if "ave" in work.columns:
-        aves = pd.unique(work["ave"].astype(str).str.strip().str.upper())
-        units = {_coverage_unit(a) for a in aves} or {"day"}
+        aves = sorted(pd.unique(work["ave"].astype(str).str.strip().str.upper()))
     else:
-        aves, units = [], {"day"}
-    if len(units) > 1:
+        aves = []
+    if len(aves) > 1:
         raise ValueError(
-            "an annual NO2 mean cannot pool averaging periods counted in "
-            f"different units ({', '.join(sorted(aves))}); pass one "
-            "averaging period, e.g. df[df['ave'] == 'MONTH']."
+            "an annual NO2 mean needs one averaging period; found "
+            f"{', '.join(aves)}. Pass one averaging period, e.g. "
+            f"df[df['ave'] == {aves[0]!r}]."
         )
-    [unit] = units
+    unit = _coverage_unit(aves[0]) if aves else "day"
 
-    # Dedupe after the unit check: rows of different periods that end on
+    if unit == "year":
+        numyrs = _annual_numyrs(work["date"])
+        if numyrs != 1:
+            span = (f"{numyrs} years" if numyrs is not None else
+                    "an unknown number of years (the date column does not "
+                    "hold AERMOD's NUMYRS count, so it may be several)")
+            raise ValueError(
+                f"the ANNUAL values cover {span}. AERMOD's multi-year ANNUAL "
+                "value is the average of the years' annual means, a lower "
+                "bound on the annual NO2 design value, which is the highest "
+                "single calendar year's mean (40 CFR 50.11(e), Appendix S). "
+                "An hourly (or 24-HR / MONTH) POSTFILE gives the per-year "
+                "means."
+            )
+
+    # Dedupe after the period check: rows of different periods that end on
     # the same hour would otherwise read as repeats of each other.
     work = _dedupe_receptors(work)
-    keys = ["x", "y", "_year"]
-    work = work.assign(_year=_parse_yymmddhh_to_year(work["date"]))
-    if unit in ("day", "month"):
-        stamp = _parse_yymmddhh_to_date(work["date"])
-        work["_unit"] = stamp if unit == "day" else stamp.dt.month
-        means = work.groupby(keys, as_index=False, sort=False).agg(
-            concentration=("concentration", "mean"), _n=("_unit", "nunique"))
-        if unit == "day":
-            whole = np.where(means["_year"].map(calendar.isleap), 366, 365)
-        else:
-            whole = 12
-        means["_ok"] = means["_n"] >= _NO2_ANNUAL_COMPLETENESS * whole
-    else:
-        means = (work.groupby(keys, as_index=False, sort=False)
-                 ["concentration"].mean())
-        means["_ok"] = True
-    if unit == "period":
-        warnings.warn(
-            "a PERIOD average is one mean over the whole run, not a "
-            "calendar year's mean, so the annual NO2 design value is the "
-            "PERIOD mean; it equals the annual mean (40 CFR 50 Appendix S) "
-            "only for a run of one calendar year.",
-            stacklevel=3,
+    receptor = ["x", "y"]
+    if unit in ("year", "period"):
+        # One mean per receptor: a single-year ANNUAL value, or a PERIOD
+        # mean, whose date field holds a count, not a date.
+        if unit == "period":
+            warnings.warn(
+                "a PERIOD average is one mean over the whole run, not a "
+                "calendar year's mean, so the annual NO2 design value is the "
+                "PERIOD mean; it equals the annual mean (40 CFR 50 Appendix "
+                "S) only for a run of one calendar year.",
+                stacklevel=3,
+            )
+        return (work.groupby(receptor, as_index=False, sort=False)
+                ["concentration"].max())
+
+    stamp = _parse_yymmddhh_to_date(work["date"])
+    if stamp.isna().any():
+        bad = work.loc[stamp.isna(), "date"].astype(str).unique()[:4]
+        raise ValueError(
+            "the date column must hold AERMOD YYMMDDHH stamps; cannot read "
+            f"{', '.join(bad)}."
         )
+    work = work.assign(_year=stamp.dt.year,
+                       _unit=stamp if unit == "day" else stamp.dt.month)
+    keys = [*receptor, "_year"]
+    means = work.groupby(keys, as_index=False, sort=False).agg(
+        concentration=("concentration", "mean"), _n=("_unit", "nunique"))
+    if unit == "day":
+        whole = means["_year"].map(lambda y: 366 if calendar.isleap(y) else 365)
+    else:
+        whole = pd.Series(12, index=means.index)
+    means["_ok"] = means["_n"] >= _NO2_ANNUAL_COMPLETENESS * whole
 
-    any_ok = means.groupby(["x", "y"], sort=False)["_ok"].transform("any")
-    used = means[means["_ok"] | ~any_ok]
-
+    any_ok = means.groupby(receptor, sort=False)["_ok"].transform("any")
     noun = "months" if unit == "month" else "days"
     dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "_year"]})
     if dropped:
@@ -736,15 +778,25 @@ def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
             "little for a valid annual mean.",
             stacklevel=3,
         )
-    if (~any_ok).any():
-        warnings.warn(
-            f"no year has data on at least 75% of its {noun} (40 CFR 50 "
-            "Appendix S), so the annual NO2 design value is the highest "
-            "of the incomplete years' means.",
-            stacklevel=3,
-        )
-    return (used.groupby(["x", "y"], as_index=False, sort=False)
-            ["concentration"].max())
+    highest = (means[means["_ok"]]
+               .groupby(receptor, as_index=False, sort=False)
+               ["concentration"].max())
+    if any_ok.all():
+        return highest
+
+    warnings.warn(
+        f"no calendar year has data on at least 75% of its {noun} (40 CFR 50 "
+        "Appendix S) at some receptor, so its annual NO2 design value is the "
+        "mean over the whole record, not a calendar-year mean.",
+        stacklevel=3,
+    )
+    incomplete = means.loc[~any_ok, receptor].drop_duplicates()
+    whole_record = (work.merge(incomplete, on=receptor)
+                    .groupby(receptor, as_index=False, sort=False)
+                    ["concentration"].mean())
+    # Back in the receptors' order of appearance.
+    return (means[receptor].drop_duplicates()
+            .merge(pd.concat([highest, whole_record]), on=receptor))
 
 
 def naaqs_compliance_report(
@@ -785,12 +837,18 @@ def naaqs_compliance_report(
     mean at each receptor. Only years with data on at least 75% of their
     days count (Appendix S treats an annual mean as valid from 75%
     coverage), so a few days of a following year cannot set the design
-    value; the years left out are named in a :class:`UserWarning`. A
-    MONTH POSTFILE counts months instead of days, an ANNUAL row is a
-    complete year, and a PERIOD mean, which covers the whole run rather
-    than one calendar year, is used as it is with a warning. If no
-    year at a receptor reaches 75%, all its years are used and a warning
-    says so. ``no2_annual="multi_year_mean"`` averages the years instead,
+    value; the years left out are named in a :class:`UserWarning`. The
+    frame must hold one averaging period (one ``ave`` value). A MONTH
+    POSTFILE counts months instead of days, and a PERIOD mean, which covers
+    the whole run rather than one calendar year, is used as it is with a
+    warning. An ANNUAL value is used only when it covers one year: over
+    several years (AERMOD writes NUMYRS where the date would be) it is the
+    average of the years' means, a lower bound on the design value, so it
+    raises :class:`ValueError`, as does an ANNUAL value whose number of
+    years cannot be read. If no calendar year at a receptor reaches 75%
+    (one met year starting in July, say), the design value there is the
+    mean over its whole record and a warning says so.
+    ``no2_annual="multi_year_mean"`` averages the years instead,
     which some reviewing agencies accept for five years of NWS met data;
     it can be below the highest year, and it averages every year present,
     complete or not.

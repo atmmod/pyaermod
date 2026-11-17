@@ -111,12 +111,44 @@ def test_complete_years_raise_no_warning():
     assert report["design_value"].tolist() == [pytest.approx(120.0)]
 
 
-def test_when_no_year_is_complete_all_years_are_used_with_a_warning():
+def test_when_no_year_is_complete_the_whole_record_mean_is_used_with_a_warning():
     df = pd.concat([_hours(2019, 40.0, days=30), _hours(2020, 150.0, days=1)],
                    ignore_index=True)
-    with pytest.warns(UserWarning, match="no year"):
+    with pytest.warns(UserWarning, match="no calendar year"):
         report = naaqs_compliance_report("NO2_annual", df)
-    assert report["design_value"].tolist() == [pytest.approx(150.0)]
+    # 30 days at 40 and one day at 150, every hour present.
+    assert report["design_value"].tolist() == [pytest.approx((30 * 40.0 + 150.0) / 31)]
+
+
+def test_the_whole_record_fallback_applies_only_to_receptors_without_a_complete_year():
+    df = pd.concat([_hours(2019, 30.0, days=30, x=100.0), _hours(2020, 90.0, days=10, x=100.0),
+                    _hours(2019, 40.0), _hours(2020, 150.0, days=1)],
+                   ignore_index=True)
+    with pytest.warns(UserWarning) as caught:
+        report = naaqs_compliance_report("NO2_annual", df)
+    messages = [str(w.message) for w in caught]
+    assert any("whole record" in m for m in messages)
+    assert any("leaves out 2020" in m for m in messages)
+    assert report["x"].tolist() == [100.0, 0.0]
+    assert report["design_value"].tolist() == [
+        pytest.approx((30 * 30.0 + 10 * 90.0) / 40), pytest.approx(40.0)]
+
+
+def test_one_met_year_across_two_calendar_years_is_the_whole_record_mean():
+    # One met year, 2019-07-01 .. 2020-06-30: neither calendar year reaches
+    # 75 %, and the higher half-year mean (120) is not an annual mean.
+    first = pd.date_range("2019-07-01", "2019-12-31", freq="D")
+    second = pd.date_range("2020-01-01", "2020-06-30", freq="D")
+    stamps = [f"{d:%y%m%d}{h:02d}" for d in first.append(second) for h in range(1, 25)]
+    values = [40.0] * (24 * len(first)) + [120.0] * (24 * len(second))
+    df = pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": values,
+                       "date": stamps, "ave": "1-HR", "group": "ALL"})
+    with pytest.warns(UserWarning, match="whole record") as caught:
+        report = naaqs_compliance_report("NO2_annual", df)
+    expected = (40.0 * len(first) + 120.0 * len(second)) / (len(first) + len(second))
+    assert report["design_value"].tolist() == [pytest.approx(expected)]
+    assert report["exceeds"].tolist() == [False]
+    assert any("not a calendar-year mean" in str(w.message) for w in caught)
 
 
 def test_coverage_is_judged_per_receptor():
@@ -167,14 +199,6 @@ def test_nine_months_of_a_monthly_postfile_make_a_complete_year():
     assert report["design_value"].tolist() == [pytest.approx(150.0)]
 
 
-def test_an_annual_postfile_row_is_a_complete_year():
-    import warnings
-    df = _rows("ANNUAL", [("19123124", 40.0), ("20123124", 120.0)])
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        report = naaqs_compliance_report("NO2_annual", df)
-    assert report["design_value"].tolist() == [pytest.approx(120.0)]
-    assert report["exceeds"].tolist() == [True]
 
 
 def test_a_period_average_is_used_with_a_warning_that_it_is_not_a_calendar_year():
@@ -191,6 +215,109 @@ def test_averaging_periods_with_different_coverage_units_are_refused():
                    ignore_index=True)
     with pytest.raises(ValueError, match="MONTH"):
         naaqs_compliance_report("NO2_annual", df)
+
+
+@pytest.mark.parametrize("other", ["24-HR", "3-HR"])
+def test_averaging_periods_with_the_same_coverage_unit_are_refused_too(other):
+    # 1-HR and 24-HR (or 3-HR) rows both end at hour 24; pooling them would
+    # otherwise fail on a misleading "two receptors share (x, y)".
+    hourly = _hours(2019, 40.0)
+    other_rows = hourly.assign(ave=other, concentration=41.0)
+    df = pd.concat([hourly, other_rows], ignore_index=True)
+    with pytest.raises(ValueError, match="one averaging period") as caught:
+        naaqs_compliance_report("NO2_annual", df)
+    assert "1-HR" in str(caught.value)
+    assert other in str(caught.value)
+    assert "share" not in str(caught.value)
+
+
+def test_the_date_column_is_parsed_once(monkeypatch):
+    from pyaermod import design_values as dv
+
+    calls = []
+    real = dv._parse_yymmddhh_to_date
+
+    def counting(col):
+        calls.append(len(col))
+        return real(col)
+
+    def refused(col):
+        raise AssertionError("the year is derived from the parsed date")
+
+    monkeypatch.setattr(dv, "_parse_yymmddhh_to_date", counting)
+    monkeypatch.setattr(dv, "_parse_yymmddhh_to_year", refused)
+    report = naaqs_compliance_report("NO2_annual", _two_years(40.0, 120.0))
+    assert report["design_value"].tolist() == [pytest.approx(120.0)]
+    assert len(calls) == 1
+
+
+# ----------------------------------------------------------------------
+# An ANNUAL POSTFILE over several years is an average, not a design value
+# ----------------------------------------------------------------------
+
+def _annual_postfile(tmp_path, field: str, values=(40.0, 120.0)) -> pd.DataFrame:
+    """Read an AERMOD text ANNUAL POSTFILE whose date field is ``field``.
+
+    AERMOD (PSTANN) writes NUMYRS as I8.8 in the date column of an ANNUAL
+    POSTFILE, under the label NUM YRS, so five years read as ``00000005``.
+    """
+    from pyaermod.postfile import read_postfile
+
+    lines = [
+        "* AERMOD (26135 ):  NO2 annual                                                          10/19/26",
+        "* AERMET ( 26135):                                                                          14:10:38",
+        "* MODELING OPTIONS USED:   RegDFAULT  CONC  ELEV  RURAL",
+        "*         POST/PLOT FILE OF ANNUAL VALUES FOR SOURCE GROUP: ALL     ",
+        f"*         FOR A TOTAL OF   {len(values)} RECEPTORS.",
+        "*         FORMAT: (3(1X,F13.5),3(1X,F8.2),2X,A6,2X,A8,2X,I8.8,2X,A8)",
+        "*        X             Y      AVERAGE CONC    ZELEV    ZHILL    ZFLAG    AVE     GRP      NUM YRS   NET ID",
+        "* ____________  ____________  ____________   ______   ______   ______  ______  ________  ________  ________",
+    ]
+    for i, v in enumerate(values):
+        lines.append(f" {100.0 * i:13.5f} {0.0:13.5f} {v:13.5f} {0.0:8.2f} {0.0:8.2f} "
+                     f"{0.0:8.2f}  ANNUAL  ALL       {field}  GRID1   ")
+    path = tmp_path / "annual.pst"
+    path.write_text("\n".join(lines) + "\n")
+    df = read_postfile(path).data
+    assert df["ave"].tolist() == ["ANNUAL"] * len(values)
+    assert df["date"].tolist() == [field] * len(values)
+    return df
+
+
+def test_a_multi_year_annual_postfile_is_refused_as_a_lower_bound(tmp_path):
+    df = _annual_postfile(tmp_path, "00000005")
+    with pytest.raises(ValueError, match="lower bound") as caught:
+        naaqs_compliance_report("NO2_annual", df)
+    message = str(caught.value)
+    assert "5 years" in message
+    assert "average" in message
+    assert "hourly" in message
+
+
+def test_a_one_year_annual_postfile_is_the_design_value(tmp_path):
+    import warnings
+    df = _annual_postfile(tmp_path, "00000001")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(40.0), pytest.approx(120.0)]
+    assert report["exceeds"].tolist() == [False, True]
+
+
+def test_an_annual_value_of_unknown_length_is_refused(tmp_path):
+    # A date in the NUM YRS column says nothing about how many years the
+    # value averages, so it may be a multi-year average.
+    df = _rows("ANNUAL", [("19123124", 40.0), ("20123124", 120.0)])
+    with pytest.raises(ValueError, match="lower bound"):
+        naaqs_compliance_report("NO2_annual", df)
+
+
+def test_an_annual_year_count_given_as_an_integer_is_read():
+    df = _rows("ANNUAL", [(3, 40.0)])
+    with pytest.raises(ValueError, match="3 years"):
+        naaqs_compliance_report("NO2_annual", df)
+    report = naaqs_compliance_report("NO2_annual", _rows("ANNUAL", [(1, 40.0)]))
+    assert report["design_value"].tolist() == [pytest.approx(40.0)]
 
 
 def test_the_multi_year_mean_still_averages_every_year():
