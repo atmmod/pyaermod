@@ -1,6 +1,6 @@
 # API Reference
 
-PyAERMOD v1.5 is organized into **29 modules** grouped by workflow stage.
+PyAERMOD's modules are grouped below by workflow stage.
 For a stable, versioned public surface prefer `from pyaermod.api import ...`
 — it re-exports every documented name from a single module so your code
 doesn't depend on internal layout.
@@ -12,7 +12,7 @@ Build, read, write, and validate AERMOD input files.
 | Module | Description |
 |---|---|
 | [input_generator](input_generator.md) | Thin facade + `AERMODProject` — `project.write()`, `project.to_aermod_input()` |
-| [sources](sources.md) | All 12 source dataclasses, deposition params, `SourcePathway`, background concentrations |
+| [sources](sources.md) | All 13 source dataclasses, deposition params, `SourcePathway`, background concentrations |
 | [hourly_emissions](hourly_emissions.md) | HOUREMIS files of rate-only records (AREA types, OPENPIT, VOLUME, LINE types); the AP-42 batch-drop wind profile from an SFC file |
 | [receptors](receptors.md) | `CartesianGrid`, `PolarGrid`, `DiscreteReceptor`, `ReceptorPathway` |
 | [pathways](pathways.md) | Enums + `ControlPathway`, `MeteorologyPathway`, `OutputPathway`, `EventPathway` |

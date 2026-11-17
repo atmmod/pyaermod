@@ -50,6 +50,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Installation has one page, `docs/install.md`: the library and its
+  extras, the GUI on its own (pipx, uv), conda's status, getting AERMOD
+  and the other EPA programs, and what to do when an install fails. The
+  README, the home page, the quickstart, the GUI guide and the desktop
+  page keep a few lines and link to it.
+- `docs/architecture.md`, a design proposal from before the code existed
+  (it showed APIs that were never built), is now a short, accurate map
+  of the code: the project model, reading and writing decks, validation,
+  running, reading results, the GUIs and the browser path. The
+  validation report, the design-value validation, the keyword audit and
+  the benchmarks are grouped under Validation in the site's navigation.
 - The quickstart is less than half as long: the five-minute example,
   running, reading and mapping the results, the common patterns and a
   figure, with the recipes the Ten Common AERMOD Jobs already run
