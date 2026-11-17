@@ -19,7 +19,7 @@ it was run against AERMOD 26135.
 | 7 | [NAAQS compliance: the 1-hour SO2 design value](#7-naaqs-compliance-the-1-hour-so2-design-value) | `naaqs_output_pathway`, `read_maxdaily`, `naaqs_compliance_report` |
 | 8 | [Elevated and complex terrain with AERMAP](#8-elevated-and-complex-terrain-with-aermap) | `DEMDownloader`, `TerrainProcessor`, AERMAP |
 | 9 | [Particle dry and wet deposition](#9-particle-dry-and-wet-deposition) | `ParticleDepositionParams`, `calculate_dry/wet_deposition` |
-| 10 | [Air-toxics screening with a unit emission rate (χ/Q) and GIS export](#10-air-toxics-screening-with-a-unit-emission-rate-χq-and-gis-export) | `latlon_to_utm`, GeoTIFF/GeoJSON export, `to_kmz` |
+| 10 | [Air-toxics screening with a unit emission rate (χ/Q) and GIS export](#10-air-toxics-screening-with-a-unit-emission-rate-q-and-gis-export) | `latlon_to_utm`, GeoTIFF/GeoJSON export, `to_kmz` |
 
 ## Before you start
 

@@ -116,12 +116,13 @@ Opens a browser tab pointed at `http://127.0.0.1:8080`.
 
 ## Desktop downloads discontinued
 
-Releases from v1.9 up to v2.2.0 have stand-alone desktop apps attached
-on the [releases page](https://github.com/atmmod/pyaermod/releases)
-(for Windows, Apple-silicon macOS and Linux). They are no longer built:
-later releases attach none, and the ones already published get no
-fixes. The supported way to install the GUI is pip, as above, or conda
-(see the [installation section of the GUI guide](gui-guide.md#install)).
+Releases v1.9.0 and v2.0.0 have stand-alone desktop apps attached on
+the [releases page](https://github.com/atmmod/pyaermod/releases) (for
+Windows and Linux, and for Apple-silicon macOS in v2.0.0). They are
+no longer built: later releases attach none, and the ones already
+published get no fixes. The supported way to install the GUI is pip, as above (see
+the [installation section of the GUI guide](gui-guide.md#install)); a
+conda-forge package is planned.
 
 Those downloads are unsigned. On macOS, Gatekeeper blocks them ("Apple
 could not verify..." or "... is damaged and can't be opened"). If you

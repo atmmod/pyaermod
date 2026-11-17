@@ -13,7 +13,7 @@ checklist when building a modeling protocol — the profile API
 | Rural/urban dispersion | `ControlPathway.urban_option` per source if urban |
 | LOWWIND | only `LOWWIND3` is currently accepted with documentation |
 | NO2 chemistry | OLM or PVMRM (set via `ChemistryOptions`) — GRSM and PVMRM2 remain BETA through 2023 |
-| Stack-tip downwash | on by default; **don't** set `no_stack_tip_downwash` |
+| Stack-tip downwash | on by default; **don't** add `NOSTD` to `ControlPathway.extra_model_options` |
 | BETA / experimental options | not permitted under DFAULT |
 
 Apply with:

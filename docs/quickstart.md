@@ -9,7 +9,7 @@ pip install pyaermod
 For visualization, geospatial export, or the GUI, install extras:
 
 ```bash
-pip install pyaermod[all]  # everything
+pip install "pyaermod[all]"  # everything (keep the quotes in zsh)
 ```
 
 ## 5-Minute Example
@@ -210,7 +210,7 @@ stack = PointSource(
 
 Building downwash (PRIME) is also supported on `AreaSource` and `VolumeSource`
 with the same five fields. For direction-dependent building downwash, use the
-[BPIP module](api/bpip.md) or the GUI's built-in BPIP calculator.
+[BPIP module](api/bpip.md).
 
 ### Background Concentrations
 
@@ -383,19 +383,19 @@ constant-rate run to the plot file's print precision.
 Run AERMOD in event mode for specific date/receptor combinations:
 
 ```python
-from pyaermod import EventPathway, EventPeriod
+from pyaermod import EventLocation, EventPathway, EventPeriod
 
 events = EventPathway(events=[
     EventPeriod(
         event_name="MAXDAY",
+        averaging_period=24,
+        date="24031524",                         # YYMMDDHH: the period ending then
         source_group="ALL",
-        averaging_period="24",
-        start_date="24031501",
-        end_date="24031524",
+        location=EventLocation(x=500.0, y=0.0),  # the receptor to report (EVENTLOC)
     ),
 ])
 
-project = AERMODProject(control, sources, receptors, meteorology, output)
+project = AERMODProject(control, sources, receptors, meteorology, output, events=events)
 project.write("facility.inp", event_filename="facility.evn")
 ```
 
@@ -498,9 +498,9 @@ The input generator includes built-in validation:
 ```python
 from pyaermod.validator import Validator
 
-validator = Validator()
-errors = validator.validate(project)
-for error in errors:
+result = Validator.validate(project)
+print(result.is_valid)
+for error in result.errors:      # errors and warnings, each naming its field
     print(error)
 ```
 
@@ -508,7 +508,7 @@ for error in errors:
 
 | Feature | Module |
 |---------|--------|
-| 10 source types (POINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT) | `input_generator` |
+| 13 source types (POINT, POINTCAP, POINTHOR, SWPOINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT) | `input_generator` |
 | Background concentrations (uniform, period, sector) | `input_generator` |
 | Deposition modeling (dry, wet, combined) | `input_generator` |
 | NO2/SO2 chemistry (OLM, PVMRM, ARM2, GRSM) | `input_generator` |
@@ -525,7 +525,7 @@ for error in errors:
 | DEM download and terrain pipeline | `terrain` |
 | Coordinate transforms, GIS export | `geospatial` |
 | Building downwash (BPIP) for POINT, AREA, VOLUME | `bpip` |
-| Interactive 7-page web GUI | `gui` |
+| Graphical interface with seven steps (`pyaermod-app`), also in the browser with nothing installed | `gui_v2`, `browser` |
 
 ## AERMOD Keywords Supported
 
@@ -620,15 +620,11 @@ project.output = naaqs_output_pathway("SO2", stem="so2")   # MAXDAILY, MXDYBYYR,
 design = so2_1hr_design_value(read_maxdaily("so2_maxdaily.dat"))
 ```
 
-### Event Pathway (EV)
-
-EVENTPER, EVENTLOC
-
 ## Testing & Validation
 
 PyAERMOD includes comprehensive testing validated against official EPA data:
 
-- **1600+ unit and integration tests** with 97%+ code coverage
+- **Unit, integration and browser tests**, run in CI on every change with a 95% coverage gate
 - **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.), plus the full EPA test-suite parity run against AERMOD v26135 / AERMET v26135 reported in [`validation.md`](validation.md)
 - End-to-end pipeline tests chaining input generation through visualization
 

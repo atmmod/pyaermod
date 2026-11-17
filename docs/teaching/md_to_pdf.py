@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Convert student-guide.md to a well-formatted PDF using reportlab."""
+"""Build student-guide.pdf from the pages of the student guide, using reportlab.
+
+The guide is one page per part on the documentation site
+(``student-guide/``); :func:`combined_markdown` joins them back into one
+document, in the order of :data:`PAGES`, for the PDF.
+"""
 
 import re
 from pathlib import Path
@@ -227,9 +232,45 @@ def make_table_flowable(rows, styles):
     return t
 
 
-def convert_md_to_pdf(md_path, pdf_path):
+#: The guide's pages, in reading order (the site's nav lists the same).
+PAGES = ["index.md", "concepts.md", "setup.md", "tutorial-1.md", "tutorial-2.md",
+         "tutorial-3.md", "tutorial-4.md", "tutorial-5.md", "next-steps.md",
+         "glossary.md"]
+
+
+def combined_markdown(guide_dir):
+    """The guide's pages as one document, headings as in a single page.
+
+    The index gives the title and introduction (not its list of pages);
+    a page whose title is a numbered part (``# 3. Setting Up PyAERMOD``)
+    has every heading moved down one level, and a page that groups
+    several parts (concepts) loses its own title.
+    """
+    guide_dir = Path(guide_dir)
+    parts = []
+    for name in PAGES:
+        lines = (guide_dir / name).read_text(encoding="utf-8").split("\n")
+        if name == "index.md":
+            cut = lines.index("## Contents") if "## Contents" in lines else len(lines)
+            parts.append("\n".join(lines[:cut]).rstrip())
+            continue
+        if lines and re.match(r"^# \d+\. ", lines[0]):
+            demoted, fenced = [], False
+            for line in lines:
+                if line.lstrip().startswith("```"):
+                    fenced = not fenced
+                demoted.append("#" + line if not fenced and re.match(r"^#+ ", line) else line)
+            lines = demoted
+        elif lines and lines[0].startswith("# "):
+            lines = lines[1:]
+        parts.append("\n".join(lines).strip())
+    return "\n\n---\n\n".join(parts) + "\n"
+
+
+def convert_md_to_pdf(md_path, pdf_path, md_text=None):
     """Main conversion function."""
-    md_text = Path(md_path).read_text(encoding="utf-8")
+    if md_text is None:
+        md_text = Path(md_path).read_text(encoding="utf-8")
     lines = md_text.split("\n")
 
     styles = build_styles()
@@ -428,6 +469,7 @@ def convert_md_to_pdf(md_path, pdf_path):
 if __name__ == "__main__":
     base = Path(__file__).parent
     convert_md_to_pdf(
-        base / "student-guide.md",
+        None,
         base / "student-guide.pdf",
+        md_text=combined_markdown(base / "student-guide"),
     )

@@ -114,7 +114,9 @@ def test_desktop_doc_says_the_downloads_are_discontinued():
     assert "## Desktop downloads discontinued" in text
     notice = text.split("## Desktop downloads discontinued", 1)[1].split("\n## ", 1)[0]
     assert "no longer built" in notice
-    assert "2.2.0" in notice
+    # The releases that carry bundles, as the releases page lists them:
+    # v1.9.0 and v2.0.0 (v2.2.0 has no assets).
+    assert "v1.9.0" in notice and "v2.0.0" in notice
     assert "unsigned" in notice
     # The workaround for an old macOS download stays.
     assert "xattr -dr com.apple.quarantine" in notice

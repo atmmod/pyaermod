@@ -27,6 +27,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pathways.unquote_path` and `pathways.quote_path` (also importable from
   `pyaermod.input_reader`): a runstream file field as AERMOD opens it,
   and a file name as a runstream field.
+- `pyaermod-app` takes `--host`, `--port` and `--no-browser`, so the GUI
+  can be served from a container or on another port.
+- `pyaermod gui` and `python -m pyaermod.gui_v2` start the GUI too, with
+  the same options. `pyaermod info` reports whether the GUI and the
+  desktop window can run.
+- A conda-forge recipe (`conda-recipe/recipe.yaml`, v1 format) with two
+  packages: `pyaermod`, and `pyaermod-gui`, which adds NiceGUI and
+  matplotlib as `pip install "pyaermod[gui]"` does. It is not on
+  conda-forge yet; `RELEASING.md` and `conda-recipe/README.md` say how
+  to submit it after the next release.
+- A GUI install check (`scripts/gui_install_smoke.py`,
+  `.github/workflows/gui_install.yml`): the built wheel is installed
+  with the `gui` extra into new environments on Linux, macOS and
+  Windows, also through pipx and `uv tool`, and the GUI is started
+  there. `publish.yml` runs it before uploading to PyPI.
+
+### Changed
+
+- The student guide is one page per part on the documentation site
+  (concepts, setup, Tutorials 1 to 5, what's next, glossary) instead of
+  one 10,000-word page; its old address shows the overview, and
+  `docs/teaching/md_to_pdf.py` still builds the single PDF from the
+  pages. Tutorial 5 no longer describes AERMET's Stage 2, which current
+  AERMET does not have.
+- `pyaermod[all]` includes `pywebview`, so it can run `pyaermod-desktop`.
+- License metadata is the SPDX string `license = "MIT"` with
+  `license-files`, and the build needs `setuptools>=77.0.3`; setuptools
+  stops building the older table form in 2027.
+
+### Removed
+
+- The downloadable desktop apps. Releases no longer build or attach the
+  PyInstaller bundles for macOS, Windows and Linux; the spec, the entry
+  script and `.github/workflows/build_desktop.yml` are gone. The macOS
+  bundle was unsigned, so Gatekeeper blocked it, and the frozen app
+  re-launched itself in an endless chain of background processes. The
+  GUI installs from PyPI (`pip install "pyaermod[gui]"`) instead; the
+  `pyaermod-desktop` command and the `gui-desktop` extra are unchanged.
+  `docs/desktop.md` says how to open a bundle from v1.9.0 or v2.0.0.
 
 ### Fixed
 
@@ -79,7 +118,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A trap inside the WebAssembly AERMOD skipped collecting the run's
   output, so the `.out` written up to the trap was lost. It is now a
   failed run whose error names the trap, with the output kept.
-
 - The GUI's plan view no longer hangs the server when a source or
   receptor sits very far from the origin. A typo such as y = 1e18 made
   the tick loop add a 1 m step that the float could not resolve, so the
@@ -87,45 +125,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user. Ticks are now counted by index and capped at 100 per axis, and a
   project with a coordinate beyond 1e8 m, or one that is not a number,
   gets a plan view that names those items instead of a plot.
-
-### Removed
-
-- The downloadable desktop apps. Releases no longer build or attach the
-  PyInstaller bundles for macOS, Windows and Linux; the spec, the entry
-  script and `.github/workflows/build_desktop.yml` are gone. The macOS
-  bundle was unsigned, so Gatekeeper blocked it, and the frozen app
-  re-launched itself in an endless chain of background processes. The
-  GUI installs from PyPI (`pip install "pyaermod[gui]"`) instead; the
-  `pyaermod-desktop` command and the `gui-desktop` extra are unchanged.
-  `docs/desktop.md` says how to open a 2.2.0 or earlier bundle.
-
-### Added
-
-- `pyaermod-app` takes `--host`, `--port` and `--no-browser`, so the GUI
-  can be served from a container or on another port.
-- `pyaermod gui` and `python -m pyaermod.gui_v2` start the GUI too, with
-  the same options. `pyaermod info` reports whether the GUI and the
-  desktop window can run.
-- A conda-forge recipe (`conda-recipe/recipe.yaml`, v1 format) with two
-  packages: `pyaermod`, and `pyaermod-gui`, which adds NiceGUI and
-  matplotlib as `pip install "pyaermod[gui]"` does. It is not on
-  conda-forge yet; `RELEASING.md` and `conda-recipe/README.md` say how
-  to submit it after the next release.
-- A GUI install check (`scripts/gui_install_smoke.py`,
-  `.github/workflows/gui_install.yml`): the built wheel is installed
-  with the `gui` extra into new environments on Linux, macOS and
-  Windows, also through pipx and `uv tool`, and the GUI is started
-  there. `publish.yml` runs it before uploading to PyPI.
-
-### Changed
-
-- `pyaermod[all]` includes `pywebview`, so it can run `pyaermod-desktop`.
-- License metadata is the SPDX string `license = "MIT"` with
-  `license-files`, and the build needs `setuptools>=77.0.3`; setuptools
-  stops building the older table form in 2027.
-
-### Fixed
-
+- `RECTABLE` lines were read for their first rank field only, and only
+  the last line counted, so `RECTABLE ALLAVE FIRST SECOND` imported as
+  rank 1 and a deck with `RECTABLE 24 SECOND` before `RECTABLE 1 FIRST`
+  lost rank 2. A PLOTFILE asking for SECOND then failed with E203 on the
+  deck the GUI wrote back. The reader now takes every rank or range on
+  every line, as AERMOD does (`ouset.f` OUHIGH).
+- Documentation: the quickstart's EVENT and validator examples raised
+  `TypeError`; the README's relative links broke on PyPI, where it is the
+  project description; several pages counted 10 source types (there are
+  13), gave unquoted `pip install pyaermod[...]` commands that zsh
+  rejects, or described things that do not exist (a BPIP calculator in
+  the GUI, `aermod` downloads on the releases page, a conda package).
+  The student guide checks an install with `pyaermod info`, and its
+  table of contents and two others now link to their headings.
 - `pyaermod-app` and `pyaermod-desktop` without their extras stop with
   one line naming the install command (`pip install "pyaermod[gui]"`, or
   the conda package in a conda install) instead of a traceback.

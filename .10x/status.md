@@ -26,3 +26,10 @@ Blocker (non-fatal): AERMOD-wasm not buildable/downloadable here; wasm tiers ver
 
 ## Release readiness
 - Ready to open a PR. Merge gate: wasm_aermod.yml green on the branch (first real Pyodide/wasm run of the app).
+
+## 2026-11-16: docs and release
+| Item | State |
+|---|---|
+| PR A: release-blocking docs fixes + v2.3.0 prep | in review |
+| PR B: docs restructure + screenshots (quickstart, GUI guide, student-guide tutorials) | next |
+| Regulatory flag checks (code bug) | queued as separate task |

@@ -4,7 +4,7 @@ Student-facing guides for learning atmospheric dispersion modeling with PyAERMOD
 
 ## Contents
 
-- **[student-guide.md](student-guide.md)** — Conceptual introduction to air dispersion modeling and five hands-on tutorials: Tutorials 1--4 use the PyAERMOD GUI (`pyaermod-app`), Tutorial 5 a short Python script to copy and run. No programming experience required. Start here.
+- **[Student guide](student-guide/index.md)** ([PDF](student-guide.pdf)) — Conceptual introduction to air dispersion modeling and five hands-on tutorials: Tutorials 1--4 use the PyAERMOD GUI (`pyaermod-app`), Tutorial 5 a short Python script to copy and run. No programming experience required. Start here.
 - **[refinery-assignments.md](refinery-assignments.md)** — Advanced tutorials (6--8): AERMET for Houston, terrain processing with AERMAP, and a complete oil refinery dispersion model. Builds on the student guide.
 
 ## Prerequisites
@@ -12,7 +12,7 @@ Student-facing guides for learning atmospheric dispersion modeling with PyAERMOD
 Students need:
 
 - Python 3.11+ installed
-- PyAERMOD with GUI extras: `pip install pyaermod[gui]`
+- PyAERMOD with GUI extras: `pip install "pyaermod[gui]"` (the quotes matter in zsh, the macOS default shell); or nothing at all for the [browser app](https://atmmod.github.io/pyaermod/app/), which runs the same seven steps and has a [practice deck](practice/README.md)
 - A web browser (Chrome, Firefox, Safari, or Edge)
 - AERMOD executable from [EPA SCRAM](https://www.epa.gov/scram) (needed for Tutorials 3+); students without it can run AERMOD in the [browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/index.html?path=01_run_aermod_in_your_browser.ipynb)
 - AERMET executable from [EPA SCRAM](https://www.epa.gov/scram) (needed for Tutorials 5--6)

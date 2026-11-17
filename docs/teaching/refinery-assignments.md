@@ -3,7 +3,7 @@
 Advanced tutorials for PyAERMOD: from meteorological preprocessing
 through terrain processing to a complete oil refinery dispersion model.
 
-These three tutorials build on [Tutorials 1--5](student-guide.md) and assume
+These three tutorials build on [Tutorials 1--5](student-guide/index.md) and assume
 you are comfortable with the PyAERMOD GUI (`pyaermod-app`), point/area
 sources, receptor grids, and basic AERMET concepts. The model is built in
 the GUI; the steps the GUI does not cover (AERMET input files, AERMAP
@@ -14,9 +14,9 @@ scripts that you copy and run, as in Tutorial 5.
 
 ## Table of Contents
 
-1. [Tutorial 6 — AERMET for Houston, Texas](#tutorial-6--aermet-for-houston-texas)
-2. [Tutorial 7 — Terrain Processing with AERMAP](#tutorial-7--terrain-processing-with-aermap)
-3. [Tutorial 8 — Modeling a Simplified Oil Refinery](#tutorial-8--modeling-a-simplified-oil-refinery)
+1. [Tutorial 6 — AERMET for Houston, Texas](#tutorial-6-aermet-for-houston-texas)
+2. [Tutorial 7 — Terrain Processing with AERMAP](#tutorial-7-terrain-processing-with-aermap)
+3. [Tutorial 8 — Modeling a Simplified Oil Refinery](#tutorial-8-modeling-a-simplified-oil-refinery)
 4. [Assignment Deliverables](#assignment-deliverables)
 5. [Supplemental Reference Tables](#supplemental-reference-tables)
 
@@ -1065,7 +1065,7 @@ Once AERMOD completes, go to the **Results** step.
 4. The map has no street or satellite background. To see the pattern over
    the Ship Channel and the surrounding neighborhoods, click **Download
    KMZ** (under **Downloads**; enter UTM zone `15`) and open the file in
-   Google Earth. The KMZ download needs `pip install pyaermod[geo]`.
+   Google Earth. The KMZ download needs pyproj: `pip install pyproj`.
 
 #### 9B. Regulatory Compliance
 
