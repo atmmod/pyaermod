@@ -522,13 +522,16 @@ def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
     if period == "ANNUAL" and standard.form.lower() == "annual mean":
         years = _years_in(top.title or "")
         source = f"AERMOD's table \"{top.title}\""
-        if years and years > 1 and pollutant == "NO2":
+        if pollutant == "NO2" and years != 1:
             # The annual NO2 standard is one calendar year's mean (40 CFR
-            # 50.11(e)); AERMOD's ANNUAL value over several years is the
-            # average of the years' means, which the highest year's mean
-            # at that receptor is at least.
+            # 50.11(e)); AERMOD's ANNUAL value over several years (or a
+            # title that does not say how many) is the average of the
+            # years' means, which the highest year's mean at that receptor
+            # is at least.
+            what = (f"the average of {years} annual means" if years
+                    else "an ANNUAL average over an unstated number of years")
             return (float(top.max_value), tuple(top.max_location), "lower bound",
-                    f"{source}: the average of {years} annual means")
+                    f"{source}: {what}")
         return (float(top.max_value), tuple(top.max_location), "design value",
                 source + (f" ({years} year{'s' if years != 1 else ''} of met data)"
                           if years else ""))

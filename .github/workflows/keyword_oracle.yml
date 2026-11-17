@@ -99,6 +99,7 @@ jobs:
           key: ${{ steps.keys.outputs.tc }}
 
       - name: Fetch EPA test decks
+        id: testdecks
         # EPA's server sometimes stalls; the probe decks below need
         # only the met files in the repository, so they still run.
         timeout-minutes: 10
@@ -113,8 +114,14 @@ jobs:
           ln -sfn /tmp/epa_tc/test_cases "$GITHUB_WORKSPACE/test_cases"
           ls "$GITHUB_WORKSPACE/test_cases/aermet26135_aermod26135/inputs" | wc -l
 
+      - name: Drop a partial test-deck archive
+        # A fetch stopped by the timeout can leave a truncated zip, which
+        # the cache step would otherwise save under this month's key.
+        if: steps.testdecks.outcome != 'success'
+        run: rm -f /tmp/epa_tc/aermod_test_cases.zip
+
       - name: EPA decks using each keyword
-        continue-on-error: true
+        if: steps.testdecks.outcome == 'success'
         run: |
           python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs ${{ inputs.keywords }}
 
