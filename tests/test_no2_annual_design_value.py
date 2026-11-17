@@ -388,3 +388,95 @@ def test_the_caption_explains_a_lower_bound_only_when_one_is_shown():
     assert caption.startswith("A screening comparison uses the highest value")
     assert "lower bound" not in caption.lower()
     assert "A lower bound is AERMOD's average" in rr.naaqs_caption([design, lower])
+
+
+# ----------------------------------------------------------------------
+# The multi-year mean checks its input as the highest year does
+# ----------------------------------------------------------------------
+
+def _no_date_parsing(monkeypatch):
+    """Fail the test if anything reads the date column as YYMMDDHH."""
+    from pyaermod import design_values as dv
+
+    def refused(col):
+        raise AssertionError("an ANNUAL or PERIOD value has no year to parse")
+
+    monkeypatch.setattr(dv, "_parse_yymmddhh_to_date", refused)
+    monkeypatch.setattr(dv, "_parse_yymmddhh_to_year", refused)
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+def test_hourly_and_annual_rows_together_are_refused_in_either_form(form):
+    df = pd.concat([_hours(2019, 40.0), _rows("ANNUAL", [("00000001", 40.0)])],
+                   ignore_index=True)
+    with pytest.raises(ValueError, match="one averaging period") as caught:
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    assert "1-HR" in str(caught.value)
+    assert "ANNUAL" in str(caught.value)
+
+
+def test_the_multi_year_mean_refuses_two_periods_of_the_same_unit():
+    hourly = _hours(2019, 40.0)
+    df = pd.concat([hourly, hourly.assign(ave="24-HR", concentration=41.0)],
+                   ignore_index=True)
+    with pytest.raises(ValueError, match="one averaging period"):
+        naaqs_compliance_report("NO2_annual", df, no2_annual="multi_year_mean")
+
+
+def test_a_multi_year_annual_postfile_is_the_multi_year_mean(tmp_path, monkeypatch):
+    # AERMOD's ANNUAL value over five years is the average of the five
+    # annual means: the multi-year mean itself. NUMYRS is not a year.
+    import warnings
+    df = _annual_postfile(tmp_path, "00000005")
+    _no_date_parsing(monkeypatch)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = naaqs_compliance_report("NO2_annual", df, no2_annual="multi_year_mean")
+    assert report["x"].tolist() == [0.0, 100.0]
+    assert report["design_value"].tolist() == [pytest.approx(40.0), pytest.approx(120.0)]
+    assert report["exceeds"].tolist() == [False, True]
+
+
+def test_an_annual_value_of_unknown_length_is_still_the_multi_year_mean(monkeypatch):
+    # Whatever the number of years, an ANNUAL value averages their means.
+    df = _rows("ANNUAL", [("20123124", 70.0)])
+    _no_date_parsing(monkeypatch)
+    report = naaqs_compliance_report("NO2_annual", df, no2_annual="multi_year_mean")
+    assert report["design_value"].tolist() == [pytest.approx(70.0)]
+
+
+def test_a_period_average_is_the_multi_year_mean_with_the_same_warning(monkeypatch):
+    df = _rows("PERIOD", [("00000005", 45.0)])
+    _no_date_parsing(monkeypatch)
+    with pytest.warns(UserWarning, match="PERIOD") as caught:
+        report = naaqs_compliance_report("NO2_annual", df, no2_annual="multi_year_mean")
+    assert report["design_value"].tolist() == [pytest.approx(45.0)]
+    with pytest.warns(UserWarning) as highest:
+        naaqs_compliance_report("NO2_annual", df)
+    assert [str(w.message) for w in caught] == [str(w.message) for w in highest]
+
+
+# ----------------------------------------------------------------------
+# NUMYRS is a small count; a year-2000 date is not one
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("field", ["00123124", "00010101", "00000100"])
+def test_a_year_2000_date_is_not_read_as_a_year_count(field):
+    # 00123124 is 2000-12-31 hour 24, not 123124 years.
+    df = _rows("ANNUAL", [(field, 40.0)])
+    with pytest.raises(ValueError, match="unknown number of years") as caught:
+        naaqs_compliance_report("NO2_annual", df)
+    assert str(int(field)) not in str(caught.value)
+
+
+@pytest.mark.parametrize(("field", "years"), [("00000099", 99), ("00000002", 2)])
+def test_a_year_count_up_to_99_is_read(field, years):
+    df = _rows("ANNUAL", [(field, 40.0)])
+    with pytest.raises(ValueError, match=f"cover {years} years"):
+        naaqs_compliance_report("NO2_annual", df)
+
+
+def test_a_count_of_zero_years_is_not_a_count():
+    df = _rows("ANNUAL", [("00000000", 40.0)])
+    with pytest.raises(ValueError, match="unknown number of years"):
+        naaqs_compliance_report("NO2_annual", df)

@@ -676,32 +676,23 @@ def _annual_numyrs(date_col: pd.Series) -> Optional[int]:
     if text.empty or not text.str.fullmatch(r"\d{1,8}").all():
         return None
     counts = text.map(int).unique()
-    # A real YYMMDDHH has a month of 01-12; a count below 1e6 has month 00.
-    if len(counts) != 1 or not 1 <= counts[0] < 1_000_000:
+    # NUMYRS is a count of met years, so a small number; the smallest real
+    # YYMMDDHH stamp, 00010101 (2000-01-01 hour 01), reads 10101. Anything
+    # outside 1-99 is a date (00123124 is 2000-12-31 hour 24), not a count.
+    if len(counts) != 1 or not 1 <= counts[0] <= 99:
         return None
     return int(counts[0])
 
 
-def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
-    """Highest annual mean per receptor, over the years at least 75 % covered.
+def _no2_annual_input(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    """The rows behind an annual NO2 design value and their coverage unit.
 
-    The frame must hold one averaging period (one ``ave`` value). Coverage
-    is counted in its unit: the share of the calendar year's days (365 or
-    366) with at least one row for that receptor for hourly to 24-hour
-    values, so it reads the same from hourly and daily POSTFILEs, and the
-    share of its 12 months for MONTH values. Without an ``ave`` column
-    coverage is counted in days.
-
-    An ANNUAL value is a whole year's mean only when the run covered one
-    year: AERMOD's ANNUAL value over several years is the average of the
-    years' means, a lower bound on the highest year, so it is refused, as
-    is one whose number of years cannot be read. A PERIOD value is one
-    mean over the whole run, which cannot be split into calendar years; it
-    is used as it is, with a warning.
-
-    A year below 75 % is left out with a warning. A receptor with no
-    calendar year at 75 % gets the mean over its whole record instead,
-    also with a warning, rather than its highest partial year.
+    Both forms of :func:`naaqs_compliance_report`'s annual NO2 value read
+    their input through this. The frame must hold one source group and one
+    averaging period (one ``ave`` value): rows of different periods are
+    different quantities, and averaging or ranking them together means
+    nothing. Without an ``ave`` column the rows are taken as sub-annual
+    values, counted in days.
     """
     work = _one_source_group(df)
     if "ave" in work.columns:
@@ -714,9 +705,28 @@ def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
             f"{', '.join(aves)}. Pass one averaging period, e.g. "
             f"df[df['ave'] == {aves[0]!r}]."
         )
-    unit = _coverage_unit(aves[0]) if aves else "day"
+    return work, _coverage_unit(aves[0]) if aves else "day"
 
-    if unit == "year":
+
+def _no2_annual_design_value(df: pd.DataFrame, form: str) -> pd.DataFrame:
+    """Annual NO2 design value per receptor in ``form`` (see _NO2_ANNUAL_FORMS).
+
+    An ANNUAL value over N years is AERMOD's average of the N years'
+    annual means: in the ``"multi_year_mean"`` form it is the design value
+    itself, whatever N is. In the ``"highest_year"`` form it is a whole
+    year's mean only when the run covered one year; over several years it
+    is a lower bound on the highest year, so it is refused, as is one whose
+    number of years cannot be read. A PERIOD value is one mean over the
+    whole run, which cannot be split into calendar years; either form uses
+    it as it is, with a warning. Neither has a date to parse: the date
+    field holds a count.
+
+    Sub-annual values are combined by year: averaged across every year
+    present for ``"multi_year_mean"``, and for ``"highest_year"`` as
+    :func:`_no2_highest_complete_year` describes.
+    """
+    work, unit = _no2_annual_input(df)
+    if unit == "year" and form == "highest_year":
         numyrs = _annual_numyrs(work["date"])
         if numyrs != 1:
             span = (f"{numyrs} years" if numyrs is not None else
@@ -736,8 +746,7 @@ def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
     work = _dedupe_receptors(work)
     receptor = ["x", "y"]
     if unit in ("year", "period"):
-        # One mean per receptor: a single-year ANNUAL value, or a PERIOD
-        # mean, whose date field holds a count, not a date.
+        # One mean per receptor, used as it is.
         if unit == "period":
             warnings.warn(
                 "a PERIOD average is one mean over the whole run, not a "
@@ -748,7 +757,28 @@ def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
             )
         return (work.groupby(receptor, as_index=False, sort=False)
                 ["concentration"].max())
+    if form == "multi_year_mean":
+        return (annual_mean(work)
+                .groupby(receptor, as_index=False, sort=False)
+                ["concentration"].mean())
+    return _no2_highest_complete_year(work, unit)
 
+
+def _no2_highest_complete_year(work: pd.DataFrame, unit: str) -> pd.DataFrame:
+    """Highest annual mean per receptor, over the years at least 75 % covered.
+
+    ``work`` holds sub-annual rows of one averaging period, already checked
+    and deduplicated by :func:`_no2_annual_design_value`. Coverage is
+    counted in ``unit``: the share of the calendar year's days (365 or 366)
+    with at least one row for that receptor for hourly to 24-hour values,
+    so it reads the same from hourly and daily POSTFILEs, and the share of
+    its 12 months for MONTH values.
+
+    A year below 75 % is left out with a warning. A receptor with no
+    calendar year at 75 % gets the mean over its whole record instead,
+    also with a warning, rather than its highest partial year.
+    """
+    receptor = ["x", "y"]
     stamp = _parse_yymmddhh_to_date(work["date"])
     if stamp.isna().any():
         bad = work.loc[stamp.isna(), "date"].astype(str).unique()[:4]
@@ -776,7 +806,7 @@ def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
             f"{', '.join(map(str, dropped))}: data on fewer than 75% of the "
             f"year's {noun} at some receptor (40 CFR 50 Appendix S) is too "
             "little for a valid annual mean.",
-            stacklevel=3,
+            stacklevel=4,
         )
     highest = (means[means["_ok"]]
                .groupby(receptor, as_index=False, sort=False)
@@ -788,7 +818,7 @@ def _no2_highest_complete_year(df: pd.DataFrame) -> pd.DataFrame:
         f"no calendar year has data on at least 75% of its {noun} (40 CFR 50 "
         "Appendix S) at some receptor, so its annual NO2 design value is the "
         "mean over the whole record, not a calendar-year mean.",
-        stacklevel=3,
+        stacklevel=4,
     )
     incomplete = means.loc[~any_ok, receptor].drop_duplicates()
     whole_record = (work.merge(incomplete, on=receptor)
@@ -851,7 +881,10 @@ def naaqs_compliance_report(
     ``no2_annual="multi_year_mean"`` averages the years instead,
     which some reviewing agencies accept for five years of NWS met data;
     it can be below the highest year, and it averages every year present,
-    complete or not.
+    complete or not. It too needs one averaging period. An ANNUAL value,
+    which over several years is already the average of the years' means,
+    is that mean as it is, whatever its number of years; a PERIOD mean is
+    used as it is, with the same warning as above.
     """
     from .naaqs import get_naaqs  # local import to avoid cycles
 
@@ -877,12 +910,7 @@ def naaqs_compliance_report(
         if no2_annual not in _NO2_ANNUAL_FORMS:
             raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
                              f"got {no2_annual!r}")
-        if no2_annual == "highest_year":
-            dv = _no2_highest_complete_year(work)
-        else:
-            dv = (annual_mean(work)
-                  .groupby(["x", "y"], as_index=False, sort=False)
-                  ["concentration"].mean())
+        dv = _no2_annual_design_value(work, no2_annual)
         std = get_naaqs("NO2", "annual")
     elif pollutant == "SO2":
         dv = so2_1hr_design_value(work, n_years=n_years)
