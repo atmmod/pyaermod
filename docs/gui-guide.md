@@ -133,6 +133,8 @@ Both modes share one layout:
   header opens;
 - the current **step**.
 
+![The GUI on its Project step: the header with the readiness line and Save, the step list with a badge per step, and the Project step's sections](images/gui/layout.png)
+
 | Step | What it is for |
 |---|---|
 | **Project** | New / Open / Import deck / Save / Save As; the titles, pollutant, averaging periods and model options |
@@ -147,26 +149,13 @@ The steps can be done in any order; the order is guidance, not a gate.
 
 ### Status badges
 
-Every step carries a badge, and the step's accessible name reads the
-badge too ("Sources, complete"):
-
-| Badge | Meaning |
-|---|---|
-| **not started** | Nothing entered yet: no sources (Sources), no receptors (Receptors), no met files (Meteorology); no run yet (Review & Run and Results) |
-| **error** | The validator reports an error for the part of the project this step edits; for Review & Run and Results, the latest run failed |
-| **warning** | Only warnings |
-| **complete** | Neither |
-
-The project is validated when the page opens and again shortly after
-every change, so the badges and the header's readiness line follow your
-edits. The met files are checked on disk, so a surface file that does
-not exist marks Meteorology. Review & Run and Results follow the latest
-run that was not cancelled, which is the run Results shows: a cancelled
-run neither marks them as failed nor hides the run before it.
-
-The header's readiness line reads "Ready to run", "Ready to run, with
-*N* warnings", or "Not ready to run: *N* problems in Sources,
-Meteorology", naming the steps that need attention.
+Each step's badge reads **not started**, **error**, **warning** or
+**complete**, from the validator's findings for the part of the project
+that step edits (for Review & Run and Results, from the latest run that
+was not cancelled). The project is checked again shortly after every
+change, met files included, so the badges and the header's readiness
+line ("Ready to run", or "Not ready to run: *N* problems in Sources,
+Meteorology") follow your edits.
 
 ### Sessions and browser tabs
 
@@ -180,60 +169,35 @@ the project.
 
 The Project step has these sections.
 
-**Project file** — four buttons:
+**Project file** — **New** starts from the blank project (title
+"Untitled run", SO2, averaging periods 1 and ANNUAL, elevated terrain, a
+plot file and a POSTFILE for every period). **Open...** reads a saved
+`.json` project, checking it first: a file that cannot be read is
+refused with "Load failed: ..." and nothing is replaced. **Save** writes
+back to the project's file when it has one on disk, and otherwise acts
+as **Save as...**, which downloads the file in the browser or asks where
+to save it in the desktop app. Saving refuses a project its file could
+not be reopened with ("Save failed: ..." names the field). New and Open
+ask before they discard unsaved changes or stop a run in progress. The
+file format (`pyaermod.gui_v2.project_io`) is versioned, so files from
+earlier versions still open.
 
-- **New** starts from the blank project: title "Untitled run",
-  pollutant SO2, averaging periods 1 and ANNUAL, elevated terrain
-  (`MODELOPT CONC ELEV DFAULT`), and a plot file and a POSTFILE for
-  every averaging period. If the project has unsaved changes, New asks
-  "Discard unsaved changes?" first; if a run is in progress, it asks
-  "Stop the run in progress?", and the run is stopped. The runs of the
-  old project are lost either way.
-- **Open...** opens a dialog with a file chooser for a saved `.json`
-  project. The file is checked before it replaces anything: a file
-  that cannot be read is refused with "Load failed: ..." and the dialog
-  stays open. Open asks the same questions as New when there are
-  unsaved changes or a run in progress.
-- **Save** writes the project back to its file when it has one on disk
-  (a project opened from a path, saved with Save As in the desktop app,
-  or reopened from Recent files). Otherwise it behaves as Save As. The
-  header's **Save** button does the same.
-- **Save as...** saves the project as a JSON file. In the browser a
-  dialog asks for the file name and the file arrives as a download. In
-  the desktop app a native save dialog asks where to put it, after which
-  Save writes back to that file. Saving refuses a project its file could
-  not be reopened with ("Save failed: ..." names the field) and leaves
-  the project modified.
+**Import an AERMOD deck** — **Import deck...** reads an existing `.inp`
+deck into the project, replacing it without asking, so save first. In
+the browser the deck is uploaded and brings none of the files it names;
+one whose paths lead outside its own folder is refused, with those paths
+listed. In the desktop app, or with **Deck file path** and **Read deck**
+in either mode, the deck is read where it is, and the met, ozone and
+`INCLUDED` files found beside it get their full paths. An **import
+notice** then lists the lines kept as written (written back on every run
+and save, but not editable in any step), the input files found, and
+pickers for the met files that were not. The imported project has no
+file yet; the header shows the deck's name.
 
-The file format is documented in `pyaermod.gui_v2.project_io`: the
-project as a tree of JSON objects, with the pyaermod version and a
-save-format version, so files written by earlier versions still open.
-
-**Import an AERMOD deck** — **Import deck...** reads an existing
-AERMOD `.inp` deck into the project. In the browser the deck is
-uploaded; an uploaded deck brings none of the files it names, and a
-deck whose paths lead outside its own folder is refused with those paths
-listed, so import such a deck from its path instead. In the desktop app
-the button opens a native file dialog and the deck is read as it stands,
-with the files found beside it (met files, ozone files, `INCLUDED`
-files) given their full paths. In either mode, **Deck file path** plus
-**Read deck** (or Enter) imports a deck on the computer running
-PyAERMOD by its path. Import deck replaces the current project without
-asking, so save first.
-
-After an import, an **import notice** says what came in: the lines of
-the deck PyAERMOD keeps as written (they go back into the deck on every
-run and save, but no step shows or edits them), the met files found
-beside the deck, pickers for the met files the deck names that were not
-found (with a "Go to Meteorology" button), and the other input files
-found or missing. **Dismiss** hides it. The imported project has no file
-of its own yet and counts as modified; the header shows the deck's name.
-
-**Recent files** — projects opened or saved by a path on this computer
-and decks imported by path, newest first, up to ten. A click reopens
-one. Uploads and browser downloads have no path and are not listed. The
-list is kept per user in `~/.pyaermod/recent_files.json`
-(`PYAERMOD_RECENT_FILES` overrides the location).
+**Recent files** — up to ten projects and decks opened, saved or
+imported by a path on this computer, newest first; a click reopens one.
+The list lives in `~/.pyaermod/recent_files.json`
+(`PYAERMOD_RECENT_FILES` overrides it).
 
 **Titles and pollutant** — the two title lines (TITLEONE, TITLETWO) and
 the pollutant (POLLUTID). A pollutant from an imported deck that the
@@ -280,27 +244,7 @@ Add."
 Beside the table a **plan view** plots the sources and receptors in
 model coordinates and updates after every change.
 
-### How the editor is built
-
-Every editor is generated from the source's dataclass by a shared form
-helper (`pyaermod.gui_v2._form`). The widget follows the field's type:
-
-| Field annotation | Widget |
-|---|---|
-| `str` / `Optional[str]` | text input; full width when the field names a file |
-| `float` / `Optional[float]` | numeric input (clearable when Optional) |
-| `int` / `Optional[int]` | integer input that stores an `int` |
-| `bool` | checkbox |
-| `List[Tuple[float, float]]` | text area, one `x, y` pair per line |
-| `List[str]`, `List[float]` | text area, one entry per line |
-| `Optional[Union[float, List[float]]]` (building dimensions) | numeric input while the value is a scalar; text area once it holds 36 sector values |
-| anything else | read-only summary |
-
-Fields the helper does not model (lists of dataclasses, enums, nested
-deposition objects) are shown read-only; edit those from Python, or
-bring them in with an opened or imported project. A number box never
-writes an empty value into a required field: emptying it shows
-"Required" and keeps the value.
+![The Sources step with one point source in the table and the plan view beside it](images/gui/sources.png)
 
 ## Receptors
 
@@ -315,6 +259,8 @@ A new polar grid starts as `GRID1` at the origin with 10 rings from
 100 m in 100 m steps and 36 directions from 0° in 10° steps; a new
 Cartesian grid as a 21 by 21 grid at 100 m spacing from (-1000,
 -1000); a new discrete receptor at the origin.
+
+![The Receptors step with a polar grid of 10 rings and 36 directions, drawn on the plan view](images/gui/receptors.png)
 
 ## Meteorology
 
@@ -355,6 +301,8 @@ from. The file names follow the averaging periods and are listed below
 the boxes. POSTFILEs grow with receptors times hours: a year of 1-hour
 values at 10,000 receptors is several gigabytes.
 
+![The Output step: what AERMOD computes, the files for the Results step with their names, the tables in the .out file and other output files](images/gui/output.png)
+
 **Tables in the .out file** — the receptor table, maximum table and
 day table options and their ranks.
 
@@ -373,22 +321,18 @@ The Review & Run step reviews the project before AERMOD sees it.
 **Readiness checklist** — every problem that would stop the run, grouped
 by the step that fixes it, each with a "Go to *Step*" link. **Run
 AERMOD** stays disabled until the checklist is empty, when the step says
-"Nothing blocks the run." The checklist holds:
+"Nothing blocks the run."
 
-- the validator's errors;
-- a project that cannot be written as a deck;
-- a missing `aermod` binary (listed under Review & Run);
-- a met file whose path starts with `~`, because AERMOD does not expand
-  `~` to your home folder: give the full path;
-- a met file given by a relative path while the working directory is
-  blank, because AERMOD opens relative paths from its working directory
-  and a blank one is a new, empty temporary folder: give the full path
-  or set the working directory;
-- an output file (PLOTFILE, POSTFILE, SUMMFILE, ERRORFIL and the other
-  file keywords) in a folder that will not exist where AERMOD runs,
-  since AERMOD creates no folders and stops with E500. This is what an
-  imported deck with `../plotfiles/X.PLT` paths shows until the working
-  directory is set to a folder that has them, such as the deck's own.
+![The readiness checklist of a new project: no sources, no receptors and no met files, each with a link to its step](images/gui/review-checklist.png)
+
+Besides the validator's errors and a project that cannot be written as a
+deck, the checklist catches what would make AERMOD itself stop: no
+`aermod` binary; a met file whose path starts with `~`, which AERMOD
+does not expand; a met file given by a relative path while the working
+directory is blank (a new, empty folder); and an output file in a folder
+that will not exist where AERMOD runs, since AERMOD creates no folders
+(E500). An imported deck with `../plotfiles/X.PLT` paths shows the last
+until the working directory is set to a folder that has them.
 
 **Before you run** — the warnings that do not stop the run, among them
 ANNUAL with less than a year of met data (which AERMOD would abort with
@@ -399,6 +343,8 @@ surface file holds.
 **Deck preview** — a read-only view of the deck the run will use, with
 **Copy deck** and **Download deck**. While the checklist has an item
 that stops the deck being written, the preview says so instead.
+
+![Review & Run for the Albany example: nothing blocks the run, the period the surface file holds, and the deck preview](images/gui/review-ready.png)
 
 **Run options** — the **working directory** (blank means a new temporary
 folder for each run) and the **timeout** in seconds (600 by default).
@@ -419,20 +365,18 @@ input line and text). Codes with an entry in
 [Common AERMOD errors](common-errors.md) link to it. A **Run log** shows
 the end of AERMOD's standard output and error streams.
 
+![After a run: "Succeeded", AERMOD's message counts and the table of its messages](images/gui/run-finished.png)
+
 A second click on Run AERMOD while a run is in progress is ignored. New
 or Open during a run asks first and then stops the run, and stopping the
 server stops AERMOD too: no `aermod` process outlives the GUI.
 
 ## Results
 
-The Results step shows one run of the session: by default the newest
-run AERMOD completed, or an earlier one chosen from the run history.
-Before any run it says "No run yet. Run AERMOD from the Review & Run
-step." with a button to that step. While a run is in progress it says
-so; its results appear when it finishes. A run's files are read once,
-in the background, when the run finishes; until then the step says
-"Reading the results of run *N* ...". If the files cannot be read the
-step says why and offers **Try reading again**.
+The Results step shows one run of the session: the newest run AERMOD
+completed, or an earlier one chosen from the run history. A run's files
+are read once, in the background, when it finishes; if they cannot be
+read the step says why and offers **Try reading again**.
 
 **Run history** — when the session has more than one completed run, a
 **Run shown** select lists them ("Run 2, finished 14:03:12: succeeded")
@@ -449,6 +393,8 @@ and offers only the deck and the `.out` file for diagnosis.
 
 For a successful run the step shows, from AERMOD's own summary tables:
 
+![Results of the Albany example: the run's status card, a card per averaging period with AERMOD's maximum and where it occurred, and the same values as a table](images/gui/results.png)
+
 - **Maximum for each averaging period** — a card per period with the
   maximum as AERMOD printed it, its units, the receptor where it
   occurred and the date it ended, and a table with the same rows plus
@@ -464,14 +410,14 @@ For a successful run the step shows, from AERMOD's own summary tables:
   shows** select picks the plot file when there is more than one. A
   run that wrote no plot files says so, with a button to the Output
   step. The map is a picture of the numbers in the tables beside it.
-- **Comparison with the NAAQS** — where the pollutant has a NAAQS: one
-  row per standard with the standard's level, this run's value and
-  where it occurred, what was compared and the result. The value is,
-  in this order, AERMOD's own design-value table (1-hour SO2 and NO2,
-  24-hour PM2.5, the annual standards); a design value computed from
-  the POSTFILE of the standard's period (one over 100 MB is not read,
-  and the row says so); or, as a screen, the highest value of that
-  period, which no design value can exceed.
+
+  ![Filled contours of the highest 1-hour values around the stack, with the receptors as dots and the maximum ringed and labelled](images/gui/results-map.png)
+- **Comparison with the NAAQS** — one row per standard of the
+  pollutant: its level, this run's value and where, and the result. The
+  value is AERMOD's own design-value table where there is one, else a
+  design value computed from the period's POSTFILE (one over 100 MB is
+  not read), else, as a screen, the period's highest value, which no
+  design value can exceed.
 - **Summary tables** — every rank of every table in the `.out` file
   (group, rank, value, note, date, receptor coordinates, receptor type
   and network), one expandable table per period and output type.
@@ -480,8 +426,8 @@ For a successful run the step shows, from AERMOD's own summary tables:
   POSTFILE, with their paths on disk. Below them, **Download KMZ** writes
   the sources and the values of the plot file shown on the map for
   Google Earth; it asks for the UTM zone of the model coordinates and
-  whether they are in the southern hemisphere, and needs
-  `pyaermod[geo]` for pyproj.
+  whether they are in the southern hemisphere, and needs pyproj
+  (`pip install pyproj`).
 
 ## Tips
 
@@ -497,12 +443,6 @@ For a successful run the step shows, from AERMOD's own summary tables:
   in Python directly: the GUI is an authoring layer on top of the same
   dataclasses, and a project saved by the GUI can be loaded with
   `pyaermod.gui_v2.project_io`.
-
-## History
-
-PyAERMOD 1.x shipped a Streamlit GUI alongside the NiceGUI app. The
-Streamlit GUI was deprecated in v1.9 and **removed in v2.0**. If you
-need the legacy interface, pin to `pyaermod==1.9.x`.
 
 ## Reporting issues
 

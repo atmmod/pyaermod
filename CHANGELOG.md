@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The GUI guide, the browser page and the student guide show
+  screenshots of the GUI at each step they describe, taken by
+  `scripts/docs_screenshots.py` from `pyaermod-app` and the browser app
+  with AERMOD replayed from a recorded run; `tests/test_docs_images.py`
+  checks that every image a page shows exists and every screenshot is
+  shown. The student guide's PDF embeds them. The GUI guide is shorter:
+  the screenshots carry the layout, and the table of how the editors are
+  built moved to `CONTRIBUTING.md`.
 - The student guide is one page per part on the documentation site
   (concepts, setup, Tutorials 1 to 5, what's next, glossary) instead of
   one 10,000-word page; its old address shows the overview, and

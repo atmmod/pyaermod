@@ -30,6 +30,8 @@ PM2.5, and understand what each setting means.
 > that the terrain is flat (no hills), and that you want annual and 24-hour
 > average results.
 
+![The Project step: titles and pollutant, averaging periods and model options (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/project.png)
+
 ## Step 2: Add a Point Source
 
 1. Click **Sources** in the step list.
@@ -59,6 +61,8 @@ PM2.5, and understand what each setting means.
 You should see your source appear in the source table and as a marker in the
 plan view beside it.
 
+![The Sources step with one stack in the table and the plan view beside it (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/sources.png)
+
 ## Step 3: Set Up Receptors
 
 1. Click **Receptors** in the step list.
@@ -82,6 +86,8 @@ plan view beside it.
 > will calculate the ground-level PM2.5 concentration at each of these 441
 > points.
 
+![The Receptors step with a polar grid drawn on the plan view (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/receptors.png)
+
 ## Step 4: Specify Meteorology
 
 1. Click **Meteorology** in the step list.
@@ -94,6 +100,8 @@ plan view beside it.
 > marks the Meteorology step with an error and the header reads "Not ready to
 > run". That is expected here. When you're ready to actually run AERMOD
 > (Tutorial 3), you'll need real `.sfc` and `.pfl` files.
+
+![The Meteorology step: the surface and profile files, what the surface file holds, and the stations (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/meteorology.png)
 
 ## Step 5: Preview the Input File
 
@@ -113,6 +121,8 @@ plan view beside it.
 > **What you just did:** You generated a complete, valid AERMOD input file
 > without editing a single line of text. Open the `.inp` file in a text
 > editor and compare it to what the GUI showed you — they're identical.
+
+![Review & Run: the readiness checklist and the deck preview (EPA's Albany example; your values are the ones in the steps above)](../../images/gui/review-ready.png)
 
 ## Checkpoint
 
