@@ -145,7 +145,7 @@ benchmarks/            # Performance benchmarks
 5. Update `__init__.py` exports and `__all__`
 6. Add tests in `tests/test_input_generator.py` and
    `tests/test_gui_v2_sources.py`
-7. Update documentation in `docs/quickstart.md`
+7. Add it to the source-type lists in `README.md` and `docs/index.md`
 
 ### How the GUI's editors are built
 

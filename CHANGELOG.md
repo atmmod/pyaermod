@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The quickstart is less than half as long: the five-minute example,
+  running, reading and mapping the results, the common patterns and a
+  figure, with the recipes the Ten Common AERMOD Jobs already run
+  (deposition, NO2 chemistry, design values, terrain), the keyword lists
+  (the keyword audit) and the feature list (the home page) linked rather
+  than repeated. It now shows how to read an existing deck.
 - The GUI guide, the browser page and the student guide show
   screenshots of the GUI at each step they describe, taken by
   `scripts/docs_screenshots.py` from `pyaermod-app` and the browser app

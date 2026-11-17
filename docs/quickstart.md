@@ -3,14 +3,14 @@
 ## Installation
 
 ```bash
-pip install pyaermod
+pip install pyaermod                 # the library: numpy and pandas
+pip install "pyaermod[all]"          # with plotting, GIS export and the GUI
 ```
 
-For visualization, geospatial export, or the GUI, install extras:
-
-```bash
-pip install "pyaermod[all]"  # everything (keep the quotes in zsh)
-```
+Keep the quotes in zsh, the default shell on macOS. Other ways to install,
+and what to do when an install fails, are in the
+[GUI guide](gui-guide.md#install). AERMOD itself is a separate program from
+[EPA SCRAM](https://www.epa.gov/scram).
 
 ## 5-Minute Example
 
@@ -140,6 +140,11 @@ fig = viz.plot_contours(averaging_period="ANNUAL", plotfile=plot_names["ANNUAL"]
 Without `plotfile=`, `plot_contours` can only contour the summary
 table's few rows, and warns that it is doing so.
 
+![Two contour maps of PM2.5 around a single stack: the annual average and the highest 24-hour average](images/use-cases/01_point_source.png)
+
+The figure comes from [job 1](use-cases.md#1-single-stack-flat-terrain-annual-and-24-hour-pm25),
+a complete version of this example run against AERMOD.
+
 ## Common Patterns
 
 ### Multiple Sources
@@ -243,88 +248,6 @@ sources.background = BackgroundConcentration(
 )
 ```
 
-### Deposition Modeling
-
-Enable dry or wet deposition for any source type:
-
-```python
-from pyaermod import (
-    PointSource, GasDepositionParams, ParticleDepositionParams,
-)
-
-stack = PointSource(
-    source_id="STACK1",
-    x_coord=500.0, y_coord=500.0,
-    stack_height=50.0, stack_temp=400.0,
-    exit_velocity=15.0, stack_diameter=2.0,
-    emission_rate=1.5,
-    gas_deposition=GasDepositionParams(
-        diffusivity=0.1112,          # cm^2/s in air (Da)
-        diffusivity_water=1.83e-5,   # cm^2/s in water (Dw)
-        cuticular_resistance=732.0,  # s/cm (rcl)
-        henry_constant=72.0,         # Pa m^3/mol
-    ),
-)
-```
-
-The four `GasDepositionParams` fields are AERMOD's `GASDEPOS srcid Da Dw
-rcl Henry`, all required; the values above are the ones AERMOD itself
-substitutes for SO2 when a field is 0 (`pyaermod.chemistry_presets.
-deposition_defaults_for("SO2")` returns them). GASDEPOS is an ALPHA
-keyword: set `ControlPathway(alpha=True, regulatory_default=False)`,
-and give the run `gas_deposition_seasons` and `gas_deposition_land_use`
-(GDSEASON / GDLANUSE) or AERMOD stops with E244.
-
-Which quantities AERMOD calculates is set on MODELOPT through four
-`ControlPathway` flags: `calculate_concentration` (CONC, on by default),
-`calculate_deposition` (DEPOS, total), `calculate_dry_deposition` (DDEP)
-and `calculate_wet_deposition` (WDEP). Any combination can be on, and
-AERMOD writes one set of results per quantity. Deposition comes out in
-g/m², totalled over each averaging period (g/m²/yr for ANNUAL), not as a
-flux per second. `OutputPathway.output_type` selects nothing: a deck that
-sets only it calculates concentration alone.
-
-A source's `deposition_method` (and the `DepositionMethod` enum) writes
-nothing: AERMOD has no METHOD keyword. Plume depletion is set on the
-run with `ControlPathway(dry_depletion=..., wet_depletion=...)`
-(MODELOPT DRYDPLT / NODRYDPLT / WETDPLT / NOWETDPLT; `None` leaves
-AERMOD's default, depletion on), and a user-specified gas deposition
-velocity with `ControlPathway.gas_deposition_velocity` (CO GASDEPVD).
-
-Once any source has deposition inputs, AERMOD turns on dry and wet
-plume depletion by default, even in a run with CONC alone, and then
-every source needs particle or gas deposition inputs (E242). A source
-without them goes in a run with no deposition sources, or in a
-CONC-only run with `ControlPathway(dry_depletion=False, wet_depletion=False)`
-(NODRYDPLT NOWETDPLT).
-DFAULT forces elevated terrain: with `regulatory_default=True`, a
-`terrain_type` of FLAT is overridden (W206) and the run is modelled as
-ELEV, so a flat-terrain deposition run also sets
-`regulatory_default=False`. `examples/deposition_modeling.py` builds
-gas, particle and mixed decks that run with AERMOD.
-
-### NO2 Chemistry Options
-
-For NO2 modeling, configure Tier 2/3 chemistry:
-
-```python
-from pyaermod import (
-    ControlPathway, PollutantType, ChemistryMethod,
-    ChemistryOptions, OzoneData,
-)
-
-control = ControlPathway(
-    title_one="NO2 Tier 3 Analysis",
-    pollutant_id=PollutantType.NO2,
-    averaging_periods=["1", "ANNUAL"],
-    chemistry=ChemistryOptions(
-        method=ChemistryMethod.PVMRM,
-        default_no2_ratio=0.5,
-        ozone_data=OzoneData(uniform_value=40.0),  # ppb
-    ),
-)
-```
-
 ### Source Groups
 
 Define custom source groups for separate impact analysis:
@@ -354,79 +277,6 @@ Those cards are written with the definitions above, after every source
 (AERMOD stops with `SO E140` on a group card among the source cards).
 Naming `ALL` adds nothing, since every source is in it.
 
-### Hourly Emissions (HOUREMIS)
-
-AREA, AREACIRC, AREAPOLY, OPENPIT, VOLUME, LINE, RLINE and RLINEXT
-sources can take an emission rate for every met hour from a file in the
-layout of EPA's `pset2pa.emi` (`SO HOUREMIS yy mm dd hh srcid qemis`). `ap42_wind_profile()` builds the
-wind factor of AP-42 13.2.4 Eq. 1, `(U/2.2)**1.3` with U clipped to
-0.6-6.7 m/s, for every hour of an SFC file, normalized to a mean of 1:
-
-```python
-from pyaermod.hourly_emissions import ap42_wind_profile
-
-w = ap42_wind_profile("site.sfc")
-print(w.summary())            # hours, missing (as AERMOD counts them), calm, clipped
-sources.add_hourly_emissions(
-    "pit.emi", w.hours,
-    {"PIT": w.rates(1.0e-5)},  # g/(s m^2), period mean 1.0e-5
-)
-```
-
-The file needs a record for every hour of the SFC file, in the order the
-deck defines the sources; `add_hourly_emissions()` writes them so and adds
-the `HOUREMIS pit.emi PIT` card. With every factor 1 the run reproduces the
-constant-rate run to the plot file's print precision.
-
-### EVENT Processing
-
-Run AERMOD in event mode for specific date/receptor combinations:
-
-```python
-from pyaermod import EventLocation, EventPathway, EventPeriod
-
-events = EventPathway(events=[
-    EventPeriod(
-        event_name="MAXDAY",
-        averaging_period=24,
-        date="24031524",                         # YYMMDDHH: the period ending then
-        source_group="ALL",
-        location=EventLocation(x=500.0, y=0.0),  # the receptor to report (EVENTLOC)
-    ),
-])
-
-project = AERMODProject(control, sources, receptors, meteorology, output, events=events)
-project.write("facility.inp", event_filename="facility.evn")
-```
-
-### Parameter Sweep
-
-```python
-from pyaermod import *
-
-for rate in [1.0, 2.0, 3.0, 4.0, 5.0]:
-    control = ControlPathway(
-        title_one=f"Emission Rate = {rate} g/s",
-        pollutant_id=PollutantType.SO2,
-        averaging_periods=["1", "24", "ANNUAL"],
-    )
-
-    sources = SourcePathway()
-    sources.add_source(PointSource(
-        source_id="STACK1",
-        x_coord=500.0,
-        y_coord=500.0,
-        stack_height=50.0,
-        stack_temp=400.0,
-        exit_velocity=15.0,
-        stack_diameter=2.0,
-        emission_rate=rate,
-    ))
-
-    project = AERMODProject(control, sources, receptors, meteorology, output)
-    project.write(f"scenario_rate_{rate}.inp")
-```
-
 ### POSTFILE Parsing
 
 ```python
@@ -443,57 +293,10 @@ for date in result.data["date"].unique():
     print(f"{date}: max={ts['concentration'].max():.4g}")
 ```
 
-### POSTFILEs with several output types
-
-A run writes one value per receptor for each output type on its MODELOPT
-line (CONC, DEPOS, DDEP, WDEP), always in that order. With one type the
-values are in `concentration`, whatever the type; with more, each type
-has its own column: `concentration` (CONC), `total_depo` (DEPOS),
-`dry_depo` (DDEP) and `wet_depo` (WDEP). `result.output_types` lists the
-file's types and `result.column_for("DDEP")` names the column of one.
-
-A text POSTFILE or PLOTFILE names its columns in its header, so it needs
-nothing more:
-
-```python
-from pyaermod.postfile import read_postfile
-
-result = read_postfile("depo_post.pst")
-print(result.output_types)          # e.g. ('CONC', 'DEPOS', 'DDEP', 'WDEP')
-print(result.data[["x", "y", "total_depo", "dry_depo", "wet_depo"]])
-```
-
-A binary (UNFORM) POSTFILE stores each record as one block of `N` values
-per output type and does not say which types they are. Pass the run's
-MODELOPT line, or the type names:
-
-```python
-result = read_postfile("depo_post.bin", output_types="DFAULT CONC DDEP WDEP")
-result = read_postfile("depo_post.bin", output_types=["DEPOS", "WDEP"])
-```
-
-Without `output_types`, a receptor count (`num_receptors`, or the length
-of `receptor_coords`) settles the cases where the record size allows one
-reading: N values are one type, read into `concentration`, and 4N are all
-four types. 2N or 3N values could be several sets of types and raise
-`ValueError` asking for `output_types`; `has_deposition=True` still reads
-3N values as CONC DDEP WDEP. With neither a receptor count nor
-`output_types`, every value is read as a concentration at its own
-receptor, which is right only for a run with one output type.
-
-A text file written with `OU NOHEADER` has no header to name its columns.
-`read_postfile` reads the number of value columns from the first row; one
-value column needs nothing more, and two or three need `output_types`
-(AERMOD still writes the header of a PERIOD or ANNUAL POSTFILE).
-
 ## Validation
 
-The input generator includes built-in validation:
-
-- Required parameters are enforced
-- Parameter types are checked (floats, ints, strings)
-- Enum values are validated (pollutant types, terrain types)
-- Coordinate systems are consistent
+`project.write()` checks the project against AERMOD's rules first and
+refuses one AERMOD would stop on. To see the findings yourself:
 
 ```python
 from pyaermod.validator import Validator
@@ -504,96 +307,13 @@ for error in result.errors:      # errors and warnings, each naming its field
     print(error)
 ```
 
-## What's Available Now
+## Reading an existing deck
 
-| Feature | Module |
-|---------|--------|
-| 13 source types (POINT, POINTCAP, POINTHOR, SWPOINT, AREA, AREACIRC, AREAPOLY, VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT) | `input_generator` |
-| Background concentrations (uniform, period, sector) | `input_generator` |
-| Deposition modeling (dry, wet, combined) | `input_generator` |
-| NO2/SO2 chemistry (OLM, PVMRM, ARM2, GRSM) | `input_generator` |
-| Source group management and per-group output | `input_generator` |
-| EVENT processing for date/receptor analysis | `input_generator` |
-| Input file validation | `validator` |
-| AERMOD execution | `runner` |
-| Output parsing to DataFrames | `output_parser` |
-| POSTFILE parsing (text and binary, with deposition) | `postfile` |
-| Contour plots, Folium maps | `visualization` |
-| 3D surfaces, wind roses, animations | `advanced_viz` |
-| AERMET meteorological preprocessing | `aermet` |
-| AERMAP terrain preprocessing | `aermap` |
-| DEM download and terrain pipeline | `terrain` |
-| Coordinate transforms, GIS export | `geospatial` |
-| Building downwash (BPIP) for POINT, AREA, VOLUME | `bpip` |
-| Graphical interface with seven steps (`pyaermod-app`), also in the browser with nothing installed | `gui_v2`, `browser` |
-
-## AERMOD Keywords Supported
-
-Based on AERMOD version 26135 (full keyword-by-keyword audit against the
-v26135 Fortran source in [`keyword-audit-v26135.md`](keyword-audit-v26135.md)):
-
-### Control Pathway (CO)
-
-STARTING, FINISHED, TITLEONE, TITLETWO, MODELOPT, AVERTIME, POLLUTID,
-RUNORNOT, ELEVUNIT, FLAGPOLE, HALFLIFE, DCAYCOEF, URBANOPT, LOW_WIND,
-EVENTFIL (file and SOCONT/DETAIL option), NO2STACK, OZONEVAL, OZONEFIL,
-O3VALUES, O3SECTOR, OZONUNIT, NOXVALUE, NOX_FILE, NOX_VALS, NOX_UNIT,
-NOXSECTR, ARMRATIO, GASDEPDF, GASDEPVD, GDSEASON, GDLANUSE, SAVEFILE,
-INITFILE, MULTYEAR, AWMADWNW, ORD_DWNW, ARCFTOPT, DEBUGOPT
-(`ControlPathway.debug_options`). (ERRORFIL and NO2EQUIL have no field
-and travel in `unparsed_lines`.)
-
-### Source Pathway (SO)
-
-LOCATION (POINT, POINTCAP, POINTHOR, SWPOINT, AREA, AREACIRC, AREAPOLY,
-VOLUME, LINE, RLINE, RLINEXT, BUOYLINE, OPENPIT, with `FLAT` in the
-elevation field), SRCPARAM, BUILDHGT, BUILDWID, BUILDLEN, XBADJ, YBADJ,
-SRCGROUP, OLMGROUP, PSDGROUP, URBANSRC, AREAVERT, BLPINPUT, BLPGROUP,
-RBARRIER, RDEPRESS, VBARRIER, SBARRIER, RLEMCONV, BACKGRND, BGSECTOR,
-GASDEPOS, PARTDIAM, MASSFRAX, PARTDENS, METHOD_2, PLATFORM, NO2RATIO,
-EMISUNIT, CONCUNIT, DEPOUNIT, ARCFTSRC, HBPSRCID. (EMISFACT, HOUREMIS,
-INCLUDED, BACKUNIT and SO ELEVUNIT travel in `unparsed_lines`; a HOUREMIS
-card can also be written from `SourcePathway.hourly_emissions`.)
-
-### Receptor Pathway (RE)
-
-GRIDCART (XYINC or explicit XPNTS/YPNTS, ELEV/HILL/FLAG rows), GRIDPOLR
-(ORIG by coordinates or by source ID, DIST as the list of ring distances,
-GDIR as `num init delta` or DDIR as an explicit list, ELEV/HILL/FLAG rows),
-DISCCART, ELEVUNIT. Lines whose keyword columns are blank continue the
-previous keyword, as EPA's own decks write their GRIDPOLR blocks.
-
-### Meteorology Pathway (ME)
-
-SURFFILE, PROFFILE, SURFDATA, UAIRDATA, PROFBASE, STARTEND (with or without
-hours), WDROTATE, DAYRANGE, NUMYEARS, WINDCATS, SCIMBYHR
-(`MeteorologyPathway.scim`, a `ScimOptions`), and one of the turbulence
-keywords NOTURB, NOTURBST, NOTURBCO, NOSA, NOSW, NOSAST, NOSWST, NOSACO,
-NOSWCO (`turbulence_option`). SITEDATA travels in `unparsed_lines`.
-
-### Output Pathway (OU)
-
-RECTABLE, MAXTABLE, DAYTABLE, SUMMFILE, MAXIFILE (`OutputPathway.maxi_files`,
-one `MaxiFile(aveper, group, threshold, filename)` per line), PLOTFILE,
-POSTFILE, FILEFORM, MAXDAILY, MXDYBYYR, MAXDCONT, NOHEADER, RANKFILE
-(`RankFile`), SEASONHR (`SeasonHourFile`), EVALFILE (`EvalFile`), TOXXFILE
-(`ToxxFile`), EVENTOUT. `RankFile.read()`, `SeasonHourFile.read()` and
-`ToxxFile.read()` open the file AERMOD wrote through `pyaermod.aermod_outputs`.
-
-### Event Pathway (EV)
-
-EVENTPER and EVENTLOC (`EventPathway`, `EventPeriod`, `EventLocation`), in
-the layout AERMOD itself writes for a main run with EVENTFIL. A deck with an
-EV pathway is an EVENT run: `project.event_processing` is set, there is no RE
-pathway, and `to_aermod_input()` writes `CO SO ME EV OU` with an OU pathway
-of EVENTOUT and FILEFORM only. `read_event_output()` reads the per-event
-source contributions from the run's `.out` file.
-
-### Everything else: `unparsed_lines`
-
-Any other line of a deck -- EMISFACT, HOUREMIS, INCLUDED, SITEDATA,
-EVALCART, DISCPOLR, a BACKGRND hourly file, a second POSTFILE, a malformed
-line of a known keyword -- is kept verbatim in `project.unparsed_lines`
+`read_aermod_input` reads an AERMOD `.inp` deck into the same objects,
+so an existing run can be changed and written again. A line pyaermod
+does not model (EMISFACT, INCLUDED, SITEDATA, EVALCART, DISCPOLR, a
+malformed line of a known keyword) is kept verbatim in
+`project.unparsed_lines`
 (pathway, keyword, fields, line number), reported with one `logging` warning
 per pathway and keyword, and written back into its pathway by
 `project.write()` / `project.to_aermod_input()`. Pass
@@ -601,6 +321,8 @@ per pathway and keyword, and written back into its pathway by
 
 ```python
 import logging
+from pyaermod.input_reader import read_aermod_input
+
 logging.basicConfig(level=logging.WARNING)
 project = read_aermod_input("epa_deck.inp")
 # WARNING:pyaermod.input_reader:SO EMISFACT: 33 lines not modelled by pyaermod; ...
@@ -609,24 +331,29 @@ for line in project.unparsed_lines:
 project.write("epa_deck_copy.inp")   # the EMISFACT lines are in the SO pathway
 ```
 
-The 1-hour NO2/SO2 (and 24-hour PM2.5) design-value workflow is one call
-on each side of the model run:
+## More recipes
 
-```python
-from pyaermod import naaqs_output_pathway, read_maxdaily, so2_1hr_design_value
+Each of these is a complete script, run against AERMOD, with the figure
+it drew, in [Ten Common AERMOD Jobs](use-cases.md):
 
-project.output = naaqs_output_pathway("SO2", stem="so2")   # MAXDAILY, MXDYBYYR, MAXDCONT at rank 4
-# ... run AERMOD ...
-design = so2_1hr_design_value(read_maxdaily("so2_maxdaily.dat"))
-```
+- dry and wet deposition with particle size categories
+  ([job 9](use-cases.md#9-particle-dry-and-wet-deposition); size
+  distributions in [Particle Size Distributions](psd.md));
+- NO2 chemistry with OLM, PVMRM, ARM2 or GRSM
+  ([job 6](use-cases.md#6-1-hour-no2-with-tier-2-and-tier-3-chemistry));
+- the 1-hour SO2 and NO2 and 24-hour PM2.5 design values
+  ([job 7](use-cases.md#7-naaqs-compliance-the-1-hour-so2-design-value));
+- terrain from AERMAP
+  ([job 8](use-cases.md#8-elevated-and-complex-terrain-with-aermap)).
 
-## Testing & Validation
-
-PyAERMOD includes comprehensive testing validated against official EPA data:
-
-- **Unit, integration and browser tests**, run in CI on every change with a 95% coverage gate
-- **315 EPA test cases** parsed from official AERMOD v24142 output files (LOVETT, FLATELEV, TESTPART, etc.), plus the full EPA test-suite parity run against AERMOD v26135 / AERMET v26135 reported in [`validation.md`](validation.md)
-- End-to-end pipeline tests chaining input generation through visualization
+Hourly emission files (`HOUREMIS`) are in
+[`hourly_emissions`](api/hourly_emissions.md), EVENT runs in
+[`pathways`](api/pathways.md) (`EventPathway`), runs of many cases in
+[Ensembles](ensemble.md), and POSTFILEs with several output types in
+[`postfile`](api/postfile.md). Every AERMOD keyword pyaermod reads and
+writes is listed in the [keyword audit](keyword-audit-v26135.md), and
+the evidence that pyaermod reproduces EPA's results is in
+[Validation](validation.md).
 
 ## Next Steps
 
@@ -637,14 +364,5 @@ PyAERMOD includes comprehensive testing validated against official EPA data:
 - Check the [examples/](https://github.com/atmmod/pyaermod/tree/main/examples)
   directory for runnable scripts and Jupyter notebooks
 
-## Getting Help
-
-1. Check the [examples/](https://github.com/atmmod/pyaermod/tree/main/examples)
-   directory for more usage patterns
-2. Review the [Architecture](architecture.md) document for design details
-3. Browse the [API Reference](api/index.md) for module documentation
-4. Read AERMOD documentation from [EPA SCRAM](https://www.epa.gov/scram)
-
-## License
-
-MIT
+For AERMOD itself, see EPA's documentation on
+[SCRAM](https://www.epa.gov/scram).
