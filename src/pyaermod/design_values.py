@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import calendar
 import math
+import re
 import warnings
 from dataclasses import dataclass
 from fractions import Fraction
@@ -294,7 +295,10 @@ def add_background(
     Returns
     -------
     A new DataFrame with ``concentration`` += background. Rows whose
-    date has no background entry are left unchanged.
+    date has no background entry are left unchanged. A date-keyed
+    background that matches no row at all warns, since the frame is then
+    returned unchanged (usually a key format that differs from
+    ``df['date']``).
     """
     out = df.copy()
     if isinstance(background, (int, float)):
@@ -302,8 +306,14 @@ def add_background(
         return out
     if isinstance(background, dict):
         background = pd.Series(background)
-    bg = out["date"].astype(str).map(background).fillna(0.0)
-    out["concentration"] = out["concentration"] + bg
+    bg = out["date"].astype(str).map(background)
+    if len(out) and bg.isna().all():
+        warnings.warn(
+            "the background matches no date in the frame, so nothing was "
+            "added; its keys must be YYMMDDHH strings as in df['date'].",
+            stacklevel=2,
+        )
+    out["concentration"] = out["concentration"] + bg.fillna(0.0)
     return out
 
 
@@ -321,9 +331,19 @@ def annual_mean(
     Returns one row per (x, y, year) with column ``concentration``.
     """
     work = _dedupe_receptors(_one_source_group(df))
-    g = work.assign(_year=_parse_yymmddhh_to_year(work["date"]))
+    return _annual_means(work, _parse_yymmddhh_to_year(work["date"]))
+
+
+def _annual_means(work: pd.DataFrame, years: pd.Series) -> pd.DataFrame:
+    """Mean per (x, y, year) of a frame already checked and deduplicated.
+
+    ``years`` gives each row's calendar year. The core of
+    :func:`annual_mean`, for callers that have checked the frame and
+    parsed its dates themselves.
+    """
     return (
-        g.groupby(["x", "y", "_year"], as_index=False, sort=False)
+        work.assign(_year=years)
+        .groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"].mean()
         .rename(columns={"_year": "year"})
     )
@@ -654,15 +674,50 @@ _NO2_ANNUAL_FORMS = ("highest_year", "multi_year_mean")
 _NO2_ANNUAL_COMPLETENESS = 0.75
 
 
-def _coverage_unit(ave: object) -> str:
+def _coverage_unit(ave: object) -> tuple[str, int]:
     """The unit a year's coverage is counted in for one POSTFILE ``ave``.
 
-    ``"month"`` for MONTH values, ``"year"`` for ANNUAL values (each is a
-    whole year's mean), ``"period"`` for PERIOD values (one mean over the
-    whole run) and ``"day"`` for everything else: 1-HR, 3-HR, 24-HR ...
+    Returns the unit and the number of those units one value covers:
+    ``("hour", N)`` for N-HR values shorter than a day (AERMOD's block
+    averages, so an 8-HR value covers 8 hours; Appendix S judges an annual
+    mean by the share of the year's hours), ``("month", 1)`` for MONTH
+    values, ``("year", 1)`` for ANNUAL values (each is a whole year's
+    mean), ``("period", 1)`` for PERIOD values (one mean over the whole
+    run) and ``("day", 1)`` for everything else: 24-HR values, and
+    anything not named.
     """
     text = str(ave).strip().upper()
-    return {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}.get(text, "day")
+    named = {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}
+    if text in named:
+        return named[text], 1
+    match = re.fullmatch(r"(\d+)-HR", text)
+    if match and 0 < int(match.group(1)) < 24:
+        return "hour", int(match.group(1))
+    return "day", 1
+
+
+#: An AERMOD YYMMDDHH stamp: hours run 01..24 (00 is accepted too).
+_YYMMDDHH = r"\d{6}(?:[01]\d|2[0-4])"
+
+
+def _no2_stamps(date_col: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """The date column as normalised YYMMDDHH text and as day timestamps.
+
+    Raises a ValueError naming the first few values that are not AERMOD
+    YYMMDDHH stamps, rather than failing deep inside the parser.
+    """
+    text = date_col.astype(str).str.strip().str.zfill(8)
+    bad = ~text.str.fullmatch(_YYMMDDHH)
+    if not bad.any():
+        stamp = _parse_yymmddhh_to_date(text)
+        bad = stamp.isna()
+    if bad.any():
+        shown = date_col[bad].astype(str).unique()[:4]
+        raise ValueError(
+            "the date column must hold AERMOD YYMMDDHH stamps; cannot read "
+            f"{', '.join(shown)}."
+        )
+    return text, stamp
 
 
 def _annual_numyrs(date_col: pd.Series) -> Optional[int]:
@@ -684,7 +739,7 @@ def _annual_numyrs(date_col: pd.Series) -> Optional[int]:
     return int(counts[0])
 
 
-def _no2_annual_input(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+def _no2_annual_input(df: pd.DataFrame) -> tuple[pd.DataFrame, str, int]:
     """The rows behind an annual NO2 design value and their coverage unit.
 
     Both forms of :func:`naaqs_compliance_report`'s annual NO2 value read
@@ -692,7 +747,8 @@ def _no2_annual_input(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     averaging period (one ``ave`` value): rows of different periods are
     different quantities, and averaging or ranking them together means
     nothing. Without an ``ave`` column the rows are taken as sub-annual
-    values, counted in days.
+    values, counted in days. Returns the frame and :func:`_coverage_unit`
+    of its averaging period.
     """
     work = _one_source_group(df)
     if "ave" in work.columns:
@@ -705,7 +761,8 @@ def _no2_annual_input(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
             f"{', '.join(aves)}. Pass one averaging period, e.g. "
             f"df[df['ave'] == {aves[0]!r}]."
         )
-    return work, _coverage_unit(aves[0]) if aves else "day"
+    unit, per_value = _coverage_unit(aves[0]) if aves else ("day", 1)
+    return work, unit, per_value
 
 
 def _no2_annual_design_value(df: pd.DataFrame, form: str) -> pd.DataFrame:
@@ -725,7 +782,7 @@ def _no2_annual_design_value(df: pd.DataFrame, form: str) -> pd.DataFrame:
     present for ``"multi_year_mean"``, and for ``"highest_year"`` as
     :func:`_no2_highest_complete_year` describes.
     """
-    work, unit = _no2_annual_input(df)
+    work, unit, per_value = _no2_annual_input(df)
     if unit == "year" and form == "highest_year":
         numyrs = _annual_numyrs(work["date"])
         if numyrs != 1:
@@ -757,48 +814,48 @@ def _no2_annual_design_value(df: pd.DataFrame, form: str) -> pd.DataFrame:
             )
         return (work.groupby(receptor, as_index=False, sort=False)
                 ["concentration"].max())
+    text, stamp = _no2_stamps(work["date"])
     if form == "multi_year_mean":
-        return (annual_mean(work)
+        return (_annual_means(work, stamp.dt.year)
                 .groupby(receptor, as_index=False, sort=False)
                 ["concentration"].mean())
-    return _no2_highest_complete_year(work, unit)
+    unit_of_row = {"hour": text, "day": stamp, "month": stamp.dt.month}[unit]
+    return _no2_highest_complete_year(
+        work.assign(_year=stamp.dt.year, _unit=unit_of_row), unit, per_value)
 
 
-def _no2_highest_complete_year(work: pd.DataFrame, unit: str) -> pd.DataFrame:
+def _no2_highest_complete_year(
+    work: pd.DataFrame, unit: str, per_value: int,
+) -> pd.DataFrame:
     """Highest annual mean per receptor, over the years at least 75 % covered.
 
     ``work`` holds sub-annual rows of one averaging period, already checked
-    and deduplicated by :func:`_no2_annual_design_value`. Coverage is
-    counted in ``unit``: the share of the calendar year's days (365 or 366)
-    with at least one row for that receptor for hourly to 24-hour values,
-    so it reads the same from hourly and daily POSTFILEs, and the share of
-    its 12 months for MONTH values.
+    and deduplicated by :func:`_no2_annual_design_value`, with each row's
+    calendar year in ``_year`` and its coverage unit in ``_unit``. Coverage
+    is counted in ``unit``, as 40 CFR 50 Appendix S counts it for the
+    annual mean: the share of the calendar year's hours (8760 or 8784)
+    covered at that receptor for 1-HR to 12-HR values, ``per_value`` hours
+    for each distinct stamp; the share of its days (365 or 366) for 24-HR
+    values and frames without an ``ave`` column; and the share of its 12
+    months for MONTH values.
 
     A year below 75 % is left out with a warning. A receptor with no
     calendar year at 75 % gets the mean over its whole record instead,
     also with a warning, rather than its highest partial year.
     """
     receptor = ["x", "y"]
-    stamp = _parse_yymmddhh_to_date(work["date"])
-    if stamp.isna().any():
-        bad = work.loc[stamp.isna(), "date"].astype(str).unique()[:4]
-        raise ValueError(
-            "the date column must hold AERMOD YYMMDDHH stamps; cannot read "
-            f"{', '.join(bad)}."
-        )
-    work = work.assign(_year=stamp.dt.year,
-                       _unit=stamp if unit == "day" else stamp.dt.month)
     keys = [*receptor, "_year"]
     means = work.groupby(keys, as_index=False, sort=False).agg(
         concentration=("concentration", "mean"), _n=("_unit", "nunique"))
-    if unit == "day":
-        whole = means["_year"].map(lambda y: 366 if calendar.isleap(y) else 365)
-    else:
+    if unit == "month":
         whole = pd.Series(12, index=means.index)
-    means["_ok"] = means["_n"] >= _NO2_ANNUAL_COMPLETENESS * whole
+    else:
+        days = means["_year"].map(lambda y: 366 if calendar.isleap(y) else 365)
+        whole = days * 24 if unit == "hour" else days
+    means["_ok"] = means["_n"] * per_value >= _NO2_ANNUAL_COMPLETENESS * whole
 
     any_ok = means.groupby(receptor, sort=False)["_ok"].transform("any")
-    noun = "months" if unit == "month" else "days"
+    noun = {"hour": "hours", "month": "months"}.get(unit, "days")
     dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "_year"]})
     if dropped:
         warnings.warn(
@@ -865,11 +922,14 @@ def naaqs_compliance_report(
     (40 CFR 50.11(e), Appendix S), so with several years of data
     ``no2_annual="highest_year"`` (the default) takes the highest year's
     mean at each receptor. Only years with data on at least 75% of their
-    days count (Appendix S treats an annual mean as valid from 75%
+    hours count (Appendix S treats an annual mean as valid from 75%
     coverage), so a few days of a following year cannot set the design
     value; the years left out are named in a :class:`UserWarning`. The
-    frame must hold one averaging period (one ``ave`` value). A MONTH
-    POSTFILE counts months instead of days, and a PERIOD mean, which covers
+    frame must hold one averaging period (one ``ave`` value). Coverage is
+    counted in hours for 1-HR (and other sub-daily block) values, so two
+    hours a day is not a complete year; a 24-HR POSTFILE (or one without
+    an ``ave`` column) counts days, a MONTH POSTFILE counts months, and a
+    PERIOD mean, which covers
     the whole run rather than one calendar year, is used as it is with a
     warning. An ANNUAL value is used only when it covers one year: over
     several years (AERMOD writes NUMYRS where the date would be) it is the
@@ -885,9 +945,25 @@ def naaqs_compliance_report(
     which over several years is already the average of the years' means,
     is that mean as it is, whatever its number of years; a PERIOD mean is
     used as it is, with the same warning as above.
+
+    ``background`` is added before the design value is formed. A date-keyed
+    background (dict or Series) cannot be matched to ANNUAL or PERIOD
+    values, whose date field is not an hour, so it raises
+    :class:`ValueError` there; pass a single number instead.
     """
     from .naaqs import get_naaqs  # local import to avoid cycles
 
+    if isinstance(background, (dict, pd.Series)) and "ave" in df.columns:
+        aves = set(df["ave"].astype(str).str.strip().str.upper())
+        whole = sorted(aves & {"ANNUAL", "PERIOD"})
+        if whole:
+            raise ValueError(
+                f"a background keyed by date cannot be matched to "
+                f"{' / '.join(whole)} values: their date field holds a year "
+                "count or the run's last hour, not the hours the background "
+                "is keyed on, so it would add nothing. Pass the background as "
+                "a single number, e.g. its annual mean."
+            )
     work = add_background(df, background) if background is not None else df
 
     pollutant = pollutant.upper()

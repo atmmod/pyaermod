@@ -480,3 +480,116 @@ def test_a_count_of_zero_years_is_not_a_count():
     df = _rows("ANNUAL", [("00000000", 40.0)])
     with pytest.raises(ValueError, match="unknown number of years"):
         naaqs_compliance_report("NO2_annual", df)
+
+
+# ----------------------------------------------------------------------
+# Hourly coverage is counted in hours (Appendix S: 75 % of the year's hours)
+# ----------------------------------------------------------------------
+
+def _hours_each_day(year: int, value: float, hours: range) -> pd.DataFrame:
+    """1-HR rows for every day of ``year``, but only at the given ``hours``."""
+    dates = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D")
+    stamps = [f"{d:%y%m%d}{h:02d}" for d in dates for h in hours]
+    return pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": value,
+                         "date": stamps, "ave": "1-HR", "group": "ALL"})
+
+
+def test_two_hours_a_day_is_not_a_complete_year():
+    # Every day has a row, but only 730 of 8760 hours do.
+    df = _hours_each_day(2001, 40.0, range(1, 3))
+    with pytest.warns(UserWarning, match="hours") as caught:
+        naaqs_compliance_report("NO2_annual", df)
+    assert any("no calendar year" in str(w.message) for w in caught)
+
+
+def test_a_year_short_of_three_quarters_of_its_hours_is_left_out():
+    # 2020: 18 of 24 hours every day is exactly 75 %; 17 is 70.8 %.
+    full = _hours(2019, 40.0)
+    df = pd.concat([full, _hours_each_day(2020, 150.0, range(1, 19))], ignore_index=True)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(150.0)]
+
+    df = pd.concat([full, _hours_each_day(2020, 150.0, range(1, 18))], ignore_index=True)
+    with pytest.warns(UserWarning, match="2020") as caught:
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(40.0)]
+    assert any("hours" in str(w.message) for w in caught)
+
+
+def test_three_hour_blocks_over_a_whole_year_are_complete():
+    # AERMOD's 3-HR values are block averages, eight a day ending 03..24:
+    # each covers three hours, so a full year of them covers every hour.
+    import warnings
+    dates = pd.date_range("2019-01-01", "2019-12-31", freq="D")
+    stamps = [f"{d:%y%m%d}{h:02d}" for d in dates for h in range(3, 25, 3)]
+    df = pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": 40.0,
+                       "date": stamps, "ave": "3-HR", "group": "ALL"})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(40.0)]
+
+
+# ----------------------------------------------------------------------
+# A date-keyed background cannot be matched to ANNUAL or PERIOD values
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("ave", ["ANNUAL", "PERIOD"])
+@pytest.mark.parametrize("make", [dict, pd.Series])
+def test_a_date_keyed_background_on_annual_or_period_rows_is_refused(ave, make):
+    df = _rows(ave, [("00000001", 40.0)])
+    background = make({"19010101": 5.0})
+    with pytest.raises(ValueError, match="single number") as caught:
+        naaqs_compliance_report("NO2_annual", df, background=background,
+                                no2_annual="multi_year_mean")
+    assert ave in str(caught.value)
+
+
+def test_a_uniform_background_on_annual_rows_is_added():
+    df = _rows("ANNUAL", [("00000001", 40.0)])
+    report = naaqs_compliance_report("NO2_annual", df, background=10.0)
+    assert report["design_value"].tolist() == [pytest.approx(50.0)]
+
+
+# ----------------------------------------------------------------------
+# A date that is not a YYMMDDHH stamp gets a plain explanation
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+@pytest.mark.parametrize("bad", ["2001-01-01", "abcdefgh", "19133101", "19010125"])
+def test_a_date_that_is_not_a_stamp_is_named(form, bad):
+    df = _hours(2019, 40.0)
+    df.loc[5, "date"] = bad
+    with pytest.raises(ValueError, match="YYMMDDHH") as caught:
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    assert bad in str(caught.value)
+
+
+# ----------------------------------------------------------------------
+# The input is checked and deduplicated once
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+def test_the_input_is_checked_and_deduplicated_once(form, monkeypatch):
+    from pyaermod import design_values as dv
+
+    calls = {"group": 0, "dedupe": 0}
+    group, dedupe = dv._one_source_group, dv._dedupe_receptors
+
+    def counting_group(df):
+        calls["group"] += 1
+        return group(df)
+
+    def counting_dedupe(df):
+        calls["dedupe"] += 1
+        return dedupe(df)
+
+    monkeypatch.setattr(dv, "_one_source_group", counting_group)
+    monkeypatch.setattr(dv, "_dedupe_receptors", counting_dedupe)
+    report = naaqs_compliance_report("NO2_annual", _two_years(40.0, 120.0), no2_annual=form)
+    assert report["design_value"].tolist() == [
+        pytest.approx(120.0 if form == "highest_year" else 80.0)]
+    assert calls == {"group": 1, "dedupe": 1}

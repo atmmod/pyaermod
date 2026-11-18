@@ -69,6 +69,19 @@ class TestAddBackground:
         assert b == 6.0   # 2 + 4
         assert c == 2.0   # unchanged
 
+    def test_a_background_matching_no_date_warns(self):
+        df = _hourly_postfile(years=(2020,), concentration_value=2.0)
+        with pytest.warns(UserWarning, match="matches no"):
+            out = add_background(df, {"2020-01-01": 8.0})
+        assert (out["concentration"] == 2.0).all()
+
+    def test_a_background_matching_some_dates_does_not_warn(self):
+        import warnings
+        df = _hourly_postfile(years=(2020,), concentration_value=2.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            add_background(df, pd.Series({"20010101": 8.0}))
+
 
 class TestAnnualMean:
     def test_constant_returns_same_value(self):
