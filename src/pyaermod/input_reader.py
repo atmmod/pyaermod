@@ -1956,13 +1956,17 @@ def _parse_meteorology(block: _PathwayBlock,
             # D exponent is a number); AERMOD converts FEET to metres, and
             # the field is in metres. Another unit is warning W203 and
             # AERMOD takes the value as metres (probe 33e), as here. A
-            # value that is no number (AERMOD E208) is kept verbatim and
-            # the field left at its default, as for STARTEND and NUMYEARS.
+            # value that is no number stops AERMOD (E208), and the reader
+            # too, naming the line, as _whole_number does for SURFDATA and
+            # UAIRDATA: kept verbatim it would be written beside the
+            # PROFBASE the pathway always writes (a repeated keyword), and
+            # removing it would silently give 0 m.
             try:
                 elevation = _fortran_float(toks[0])
             except ValueError:
-                _drop(dropped, ln)
-                continue
+                raise ValueError(
+                    f"line {ln}: PROFBASE expects a number, got {toks[0]!r}; "
+                    "AERMOD stops with E208") from None
             unit = toks[1].upper() if len(toks) > 1 else "METERS"
             if unit == "FEET":
                 elevation *= 0.3048

@@ -162,6 +162,16 @@ def _num(value: float) -> str:
     return f"{value:.10g}"
 
 
+def one_decimal_or_exact(value: float) -> str:
+    """``value`` with one decimal, as EPA's own decks write it, when that
+    reads back to exactly the same float; otherwise the shortest text that
+    does (``repr``), so a rewritten deck reads back the same number
+    (``22.25`` stays ``22.25``, not ``22.2``)."""
+    value = float(value)
+    text = f"{value:.1f}"
+    return text if float(text) == value else repr(value)
+
+
 def value_list(values) -> list:
     """The values of a profile as a list.
 
@@ -1084,9 +1094,8 @@ class MeteorologyPathway:
         # more (a base read in FEET and converted): then the shortest
         # text that reads back to exactly the same float, so a rewrite
         # reads back the same height.
-        base = float(self.profile_base_elevation)
-        text = f"{base:.1f}" if float(f"{base:.1f}") == base else repr(base)
-        lines.append(f"   PROFBASE  {text}  METERS")
+        lines.append(
+            f"   PROFBASE  {one_decimal_or_exact(self.profile_base_elevation)}  METERS")
 
         # Date range (if specified; not dispatched in an EVENT run)
         if not event_processing and all(

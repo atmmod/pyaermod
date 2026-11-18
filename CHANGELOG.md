@@ -142,14 +142,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   feet to metres, as AERMOD does, and the writer keeps the precision a
   converted value needs. Another unit is read as metres with a warning
   (AERMOD's W203), a D exponent is accepted, and a value that is not a
-  number is kept verbatim instead of stopping the reader.
+  number is a `ValueError` naming the line (AERMOD's E208). `BGSECTOR`
+  directions are written so they read back exactly. NaN, infinite and
+  non-numeric background values and sector directions are validation
+  errors.
 - The annual NO2 design value from `naaqs_compliance_report("NO2_annual",
   ...)` averaged the years' annual means. The standard is one calendar
   year's mean (40 CFR 50.11(e), Appendix S), so the design value is now
   the highest year's mean at each receptor;
   `no2_annual="multi_year_mean"` keeps the average for an agency that
   accepts it. Only years at least 75% complete count toward the highest
-  year (days for hourly and daily values, months for MONTH); a year left
+  year (hours for hourly values, as Appendix S counts them, days for
+  daily values, months for MONTH); a year left
   out is named in a warning, and a receptor with no complete year gets the
   mean over the whole record, with a warning. AERMOD's ANNUAL POSTFILE
   value over several years, an average of the years' means, is refused

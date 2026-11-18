@@ -102,11 +102,19 @@ def test_a_fortran_d_exponent_is_read():
     assert met.profile_base_elevation == 150.0
 
 
-def test_a_value_that_is_no_number_is_kept_verbatim():
-    project = parse_aermod_input(_deck("abc  METERS"))
-    assert project.meteorology.profile_base_elevation == 0.0
-    kept = [ln for ln in project.unparsed_lines if ln.keyword == "PROFBASE"]
-    assert len(kept) == 1 and kept[0].fields[0] == "abc"
+@pytest.mark.parametrize("profbase", ["abc  METERS", "1x0  FEET", "abc"])
+def test_a_value_that_is_no_number_is_an_error_naming_the_line(profbase):
+    # Kept verbatim, it was written beside the PROFBASE card the
+    # MeteorologyPathway always writes (two PROFBASE cards, on top of
+    # E208), and removing it silently gave 0 m. AERMOD stops with E208,
+    # so the reader stops too, as for SURFDATA/UAIRDATA (review finding 4).
+    lineno = _deck(profbase).splitlines().index(f"   PROFBASE  {profbase}") + 1
+    with pytest.raises(ValueError) as excinfo:
+        parse_aermod_input(_deck(profbase))
+    message = str(excinfo.value)
+    assert f"line {lineno}" in message
+    assert "PROFBASE" in message and "E208" in message
+    assert repr(profbase.split()[0]) in message
 
 
 @pytest.mark.parametrize("feet", [1234.567, 328.1, 0.1, 99999.99, 1.0 / 3.0])

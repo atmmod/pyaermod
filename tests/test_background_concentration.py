@@ -441,3 +441,43 @@ def test_a_valid_whole_domain_deck_is_still_modelled(so, modelled, kept):
     else:
         assert bg.period_values == modelled
     assert _kept_background(project) == kept
+
+
+# ----------------------------------------------------------------------
+# BGSECTOR directions read back exactly (review finding 2: ``:.1f``
+# turned ``BGSECTOR 22.25 180`` into ``BGSECTOR 22.2 180.0`` and moved
+# the sector boundary)
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("directions", [
+    "22.25  180",
+    "0.05  90.125  200",
+    "10.123456789  190.987654321",
+])
+def test_bgsector_directions_read_back_exactly(directions):
+    n = len(directions.split())
+    so = (f"   BGSECTOR  {directions}\n"
+          + "\n".join(f"   BACKGRND  SECT{i}  ANNUAL  {i}.0" for i in range(1, n + 1)))
+    project = parse_aermod_input(_deck(so))
+    read = [s.start_direction for s in project.sources.background.sectors]
+    assert read == [float(d) for d in directions.split()]
+    again = parse_aermod_input(project.to_aermod_input())
+    assert [s.start_direction for s in again.sources.background.sectors] == read
+
+
+@pytest.mark.parametrize("direction", [22.25, 1.0 / 3.0, 359.99, 1e-7])
+def test_any_bgsector_direction_is_written_so_it_reads_back_exactly(direction):
+    bg = BackgroundConcentration(
+        sectors=[BackgroundSector(1, direction), BackgroundSector(2, 180.0)],
+        sector_values={(1, "ANNUAL"): 1.0, (2, "ANNUAL"): 2.0})
+    line = next(ln for ln in _background_lines(bg.to_aermod_input())
+                if ln.startswith("BGSECTOR"))
+    assert [float(t) for t in line.split()[1:]] == [direction, 180.0]
+
+
+def test_bgsector_directions_with_one_decimal_keep_one_decimal():
+    bg = BackgroundConcentration(
+        sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 90.0),
+                 BackgroundSector(3, 22.5)],
+        sector_values={(1, "ANNUAL"): 1.0, (2, "ANNUAL"): 2.0, (3, "ANNUAL"): 3.0})
+    assert "   BGSECTOR  0.0 90.0 22.5" in bg.to_aermod_input().splitlines()

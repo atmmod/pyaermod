@@ -43,6 +43,13 @@ def _is_number(value) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
+def _is_finite_number(value) -> bool:
+    """A number (:func:`_is_number`) that is neither NaN nor infinite: the
+    writer would emit ``nan``/``inf``, which AERMOD cannot read, and NaN
+    slips past every ``<``/``>`` range check."""
+    return _is_number(value) and math.isfinite(value)
+
+
 @dataclass
 class ValidationError:
     """A single validation error with context."""
@@ -401,6 +408,12 @@ class Validator:
                     pathway, "uniform_value",
                     f"must be a number, got {background.uniform_value!r}"
                 ))
+            elif not math.isfinite(background.uniform_value):
+                result.errors.append(ValidationError(
+                    pathway, "uniform_value",
+                    f"must be a finite number, got {background.uniform_value!r}: "
+                    "the writer would write it as nan/inf, which AERMOD cannot read"
+                ))
             elif background.uniform_value < 0:
                 result.errors.append(ValidationError(
                     pathway, "uniform_value",
@@ -539,7 +552,9 @@ class Validator:
         """Problems with one temporal-variation profile, as soset.f reads
         BACKGRND, O3VALUES and NOX_VALS: a flag of EMISFACT's table
         (:data:`TEMPORAL_FLAG_COUNTS`), exactly its number of values, and
-        every value a number (and, with ``non_negative``, none below 0).
+        every value a finite number (and, with ``non_negative``, none below
+        0); NaN and +/-inf would be written as ``nan``/``inf``, which
+        AERMOD cannot read.
         ``values`` may be a single value or any non-string iterable of
         values (a numpy array, a pandas Series, a range); a string is one
         value, and not a number."""
@@ -561,7 +576,13 @@ class Validator:
             problems.append(
                 f"values for {flag!r}{where} must be numbers, got "
                 f"{', '.join(repr(v) for v in bad[:4])}")
-        if non_negative and any(_is_number(v) and v < 0 for v in values):
+        non_finite = [v for v in values if _is_number(v) and not math.isfinite(v)]
+        if non_finite:
+            problems.append(
+                f"values for {flag!r}{where} must be finite numbers, got "
+                f"{', '.join(repr(v) for v in non_finite[:4])} (written as nan/inf, "
+                "which AERMOD cannot read)")
+        if non_negative and any(_is_finite_number(v) and v < 0 for v in values):
             problems.append(f"values for '{flag}'{where} must be >= 0")
         return problems
 
@@ -1759,13 +1780,24 @@ class Validator:
 
     @classmethod
     def _validate_sectors(cls, label, sectors, pathway, result):
-        """O3SECTOR / NOXSECTR: 2..6 ascending directions, >= 30 deg apart."""
+        """BGSECTOR / O3SECTOR / NOXSECTR: 2..6 ascending directions,
+        >= 30 deg apart. A direction that is no finite number (a string
+        from a hand-edited project file, NaN, inf) is an error of its own,
+        and the range and order checks, which need numbers, are skipped."""
         if not sectors:
             return
         if not 2 <= len(sectors) <= 6:
             result.errors.append(ValidationError(
                 pathway, label, f"needs 2 to 6 sector start directions, got {len(sectors)}"
             ))
+        bad = [d for d in sectors if not _is_finite_number(d)]
+        if bad:
+            result.errors.append(ValidationError(
+                pathway, label,
+                "sector start directions must be finite numbers (degrees), got "
+                f"{', '.join(repr(d) for d in bad[:4])}"
+            ))
+            return
         if any(not 0 <= d <= 360 for d in sectors):
             result.errors.append(ValidationError(
                 pathway, label, "sector start directions must be within 0..360 degrees"

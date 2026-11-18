@@ -344,3 +344,95 @@ def test_sectors_without_sector_values_are_an_error_per_sector(sector_values):
     bg = BackgroundConcentration(sectors=_two_sectors(), sector_values=sector_values)
     errors = _background_errors(_project_with(bg))
     assert sum("E238" in e.message for e in errors) == 2, errors
+
+
+# ----------------------------------------------------------------------
+# Review finding 6: NaN and +/-inf are no background value. ``v < 0``
+# is False for NaN and +inf, so they passed, and the writer emitted
+# ``nan``/``inf``, which AERMOD cannot read.
+# ----------------------------------------------------------------------
+
+_NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+@pytest.mark.parametrize("value", _NON_FINITE)
+def test_a_non_finite_uniform_value_is_an_error(value):
+    errors = _background_errors(_project_with(BackgroundConcentration(uniform_value=value)))
+    assert any(e.field == "uniform_value" and "finite" in e.message for e in errors), errors
+
+
+@pytest.mark.parametrize("value", _NON_FINITE)
+def test_a_non_finite_period_value_is_an_error(value):
+    bg = BackgroundConcentration(period_values={"SEASON": [1.0, value, 3.0, 4.0]})
+    errors = _background_errors(_project_with(bg))
+    assert any(e.field == "period_values" and "finite" in e.message for e in errors), errors
+
+
+@pytest.mark.parametrize("value", _NON_FINITE)
+def test_a_non_finite_sector_value_is_an_error(value):
+    bg = BackgroundConcentration(sectors=_two_sectors(),
+                                 sector_values={(1, "ANNUAL"): value, (2, "ANNUAL"): 5.0})
+    errors = _background_errors(_project_with(bg))
+    assert any(e.field == "sector_values" and "finite" in e.message
+               and "sector 1" in e.message for e in errors), errors
+
+
+def test_finite_background_values_still_validate():
+    bg = BackgroundConcentration(sectors=_two_sectors(),
+                                 sector_values={(1, "SEASON"): [0.0, 1.5, 2.0, 1e6],
+                                                (2, "ANNUAL"): 5.0})
+    assert _background_errors(_project_with(bg)) == []
+    assert _background_errors(_project_with(BackgroundConcentration(uniform_value=0.0))) == []
+
+
+def _no2_project(chemistry):
+    from pyaermod.input_generator import ControlPathway, PollutantType
+    from tests.test_validator import _make_valid_project
+    control = ControlPathway(title_one="t", pollutant_id=PollutantType.NO2,
+                             averaging_periods=["1"], chemistry=chemistry)
+    return _make_valid_project(control=control)
+
+
+@pytest.mark.parametrize("value", _NON_FINITE)
+def test_a_non_finite_o3values_or_nox_vals_value_is_an_error(value):
+    from pyaermod.input_generator import (
+        ChemistryMethod,
+        ChemistryOptions,
+        NOxBackground,
+        OzoneData,
+        TemporalValues,
+    )
+    chem = ChemistryOptions(
+        method=ChemistryMethod.GRSM,
+        ozone_data=OzoneData(varying=TemporalValues("SEASON", [40.0, value, 40.0, 40.0])),
+        nox_background=NOxBackground(varying=TemporalValues("ANNUAL", [value])))
+    errors = Validator.validate(_no2_project(chem), advanced=False).errors
+    for field in ("ozone_data", "nox_background"):
+        assert any(field in e.field and "finite" in e.message for e in errors), (field, errors)
+
+
+# ----------------------------------------------------------------------
+# Review finding 7: a start_direction that is no number (a string from a
+# hand-edited project file) used to raise TypeError in the range check.
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("direction", ["90", None, float("nan"), float("inf"), True])
+def test_a_start_direction_that_is_no_finite_number_is_an_error(direction):
+    bg = BackgroundConcentration(
+        sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, direction)],
+        sector_values={(1, "ANNUAL"): 1.0, (2, "ANNUAL"): 2.0})
+    errors = _background_errors(_project_with(bg))
+    assert any(e.field == "sectors" and "finite number" in e.message
+               and repr(direction) in e.message for e in errors), errors
+    # The range and order checks are skipped, not run on a bad value.
+    assert not any("0..360" in e.message or "ascending" in e.message for e in errors), errors
+
+
+def test_a_string_ozone_sector_direction_is_an_error_not_a_crash():
+    from pyaermod.input_generator import BackgroundSpec, ChemistryMethod, ChemistryOptions, OzoneData
+    oz = OzoneData(sectors=[0.0, "180"], by_sector={1: BackgroundSpec(value=40.0),
+                                                    2: BackgroundSpec(value=40.0)})
+    chem = ChemistryOptions(method=ChemistryMethod.OLM, ozone_data=oz)
+    errors = Validator.validate(_no2_project(chem), advanced=False).errors
+    assert any(e.field == "ozone_data.sectors" and "finite number" in e.message
+               for e in errors), errors

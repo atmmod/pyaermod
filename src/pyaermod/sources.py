@@ -22,7 +22,7 @@ from typing import Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, 
 
 from ._fields import described
 from .hourly_emissions import write_hourly_emissions
-from .pathways import ChemistryOptions, continued_value_lines
+from .pathways import ChemistryOptions, continued_value_lines, one_decimal_or_exact
 
 # ============================================================================
 # DEPOSITION PARAMETERS
@@ -1689,9 +1689,10 @@ class BackgroundConcentration:
         """Generate AERMOD BACKGRND / BGSECTOR keywords."""
         lines: List[str] = []
         if self.sectors and self.sector_values:
-            # BGSECTOR takes starting directions only (up to 6)
+            # BGSECTOR takes starting directions only (up to 6), each
+            # written so it reads back exactly (22.25 stays 22.25).
             sorted_sectors = sorted(self.sectors, key=lambda s: s.sector_id)
-            dir_parts = [f"{s.start_direction:.1f}" for s in sorted_sectors]
+            dir_parts = [one_decimal_or_exact(s.start_direction) for s in sorted_sectors]
             lines.append(f"   BGSECTOR  {' '.join(dir_parts)}")
             for (sid, flag), values in sorted(self.sector_values.items()):
                 lines += continued_value_lines("BACKGRND", f"SECT{sid}  {flag}", values)
