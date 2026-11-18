@@ -24,6 +24,10 @@ from ._fields import described
 if TYPE_CHECKING:
     from .sources import SourceGroupDefinition
 
+#: The hours of the short-term averaging periods AERMOD accepts on
+#: AVERTIME (``AVETIM`` in coset.f); each divides the day evenly.
+SHORT_TERM_HOURS: Tuple[int, ...] = (1, 2, 3, 4, 6, 8, 12, 24)
+
 
 def _normalize_title(text: Optional[str]) -> str:
     """Collapse a title's whitespace to match AERMOD's free-form runstream.
@@ -158,8 +162,116 @@ TEMPORAL_FLAG_COUNTS: Dict[str, int] = {
 
 
 def _num(value: float) -> str:
-    """Shortest fixed/scientific rendering that reads back to itself."""
+    """``value`` to ten significant digits, fixed or scientific (``.10g``).
+
+    It need not read back to the same float (12.3456789012345 is written
+    ``12.3456789``); :func:`exact_num` does.
+    """
     return f"{value:.10g}"
+
+
+def exact_num(value: float) -> str:
+    """``value`` as :func:`_num` writes it when that reads back to exactly
+    the same float (``1``, ``3.5``, ``0.1``), otherwise the shortest text
+    that does (``repr``: ``12.3456789012345``), so a profile written to a
+    deck reads back the same numbers. The test is against ``float(value)``,
+    as the deck is read: a numpy float32 would compare at its own
+    precision, and ``0.1000000015`` reads back as another double."""
+    text = _num(value)
+    return text if float(text) == float(value) else repr(float(value))
+
+
+def one_decimal_or_exact(value: float) -> str:
+    """``value`` with one decimal, as EPA's own decks write it, when that
+    reads back to exactly the same float; otherwise the shortest text that
+    does (``repr``), so a rewritten deck reads back the same number
+    (``22.25`` stays ``22.25``, not ``22.2``)."""
+    value = float(value)
+    text = f"{value:.1f}"
+    return text if float(text) == value else repr(value)
+
+
+class NotAValueList(TypeError):
+    """An iterable given as a profile's values that is no list of them.
+
+    ``kind`` is its type's name and ``reason`` says why, as a noun
+    phrase: it is a one-shot iterator, or no ordered sequence.
+    ``one_shot`` is True for a one-shot iterator, so a caller that words
+    the refusal for something other than a profile (the project-file
+    writer) can say why without repeating the rules.
+    """
+
+    def __init__(self, kind: str, reason: str, *, one_shot: bool = False) -> None:
+        self.kind = kind
+        self.reason = reason
+        self.one_shot = one_shot
+        super().__init__(
+            f"a profile's values must be a list (or a tuple, range, numpy array or "
+            f"pandas Series): a {kind} is {reason}; give list(values)")
+
+
+def profile_values(values) -> Tuple[list, bool]:
+    """``values`` as a list, and whether it was a sequence of values.
+
+    The one place the rules of :func:`value_list` live (the project-file
+    writer uses them too). A list, a tuple, a range, or anything with a
+    ``tolist()`` that gives a list (a numpy array, a pandas Series (its
+    values, in order, not its index), Index or Categorical) is a
+    sequence: ``(its values, True)``. A string or bytes-like object is one
+    value, not a sequence of characters or bytes, and so is anything that
+    is not iterable: ``([values], False)``; a numpy scalar or 0-d array
+    gives its Python value (``tolist()``) in place of itself.
+
+    Any other iterable raises :class:`NotAValueList` (a
+    :class:`TypeError`): a one-shot iterator (a map, a generator, a zip)
+    would be used up by the first pass over it (the validator's), and the
+    deck would then get a card without values; a set or a dict has no
+    order AERMOD's could be. Nothing is taken from it.
+    """
+    if isinstance(values, (str, bytes, bytearray, memoryview)):
+        return [values], False
+    if isinstance(values, (list, tuple, range)):
+        return list(values), True
+    tolist = getattr(values, "tolist", None)
+    if callable(tolist):
+        listed = tolist()
+        if isinstance(listed, list):
+            return listed, True
+        return [listed], False
+    try:
+        is_iterator = iter(values) is values
+    except TypeError:
+        return [values], False
+    raise NotAValueList(
+        type(values).__name__,
+        "a one-shot iterator that the first pass over it (the validator's) would use up"
+        if is_iterator else "not an ordered sequence of values",
+        one_shot=is_iterator)
+
+
+def value_list(values) -> list:
+    """The values of a profile as a list, by :func:`profile_values`' rules."""
+    return profile_values(values)[0]
+
+
+def continued_value_lines(keyword: str, prefix: str, values,
+                          per_line: int = 12) -> List[str]:
+    """Runstream lines for a value profile continued over several lines.
+
+    AERMOD reads the values of ``O3VALUES``, ``NOX_VALS`` and ``BACKGRND``
+    profiles over as many lines as needed, each repeating the keyword
+    and ``prefix`` (the temporal flag, after ``SECTn`` for a sector).
+    ``values`` is a number or a list, tuple, range, numpy array or
+    pandas Series of numbers (see :func:`value_list`; anything else
+    iterable, such as a one-shot iterator, raises :class:`TypeError`
+    rather than give a card without values); ``per_line`` values go on
+    each line, each written by :func:`exact_num` so it reads back as the
+    same number.
+    """
+    values = value_list(values)
+    return [f"   {keyword}  {prefix}  "
+            f"{' '.join(exact_num(v) for v in values[start:start + per_line])}".rstrip()
+            for start in range(0, max(len(values), 1), per_line)]
 
 
 @dataclass
@@ -175,7 +287,9 @@ class TemporalValues:
     flag : str
         One of the keys of :data:`TEMPORAL_FLAG_COUNTS`.
     values : list of float
-        The values, in AERMOD's order for that flag.
+        The values, in AERMOD's order for that flag: a list, tuple,
+        range, numpy array or pandas Series (see :func:`value_list`); a
+        one-shot iterator such as a map or a generator is refused.
     """
     flag: str
     values: List[float] = field(default_factory=list)
@@ -326,11 +440,8 @@ def _background_lines(spec: BackgroundSpec, keywords: Tuple[str, str, str],
             line += f"  {spec.file_format}"
         lines.append(line)
     if spec.varying is not None:
-        values = spec.varying.values
-        per_line = 12
-        for start in range(0, max(len(values), 1), per_line):
-            chunk = " ".join(_num(v) for v in values[start:start + per_line])
-            lines.append(f"   {vals_kw}  {tag}{spec.varying.flag}  {chunk}".rstrip())
+        lines += continued_value_lines(vals_kw, f"{tag}{spec.varying.flag}",
+                                       spec.varying.values)
     return lines
 
 
@@ -1051,10 +1162,12 @@ class MeteorologyPathway:
         # Station data (mandatory)
         lines.append(f"   SURFDATA  {self.surface_station_id}  {self.data_start_year}")
         lines.append(f"   UAIRDATA  {self.upper_air_station_id}  {self.data_start_year}")
-        # One decimal, matching EPA's own decks. A profile base elevation
-        # is metres MSL; sub-decimetre precision is not meaningful and
-        # writing it would churn the golden reference deck.
-        lines.append(f"   PROFBASE  {self.profile_base_elevation:.1f}  METERS")
+        # One decimal, matching EPA's own decks, unless the value needs
+        # more (a base read in FEET and converted): then the shortest
+        # text that reads back to exactly the same float, so a rewrite
+        # reads back the same height.
+        lines.append(
+            f"   PROFBASE  {one_decimal_or_exact(self.profile_base_elevation)}  METERS")
 
         # Date range (if specified; not dispatched in an EVENT run)
         if not event_processing and all(

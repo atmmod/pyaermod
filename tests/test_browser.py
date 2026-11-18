@@ -429,6 +429,11 @@ def test_a_run_returns_aermods_maxima(replay):
         assert (got["x"], got["y"]) == (want["x"], want["y"])
     assert results["maps"] and results["maps"][0]["src"].startswith("data:image/png;base64,")
     assert results["tables"] and len(results["tables"][0]["rows"]) <= browser.MAX_TABLE_ROWS
+    # SO2 is compared with a design value only, so the caption under the
+    # NAAQS table does not explain a lower bound.
+    assert {r["basis"] for r in results["naaqs"]} == {"design value"}
+    assert results["naaqs_caption"].startswith("A screening comparison")
+    assert "lower bound" not in results["naaqs_caption"].lower()
     out = next(f["name"] for f in results["files"] if f["name"].endswith(".out"))
     assert b"AERMOD Finishes Successfully" in base64.b64decode(
         ok("get_file", name=out)["data_b64"])

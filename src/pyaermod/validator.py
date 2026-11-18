@@ -9,23 +9,29 @@ AERMOD rejects at runtime.
 
 import itertools
 import math
+import numbers
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
 from .pathways import (
+    BACKGROUND_UNITS,
     EVENT_NAME_LENGTH,
     EVENT_OUTPUT_OPTIONS,
+    NO2STACK_METHODS,
     NOHEADER_FILE_TYPES,
+    SHORT_TERM_HOURS,
+    TEMPORAL_FLAG_COUNTS,
     TURBULENCE_OPTIONS,
     WIND_CATEGORY_COUNT,
     dayrange_field_is_valid,
     unquote_path,
+    value_list,
 )
 
 # Valid AERMOD averaging periods
 VALID_AVERAGING_PERIODS = {
-    "1", "2", "3", "4", "6", "8", "12", "24", "MONTH", "ANNUAL", "PERIOD",
+    *(str(hours) for hours in SHORT_TERM_HOURS), "MONTH", "ANNUAL", "PERIOD",
 }
 
 # Valid AERMOD pollutant IDs
@@ -33,6 +39,19 @@ VALID_POLLUTANT_IDS = {"OTHER", "PM25", "PM10", "NO2", "SO2", "CO", "O3"}
 
 # Valid elevation units
 VALID_ELEVATION_UNITS = {"METERS", "FEET"}
+
+
+def _is_number(value) -> bool:
+    """A real number, not a bool (``True < 0`` works but is no concentration)
+    and not a string from a hand-edited project file."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
+
+
+def _is_finite_number(value) -> bool:
+    """A number (:func:`_is_number`) that is neither NaN nor infinite: the
+    writer would emit ``nan``/``inf``, which AERMOD cannot read, and NaN
+    slips past every ``<``/``>`` range check."""
+    return _is_number(value) and math.isfinite(value)
 
 
 @dataclass
@@ -93,7 +112,8 @@ class Validator:
 
     @classmethod
     def validate(cls, project, check_files: bool = False,
-                 advanced: bool = True) -> ValidationResult:
+                 advanced: bool = True, *,
+                 preserve_unparsed: bool = True) -> ValidationResult:
         """
         Validate an entire AERMODProject.
 
@@ -109,6 +129,11 @@ class Validator:
             receptor-domain extent, DFAULT consistency, ANNUAL met
             coverage). Pass ``advanced=False`` to restrict output to
             only the base per-field checks.
+        preserve_unparsed : bool
+            Whether the deck will carry :attr:`AERMODProject.unparsed_lines`
+            (``to_aermod_input(preserve_unparsed=...)``). True (default)
+            also checks those lines against the modelled project; False
+            skips the checks that only matter when they are written.
 
         Returns
         -------
@@ -118,6 +143,8 @@ class Validator:
         event_run = bool(getattr(project, "event_processing", False))
         cls._validate_control(project.control, result)
         cls._validate_sources(project.sources, project.control, result)
+        if preserve_unparsed:
+            cls._validate_background_verbatim(project, result)
         if not event_run:
             # An EVENT deck has no RE pathway; its receptors are the
             # EVENTLOC cards.
@@ -361,56 +388,228 @@ class Validator:
     def _validate_background(cls, background, result: ValidationResult):
         pathway = "BackgroundConcentration"
 
-        if background.uniform_value is not None and background.uniform_value < 0:
+        # The writer emits one mode (sectors, else period_values, else
+        # uniform_value) and drops the others without a word.
+        modes = [name for name, is_set in (
+            ("uniform_value", background.uniform_value is not None),
+            ("period_values", bool(background.period_values)),
+            ("sectors/sector_values",
+             bool(background.sectors) or bool(background.sector_values)),
+        ) if is_set]
+        if len(modes) > 1:
             result.errors.append(ValidationError(
-                pathway, "uniform_value",
-                f"must be >= 0, got {background.uniform_value}"
+                pathway, modes[0],
+                f"{' and '.join(modes)} are {'both' if len(modes) == 2 else 'all'} set; "
+                "give one of the three background modes (uniform_value, period_values, "
+                "sectors/sector_values): the deck holds only one (AERMOD takes one "
+                "flag per sector or for the whole domain, E165), so the writer writes "
+                "one of them and drops the others"
             ))
 
+        if background.uniform_value is not None:
+            if not _is_number(background.uniform_value):
+                result.errors.append(ValidationError(
+                    pathway, "uniform_value",
+                    f"must be a number, got {background.uniform_value!r}"
+                ))
+            elif not math.isfinite(background.uniform_value):
+                result.errors.append(ValidationError(
+                    pathway, "uniform_value",
+                    f"must be a finite number, got {background.uniform_value!r}: "
+                    "the writer would write it as nan/inf, which AERMOD cannot read"
+                ))
+            elif background.uniform_value < 0:
+                result.errors.append(ValidationError(
+                    pathway, "uniform_value",
+                    f"must be >= 0, got {background.uniform_value}"
+                ))
+
         if background.period_values:
-            for period, value in background.period_values.items():
-                if period not in VALID_AVERAGING_PERIODS:
-                    result.errors.append(ValidationError(
-                        pathway, "period_values",
-                        f"invalid averaging period '{period}'"
-                    ))
-                if value < 0:
-                    result.errors.append(ValidationError(
-                        pathway, "period_values",
-                        f"value for period '{period}' must be >= 0, got {value}"
-                    ))
+            for flag, values in background.period_values.items():
+                cls._validate_background_profile(
+                    pathway, "period_values", str(flag), values, result)
+            if len(background.period_values) > 1:
+                result.errors.append(ValidationError(
+                    pathway, "period_values",
+                    "BACKGRND takes one temporal flag, got "
+                    f"{', '.join(map(str, background.period_values))} (AERMOD E165)"
+                ))
+
+        # Sector ids other than 1..N are one error; the per-sector checks
+        # below (E238, an undefined sector_id) would only repeat it in
+        # other words, so they wait until the ids are right.
+        sector_ids_ok = not background.sectors or sorted(
+            s.sector_id for s in background.sectors) == list(
+                range(1, len(background.sectors) + 1))
 
         if background.sectors:
-            if len(background.sectors) > 12:
+            # soset.f BGSECTOR: 2 to 6 directions, ascending, sectors at
+            # least 30 degrees wide (E222/E227), as O3SECTOR and NOXSECTR.
+            cls._validate_sectors(
+                "sectors",
+                [s.start_direction for s in sorted(background.sectors,
+                                                   key=lambda s: s.sector_id)],
+                pathway, result)
+            # AERMOD numbers the sectors by their position on BGSECTOR, and
+            # the writer emits SECT{sector_id} in sector_id order, so the
+            # ids must be exactly 1..N; SECTk with k > N is E203.
+            ids = sorted(s.sector_id for s in background.sectors)
+            if not sector_ids_ok:
                 result.errors.append(ValidationError(
                     pathway, "sectors",
-                    f"AERMOD supports max 12 background sectors, got {len(background.sectors)}"
+                    f"sector ids must be 1..{len(ids)}, one per sector, got {ids}: "
+                    "AERMOD numbers sectors by their order on BGSECTOR and stops "
+                    "on any other SECTn (E203 BGSECTOR ID)"
                 ))
-            for s in background.sectors:
-                if not (0 <= s.start_direction <= 360):
+            # soset.f SRCQA: every sector needs a non-HOURLY profile (E238).
+            with_values = {sid for sid, _flag in (background.sector_values or {})}
+            for sid in ids if sector_ids_ok else []:
+                if sid not in with_values:
                     result.errors.append(ValidationError(
-                        pathway, "sectors",
-                        f"sector {s.sector_id} start_direction must be 0-360"
+                        pathway, "sector_values",
+                        f"sector {sid} has no BACKGRND values: AERMOD stops with "
+                        f"E238 (Not Enough BACKGRND Concentration Values, SECT{sid})"
                     ))
+
+        if background.sector_values and not background.sectors:
+            # The writer emits BACKGRND SECTn lines only beside BGSECTOR
+            # sectors, so these values would leave no trace in the deck;
+            # AERMOD itself rejects SECTn without BGSECTOR (E171).
+            result.errors.append(ValidationError(
+                pathway, "sector_values",
+                "sector_values are set without sectors: the writer writes no "
+                "BACKGRND SECTn line without BGSECTOR sectors, so the background "
+                "would be left out of the deck (AERMOD rejects SECTn without "
+                "BGSECTOR, E171); give sectors, or use period_values for one "
+                "whole-domain profile"
+            ))
 
         if background.sectors and background.sector_values:
             valid_ids = {s.sector_id for s in background.sectors}
-            for (sid, period), val in background.sector_values.items():
-                if sid not in valid_ids:
+            for (sid, flag), values in background.sector_values.items():
+                if sector_ids_ok and sid not in valid_ids:
                     result.errors.append(ValidationError(
                         pathway, "sector_values",
                         f"sector_id {sid} not defined in sectors list"
                     ))
-                if period not in VALID_AVERAGING_PERIODS:
+                cls._validate_background_profile(
+                    pathway, "sector_values", str(flag), values, result,
+                    where=f" for sector {sid}")
+            flags: dict = {}
+            for sid, flag in background.sector_values:
+                flags.setdefault(sid, []).append(str(flag))
+            for sid, names in sorted(flags.items()):
+                if len(names) > 1:
                     result.errors.append(ValidationError(
                         pathway, "sector_values",
-                        f"invalid averaging period '{period}' for sector {sid}"
+                        f"BACKGRND takes one temporal flag for sector {sid}, got "
+                        f"{', '.join(names)} (AERMOD E165)"
                     ))
-                if val < 0:
-                    result.errors.append(ValidationError(
-                        pathway, "sector_values",
-                        f"value for sector {sid} period '{period}' must be >= 0"
-                    ))
+
+    @classmethod
+    def _validate_background_verbatim(cls, project, result: ValidationResult):
+        """A modelled background beside BACKGRND/BGSECTOR lines kept verbatim.
+
+        A deck with a sector HOURLY file is kept whole in ``unparsed_lines``
+        and ``sources.background`` is None. A modelled background set on
+        top writes a second set of cards and AERMOD stops (probe 33c:
+        E203). A modelled whole-domain background beside a verbatim
+        whole-domain BACKGRND line that is not HOURLY (a second flag, or a
+        value with none) is two value options for the domain (E165, or
+        E201 for the bare value). A whole-domain ``BACKGRND HOURLY file``
+        kept verbatim beside a whole-domain flag is a valid pair (probe
+        32d).
+        """
+        background = getattr(project.sources, "background", None)
+        if background is None:
+            return
+        kept = [ln for ln in getattr(project, "unparsed_lines", None) or []
+                if str(ln.pathway).upper() == "SO"
+                and str(ln.keyword).upper() in ("BACKGRND", "BGSECTOR")]
+        if not kept:
+            return
+        if background.sectors:
+            conflicting = kept
+            modelled = "a sector background (sectors)"
+        elif background.uniform_value is not None or background.period_values:
+            # Every verbatim line but a whole-domain HOURLY file: the
+            # sector form (BGSECTOR, SECTn), or a second whole-domain
+            # value line.
+            conflicting = [
+                ln for ln in kept
+                if not (str(ln.keyword).upper() == "BACKGRND" and ln.fields
+                        and str(ln.fields[0]).upper() == "HOURLY")]
+            modelled = "a whole-domain background (uniform_value/period_values)"
+        else:
+            return
+        if not conflicting:
+            return
+        shown = "; ".join(f"line {ln.lineno}: {ln.keyword} {' '.join(ln.fields)}".strip()
+                          for ln in conflicting[:3])
+        more = f" and {len(conflicting) - 3} more" if len(conflicting) > 3 else ""
+        result.errors.append(ValidationError(
+            "BackgroundConcentration", "unparsed_lines",
+            f"{modelled} is set, and the project also keeps SO BACKGRND/BGSECTOR "
+            f"lines verbatim from the source deck ({shown}{more}); both are written "
+            "and AERMOD stops (E203 for a second sector form, E165 for a second "
+            "whole-domain flag, E201 for a value without one). Remove those lines from "
+            "project.unparsed_lines, or remove the modelled background "
+            "(sources.background = None)"
+        ))
+
+    @classmethod
+    def _check_temporal_values(cls, flag, values, *, where: str = "",
+                               non_negative: bool = False) -> List[str]:
+        """Problems with one temporal-variation profile, as soset.f reads
+        BACKGRND, O3VALUES and NOX_VALS: a flag of EMISFACT's table
+        (:data:`TEMPORAL_FLAG_COUNTS`), exactly its number of values, and
+        every value a finite number (and, with ``non_negative``, none below
+        0); NaN and +/-inf would be written as ``nan``/``inf``, which
+        AERMOD cannot read.
+        ``values`` may be a single value or a list, tuple, range, numpy
+        array or pandas Series of values; a string is one value, and not
+        a number. Any other iterable (a one-shot iterator such as a map
+        or a generator, which the writer would then find empty) is one
+        problem asking for a list, and nothing is taken from it."""
+        try:
+            values = value_list(values)
+        except TypeError as exc:
+            return [f"values for {flag!r}{where}: {exc}"]
+        problems: List[str] = []
+        expected = TEMPORAL_FLAG_COUNTS.get(str(flag).upper())
+        if expected is None:
+            problems.append(
+                f"unknown temporal flag {flag!r}{where}; AERMOD accepts "
+                f"{', '.join(TEMPORAL_FLAG_COUNTS)} (a temporal-variation flag, "
+                "not an averaging period)")
+        elif len(values) != expected:
+            problems.append(
+                f"{flag}{where} needs {expected} value{'s' if expected != 1 else ''}, "
+                f"got {len(values)}")
+        bad = [v for v in values if not _is_number(v)]
+        if bad:
+            problems.append(
+                f"values for {flag!r}{where} must be numbers, got "
+                f"{', '.join(repr(v) for v in bad[:4])}")
+        non_finite = [v for v in values if _is_number(v) and not math.isfinite(v)]
+        if non_finite:
+            problems.append(
+                f"values for {flag!r}{where} must be finite numbers, got "
+                f"{', '.join(repr(v) for v in non_finite[:4])} (written as nan/inf, "
+                "which AERMOD cannot read)")
+        if non_negative and any(_is_finite_number(v) and v < 0 for v in values):
+            problems.append(f"values for '{flag}'{where} must be >= 0")
+        return problems
+
+    @classmethod
+    def _validate_background_profile(cls, pathway, field_name, flag, values, result,
+                                     *, where=""):
+        """One BACKGRND flag and its values, as soset.f reads them: a
+        flag of EMISFACT's table and exactly its number of values, none
+        of them negative."""
+        for message in cls._check_temporal_values(flag, values, where=where,
+                                                  non_negative=True):
+            result.errors.append(ValidationError(pathway, field_name, message))
 
     @classmethod
     def _validate_source_options(cls, source, control, result: ValidationResult):
@@ -1564,7 +1763,6 @@ class Validator:
     def _validate_background_spec(cls, label, spec, pathway, result,
                                   *, n_sectors: int, sector=None):
         """Checks shared by the ozone and NOx background specifications."""
-        from .pathways import BACKGROUND_UNITS, TEMPORAL_FLAG_COUNTS
         where = f"{label}.by_sector[{sector}]" if sector is not None else label
         if sector is not None and not n_sectors:
             result.errors.append(ValidationError(
@@ -1590,29 +1788,30 @@ class Validator:
                     f"units must be one of {BACKGROUND_UNITS}, got {units!r}"
                 ))
         if spec.varying is not None:
-            expected = TEMPORAL_FLAG_COUNTS.get(spec.varying.flag.upper())
-            if expected is None:
-                result.errors.append(ValidationError(
-                    pathway, where,
-                    f"unknown temporal flag {spec.varying.flag!r}; AERMOD "
-                    f"accepts {sorted(TEMPORAL_FLAG_COUNTS)}"
-                ))
-            elif len(spec.varying.values) != expected:
-                result.errors.append(ValidationError(
-                    pathway, where,
-                    f"{spec.varying.flag} needs {expected} values, "
-                    f"got {len(spec.varying.values)}"
-                ))
+            for message in cls._check_temporal_values(spec.varying.flag,
+                                                      spec.varying.values):
+                result.errors.append(ValidationError(pathway, where, message))
 
     @classmethod
     def _validate_sectors(cls, label, sectors, pathway, result):
-        """O3SECTOR / NOXSECTR: 2..6 ascending directions, >= 30 deg apart."""
+        """BGSECTOR / O3SECTOR / NOXSECTR: 2..6 ascending directions,
+        >= 30 deg apart. A direction that is no finite number (a string
+        from a hand-edited project file, NaN, inf) is an error of its own,
+        and the range and order checks, which need numbers, are skipped."""
         if not sectors:
             return
         if not 2 <= len(sectors) <= 6:
             result.errors.append(ValidationError(
                 pathway, label, f"needs 2 to 6 sector start directions, got {len(sectors)}"
             ))
+        bad = [d for d in sectors if not _is_finite_number(d)]
+        if bad:
+            result.errors.append(ValidationError(
+                pathway, label,
+                "sector start directions must be finite numbers (degrees), got "
+                f"{', '.join(repr(d) for d in bad[:4])}"
+            ))
+            return
         if any(not 0 <= d <= 360 for d in sectors):
             result.errors.append(ValidationError(
                 pathway, label, "sector start directions must be within 0..360 degrees"
@@ -1664,7 +1863,6 @@ class Validator:
         # The ozone keywords (OZONEVAL, OZONEFIL, O3VALUES, ...) are read
         # only under OLM, PVMRM, GRSM or TTRM; with ARM2 coset.f stops
         # with E600.
-        from .pathways import NO2STACK_METHODS
         if (chemistry.ozone_data is not None
                 and chemistry.method.value not in NO2STACK_METHODS):
             result.errors.append(ValidationError(
@@ -1693,7 +1891,6 @@ class Validator:
         # Ozone sector forms and units
         if chemistry.ozone_data is not None:
             oz = chemistry.ozone_data
-            from .pathways import BACKGROUND_UNITS
             cls._validate_sectors("ozone_data.sectors", oz.sectors, pathway, result)
             cls._validate_background_spec(
                 "ozone_data", oz.spec(), pathway, result, n_sectors=len(oz.sectors))
@@ -1729,7 +1926,6 @@ class Validator:
                 f"not {chemistry.method.value} (E602)"
             ))
         if nox is not None:
-            from .pathways import BACKGROUND_UNITS
             cls._validate_sectors("nox_background.sectors", nox.sectors, pathway, result)
             cls._validate_background_spec(
                 "nox_background", nox, pathway, result, n_sectors=len(nox.sectors))
@@ -1890,6 +2086,17 @@ class Validator:
                     pathway, "profile_file",
                     f"file not found: '{met.profile_file}'"
                 ))
+
+        # PROFBASE: written with one_decimal_or_exact, so NaN or an
+        # infinity would be ``nan``/``inf``, which AERMOD's STODBL does not
+        # read (E208), and text or None would not be written at all.
+        base = met.profile_base_elevation
+        if not _is_finite_number(base):
+            result.errors.append(ValidationError(
+                pathway, "profile_base_elevation",
+                f"must be a finite number (metres above sea level), got {base!r}: "
+                "PROFBASE would be written as AERMOD cannot read it (E208)"
+            ))
 
         # Date range: if any date field is set, all must be set
         date_fields = [met.start_year, met.start_month, met.start_day,

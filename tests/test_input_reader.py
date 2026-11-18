@@ -1149,6 +1149,41 @@ class TestCONOxAndOzoneBackground:
         assert c.chemistry.ozone_data.varying == TemporalValues("SEASON", [40.0, 50.0, 60.0, 45.0])
         assert again.chemistry.ozone_data.varying == c.chemistry.ozone_data.varying
 
+    def test_background_values_read_d_exponents_as_stodbl_does(self):
+        # EPA's testpart deck writes its ozone profile with D exponents
+        # (3.0D1), which setup.f STODBL reads.
+        c, again = _co_roundtrip(
+            "   O3VALUES  SEASON  3.0D1  4.0D1  5.0d1  4.5D1\n"
+            "   OZONEVAL  SECT1  4.0D1  PPB\n   NOXVALUE  2.0D1\n"
+            "   NOX_VALS  SECT2  MONTH  12*3.0D1")
+        assert c.chemistry.ozone_data.varying == TemporalValues("SEASON", [30.0, 40.0, 50.0, 45.0])
+        assert c.chemistry.ozone_data.by_sector[1].value == 40.0
+        assert c.chemistry.nox_background.value == 20.0
+        assert c.chemistry.nox_background.by_sector[2].varying == TemporalValues("MONTH", [30.0] * 12)
+        assert again.chemistry.ozone_data == c.chemistry.ozone_data
+        assert again.chemistry.nox_background == c.chemistry.nox_background
+
+    @pytest.mark.parametrize("line", [
+        "O3VALUES  ANNUAL  nan", "O3VALUES  SEASON  40  inf  60  45",
+        "O3VALUES  ANNUAL  1_000", "O3VALUES  ANNUAL  forty",
+        "OZONEVAL  nan  PPB", "OZONEVAL  SECT1  forty",
+        "NOXVALUE  inf", "NOX_VALS  SECT1  ANNUAL  1_0", "NOX_VALS  SEASON  one  two",
+        "O3VALUES  UNIFORM  nan",
+    ])
+    def test_a_background_value_stodbl_cannot_read_is_kept_verbatim(self, line):
+        # STODBL reads no NaN, infinity or 1_000; the line is not modelled,
+        # so it is kept in unparsed_lines and written back as it was.
+        p = _wrap(co_extra="OLM", co_kw=f"   {line}")
+        assert [u.raw.strip() for u in p.unparsed_lines] == [line]
+        chem = p.control.chemistry
+        for background in (chem.ozone_data, chem.nox_background):
+            assert background is None or background.is_empty(), background
+        text = p.to_aermod_input(validate=False)
+        assert [l.split() for l in text.splitlines() if l.split() == line.split()] \
+            == [line.split()]
+        again = parse_aermod_input(text)
+        assert [u.raw.strip() for u in again.unparsed_lines] == [line]
+
 
 class TestCOGasDepositionDefaults:
     """GASDEPDF / GASDEPVD / GDSEASON / GDLANUSE (coset.f GDDEF, GVSUBD,

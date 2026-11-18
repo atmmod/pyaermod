@@ -119,3 +119,48 @@ def test_zero_reference_norm_error_is_nan(tmp_path):
     # Both zero: slope undefined (denom=0), norm_mean_error undefined
     assert score.slope != score.slope  # NaN
     assert score.norm_mean_error != score.norm_mean_error  # NaN
+
+
+# A binary (UNFORM) ANNUAL or PERIOD POSTFILE holds NUMYRS (or the run's
+# hours) where a short-term one holds its averaging period, so a count
+# that is no short-term period cannot be read without being told which;
+# the parity helpers take the averaging period and pass it on.
+
+def _write_binary_annual(path: Path, numyrs: int, values: list[float]) -> Path:
+    """One record as PSTANN (output.f) writes it: KURDAT, NUMYRS, GRPID, REAL*8s."""
+    import struct
+
+    payload = struct.pack("<ii8s", 21123124, numyrs, b"ALL     ")
+    payload += struct.pack(f"<{len(values)}d", *values)
+    marker = struct.pack("<i", len(payload))
+    path.write_bytes(marker + payload + marker)
+    return path
+
+
+def test_a_binary_annual_pair_is_scored_given_its_averaging_period(tmp_path):
+    ref = _write_binary_annual(tmp_path / "ref.bin", 5, [1.0, 2.0, 4.0])
+    cand = _write_binary_annual(tmp_path / "cand.bin", 5, [2.0, 4.0, 8.0])
+    with pytest.raises(ValueError, match="averaging_period"):
+        score_postfile_pair(ref, cand)
+    score = score_postfile_pair(ref, cand, averaging_period="ANNUAL")
+    assert score.n_paired == 3
+    assert score.slope == pytest.approx(2.0)
+    assert passes_parity(ref, ref, averaging_period="ANNUAL")
+    assert not passes_parity(ref, cand, averaging_period="ANNUAL")
+
+
+def test_the_one_record_warning_names_the_parity_callers_line(tmp_path):
+    # NUMYRS = 3 also reads as a 3-HR record ending at hour 24: the
+    # reader's warning is the caller's, not the parity module's.
+    import warnings
+
+    ref = _write_binary_annual(tmp_path / "ref.bin", 3, [1.0, 2.0])
+    cand = _write_binary_annual(tmp_path / "cand.bin", 3, [1.0, 2.0])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        score_postfile_pair(ref, cand)
+        passes_parity(ref, cand)
+    mine = [w for w in caught if "one record per source group" in str(w.message)]
+    # Two files a call, two calls.
+    assert len(mine) == 4, [str(w.message) for w in caught]
+    assert {w.filename for w in mine} == {__file__}

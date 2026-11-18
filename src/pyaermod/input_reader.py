@@ -69,7 +69,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from ._fortran import fortran_float
 from .input_generator import (
@@ -345,18 +345,21 @@ def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
     ]
 
 
+#: An integer as AERMOD reads one: an optional sign and ASCII digits only.
+_ASCII_INTEGER = re.compile(r"[+-]?[0-9]+")
+
+
 def _whole_number(token: str, keyword: str, lineno: int) -> int:
     """An integer field that AERMOD also accepts written as a real (``1988.0``).
 
     Anything that is not a whole number is an error naming the line, not a
-    bare ``int()`` traceback.
+    bare ``int()`` traceback; so is what only Python's :func:`int` reads
+    (``1_988``, non-ASCII digits), which AERMOD refuses.
     """
-    try:
+    if _ASCII_INTEGER.fullmatch(token):
         return int(token)
-    except ValueError:
-        pass
     try:
-        value = fortran_float(token)
+        value = fortran_float(token, strict=True)
     except ValueError:
         value = math.nan
     if not math.isfinite(value) or value != int(value):
@@ -399,23 +402,36 @@ def _split_sector(toks: List[str]) -> Tuple[Optional[int], List[str]]:
 def _parse_background_keyword(
     kw: str, toks: List[str], specs: Dict[Optional[int], BackgroundSpec],
     *, value_kw: str, file_kw: str, vals_kw: str,
+    dropped: Optional[List[int]], lineno: int,
 ) -> None:
     """Fill ``specs`` from one OZONEVAL/OZONEFIL/O3VALUES-style line.
 
     ``specs`` is keyed by sector index (``None`` for the whole-domain
     form). Field layout per coset.f: ``[SECTn] value [units]``,
     ``[SECTn] file [units [format]]``, ``[SECTn] flag values...`` with the
-    values of one flag accumulating over repeated lines.
+    values of one flag accumulating over repeated lines. Values are read
+    as STODBL reads them (strict :func:`fortran_float`: ``3.0D1`` is 30,
+    ``nan`` is no number); a line with no fields after its sector, or a
+    value that does not read, is not modelled but kept verbatim (line
+    ``lineno`` goes to ``dropped``).
     """
     sector, rest = _split_sector(toks)
     if not rest:
+        _drop(dropped, lineno)
+        return
+    try:
+        if kw == value_kw:
+            value = fortran_float(rest[0], strict=True)
+        elif kw == vals_kw:
+            values = [fortran_float(t, strict=True) for t in rest[1:]]
+    except ValueError:
+        _drop(dropped, lineno)
         return
     spec = specs.setdefault(sector, BackgroundSpec())
     if kw == value_kw:
-        with contextlib.suppress(ValueError):
-            spec.value = float(rest[0])
-            if len(rest) > 1:
-                spec.value_units = rest[1].upper()
+        spec.value = value
+        if len(rest) > 1:
+            spec.value_units = rest[1].upper()
     elif kw == file_kw:
         spec.hourly_file = rest[0]
         if len(rest) > 1:
@@ -424,10 +440,6 @@ def _parse_background_keyword(
             spec.file_format = rest[2]
     elif kw == vals_kw:
         flag = rest[0].upper()
-        try:
-            values = [float(t) for t in rest[1:]]
-        except ValueError:
-            return
         if spec.varying is None or spec.varying.flag != flag:
             spec.varying = TemporalValues(flag=flag, values=[])
         spec.varying.values.extend(values)
@@ -589,21 +601,25 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "O3VALUES" and toks and toks[0].upper() == "UNIFORM":
             # Not an AERMOD form (O3VALS rejects the flag, E203) but what
             # pyaermod < 2.1 wrote for a uniform value; read it as one.
-            if len(toks) >= 2:
-                with contextlib.suppress(ValueError):
-                    o3_specs.setdefault(None, BackgroundSpec()).value = float(toks[1])
+            try:
+                o3_specs.setdefault(None, BackgroundSpec()).value = fortran_float(
+                    toks[1], strict=True)
+            except (IndexError, ValueError):
+                _drop(dropped, ln)
         elif kw == "O3VALUES" and len(toks) == 1 and toks[0].upper() not in TEMPORAL_FLAG_COUNTS:
             # Likewise the old file form; AERMOD wants OZONEFIL for a file.
             o3_specs.setdefault(None, BackgroundSpec()).hourly_file = toks[0]
         elif kw in ("OZONEVAL", "OZONEFIL", "O3VALUES"):
-            _parse_background_keyword(kw, toks, o3_specs, **o3_kw)
+            _parse_background_keyword(kw, toks, o3_specs, **o3_kw,
+                                      dropped=dropped, lineno=ln)
         elif kw == "O3SECTOR":
             with contextlib.suppress(ValueError):
                 o3_sectors = [float(t) for t in toks]
         elif kw == "OZONUNIT" and toks:
             o3_units = toks[0].upper()
         elif kw in ("NOXVALUE", "NOX_FILE", "NOX_VALS"):
-            _parse_background_keyword(kw, toks, nox_specs, **nox_kw)
+            _parse_background_keyword(kw, toks, nox_specs, **nox_kw,
+                                      dropped=dropped, lineno=ln)
         elif kw == "NOXSECTR":
             with contextlib.suppress(ValueError):
                 nox_sectors = [float(t) for t in toks]
@@ -856,20 +872,116 @@ def _expand_source_ids(tokens: List[str], known_ids: List[str]) -> List[str]:
     return out
 
 
-def _fortran_float(token: str) -> float:
-    """``float()`` that also reads Fortran's ``D`` exponent (``3.6D6``),
-    which AERMOD's STODBL accepts and EPA's testpart deck uses."""
-    try:
-        return float(token)
-    except ValueError:
-        return float(token.replace("D", "e").replace("d", "e"))
-
-
 def _floats(toks: List[str]) -> Optional[List[float]]:
+    """Every token as a number AERMOD's STODBL reads (strict :func:`fortran_float`:
+    a ``D`` exponent is one, ``nan``, ``inf`` and ``1_000`` are not), or
+    None when one is not."""
     try:
-        return [_fortran_float(t) for t in toks]
+        return [fortran_float(t, strict=True) for t in toks]
     except ValueError:
         return None
+
+
+class _BgLine(NamedTuple):
+    """One SO BACKGRND or BGSECTOR line, as :func:`_parse_sources` reads it."""
+
+    lineno: int
+    keyword: str                    # "BACKGRND" or "BGSECTOR"
+    sector: Optional[int]           # n of a BACKGRND SECTn line, else None
+    flag: Optional[str]             # temporal flag or HOURLY; None for a bare value
+    values: Optional[List[float]]   # values (BGSECTOR: directions); None if not read
+
+
+def _background_from(entries: List[_BgLine],
+                     dropped: Optional[List[int]]) -> Optional[BackgroundConcentration]:
+    """The deck's background, decided once from all its BACKGRND and
+    BGSECTOR lines; every line it does not model is kept verbatim."""
+
+    def _keep(lines: List[_BgLine]) -> None:
+        for entry in lines:
+            _drop(dropped, entry.lineno)
+
+    def _one_or_all(values: List[float]) -> Union[float, List[float]]:
+        return values[0] if len(values) == 1 else values
+
+    domain = [e for e in entries if e.keyword == "BACKGRND" and e.sector is None]
+
+    # The sector form (BGSECTOR, BACKGRND SECTn) is modelled whole or not
+    # at all. It is kept verbatim, every BGSECTOR and BACKGRND line in
+    # deck order (so nothing is lost and the sectors are written once and
+    # before the lines that use them), when: a sector names an hourly file
+    # (not modelled; beside modelled sectors AERMOD stops, probe 33c), a
+    # sector line or BGSECTOR direction does not parse, a sector line has
+    # no flag or no values (``SECTn 5`` is E201, ``SECTn ANNUAL``), there
+    # is not exactly one BGSECTOR (SECTn without it is E171), BGSECTOR
+    # has no directions or no sector gives values, or whole-domain lines
+    # stand beside the sectors (AERMOD takes one form, E165).
+    bgsector = [e for e in entries if e.keyword == "BGSECTOR"]
+    sector_lines = [e for e in entries if e.sector is not None]
+    if bgsector or sector_lines:
+        if (len(bgsector) != 1 or not bgsector[0].values or domain or not sector_lines
+                or any(e.values is None for e in sector_lines)):
+            _keep(entries)
+            return None
+        sector_values: Dict[Tuple[int, str], List[float]] = {}
+        for e in sector_lines:
+            assert e.sector is not None and e.flag is not None and e.values is not None
+            sector_values.setdefault((e.sector, e.flag), []).extend(e.values)
+        return BackgroundConcentration(
+            sectors=[BackgroundSector(sector_id=idx, start_direction=direction)
+                     for idx, direction in enumerate(bgsector[0].values, start=1)],
+            sector_values={k: _one_or_all(v) for k, v in sector_values.items()},
+        )
+
+    # A whole-domain hourly file is not modelled: it is always kept
+    # verbatim, which beside a modelled whole-domain flag is a pair AERMOD
+    # takes (probe 32d).
+    _keep([e for e in domain if e.flag == "HOURLY"])
+    value_lines = [e for e in domain if e.flag != "HOURLY"]
+    bare = [e for e in value_lines if e.flag is None and e.values is not None]
+
+    # A bare value (no flag) is read as one value for every hour, which
+    # the writer gives the ANNUAL flag, only when it is the deck's one
+    # whole-domain BACKGRND line other than HOURLY. Beside a flag line or
+    # a second bare value it is not pyaermod's old uniform form but a
+    # deck AERMOD refuses (E201, E165), and every bare line is kept
+    # verbatim rather than one of them lost.
+    if len(bare) == 1 and len(value_lines) == 1:
+        (line,) = bare
+        assert line.values is not None
+        uniform = line.values[0]
+        logger.warning(
+            "line %d: BACKGRND %s has no temporal flag, which AERMOD refuses "
+            "(E201); read as BACKGRND ANNUAL %s", line.lineno, uniform, uniform)
+        return BackgroundConcentration(uniform_value=uniform)
+    if bare:
+        logger.warning(
+            "SO BACKGRND: line%s %s give%s a value without a temporal flag (AERMOD "
+            "E201) in a deck with other whole-domain BACKGRND values; kept "
+            "verbatim, not read as a uniform background",
+            "s" if len(bare) > 1 else "",
+            ", ".join(str(e.lineno) for e in bare), "" if len(bare) > 1 else "s")
+
+    # The whole-domain values are modelled whole or not at all, as the
+    # sector form is: when one whole-domain line other than HOURLY is
+    # kept verbatim (a value without a flag, a flag without values, a
+    # value that does not parse), every one of them is, in deck order,
+    # rather than a profile modelled in part beside the rest of it.
+    if bare or any(e.values is None for e in value_lines):
+        logger.warning(
+            "SO BACKGRND: a whole-domain line is not modelled, so lines %s are kept "
+            "verbatim and no whole-domain background is modelled",
+            ", ".join(str(e.lineno) for e in value_lines))
+        _keep(value_lines)
+        return None
+    if not value_lines:
+        return None
+    period_values: Dict[str, List[float]] = {}
+    for e in value_lines:
+        assert e.flag is not None and e.values is not None
+        period_values.setdefault(e.flag, []).extend(e.values)
+    return BackgroundConcentration(
+        period_values={k: _one_or_all(v) for k, v in period_values.items()})
 
 
 def _parse_sources(block: _PathwayBlock,
@@ -912,11 +1024,9 @@ def _parse_sources(block: _PathwayBlock,
     solid_barriers: List[SolidBarrier] = []
     open_barrier: Optional[SolidBarrier] = None
 
-    # Background concentration accumulation
-    bg_uniform: Optional[float] = None
-    bg_period_values: Dict[str, float] = {}
-    bg_sectors: List[BackgroundSector] = []
-    bg_sector_values: Dict[Tuple[int, str], float] = {}
+    # Background concentration: one entry per BACKGRND/BGSECTOR line, in
+    # deck order, decided on once every line is seen (_background_from).
+    bg_entries: List[_BgLine] = []
 
     saw_srcgroup = False   # any SRCGROUP or PSDGROUP line
     saw_all_group = False  # a SRCGROUP ALL line, bare or with members
@@ -1057,7 +1167,7 @@ def _parse_sources(block: _PathwayBlock,
             if len(toks) >= 3:
                 with contextlib.suppress(ValueError):
                     units[_UNIT_KEYWORDS[kw]] = EmissionUnits(
-                        factor=_fortran_float(toks[0]), emission_label=toks[1],
+                        factor=fortran_float(toks[0], strict=True), emission_label=toks[1],
                         output_label=toks[2],
                     )
         elif kw == "RLEMCONV":
@@ -1114,38 +1224,27 @@ def _parse_sources(block: _PathwayBlock,
         # Background concentration keywords
         # ------------------------------------------------------------------
         elif kw == "BACKGRND":
-            # Forms:
-            #   BACKGRND <uniform_value>
-            #   BACKGRND <period> <value>
-            #   BACKGRND SECT<n> <period> <value>
-            #   BACKGRND <period> <filename>  (file-based, not stored structurally)
-            if not toks:
+            # soset.f BACKGRND: ``[SECTn] flag values...`` with a temporal
+            # flag of EMISFACT's table (ANNUAL 1 value, SEASON 4, MONTH
+            # 12, ...), the values continued over lines that repeat the
+            # flag; or ``[SECTn] HOURLY file [format]``. A whole-domain
+            # line of one field is a bare value (no flag, AERMOD E201),
+            # pyaermod's old uniform form. Values that do not parse, and
+            # a line without both a flag and values, are recorded as None.
+            sector, rest = _split_sector(toks)
+            bg_flag: Optional[str] = rest[0].upper() if rest else None
+            bg_values: Optional[List[float]] = None
+            if bg_flag == "HOURLY":
                 pass
-            elif len(toks) == 1:
-                with contextlib.suppress(ValueError):
-                    bg_uniform = float(toks[0])
-            elif toks[0].upper().startswith("SECT") and len(toks) >= 3:
-                sect_str = toks[0].upper().lstrip("SECT")
-                with contextlib.suppress(ValueError):
-                    sect_id = int(sect_str)
-                    value = float(toks[2])
-                    bg_sector_values[(sect_id, toks[1].upper())] = value
-            else:
-                # "PERIOD VALUE" or "PERIOD FILENAME"
-                try:
-                    value = float(toks[1])
-                    bg_period_values[toks[0].upper()] = value
-                except (ValueError, IndexError):
-                    # File-based background (BACKGRND HOURLY file): no
-                    # structural field, kept verbatim.
-                    _drop(dropped, ln)
+            elif sector is None and len(rest) == 1:
+                bg_flag, bg_values = None, _floats(rest)
+            elif len(rest) >= 2:
+                bg_values = _floats(rest[1:])
+            bg_entries.append(_BgLine(ln, "BACKGRND", sector, bg_flag, bg_values))
         elif kw == "BGSECTOR":
-            # BGSECTOR <dir1> <dir2> ...  — sector starting directions (degrees)
-            for idx, tok in enumerate(toks, start=1):
-                with contextlib.suppress(ValueError):
-                    bg_sectors.append(BackgroundSector(
-                        sector_id=idx, start_direction=float(tok)
-                    ))
+            # BGSECTOR <dir1> <dir2> ...  — sector starting directions
+            # (degrees); None when one does not parse.
+            bg_entries.append(_BgLine(ln, "BGSECTOR", None, None, _floats(toks)))
         elif kw == "BACKUNIT":
             _drop(dropped, ln)  # Recognized (PPB/UG/M3); no structural field
 
@@ -1601,16 +1700,7 @@ def _parse_sources(block: _PathwayBlock,
                 _apply_per_source(src, seg.source_id)
             sources.append(src)
 
-    # Build BackgroundConcentration if any BACKGRND keywords were found
-    background: Optional[BackgroundConcentration] = None
-    if bg_sectors and bg_sector_values:
-        background = BackgroundConcentration(
-            sectors=bg_sectors, sector_values=bg_sector_values,
-        )
-    elif bg_period_values:
-        background = BackgroundConcentration(period_values=bg_period_values)
-    elif bg_uniform is not None:
-        background = BackgroundConcentration(uniform_value=bg_uniform)
+    background = _background_from(bg_entries, dropped)
 
     group_defs = [SourceGroupDefinition(group_name=name, member_source_ids=members)
                   for name, members in src_groups.items()]
@@ -1872,7 +1962,30 @@ def _parse_meteorology(block: _PathwayBlock,
         elif kw == "UAIRDATA" and len(toks) >= 2:
             kw_map["upper_air_station_id"] = _whole_number(toks[0], kw, ln)
         elif kw == "PROFBASE" and toks:
-            kw_map["profile_base_elevation"] = float(toks[0])
+            # meset.f PRBASE: ``elev [METERS|FEET]``, read by STODBL (so a
+            # D exponent is a number, and NaN, Infinity and 1_000, which
+            # float() reads, are not); AERMOD converts FEET to metres, and
+            # the field is in metres. Another unit is warning W203 and
+            # AERMOD takes the value as metres (probe 33e), as here. A
+            # value that is no number stops AERMOD (E208), and the reader
+            # too, naming the line, as _whole_number does for SURFDATA and
+            # UAIRDATA: kept verbatim it would be written beside the
+            # PROFBASE the pathway always writes (a repeated keyword), and
+            # removing it would silently give 0 m.
+            try:
+                elevation = fortran_float(toks[0], strict=True)
+            except ValueError:
+                raise ValueError(
+                    f"line {ln}: PROFBASE expects a number, got {toks[0]!r}; "
+                    "AERMOD stops with E208") from None
+            unit = toks[1].upper() if len(toks) > 1 else "METERS"
+            if unit == "FEET":
+                elevation *= 0.3048
+            elif unit != "METERS":
+                logger.warning(
+                    "line %d: PROFBASE unit %s is neither METERS nor FEET; AERMOD gives "
+                    "W203 and treats the value as metres, as read here", ln, toks[1])
+            kw_map["profile_base_elevation"] = elevation
         elif kw == "STARTEND" and len(toks) in (6, 8):
             # meset.f STAEND: yr mo dy yr mo dy, or with an hour after
             # each date (eight fields).
@@ -2178,7 +2291,7 @@ def _parse_events(block: _PathwayBlock,
                 events[toks[0]] = EventPeriod(
                     event_name=toks[0], averaging_period=int(float(toks[1])),
                     source_group=toks[2], date=f"{int(float(toks[3])):08d}",
-                    original_conc=fortran_float(toks[4]),
+                    original_conc=fortran_float(toks[4], strict=True),
                 )
             except ValueError:
                 _drop(dropped, ln)

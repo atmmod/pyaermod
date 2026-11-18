@@ -642,8 +642,8 @@ function resultsStep() {
     cards.push(section(map.title, null, el('img', { src: map.src, alt: `Map: ${map.title}`, class: 'map' })));
   }
   if (res.naaqs.length) {
-    cards.push(section('Comparison with the NAAQS', 'A screening comparison uses the highest value of the '
-      + 'period, which no design value can exceed.',
+    // pyaermod.browser writes the caption, so it explains only the bases the rows use.
+    cards.push(section('Comparison with the NAAQS', res.naaqs_caption,
     table([['standard', 'Standard'], ['level', 'NAAQS'], ['value', 'This run (µg/m³)'], ['basis', 'Compared'],
       ['verdict', 'Result'], ['how', 'Value from']], res.naaqs, 'Comparison with the NAAQS')));
   }

@@ -329,6 +329,31 @@ class TestEverythingRoundTrips:
         assert reopened == project
         assert reopened.to_aermod_input(validate=False) == project.to_aermod_input(validate=False)
 
+    @pytest.mark.parametrize("kind", ["numpy", "series", "range"])
+    def test_background_profiles_given_as_sequences_are_saved_as_lists(self, kind):
+        # BackgroundConcentration accepts any non-string iterable as a
+        # profile; a project file holds it as a JSON list.
+        np = pytest.importorskip("numpy")
+        pd = pytest.importorskip("pandas")
+        make = {"numpy": np.array, "series": lambda v: pd.Series(v, index=range(10, 10 + len(v))),
+                "range": lambda v: range(int(v[0]), int(v[-1]) + 1)}[kind]
+        for bg in (
+            BackgroundConcentration(period_values={"MONTH": make([float(i) for i in range(1, 13)])}),
+            BackgroundConcentration(
+                sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+                sector_values={(1, "SEASON"): make([1.0, 2.0, 3.0, 4.0]),
+                               (2, "SEASON"): make([5.0, 6.0, 7.0, 8.0])}),
+        ):
+            project = _deposition_project()
+            project.sources.background = bg
+            deck = project.to_aermod_input(validate=False)
+            text = project_to_json(project)
+            reopened = project_from_json(text)
+            assert reopened.to_aermod_input(validate=False) == deck
+            values = (reopened.sources.background.period_values
+                      or reopened.sources.background.sector_values)
+            assert all(isinstance(v, list) for v in values.values()), values
+
     def test_files_without_nested_type_tags_still_load(self):
         # Before the tags covered nested objects, only list elements had them.
         doc = json.loads(project_to_json(_deposition_project()))
@@ -462,6 +487,94 @@ class TestSavingRefusesWhatOpeningWould:
         assert reopened.sources.sources[0].stack_height == 30
         assert reopened.sources.sources[2].vertices == [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
         assert reopened.meteorology.surface_file == str(Path("met") / "x.sfc")
+
+    def test_numpy_scalars_are_saved_as_python_values(self):
+        np = pytest.importorskip("numpy")
+        from pyaermod.gui_v2.project_io import _encode
+        encoded = [_encode(np.bool_(True)), _encode(np.int64(3)), _encode(np.float32(0.5))]
+        assert encoded == [True, 3, 0.5]
+        assert [type(v) for v in encoded] == [bool, int, float]
+        assert _encode(np.array(2.5)) == 2.5
+
+    @pytest.mark.parametrize("kind", ["index", "categorical"])
+    def test_pandas_index_and_categorical_profiles_are_saved_as_lists(self, kind):
+        # Anything with a tolist() is its values as a list: a pandas
+        # Index or Categorical given as a profile reads back as that list.
+        pd = pytest.importorskip("pandas")
+        values = [1.0, 2.0, 3.0, 4.0]
+        make = {"index": pd.Index, "categorical": pd.Categorical}[kind]
+        project = _deposition_project()
+        project.sources.background = BackgroundConcentration(
+            period_values={"SEASON": make(values)})
+        deck = project.to_aermod_input(validate=False)
+        reopened = project_from_json(project_to_json(project))
+        assert reopened.sources.background.period_values == {"SEASON": values}
+        assert reopened.to_aermod_input(validate=False) == deck
+
+    @pytest.mark.parametrize("kind", ["map", "generator", "zip"])
+    @pytest.mark.parametrize("where", ["period", "sector", "ozone"])
+    def test_a_one_shot_iterator_profile_is_a_type_error_asking_for_a_list(self, kind, where):
+        # A map, generator or zip is used up by the first pass over it; it
+        # was refused as "cannot save a map" without saying what to give.
+        from pyaermod.input_generator import (
+            ChemistryMethod,
+            ChemistryOptions,
+            OzoneData,
+            TemporalValues,
+        )
+        values = [1.0, 2.0, 3.0, 4.0]
+        it = {"map": lambda: map(float, values), "generator": lambda: (v for v in values),
+              "zip": lambda: zip(values)}[kind]()
+        project = _deposition_project()
+        if where == "period":
+            project.sources.background = BackgroundConcentration(period_values={"SEASON": it})
+        elif where == "sector":
+            project.sources.background = BackgroundConcentration(
+                sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+                sector_values={(1, "SEASON"): it, (2, "ANNUAL"): 5.0})
+        else:
+            project.control.chemistry = ChemistryOptions(
+                method=ChemistryMethod.OLM,
+                ozone_data=OzoneData(varying=TemporalValues("SEASON", it)))
+        for _ in range(2):
+            # The rules are pathways.profile_values'; the wording is the
+            # project file's, which need not be saving a profile.
+            name = type(it).__name__
+            with pytest.raises(TypeError, match=(
+                    rf"^cannot save a {name} in a project file: a {name} is a "
+                    r"one-shot iterator; give a list of its values$")):
+                project_to_json(project)
+        assert next(it) is not None  # nothing was taken from it
+
+    @pytest.mark.parametrize("values", [{1.0, 2.0}, frozenset({1.0}), {1.0: 2.0}.keys()])
+    def test_an_unordered_profile_is_a_type_error_saying_why(self, values):
+        # The same rules as pathways.value_list, which the deck writer and
+        # the validator use: a set has no order AERMOD's could be.
+        project = _deposition_project()
+        project.sources.background = BackgroundConcentration(period_values={"SEASON": values})
+        name = type(values).__name__
+        with pytest.raises(TypeError, match=(
+                rf"^cannot save a {name} in a project file: a {name} is not an "
+                r"ordered sequence of values; give a list of its values$")):
+            project_to_json(project)
+
+    def test_a_set_outside_a_profile_is_refused_without_naming_a_profile(self):
+        # Every unknown object goes through profile_values' rules, but a
+        # set in any other field is not a profile's values.
+        project = _full_project()
+        project.sources.sources[0].source_id = {"STK1"}
+        with pytest.raises(TypeError, match=(
+                r"^cannot save a set in a project file: a set is not an ordered "
+                r"sequence of values; give a list of its values$")) as caught:
+            project_to_json(project)
+        assert "profile" not in str(caught.value)
+
+    @pytest.mark.parametrize("value", [b"5", bytearray(b"5"), memoryview(b"5")])
+    def test_bytes_are_a_type_error_not_a_list_of_numbers(self, value):
+        project = _full_project()
+        project.sources.sources[0].source_id = value
+        with pytest.raises(TypeError, match=r"cannot save a \w+ in a project file"):
+            project_to_json(project)
 
 
 class TestEveryRefusalNamesTheField:

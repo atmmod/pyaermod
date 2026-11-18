@@ -24,7 +24,7 @@ from typing import Union
 
 import pandas as pd
 
-from .postfile import read_postfile
+from .postfile import _read_postfile
 from .versions import VALIDATED_AERMET_VERSIONS, VALIDATED_AERMOD_VERSIONS
 
 #: EPA's published margin of error on best-fit slope (Compare_AERMOD_test_cases.R).
@@ -70,19 +70,46 @@ def score_postfile_pair(
     candidate: Union[str, Path],
     *,
     case: str = "",
+    averaging_period: Union[str, int, None] = None,
 ) -> ParityScore:
     """
     Score a candidate POSTFILE against an EPA reference POSTFILE.
 
     Both files must be in the same format (PLOT or UNFORM); the auto-detect
     in :func:`pyaermod.postfile.read_postfile` is applied to each.
+    ``averaging_period`` is passed to it for both files: a binary (UNFORM)
+    ANNUAL or PERIOD POSTFILE needs it (``"ANNUAL"`` or ``"PERIOD"``), as
+    the file does not say which it is; a text file ignores it.
 
     Pairing is on (x, y, date, ave, grp). Receptors / timesteps that
     appear in only one file are dropped before scoring (their count is
     not subtracted from `n_paired`).
     """
-    ref_res = read_postfile(reference)
-    cand_res = read_postfile(candidate)
+    return _score_postfile_pair(
+        reference, candidate, case=case, averaging_period=averaging_period,
+        stacklevel=2,
+    )
+
+
+def _score_postfile_pair(
+    reference: Union[str, Path],
+    candidate: Union[str, Path],
+    *,
+    case: str,
+    averaging_period: Union[str, int, None],
+    stacklevel: int,
+) -> ParityScore:
+    """:func:`score_postfile_pair`, the reader's warnings ``stacklevel`` frames up.
+
+    ``stacklevel`` counts from this function's caller, as
+    :func:`pyaermod.postfile._read_postfile`'s does: 2 names the line
+    that called the public function, so a warning about either file is
+    attributed to the user's code.
+    """
+    ref_res = _read_postfile(reference, averaging_period=averaging_period,
+                             stacklevel=stacklevel + 1)
+    cand_res = _read_postfile(candidate, averaging_period=averaging_period,
+                              stacklevel=stacklevel + 1)
     keys = ["x", "y", "date", "ave", "grp"]
     merged = ref_res.data.merge(
         cand_res.data, on=keys, how="inner", suffixes=("_ref", "_cand"),
@@ -116,9 +143,16 @@ def passes_parity(
     candidate: Union[str, Path],
     *,
     tolerance: float = DEFAULT_SLOPE_TOLERANCE,
+    averaging_period: Union[str, int, None] = None,
 ) -> bool:
-    """Convenience: True if the candidate's best-fit slope is within tolerance."""
-    return score_postfile_pair(reference, candidate).passes(tolerance)
+    """Convenience: True if the candidate's best-fit slope is within tolerance.
+
+    ``averaging_period`` is :func:`score_postfile_pair`'s.
+    """
+    return _score_postfile_pair(
+        reference, candidate, case="", averaging_period=averaging_period,
+        stacklevel=2,
+    ).passes(tolerance)
 
 
 __all__ = [

@@ -19,8 +19,11 @@ Top-level JSON dict::
 
 Every dataclass is a JSON object of its fields plus a ``_type`` tag naming
 its class, so a list of sources (or a field holding a subclass) reads back
-as the right class. Enums are ``{"_enum": "EnumClass.MEMBER"}``, tuples are
-lists, and a dict whose keys are not all strings is
+as the right class. Enums are ``{"_enum": "EnumClass.MEMBER"}``; tuples,
+ranges and anything with a ``tolist()`` (numpy arrays, pandas Series,
+Index and Categorical: a background profile may be any of them) are
+lists, numpy scalars plain numbers (a one-shot iterator, such as a map or
+a generator, is refused with a :class:`TypeError` asking for a list); and a dict whose keys are not all strings is
 ``{"_items": [[key, value], ...]}``.
 
 Reading is driven by the dataclass annotations, not by the file: each
@@ -52,6 +55,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
 from ..input_generator import AERMODProject
+from ..pathways import NotAValueList, profile_values
 
 SAVE_FORMAT_VERSION = 1
 
@@ -82,22 +86,27 @@ def _encode(obj: Any) -> Any:
         if all(isinstance(k, str) for k in obj):
             return {k: _encode(v) for k, v in obj.items()}
         return {"_items": [[_encode(k), _encode(v)] for k, v in obj.items()]}
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, (list, tuple, range)):
         return [_encode(v) for v in obj]
     if isinstance(obj, Path):
         return str(obj)
-    try:  # numpy scalars when the user mixed numpy values into the project
-        import numpy as np
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return [_encode(v) for v in obj.tolist()]
-    except ImportError:  # pragma: no cover - numpy is a core dependency
-        pass
+    # Anything else is one value or a sequence of them by the rules a
+    # profile's values follow (pathways.profile_values), which also say
+    # why a refused one is refused; nothing is taken from it. Bytes are one
+    # value, which no JSON value can hold. Neither numpy nor pandas is
+    # imported here. The refusal is worded for any field, not a profile's
+    # values: a set may be anywhere in a project.
+    try:
+        values, is_sequence = profile_values(obj)
+    except NotAValueList as exc:
+        why = "a one-shot iterator" if exc.one_shot else exc.reason
+        raise TypeError(
+            f"cannot save a {exc.kind} in a project file: a {exc.kind} is "
+            f"{why}; give a list of its values") from None
+    if is_sequence:
+        return [_encode(v) for v in values]
+    if values[0] is not obj:
+        return _encode(values[0])
     raise TypeError(f"cannot save a {type(obj).__name__} in a project file")
 
 

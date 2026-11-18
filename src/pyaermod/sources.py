@@ -22,7 +22,7 @@ from typing import Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, 
 
 from ._fields import described
 from .hourly_emissions import write_hourly_emissions
-from .pathways import ChemistryOptions
+from .pathways import ChemistryOptions, continued_value_lines, one_decimal_or_exact
 
 # ============================================================================
 # DEPOSITION PARAMETERS
@@ -1660,12 +1660,29 @@ class BackgroundSector:
 @dataclass
 class BackgroundConcentration:
     """
-    AERMOD background concentration configuration (SO BACKGRND / BGSECTOR).
+    AERMOD background concentration (SO BACKGRND / BGSECTOR).
 
-    Supports three modes:
-    1. Uniform: single value for all hours/directions
-    2. Period-specific: mapping of averaging period to value
-    3. Sector-dependent: sectors + per-sector, per-period values
+    ``BACKGRND [SECTn] flag values...`` in ``soset.f``: the flag is one of
+    EMISFACT's temporal-variation flags (:data:`TEMPORAL_FLAG_COUNTS`:
+    ANNUAL takes 1 value, SEASON 4, MONTH 12, HROFDY 24, ...), not an
+    averaging period. Three modes:
+
+    1. Uniform: ``uniform_value``, one value for every hour, written
+       ``BACKGRND ANNUAL value``.
+    2. Temporally varying: ``period_values`` maps a flag to its value
+       (ANNUAL) or list of values (``{"SEASON": [w, sp, su, f]}``).
+    3. Sector-dependent: ``sectors`` and ``sector_values``, which maps
+       ``(sector_id, flag)`` to a value or list of values.
+
+    A list of values may be a list, a tuple, a range, a numpy array or a
+    pandas Series (its values in order); see
+    :func:`~pyaermod.pathways.value_list`. A one-shot iterator (a map, a
+    generator, a zip) is refused: the validator reports it, and the
+    writer raises :class:`TypeError` rather than write a ``BACKGRND``
+    card without values.
+
+    An hourly background file (``BACKGRND [SECTn] HOURLY file``) is kept
+    verbatim from a deck in :attr:`AERMODProject.unparsed_lines`.
     """
     uniform_value: Optional[float] = None
     period_values: Optional[dict] = None
@@ -1674,20 +1691,22 @@ class BackgroundConcentration:
 
     def to_aermod_input(self) -> str:
         """Generate AERMOD BACKGRND / BGSECTOR keywords."""
-        lines = []
+        lines: List[str] = []
         if self.sectors and self.sector_values:
-            # BGSECTOR takes starting directions only (up to 6)
+            # BGSECTOR takes starting directions only (up to 6), each
+            # written so it reads back exactly (22.25 stays 22.25).
             sorted_sectors = sorted(self.sectors, key=lambda s: s.sector_id)
-            dir_parts = [f"{s.start_direction:.1f}" for s in sorted_sectors]
+            dir_parts = [one_decimal_or_exact(s.start_direction) for s in sorted_sectors]
             lines.append(f"   BGSECTOR  {' '.join(dir_parts)}")
-            # BACKGRND with sectors: BACKGRND SECTn period value
-            for (sid, period), value in sorted(self.sector_values.items()):
-                lines.append(f"   BACKGRND  SECT{sid}  {period}  {value:.6g}")
+            for (sid, flag), values in sorted(self.sector_values.items()):
+                lines += continued_value_lines("BACKGRND", f"SECT{sid}  {flag}", values)
         elif self.period_values:
-            for period, value in self.period_values.items():
-                lines.append(f"   BACKGRND  {period}  {value:.6g}")
+            for flag, values in self.period_values.items():
+                lines += continued_value_lines("BACKGRND", flag, values)
         elif self.uniform_value is not None:
-            lines.append(f"   BACKGRND  {self.uniform_value:.6g}")
+            # A value without a flag is E201 in AERMOD; ANNUAL is one
+            # value for every hour.
+            lines += continued_value_lines("BACKGRND", "ANNUAL", self.uniform_value)
         return "\n".join(lines)
 
 

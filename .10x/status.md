@@ -40,3 +40,10 @@ Blocker (non-fatal): AERMOD-wasm not buildable/downloadable here; wasm tiers ver
 | #68 (docs fixes, v2.3.0 prep, student-guide split) | merged |
 | PR B: screenshots, GUI guide, quickstart, docs-examples test | in review |
 | Follow-up: single install page, architecture.md, Validation nav section | next |
+
+## 2026-11-17: review fixes H2, H3, H5, H6 (PR #70)
+| Item | State |
+|---|---|
+| H2/H3/H5/H6 fixes | in PR #70, CI green |
+| Code review (10 findings) | verified: 9 confirmed, 1 partly refuted (.10x/reviews/2026-11-17-pr70-review-verification.md) |
+| Fixes for confirmed findings | awaiting maintainer go-ahead |

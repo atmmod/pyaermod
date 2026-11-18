@@ -21,6 +21,7 @@
 #
 # Usage:  scripts/fetch_epa_source.sh <url> <output.zip>
 # Env:    FETCH_ATTEMPTS (default 6)   FETCH_BACKOFF (default 10, seconds * attempt)
+#         FETCH_MAX_TIME (default 600, seconds per attempt)
 
 set -euo pipefail
 
@@ -28,6 +29,7 @@ URL="${1:?usage: fetch_epa_source.sh <url> <output.zip>}"
 OUT="${2:?usage: fetch_epa_source.sh <url> <output.zip>}"
 ATTEMPTS="${FETCH_ATTEMPTS:-6}"
 BACKOFF="${FETCH_BACKOFF:-10}"
+MAX_TIME="${FETCH_MAX_TIME:-600}"
 
 is_valid_zip() { [ -s "$1" ] && unzip -t -qq "$1" >/dev/null 2>&1; }
 
@@ -54,7 +56,7 @@ fi
 for i in $(seq 1 "$ATTEMPTS"); do
   echo "fetch_epa_source: attempt ${i}/${ATTEMPTS} -> ${URL}"
   if curl -sSL --fail --retry 3 --retry-delay 3 --retry-all-errors \
-          --connect-timeout 30 --max-time 600 -o "$OUT" "$URL"; then
+          --connect-timeout 30 --max-time "$MAX_TIME" -o "$OUT" "$URL"; then
     if is_valid_zip "$OUT"; then
       echo "fetch_epa_source: ok ($(wc -c < "$OUT") bytes, valid zip)"
       report_archive

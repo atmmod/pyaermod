@@ -19,7 +19,9 @@ pollutant pairing rules are in the function docstring.
 
 from __future__ import annotations
 
+import calendar
 import math
+import numbers
 import warnings
 from dataclasses import dataclass
 from fractions import Fraction
@@ -30,6 +32,8 @@ import numpy as np
 import pandas as pd
 
 from ._fortran import fortran_float
+from .pathways import SHORT_TERM_HOURS
+from .postfile import label_hours
 
 if TYPE_CHECKING:
     from .pathways import OutputPathway
@@ -51,20 +55,66 @@ class DesignValue:
 # Internal helpers
 # ---------------------------------------------------------------------
 
+#: What ``pd.api.types.infer_dtype`` calls an object column holding floats.
+_FLOAT_KINDS = frozenset({"floating", "mixed-integer-float", "mixed"})
+
+
+def _whole_float_as_int(value: object) -> object:
+    """``value`` as an int when it is a whole-number float, else unchanged."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _date_text(date_col: pd.Series) -> pd.Series:
+    """A date column as stripped text, whole-number floats written as integers.
+
+    A date column read back from a CSV with a blank date is float64, and
+    ``str(16010101.0)`` is not a stamp, so a whole-number float is written
+    as its integer. NaN and fractional floats keep their text (``nan``,
+    ``19010101.5``) for the caller's error to name. Numbers have lost any
+    leading zero (2005 reads 5010101); callers that want a YYMMDDHH stamp
+    ``zfill(8)`` the result.
+    """
+    if pd.api.types.is_float_dtype(date_col.dtype):
+        whole = (date_col.notna() & (date_col % 1 == 0)).fillna(False).astype(bool)
+        text = date_col.astype(str)
+        text[whole] = date_col[whole].astype("int64").astype(str)
+        date_col = text
+    elif (date_col.dtype == object
+          and pd.api.types.infer_dtype(date_col, skipna=False) in _FLOAT_KINDS):
+        date_col = date_col.map(_whole_float_as_int)
+    return date_col.astype(str).str.strip()
+
+
+def _stamp_text(date_col: pd.Series) -> pd.Series:
+    """A date column as 8-character YYMMDDHH text (:func:`_date_text`, zero-filled).
+
+    The one normalisation every stamp comparison and parse starts from;
+    callers that need both the text and the parsed dates compute it once
+    and hand it to :func:`_stamp_text_to_date`.
+    """
+    return _date_text(date_col).str.zfill(8)
+
+
 def _parse_yymmddhh_to_year(date_col: pd.Series) -> pd.Series:
     """Extract the 4-digit year from an YYMMDDHH POSTFILE date column.
 
     AERMOD encodes the year as 2 digits prefixed by century rollover
     behaviour: 00..49 -> 2000..2049, 50..99 -> 1950..1999.
     """
-    s = date_col.astype(str).str.zfill(8)
+    s = _stamp_text(date_col)
     yy = s.str.slice(0, 2).astype(int)
     return yy.where(yy < 50, yy + 1900).where(yy >= 50, yy + 2000)
 
 
 def _parse_yymmddhh_to_date(date_col: pd.Series) -> pd.Series:
     """Convert YYMMDDHH to a pandas Timestamp (truncated to day)."""
-    s = date_col.astype(str).str.zfill(8)
+    return _stamp_text_to_date(_stamp_text(date_col))
+
+
+def _stamp_text_to_date(s: pd.Series) -> pd.Series:
+    """Day timestamps of YYMMDDHH text already normalised by :func:`_stamp_text`."""
     yy = s.str.slice(0, 2).astype(int)
     yyyy = yy.where(yy < 50, yy + 1900).where(yy >= 50, yy + 2000)
     mm = s.str.slice(2, 4).astype(int)
@@ -286,24 +336,88 @@ def add_background(
     df
         POSTFILE-shaped DataFrame.
     background
-        Either a uniform float, a pd.Series indexed by date string
-        (YYMMDDHH), or a dict mapping date string -> float. Index
-        format must match ``df['date']``.
+        Either a uniform number (any real number, numpy scalars such as
+        ``np.float32`` included, but not a bool), a pd.Series indexed by
+        date (YYMMDDHH), or a dict mapping date -> float. Dates and keys
+        are matched as
+        8-character YYMMDDHH stamps, so text, integers and whole-number
+        floats all match (2005's first hour reads ``"05010101"``,
+        ``5010101`` or ``5010101.0``). Two keys naming the same stamp
+        raise :class:`ValueError`.
 
     Returns
     -------
-    A new DataFrame with ``concentration`` += background. Rows whose
-    date has no background entry are left unchanged.
+    A new DataFrame with ``concentration`` += background; ``date`` is
+    left as given. Rows whose date has no background value are left
+    unchanged, with a warning naming how many dates that is: a background
+    that matches no date at all (usually keys that are not YYMMDDHH
+    stamps) or only some of them (hours missing from the background
+    series), since those hours then get no background.
+
+    Raises
+    ------
+    TypeError
+        If ``background`` is none of those (a bool, a string, a list ...).
+    """
+    return _add_background(df, background)[0]
+
+
+def _add_background(
+    df: pd.DataFrame,
+    background: Union[float, pd.Series, dict],
+) -> tuple[pd.DataFrame, Optional[pd.Series]]:
+    """:func:`add_background`, also returning the frame's dates as stamp text.
+
+    The text (:func:`_stamp_text` of ``df['date']``, row for row) is what a
+    date-keyed background is matched on; it is *None* for a uniform one,
+    which reads no dates.
+
+    Its warnings name the line that called :func:`add_background` or
+    :func:`naaqs_compliance_report`, each of which calls this directly
+    (``stacklevel=3``): attributed to a line of this module, Python's
+    default filter would show them once a session, and a second
+    mismatched background would go unwarned.
     """
     out = df.copy()
-    if isinstance(background, (int, float)):
+    if isinstance(background, numbers.Real) and not isinstance(background, bool):
         out["concentration"] = out["concentration"] + float(background)
-        return out
+        return out, None
     if isinstance(background, dict):
         background = pd.Series(background)
-    bg = out["date"].astype(str).map(background).fillna(0.0)
-    out["concentration"] = out["concentration"] + bg
-    return out
+    if not isinstance(background, pd.Series):
+        raise TypeError(
+            "background must be a number, a pd.Series indexed by YYMMDDHH "
+            f"date or a dict of date -> value; got {type(background).__name__}"
+        )
+    keys = _stamp_text(pd.Series(background.index))
+    repeated = keys[keys.duplicated()].unique()
+    if len(repeated):
+        raise ValueError(
+            "the background has more than one value for "
+            f"{', '.join(repeated[:4])}; its keys must name each YYMMDDHH "
+            "stamp once."
+        )
+    by_stamp = pd.Series(background.to_numpy(), index=keys.to_numpy())
+    stamps = _stamp_text(out["date"])
+    bg = stamps.map(by_stamp)
+    if len(out) and bg.isna().all():
+        warnings.warn(
+            "the background matches no date in the frame, so nothing was "
+            "added; its keys must be YYMMDDHH stamps as in df['date'].",
+            stacklevel=3,
+        )
+    elif bg.isna().any():
+        # A row without a date gets no background either, so a missing
+        # date counts as one more unmatched date (nunique() would drop it).
+        missing = stamps[bg.isna()].nunique(dropna=False)
+        warnings.warn(
+            f"{missing} of {stamps.nunique(dropna=False)} dates in the frame "
+            "have no background value, so nothing was added to their rows; "
+            "give the background for every hour, or a single number.",
+            stacklevel=3,
+        )
+    out["concentration"] = out["concentration"] + bg.fillna(0.0)
+    return out, stamps
 
 
 def annual_mean(
@@ -311,17 +425,28 @@ def annual_mean(
 ) -> pd.DataFrame:
     """Annual-mean design-value calculation.
 
-    Used for the PM2.5 annual NAAQS (40 CFR 50.18) and the NO2 annual
-    NAAQS (40 CFR 50.11). The standard form is the multi-year average
-    of annual means; this returns per-receptor *annual* means — caller
-    averages across years if a 3-year design value is wanted.
+    Used for the PM2.5 annual NAAQS (40 CFR 50.18), whose form is the
+    three-year average of annual means, and the NO2 annual NAAQS (40 CFR
+    50.11(e)), whose form is one calendar year's mean. This returns the
+    mean of each year at each receptor; :func:`naaqs_compliance_report`
+    combines the years in the form of each standard.
 
     Returns one row per (x, y, year) with column ``concentration``.
     """
     work = _dedupe_receptors(_one_source_group(df))
-    g = work.assign(_year=_parse_yymmddhh_to_year(work["date"]))
+    return _annual_means(work, _parse_yymmddhh_to_year(work["date"]))
+
+
+def _annual_means(work: pd.DataFrame, years: pd.Series) -> pd.DataFrame:
+    """Mean per (x, y, year) of a frame already checked and deduplicated.
+
+    ``years`` gives each row's calendar year. The core of
+    :func:`annual_mean`, for callers that have checked the frame and
+    parsed its dates themselves.
+    """
     return (
-        g.groupby(["x", "y", "_year"], as_index=False, sort=False)
+        work.assign(_year=years)
+        .groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"].mean()
         .rename(columns={"_year": "year"})
     )
@@ -643,12 +768,307 @@ def naaqs_output_pathway(
     )
 
 
+#: How :func:`naaqs_compliance_report` may combine the years' annual NO2
+#: means: the CFR form, one calendar year (the highest), or their average.
+_NO2_ANNUAL_FORMS = ("highest_year", "multi_year_mean")
+
+#: 40 CFR 50 Appendix S: an annual NO2 mean is valid when at
+#: least 75 % of the year is covered.
+_NO2_ANNUAL_COMPLETENESS = 0.75
+
+
+def _coverage_unit(ave: object) -> tuple[str, int]:
+    """The unit a year's coverage is counted in for one POSTFILE ``ave``.
+
+    Returns the unit and the number of those units one value covers:
+    ``("hour", N)`` for N-HR values shorter than a day (AERMOD's block
+    averages, so an 8-HR value covers 8 hours; Appendix S judges an annual
+    mean by the share of the year's hours), ``("month", 1)`` for MONTH
+    values, ``("year", 1)`` for ANNUAL values (each is a whole year's
+    mean), ``("period", 1)`` for PERIOD values (one mean over the whole
+    run) and ``("day", 1)`` for everything else: 24-HR values, and
+    anything not named.
+
+    An N-HR label whose N is no short-term period AERMOD has (1, 2, 3, 4,
+    6, 8, 12 or 24 hours) raises :class:`ValueError`: it is an ANNUAL or
+    PERIOD value whose year or hour count was read as an averaging period,
+    as a binary POSTFILE read without its averaging period can be.
+    """
+    text = str(ave).strip().upper()
+    named = {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}
+    if text in named:
+        return named[text], 1
+    hours = label_hours(text)
+    if hours is not None:
+        if hours not in SHORT_TERM_HOURS:
+            raise ValueError(
+                f"{text} is not an averaging period AERMOD writes: its short-"
+                "term periods are 1, 2, 3, 4, 6, 8, 12 and 24 hours. A binary "
+                "ANNUAL POSTFILE holds its number of years (and a PERIOD one "
+                "its number of hours) where a short-term one holds the hours "
+                "averaged, so these are most likely ANNUAL or PERIOD values; "
+                "read the file with read_postfile(path, "
+                "averaging_period='ANNUAL') (or 'PERIOD')."
+            )
+        if hours < 24:
+            return "hour", hours
+    return "day", 1
+
+
+#: An AERMOD YYMMDDHH stamp: hours run 01..24 (00 is accepted too).
+_YYMMDDHH = r"\d{6}(?:[01]\d|2[0-4])"
+
+
+def _no2_stamps(
+    date_col: pd.Series, text: Optional[pd.Series] = None,
+) -> tuple[pd.Series, pd.Series]:
+    """The date column as normalised YYMMDDHH text and as day timestamps.
+
+    ``text`` is :func:`_stamp_text` of ``date_col`` when the caller has it
+    already (from matching a background), so the column is not read again.
+    Raises a ValueError naming the first few values that are not AERMOD
+    YYMMDDHH stamps, rather than failing deep inside the parser.
+    """
+    if text is None:
+        text = _stamp_text(date_col)
+    bad = ~text.str.fullmatch(_YYMMDDHH)
+    if not bad.any():
+        stamp = _stamp_text_to_date(text)
+        bad = stamp.isna()
+    if bad.any():
+        shown = date_col[bad].map(str).unique()[:4]
+        raise ValueError(
+            "the date column must hold AERMOD YYMMDDHH stamps; cannot read "
+            f"{', '.join(shown)}."
+        )
+    return text, stamp
+
+
+def _annual_numyrs(date_col: pd.Series) -> Optional[int]:
+    """The number of years behind ANNUAL POSTFILE rows, or None if unknown.
+
+    AERMOD writes NUMYRS (I8.8) where a POSTFILE has the date, so a value
+    averaged over five years reads ``00000005``. A field that is a date, or
+    is not one count shared by every row, says nothing about the length.
+    A count read from a float column (``5.0``) is still a count.
+    """
+    text = _date_text(date_col)
+    if text.empty or not text.str.fullmatch(r"\d{1,8}").all():
+        return None
+    counts = text.map(int).unique()
+    # NUMYRS is a count of met years, so a small number; the smallest real
+    # YYMMDDHH stamp, 00010101 (2000-01-01 hour 01), reads 10101. Anything
+    # outside 1-99 is a date (00123124 is 2000-12-31 hour 24), not a count.
+    if len(counts) != 1 or not 1 <= counts[0] <= 99:
+        return None
+    return int(counts[0])
+
+
+def _ave_names(df: pd.DataFrame) -> list[str]:
+    """The frame's averaging periods (``ave``), stripped, upper-cased, sorted.
+
+    Empty when the frame has no ``ave`` column.
+    """
+    if "ave" not in df.columns:
+        return []
+    return sorted({str(a).strip().upper() for a in pd.unique(df["ave"])})
+
+
+def _no2_annual_input(
+    df: pd.DataFrame, aves: list[str],
+) -> tuple[pd.DataFrame, str, int]:
+    """The rows behind an annual NO2 design value and their coverage unit.
+
+    Both forms of :func:`naaqs_compliance_report`'s annual NO2 value read
+    their input through this. The frame must hold one source group and one
+    averaging period (one ``ave`` value): rows of different periods are
+    different quantities, and averaging or ranking them together means
+    nothing. ``aves`` is :func:`_ave_names` of the frame, which the caller
+    has already read. Without an ``ave`` column the rows are taken as
+    sub-annual values, counted in days. Returns the frame and
+    :func:`_coverage_unit` of its averaging period.
+    """
+    work = _one_source_group(df)
+    if len(aves) > 1:
+        raise ValueError(
+            "an annual NO2 mean needs one averaging period; found "
+            f"{', '.join(aves)}. Pass one averaging period, e.g. "
+            f"df[df['ave'] == {aves[0]!r}]."
+        )
+    unit, per_value = _coverage_unit(aves[0]) if aves else ("day", 1)
+    return work, unit, per_value
+
+
+def _refuse_one_value_per_receptor(work: pd.DataFrame, aves: list[str]) -> None:
+    """Refuse N-HR rows that hold one value per receptor.
+
+    One value per receptor is what an ANNUAL or PERIOD POSTFILE holds; a
+    short-term series has many. A binary one read without its averaging
+    period labels NUMYRS (or the run's hours) N-HR when N is a short-term
+    period ending at the record's hour. ``work`` is one source group's
+    rows, already deduplicated (:func:`_dedupe_receptors`), so a receptor
+    a deck declares twice still has one row. Only an N-HR label is
+    checked, and the receptors are counted once, against the row count.
+    """
+    if not aves or label_hours(aves[0]) is None or work.empty:
+        return
+    if len(work) == len(work[["x", "y"]].drop_duplicates()):
+        raise ValueError(
+            f"every receptor has one {aves[0]} value, which looks like an "
+            "ANNUAL or PERIOD POSTFILE: a binary one holds its number of "
+            "years (or hours) where a short-term one holds the hours "
+            "averaged. Read it with read_postfile(path, "
+            "averaging_period='ANNUAL' or 'PERIOD')."
+        )
+
+
+def _no2_annual_design_value(
+    df: pd.DataFrame, form: str, aves: list[str],
+    stamps: Optional[pd.Series] = None,
+) -> pd.DataFrame:
+    """Annual NO2 design value per receptor in ``form`` (see _NO2_ANNUAL_FORMS).
+
+    ``aves`` is :func:`_ave_names` of ``df``. ``stamps``, when given, is
+    :func:`_stamp_text` of ``df['date']`` row for row (as
+    :func:`_add_background` returns it), used instead of reading the dates
+    again.
+
+    An ANNUAL value over N years is AERMOD's average of the N years'
+    annual means: in the ``"multi_year_mean"`` form it is the design value
+    itself, whatever N is. In the ``"highest_year"`` form it is a whole
+    year's mean only when the run covered one year; over several years it
+    is a lower bound on the highest year, so it is refused, as is one whose
+    number of years cannot be read. A PERIOD value is one mean over the
+    whole run, which cannot be split into calendar years; either form uses
+    it as it is, with a warning. Neither has a date to parse: the date
+    field holds a count.
+
+    Sub-annual values are combined by year: averaged across every year
+    present for ``"multi_year_mean"``, and for ``"highest_year"`` as
+    :func:`_no2_highest_complete_year` describes.
+    """
+    work, unit, per_value = _no2_annual_input(df, aves)
+    if unit == "year" and form == "highest_year":
+        numyrs = _annual_numyrs(work["date"])
+        if numyrs != 1:
+            span = (f"{numyrs} years" if numyrs is not None else
+                    "an unknown number of years (the date column does not "
+                    "hold AERMOD's NUMYRS count, so it may be several)")
+            raise ValueError(
+                f"the ANNUAL values cover {span}. AERMOD's multi-year ANNUAL "
+                "value is the average of the years' annual means, a lower "
+                "bound on the annual NO2 design value, which is the highest "
+                "single calendar year's mean (40 CFR 50.11(e), Appendix S). "
+                "An hourly (or 24-HR / MONTH) POSTFILE gives the per-year "
+                "means."
+            )
+
+    if stamps is not None:
+        # By position, not index label: the frame's labels may repeat.
+        work = work.assign(_stamp=stamps.to_numpy())
+    # Dedupe after the period check: rows of different periods that end on
+    # the same hour would otherwise read as repeats of each other.
+    work = _dedupe_receptors(work)
+    _refuse_one_value_per_receptor(work, aves)
+    receptor = ["x", "y"]
+    if unit in ("year", "period"):
+        # One mean per receptor, used as it is.
+        if unit == "period":
+            warnings.warn(
+                "a PERIOD average is one mean over the whole run, not a "
+                "calendar year's mean, so the annual NO2 design value is the "
+                "PERIOD mean; it equals the annual mean (40 CFR 50 Appendix "
+                "S) only for a run of one calendar year.",
+                stacklevel=3,
+            )
+        return (work.groupby(receptor, as_index=False, sort=False)
+                ["concentration"].max())
+    text, stamp = _no2_stamps(
+        work["date"], work["_stamp"] if stamps is not None else None)
+    years = stamp.dt.year
+    if form == "multi_year_mean":
+        return (_annual_means(work, years)
+                .groupby(receptor, as_index=False, sort=False)
+                ["concentration"].mean())
+    if unit == "hour":
+        unit_of_row = text
+    elif unit == "month":
+        unit_of_row = stamp.dt.month
+    else:
+        unit_of_row = stamp
+    return _no2_highest_complete_year(
+        work.assign(_year=years, _unit=unit_of_row), unit, per_value)
+
+
+def _no2_highest_complete_year(
+    work: pd.DataFrame, unit: str, per_value: int,
+) -> pd.DataFrame:
+    """Highest annual mean per receptor, over the years at least 75 % covered.
+
+    ``work`` holds sub-annual rows of one averaging period, already checked
+    and deduplicated by :func:`_no2_annual_design_value`, with each row's
+    calendar year in ``_year`` and its coverage unit in ``_unit``. Coverage
+    is counted in ``unit``, as 40 CFR 50 Appendix S counts it for the
+    annual mean: the share of the calendar year's hours (8760 or 8784)
+    covered at that receptor for 1-HR to 12-HR values, ``per_value`` hours
+    for each distinct stamp; the share of its days (365 or 366) for 24-HR
+    values and frames without an ``ave`` column; and the share of its 12
+    months for MONTH values.
+
+    A year below 75 % is left out with a warning. A receptor with no
+    calendar year at 75 % gets the mean over its whole record instead,
+    also with a warning, rather than its highest partial year.
+    """
+    receptor = ["x", "y"]
+    keys = [*receptor, "_year"]
+    means = work.groupby(keys, as_index=False, sort=False).agg(
+        concentration=("concentration", "mean"), _n=("_unit", "nunique"))
+    if unit == "month":
+        whole = pd.Series(12, index=means.index)
+    else:
+        days = means["_year"].map(lambda y: 366 if calendar.isleap(y) else 365)
+        whole = days * 24 if unit == "hour" else days
+    means["_ok"] = means["_n"] * per_value >= _NO2_ANNUAL_COMPLETENESS * whole
+
+    any_ok = means.groupby(receptor, sort=False)["_ok"].transform("any")
+    noun = {"hour": "hours", "month": "months"}.get(unit, "days")
+    dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "_year"]})
+    if dropped:
+        warnings.warn(
+            "the annual NO2 design value leaves out "
+            f"{', '.join(map(str, dropped))}: data on fewer than 75% of the "
+            f"year's {noun} at some receptor (40 CFR 50 Appendix S) is too "
+            "little for a valid annual mean.",
+            stacklevel=4,
+        )
+    highest = (means[means["_ok"]]
+               .groupby(receptor, as_index=False, sort=False)
+               ["concentration"].max())
+    if any_ok.all():
+        return highest
+
+    warnings.warn(
+        f"no calendar year has data on at least 75% of its {noun} (40 CFR 50 "
+        "Appendix S) at some receptor, so its annual NO2 design value is the "
+        "mean over the whole record, not a calendar-year mean.",
+        stacklevel=4,
+    )
+    incomplete = means.loc[~any_ok, receptor].drop_duplicates()
+    whole_record = (work.merge(incomplete, on=receptor)
+                    .groupby(receptor, as_index=False, sort=False)
+                    ["concentration"].mean())
+    # Back in the receptors' order of appearance.
+    return (means[receptor].drop_duplicates()
+            .merge(pd.concat([highest, whole_record]), on=receptor))
+
+
 def naaqs_compliance_report(
     pollutant: str,
     df: pd.DataFrame,
     *,
     background: Optional[Union[float, dict, pd.Series]] = None,
     n_years: int = 3,
+    no2_annual: str = "highest_year",
 ) -> pd.DataFrame:
     """One-stop compliance roll-up: design value + NAAQS comparison.
 
@@ -672,12 +1092,60 @@ def naaqs_compliance_report(
     Supported pollutants: PM2.5 (24-hour), PM10, NO2 (1-hour), SO2,
     O3, plus annual forms via ``pollutant="PM2.5_annual"`` /
     ``"NO2_annual"``.
+
+    The annual PM2.5 form is the average of the annual means (40 CFR 50.18,
+    Appendix N). The annual NO2 standard is a single calendar year's mean
+    (40 CFR 50.11(e), Appendix S), so with several years of data
+    ``no2_annual="highest_year"`` (the default) takes the highest year's
+    mean at each receptor. Only years with data on at least 75% of their
+    hours count (Appendix S treats an annual mean as valid from 75%
+    coverage), so a few days of a following year cannot set the design
+    value; the years left out are named in a :class:`UserWarning`. The
+    frame must hold one averaging period (one ``ave`` value). Coverage is
+    counted in hours for 1-HR (and other sub-daily block) values, so two
+    hours a day is not a complete year; a 24-HR POSTFILE (or one without
+    an ``ave`` column) counts days, a MONTH POSTFILE counts months, and a
+    PERIOD mean, which covers
+    the whole run rather than one calendar year, is used as it is with a
+    warning. An ANNUAL value is used only when it covers one year: over
+    several years (AERMOD writes NUMYRS where the date would be) it is the
+    average of the years' means, a lower bound on the design value, so it
+    raises :class:`ValueError`, as does an ANNUAL value whose number of
+    years cannot be read. If no calendar year at a receptor reaches 75%
+    (one met year starting in July, say), the design value there is the
+    mean over its whole record and a warning says so.
+    ``no2_annual="multi_year_mean"`` averages the years instead,
+    which some reviewing agencies accept for five years of NWS met data;
+    it can be below the highest year, and it averages every year present,
+    complete or not. It too needs one averaging period. An ANNUAL value,
+    which over several years is already the average of the years' means,
+    is that mean as it is, whatever its number of years; a PERIOD mean is
+    used as it is, with the same warning as above.
+
+    ``background`` is added before the design value is formed. A date-keyed
+    background (dict or Series) cannot be matched to ANNUAL or PERIOD
+    values, whose date field is not an hour, so it raises
+    :class:`ValueError` there; pass a single number instead.
     """
     from .naaqs import get_naaqs  # local import to avoid cycles
 
-    work = add_background(df, background) if background is not None else df
-
     pollutant = pollutant.upper()
+    keyed = isinstance(background, (dict, pd.Series))
+    # Read once: the background check and the annual NO2 value both use it.
+    aves = _ave_names(df) if keyed or pollutant == "NO2_ANNUAL" else []
+    if keyed:
+        whole = [a for a in aves if a in ("ANNUAL", "PERIOD")]
+        if whole:
+            raise ValueError(
+                f"a background keyed by date cannot be matched to "
+                f"{' / '.join(whole)} values: their date field holds a year "
+                "count or the run's last hour, not the hours the background "
+                "is keyed on, so it would add nothing. Pass the background as "
+                "a single number, e.g. its annual mean."
+            )
+    work, stamps = (_add_background(df, background) if background is not None
+                    else (df, None))
+
     if pollutant == "PM2.5" or pollutant == "PM25":
         dv = pm25_24hr_design_value(work, n_years=n_years)
         std = get_naaqs("PM2.5", "24-hour")
@@ -694,9 +1162,10 @@ def naaqs_compliance_report(
         dv = no2_1hr_design_value(work, n_years=n_years)
         std = get_naaqs("NO2", "1-hour")
     elif pollutant == "NO2_ANNUAL":
-        dv = (annual_mean(work)
-              .groupby(["x", "y"], as_index=False, sort=False)
-              ["concentration"].mean())
+        if no2_annual not in _NO2_ANNUAL_FORMS:
+            raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
+                             f"got {no2_annual!r}")
+        dv = _no2_annual_design_value(work, no2_annual, aves, stamps)
         std = get_naaqs("NO2", "annual")
     elif pollutant == "SO2":
         dv = so2_1hr_design_value(work, n_years=n_years)

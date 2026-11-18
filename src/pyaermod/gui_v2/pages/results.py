@@ -51,6 +51,7 @@ from ..run_results import (
     build_error,
     cached_view,
     completed_runs,
+    naaqs_caption,
     overwritten_by,
     period_label,
     prepare,
@@ -496,9 +497,7 @@ def _naaqs(ui: Any, view: RunView) -> None:
         rows=rows, row_key="key",
     ).classes("w-full").props('aria-label="Comparison with the NAAQS" flat bordered').mark(
         "results-naaqs")
-    ui.label("A screening comparison uses the highest value of the period, which no "
-             "design value can exceed; the NAAQS itself is set on a design value over "
-             "several years.").classes("text-caption text-grey-8")
+    ui.label(naaqs_caption(view.naaqs)).classes("text-caption text-grey-8")
 
 
 # ----------------------------------------------------------------------

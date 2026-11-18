@@ -349,7 +349,7 @@ class NaaqsCheck:
     level_ugm3: float
     value: Optional[float]         # µg/m³
     location: Optional[Tuple[float, float]]
-    basis: str                     # "design value", "screening" or "not compared"
+    basis: str                     # "design value", "screening", "lower bound" or "not compared"
     how: str                       # where the value comes from
     verdict: str
 
@@ -476,12 +476,31 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
             continue
         if basis == "design value":
             verdict = "Above the NAAQS" if value > level else "Below the NAAQS"
+        elif basis == "lower bound":
+            verdict = ("Above the NAAQS (so is the highest single year)" if value > level
+                       else "Multi-year average below the NAAQS; the design value is "
+                            "the highest single year's mean, which can be above it")
         elif value <= level:
             verdict = "Below the NAAQS (so is any design value)"
         else:
             verdict = "Highest value above the NAAQS; a design value is needed"
         checks.append(NaaqsCheck(standard, period, level, value, location, basis, how, verdict))
     return checks
+
+
+def naaqs_caption(checks: Sequence[NaaqsCheck]) -> str:
+    """The note under the NAAQS table, explaining the bases its rows use.
+
+    The lower-bound sentence is there only when a row is a lower bound
+    (AERMOD's multi-year ANNUAL average against the annual NO2 standard).
+    """
+    caption = ("A screening comparison uses the highest value of the period, which no "
+               "design value can exceed.")
+    if any(c.basis == "lower bound" for c in checks):
+        caption += (" A lower bound is AERMOD's average of several years' annual means, "
+                    "which the annual NO2 design value, the highest single year, cannot "
+                    "be below.")
+    return caption
 
 
 def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
@@ -502,9 +521,20 @@ def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
         return None
     if period == "ANNUAL" and standard.form.lower() == "annual mean":
         years = _years_in(top.title or "")
+        source = f"AERMOD's table \"{top.title}\""
+        if pollutant == "NO2" and years != 1:
+            # The annual NO2 standard is one calendar year's mean (40 CFR
+            # 50.11(e)); AERMOD's ANNUAL value over several years (or a
+            # title that does not say how many) is the average of the
+            # years' means, which the highest year's mean at that receptor
+            # is at least.
+            what = (f"the average of {years} annual means" if years
+                    else "an ANNUAL average over an unstated number of years")
+            return (float(top.max_value), tuple(top.max_location), "lower bound",
+                    f"{source}: {what}")
         return (float(top.max_value), tuple(top.max_location), "design value",
-                f"AERMOD's table \"{top.title}\""
-                + (f" ({years} year{'s' if years != 1 else ''} of met data)" if years else ""))
+                source + (f" ({years} year{'s' if years != 1 else ''} of met data)"
+                          if years else ""))
     qualifier = table_qualifier(top.title)
     if qualifier:
         # Only a design-value table (say the 8th-highest) holds this
@@ -817,6 +847,7 @@ __all__ = [
     "cached_view",
     "completed_runs",
     "deck_lines",
+    "naaqs_caption",
     "naaqs_checks",
     "overwritten_by",
     "period_label",

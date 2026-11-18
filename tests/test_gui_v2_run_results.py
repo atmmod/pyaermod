@@ -345,3 +345,19 @@ def test_period_labels():
     assert rr.period_label("1HR") == "1-HR" and rr.period_label("PERIOD") == "PERIOD"
     assert sorted(["PERIOD", "24HR", "1HR", "ANNUAL", "3HR"], key=rr.period_sort_key) == [
         "1HR", "3HR", "24HR", "PERIOD", "ANNUAL"]
+
+
+def test_an_annual_no2_table_without_a_year_count_is_only_a_lower_bound():
+    """AERMOD titles its ANNUAL table "... AVERAGED OVER N YEARS"; a title
+    without the count could be several years, whose average the NO2 design
+    value (the highest single year) can exceed."""
+    from types import SimpleNamespace
+
+    annual = SimpleNamespace(units="ug/m^3", max_value=90.0, max_location=(1.0, 2.0),
+                             title="THE SUMMARY OF MAXIMUM ANNUAL RESULTS",
+                             output_type="CONC", averaging_period="ANNUAL")
+    results = SimpleNamespace(run_info=SimpleNamespace(pollutant_id="NO2"),
+                              concentrations={"ANNUAL": annual}, summaries=[annual])
+    [check] = [c for c in rr.naaqs_checks(results) if c.standard.averaging_period == "annual"]
+    assert check.basis == "lower bound"
+    assert "Below the NAAQS" not in check.verdict

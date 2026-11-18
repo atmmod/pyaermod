@@ -37,6 +37,10 @@ on:
         default: "true"
 
 env:
+  # Dispatch inputs reach the shell as environment variables, never as
+  # ${{ }} text inside a run script, so quotes in them cannot become code.
+  KEYWORDS: ${{ inputs.keywords }}
+  PYTEST_ARGS: ${{ inputs.pytest_args }}
   AERMOD_SOURCE_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
   AERMOD_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip"
 
@@ -83,8 +87,10 @@ jobs:
           echo "source dir: $dir"
 
       - name: Fortran for each keyword
+        env:
+          SRC_DIR: ${{ steps.src.outputs.dir }}
         run: |
-          python scripts/keyword_oracle.py source "/tmp/aermod_build/${{ steps.src.outputs.dir }}" ${{ inputs.keywords }}
+          python scripts/keyword_oracle.py source "/tmp/aermod_build/$SRC_DIR" $KEYWORDS
 
       - name: Compile AERMOD
         run: |
@@ -99,6 +105,16 @@ jobs:
           key: ${{ steps.keys.outputs.tc }}
 
       - name: Fetch EPA test decks
+        id: testdecks
+        # EPA's server sometimes stalls; the probe decks below need
+        # only the met files in the repository, so they still run. One
+        # attempt: curl itself tries 4 times (--retry 3) for at most 3
+        # minutes each, about 12 minutes, inside the step's limit.
+        timeout-minutes: 15
+        continue-on-error: true
+        env:
+          FETCH_ATTEMPTS: "1"
+          FETCH_MAX_TIME: "180"
         run: |
           set -euo pipefail
           mkdir -p /tmp/epa_tc && cd /tmp/epa_tc
@@ -109,17 +125,40 @@ jobs:
           ln -sfn /tmp/epa_tc/test_cases "$GITHUB_WORKSPACE/test_cases"
           ls "$GITHUB_WORKSPACE/test_cases/aermet26135_aermod26135/inputs" | wc -l
 
+      - name: Drop a partial test-deck archive
+        # A fetch stopped by the timeout can leave a truncated zip, which
+        # the cache step would otherwise save under this month's key.
+        if: steps.testdecks.outcome != 'success'
+        run: rm -f /tmp/epa_tc/aermod_test_cases.zip
+
       - name: EPA decks using each keyword
+        if: steps.testdecks.outcome == 'success'
         run: |
-          python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs ${{ inputs.keywords }}
+          python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs $KEYWORDS
 
       - name: Run probe decks
         if: inputs.run_probe_decks == 'true'
         run: |
           python scripts/keyword_oracle.py run ./bin/aermod scripts/oracle_decks tests/fixtures/epa_official
 
-      - name: Run pytest selection with the binary on PATH
-        if: inputs.pytest_args != ''
+      - name: Fail when a requested pytest selection could not run
+        if: inputs.pytest_args != '' && steps.testdecks.outcome != 'success'
         run: |
-          PATH="$PWD/bin:$PATH" python -m pytest -o addopts="" -p no:cacheprovider \
-            --strict-markers --tb=short -rA ${{ inputs.pytest_args }}
+          echo "::error::EPA's test decks were not fetched, so the requested pytest selection did not run: $PYTEST_ARGS"
+          exit 1
+
+      - name: Run pytest selection with the binary on PATH
+        # Needs EPA's test decks and meteorology (test_cases/), so it runs
+        # only when they were fetched; a skipped step here means the fetch
+        # failed, not that the selection passed.
+        if: inputs.pytest_args != '' && steps.testdecks.outcome == 'success'
+        run: |
+          # shlex keeps a quoted -k/-m expression whole, as a shell would,
+          # without running the input as shell code.
+          PATH="$PWD/bin:$PATH" python - <<'PY'
+          import os, shlex, sys
+          import pytest
+          sys.exit(pytest.main(["-o", "addopts=", "-p", "no:cacheprovider",
+                                "--strict-markers", "--tb=short", "-rA",
+                                *shlex.split(os.environ["PYTEST_ARGS"])]))
+          PY

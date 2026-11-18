@@ -8,11 +8,11 @@ Test subsets run by reviewers: runner/wasm 257 passed; input/reader/validator 94
 | # | Area | Location | Defect | Status |
 |---|---|---|---|---|
 | H1 | GUI | gui_v2/plan_view.py:65-73 | `_ticks` loops forever when y0==y1 after rounding at large coordinates (e.g. source at y=1e18); freezes the NiceGUI event loop for every connected user | verified (timeout) |
-| H2 | Reader | input_reader.py:1077-1102, sources.py:1675-1691, validator.py:367-374 | BACKGRND keeps one value after the temporal flag (SEASON 1 2 3 4 -> SEASON 1); continuation lines become bogus entries; validator rejects valid SEASON decks | verified |
-| H3 | Reader | input_reader.py:1088-1093, 1566-1574 | Sector-dependent HOURLY background silently dropped (background=None, unparsed_lines empty) | verified |
+| H2 | Reader | input_reader.py:1077-1102, sources.py:1675-1691, validator.py:367-374 | BACKGRND keeps one value after the temporal flag (SEASON 1 2 3 4 -> SEASON 1); continuation lines become bogus entries; validator rejects valid SEASON decks | verified; fixed 2026-11-17: every value kept, continuations joined, flags and counts validated per soset.f BACK_GRND; uniform value written with ANNUAL (bare value is E201) |
+| H3 | Reader | input_reader.py:1088-1093, 1566-1574 | Sector-dependent HOURLY background silently dropped (background=None, unparsed_lines empty) | verified; fixed 2026-11-17: a deck with a sector HOURLY file keeps all BGSECTOR/BACKGRND lines verbatim, in order |
 | H4 | Reader sandbox | input_reader.py:236, 2350-2361 | Quoted paths ("../../etc/passwd") pass sandbox=True; AERMOD strips the quotes | verified |
-| H5 | Reader | input_reader.py:1836, pathways.py:1037 | PROFBASE units dropped: 328 FEET rewritten as 328 METERS | verified |
-| H6 | Design values | design_values.py:671-675 | NO2 annual DV averages annual means across years; 40 CFR 50.11(b) is a single-calendar-year annual mean. Policy check needed: confirm the form EPA modeling guidance expects for multi-year met | read; regulatory form needs maintainer confirmation |
+| H5 | Reader | input_reader.py:1836, pathways.py:1037 | PROFBASE units dropped: 328 FEET rewritten as 328 METERS | verified; fixed 2026-11-17: FEET converted to metres on read |
+| H6 | Design values | design_values.py:671-675 | NO2 annual DV averages annual means across years; 40 CFR 50.11(b) is a single-calendar-year annual mean. Policy check needed: confirm the form EPA modeling guidance expects for multi-year met | read; regulatory form needs maintainer confirmation; fixed 2026-11-17: highest single-year mean by default (40 CFR 50.11(e), App. S); no2_annual="multi_year_mean" opt-in; GUIs treat AERMOD's multi-year ANNUAL as a lower bound |
 
 ## Medium
 - GUI: run N's Results can read run N+1's files when the working dir is reused (run_results.py:699-710, pages/run.py:532); Session.fork drops the in-progress run (session.py:1045); Import deck / reopen recent replace the project without the unsaved-changes prompt (files.py:287-341).

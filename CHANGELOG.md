@@ -99,6 +99,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The unformatted (binary) POSTFILE reader labelled every record with the
+  first record's averaging period and called an ANNUAL record over five
+  years "5-HR", so a multi-year ANNUAL average could pass for hourly data.
+  Each record is now labelled on its own; `read_postfile(path,
+  averaging_period="ANNUAL")` (or `"PERIOD"`) reads ANNUAL and PERIOD files
+  as the text reader does, with the year or hour count in `date`; a record
+  that cannot be told apart without it raises, and a file with one record
+  per group warns. `regulatory_parity.score_postfile_pair` and
+  `passes_parity` pass `averaging_period` through. Output readers read the
+  `NaN` and `Infinity` gfortran writes. `add_background` accepts numpy
+  scalars.
+- `OZONEVAL`, `O3VALUES`, `NOXVALUE` and `NOX_VALS` refused D exponents
+  (`3.0D1`, as in EPA's decks) and dropped a line whose value did not read,
+  without keeping it. Values are read as AERMOD reads them, and a line
+  that cannot be modelled is kept verbatim.
+- `SO BACKGRND` with a temporal flag kept only the first value
+  (`SEASON 1 2 3 4` became `SEASON 1`), and a line continuing a profile
+  became an entry of its own. Every value is now read, a profile continued
+  over several lines is one profile, and the writer splits a long profile
+  over lines that repeat the flag, as AERMOD reads them.
+  `BackgroundConcentration.period_values` and `sector_values` take a list
+  for a flag with more than one value (`{"SEASON": [w, sp, su, f]}`).
+- The validator read `BACKGRND`'s flag as an averaging period, so it
+  refused a valid `SEASON` or `MONTH` profile and passed `{"24": 35.0}`,
+  which AERMOD refuses. It now checks the flag against EMISFACT's table and
+  the number of values each flag needs. The quickstart's example used the
+  averaging-period form and now uses a flag.
+- `BackgroundConcentration(uniform_value=...)` wrote `BACKGRND 5`, a
+  value without a flag, which AERMOD stops on (E201, soset.f BACK_GRND).
+  It is now written `BACKGRND ANNUAL 5`; a deck with the old form is read
+  as the same uniform value, with a warning. The validator now refuses two
+  flags for the whole domain or for one sector (E165), and checks
+  `BGSECTOR` as AERMOD does: 2 to 6 directions, ascending, sectors at least
+  30 degrees wide. It used to allow 12.
+- The validator now refuses, as AERMOD does: a declared background sector
+  without values (E238), sector IDs other than 1..N in `BGSECTOR` order
+  (E203), and a modelled background that conflicts with `BACKGRND` or
+  `BGSECTOR` lines kept verbatim from a deck (E203, E165), and more than one
+  of the uniform, temporal and sector modes at once, which the writer
+  would silently reduce to one. A non-numeric value in
+  a `BACKGRND`, `O3VALUES` or `NOX_VALS` profile is a validation error
+  instead of a `TypeError`.
+- A deck whose sector background cannot be modelled whole (an unreadable
+  `SECTn` line, `SECTn` lines without `BGSECTOR`, whole-domain values beside
+  sectors) lost its `BGSECTOR` line on rewrite, which AERMOD rejects
+  (E171). Every `BGSECTOR` and `BACKGRND` line is now kept verbatim in
+  order. The whole-domain lines follow the same rule: if one of them
+  cannot be modelled, all are kept verbatim instead of half a profile
+  being modelled. Background profiles may be numpy arrays, pandas Series or
+  ranges, and project files save them as lists.
+- A sector's hourly background file (`BACKGRND SECTn HOURLY file`) was
+  dropped from a deck without a trace. A deck that has one now keeps its
+  `BGSECTOR` and `BACKGRND` lines verbatim, in order, and lists the file
+  among the deck's input files.
+- `PROFBASE 328 FEET` was read as 328 metres. The reader now converts
+  feet to metres, as AERMOD does, and the writer keeps the precision a
+  converted value needs. Another unit is read as metres with a warning
+  (AERMOD's W203), a D exponent is accepted, and a value that is not a
+  number is a `ValueError` naming the line (AERMOD's E208). `BGSECTOR`
+  directions are written so they read back exactly. NaN, infinite and
+  non-numeric background values and sector directions are validation
+  errors.
+- `add_background` matched a date-keyed background only when the frame's
+  dates and the keys had the same type (`5010101` never matched
+  `"05010101"`). Both sides are now compared as YYMMDDHH stamps, and a
+  warning says how many dates have no background value, since those rows
+  get none. Float date columns (from a CSV round trip) are read as the
+  stamps they hold; they used to read 2005 as 1950.
+- Fortran numbers in a deck are read by one helper that accepts D
+  exponents and the E-free exponent form, and refuses `nan`, `inf` and
+  underscores, which AERMOD does not read. A profile given as a one-shot
+  iterator (a generator or `map`) is refused with a request for a list,
+  instead of being used up by validation and written empty.
+- The annual NO2 design value from `naaqs_compliance_report("NO2_annual",
+  ...)` averaged the years' annual means. The standard is one calendar
+  year's mean (40 CFR 50.11(e), Appendix S), so the design value is now
+  the highest year's mean at each receptor;
+  `no2_annual="multi_year_mean"` keeps the average for an agency that
+  accepts it. Only years at least 75% complete count toward the highest
+  year (hours for hourly values, as Appendix S counts them, days for
+  daily values, months for MONTH); a year left
+  out is named in a warning, and a receptor with no complete year gets the
+  mean over the whole record, with a warning. AERMOD's ANNUAL POSTFILE
+  value over several years, an average of the years' means, is refused
+  rather than reported as one year; mixed averaging periods are refused. The
+  GUIs' NAAQS check called AERMOD's multi-year ANNUAL value the NO2
+  design value; it is now a lower bound, above the NAAQS only when it
+  exceeds the level, and the note explaining it appears only then.
 - AERMOD's WebAssembly build stopped with "Sequential record missing its
   terminator" when the surface file's last line had no line ending, which
   EPA's executable reads. AERMOD steps back over that line every hour, and

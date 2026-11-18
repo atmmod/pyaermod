@@ -172,6 +172,9 @@ class TestSuccessfulRun:
         assert row["how"] == ("design value computed by pyaermod from pyaermod_01H.pst "
                               "(4 days of hourly values; the NAAQS form needs 3 years)")
         assert row["verdict"] == "Below the NAAQS"
+        # No row is a lower bound, so the caption does not explain one.
+        await gui.user.should_see("A screening comparison uses the highest value")
+        await gui.user.should_not_see("A lower bound")
 
     @pytest.mark.asyncio
     async def test_downloads_are_the_files_on_disk(self, gui, recorded_aermod, tmp_path):
