@@ -481,3 +481,116 @@ def test_bgsector_directions_with_one_decimal_keep_one_decimal():
                  BackgroundSector(3, 22.5)],
         sector_values={(1, "ANNUAL"): 1.0, (2, "ANNUAL"): 2.0, (3, "ANNUAL"): 3.0})
     assert "   BGSECTOR  0.0 90.0 22.5" in bg.to_aermod_input().splitlines()
+
+
+# ----------------------------------------------------------------------
+# A value AERMOD's STODBL does not read (NaN, an infinity, ``1_000``,
+# which Python's float() reads) is no value: the line does not parse,
+# so the profile is kept verbatim whole, as for any other value that
+# does not parse, and nothing non-finite is modelled.
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("so", [
+    "   BACKGRND  SEASON  1  nan  3  4",
+    "   BACKGRND  ANNUAL  inf",
+    "   BACKGRND  ANNUAL  1_000",
+    "   BACKGRND  MONTH  1  2  3  4  5  6\n   BACKGRND  MONTH  7  8  9  10  11  -Infinity",
+    "   BACKGRND  NaN",
+])
+def test_a_non_finite_whole_domain_value_is_kept_verbatim(so):
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background is None
+    deck_lines = [" ".join(ln.split()) for ln in so.splitlines()]
+    assert _kept_background(project) == deck_lines
+    assert _background_lines(project.to_aermod_input(validate=False)) == deck_lines
+
+
+@pytest.mark.parametrize("so", [
+    "   BGSECTOR  0  180\n   BACKGRND  SECT1  ANNUAL  nan\n   BACKGRND  SECT2  ANNUAL  6",
+    "   BGSECTOR  0  inf\n   BACKGRND  SECT1  ANNUAL  5\n   BACKGRND  SECT2  ANNUAL  6",
+    "   BGSECTOR  0  1_80\n   BACKGRND  SECT1  ANNUAL  5\n   BACKGRND  SECT2  ANNUAL  6",
+])
+def test_a_non_finite_sector_value_or_direction_is_kept_verbatim(so):
+    project = parse_aermod_input(_deck(so))
+    assert project.sources.background is None
+    assert _kept_background(project) == [" ".join(ln.split()) for ln in so.splitlines()]
+
+
+# ----------------------------------------------------------------------
+# A one-shot iterator (map, generator, zip) is no profile: the first pass
+# over it (the validator's) used it up, and the writer then wrote
+# ``BACKGRND  SEASON`` with no values. Profiles are lists, tuples,
+# ranges and anything with a tolist() (numpy, pandas); anything else is
+# refused, not written as an empty card.
+# ----------------------------------------------------------------------
+
+def _one_shot(kind):
+    values = [1.0, 2.0, 3.0, 4.0]
+    return {"map": lambda: map(float, values),
+            "generator": lambda: (v for v in values),
+            "zip": lambda: (a for (a,) in zip(values)),
+            "zip_object": lambda: zip(values),
+            "iter": lambda: iter(values)}[kind]()
+
+
+_ONE_SHOT_KINDS = ["map", "generator", "zip", "zip_object", "iter"]
+
+
+@pytest.mark.parametrize("kind", _ONE_SHOT_KINDS)
+def test_continued_value_lines_refuses_a_one_shot_iterator(kind):
+    from pyaermod.pathways import continued_value_lines
+
+    values = _one_shot(kind)
+    with pytest.raises(TypeError, match="list"):
+        continued_value_lines("BACKGRND", "SEASON", values)
+    # Nothing was taken from it.
+    assert next(values) is not None
+
+
+@pytest.mark.parametrize("kind", _ONE_SHOT_KINDS)
+@pytest.mark.parametrize("mode", ["period", "sector"])
+def test_a_background_given_a_one_shot_iterator_is_never_written_empty(kind, mode):
+    values = _one_shot(kind)
+    if mode == "period":
+        bg = BackgroundConcentration(period_values={"SEASON": values})
+    else:
+        bg = BackgroundConcentration(
+            sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+            sector_values={(1, "SEASON"): values, (2, "ANNUAL"): 5.0})
+    for _ in range(2):  # the second call too, not an empty card
+        with pytest.raises(TypeError, match="one-shot iterator"):
+            bg.to_aermod_input()
+
+
+@pytest.mark.parametrize("kind", _ONE_SHOT_KINDS)
+def test_a_project_with_a_one_shot_profile_is_not_written(kind):
+    project = _project_with(BackgroundConcentration(period_values={"SEASON": _one_shot(kind)}))
+    with pytest.raises(TypeError, match="one-shot iterator"):
+        project.to_aermod_input(validate=False)
+    with pytest.raises(ValueError, match="list"):
+        project.to_aermod_input()
+
+
+@pytest.mark.parametrize("kind", ["map", "generator"])
+def test_an_ozone_profile_given_a_one_shot_iterator_is_refused(kind):
+    from pyaermod.pathways import OzoneData, TemporalValues, _ozone_lines
+
+    oz = OzoneData(varying=TemporalValues("SEASON", _one_shot(kind)))
+    with pytest.raises(TypeError, match="one-shot iterator"):
+        _ozone_lines(oz)
+
+
+@pytest.mark.parametrize("values", [{1.0, 2.0, 3.0, 4.0}, {"a": 1.0}])
+def test_an_unordered_container_is_no_profile(values):
+    from pyaermod.pathways import continued_value_lines
+
+    with pytest.raises(TypeError, match="list"):
+        continued_value_lines("BACKGRND", "SEASON", values)
+
+
+def test_tuples_and_lists_are_profiles():
+    from pyaermod.pathways import continued_value_lines
+
+    for values in ((1.0, 2.0, 3.0, 4.0), [1.0, 2.0, 3.0, 4.0]):
+        assert continued_value_lines("BACKGRND", "SEASON", values) == [
+            "   BACKGRND  SEASON  1 2 3 4"]

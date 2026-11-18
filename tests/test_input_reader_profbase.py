@@ -132,3 +132,48 @@ def test_any_profbase_in_metres_reads_back_exactly(base):
                              profile_base_elevation=base)
     line = next(ln for ln in met.to_aermod_input().splitlines() if "PROFBASE" in ln)
     assert float(line.split()[1]) == base
+
+
+# ----------------------------------------------------------------------
+# A non-finite or digit-grouped PROFBASE is no number AERMOD reads:
+# STODBL takes neither ``NaN``/``Infinity`` nor ``1_000``, which Python's
+# float() reads, so the deck used to be read and written back as
+# ``PROFBASE  nan  METERS``.
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("profbase", [
+    "NaN  METERS", "nan", "inf  FEET", "-Infinity  METERS", "infinity", "1_000  METERS",
+])
+def test_a_non_finite_or_underscored_value_is_an_error_naming_the_line(profbase):
+    lineno = _deck(profbase).splitlines().index(f"   PROFBASE  {profbase}") + 1
+    with pytest.raises(ValueError) as excinfo:
+        parse_aermod_input(_deck(profbase))
+    message = str(excinfo.value)
+    assert f"line {lineno}" in message
+    assert "PROFBASE" in message and "E208" in message
+    assert repr(profbase.split()[0]) in message
+
+
+def _met_errors(base):
+    from pyaermod.validator import Validator
+    project = parse_aermod_input(_deck("100.0  METERS"))
+    project.meteorology.profile_base_elevation = base
+    return [e for e in Validator.validate(project).errors
+            if e.pathway == "MeteorologyPathway" and e.field == "profile_base_elevation"]
+
+
+@pytest.mark.parametrize("base", [float("nan"), float("inf"), float("-inf"), "100", None, True])
+def test_a_profile_base_that_is_no_finite_number_is_a_validation_error(base):
+    (error,) = _met_errors(base)
+    assert "finite number" in error.message and repr(base) in error.message
+
+
+@pytest.mark.parametrize("base", [0.0, -12.5, 376.29602160000003, 100])
+def test_a_finite_profile_base_validates(base):
+    assert _met_errors(base) == []
+
+
+def test_a_numpy_profile_base_validates():
+    np = pytest.importorskip("numpy")
+    assert _met_errors(np.float64(100.0)) == []
+    assert len(_met_errors(np.float64("nan"))) == 1

@@ -175,17 +175,38 @@ def one_decimal_or_exact(value: float) -> str:
 def value_list(values) -> list:
     """The values of a profile as a list.
 
-    A profile's values may be one value or any iterable of them: a list,
-    a tuple, a numpy array, a pandas Series (its values, in order, not
-    its index) or a range. A string is one value, not a sequence of
-    characters, and so is anything that is not iterable.
+    A profile's values may be one value or a sequence of them that can be
+    read more than once: a list, a tuple, a range, or anything with a
+    ``tolist()`` (a numpy array, a pandas Series (its values, in order,
+    not its index), Index or Categorical). A string is one value, not a
+    sequence of characters, and so is anything that is not iterable.
+
+    Any other iterable raises :class:`TypeError` asking for a list: a
+    one-shot iterator (a map, a generator, a zip) would be used up by the
+    first pass over it (the validator's), and the deck would then get a
+    card without values; a set or a dict has no order AERMOD's could be.
+    Nothing is taken from it.
     """
     if isinstance(values, (str, bytes)):
         return [values]
-    try:
+    if isinstance(values, (list, tuple, range)):
         return list(values)
+    tolist = getattr(values, "tolist", None)
+    if callable(tolist):
+        listed = tolist()
+        # A numpy scalar or 0-d array gives its one value.
+        return listed if isinstance(listed, list) else [listed]
+    try:
+        is_iterator = iter(values) is values
     except TypeError:
         return [values]
+    kind = type(values).__name__
+    reason = (f"a {kind} is a one-shot iterator, which the first pass over it "
+              "(the validator's) would use up" if is_iterator
+              else f"a {kind} is not an ordered sequence of values")
+    raise TypeError(
+        f"a profile's values must be a list (or a tuple, range, numpy array or "
+        f"pandas Series): {reason}; give list(values)")
 
 
 def continued_value_lines(keyword: str, prefix: str, values,
@@ -195,8 +216,11 @@ def continued_value_lines(keyword: str, prefix: str, values,
     AERMOD reads the values of ``O3VALUES``, ``NOX_VALS`` and ``BACKGRND``
     profiles over as many lines as needed, each repeating the keyword
     and ``prefix`` (the temporal flag, after ``SECTn`` for a sector).
-    ``values`` is a number or any non-string iterable of numbers (see
-    :func:`value_list`); ``per_line`` values go on each line.
+    ``values`` is a number or a list, tuple, range, numpy array or
+    pandas Series of numbers (see :func:`value_list`; anything else
+    iterable, such as a one-shot iterator, raises :class:`TypeError`
+    rather than give a card without values); ``per_line`` values go on
+    each line.
     """
     values = value_list(values)
     return [f"   {keyword}  {prefix}  "
@@ -217,7 +241,9 @@ class TemporalValues:
     flag : str
         One of the keys of :data:`TEMPORAL_FLAG_COUNTS`.
     values : list of float
-        The values, in AERMOD's order for that flag.
+        The values, in AERMOD's order for that flag: a list, tuple,
+        range, numpy array or pandas Series (see :func:`value_list`); a
+        one-shot iterator such as a map or a generator is refused.
     """
     flag: str
     values: List[float] = field(default_factory=list)

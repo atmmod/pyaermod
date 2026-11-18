@@ -555,11 +555,16 @@ class Validator:
         every value a finite number (and, with ``non_negative``, none below
         0); NaN and +/-inf would be written as ``nan``/``inf``, which
         AERMOD cannot read.
-        ``values`` may be a single value or any non-string iterable of
-        values (a numpy array, a pandas Series, a range); a string is one
-        value, and not a number."""
+        ``values`` may be a single value or a list, tuple, range, numpy
+        array or pandas Series of values; a string is one value, and not
+        a number. Any other iterable (a one-shot iterator such as a map
+        or a generator, which the writer would then find empty) is one
+        problem asking for a list, and nothing is taken from it."""
         from .pathways import TEMPORAL_FLAG_COUNTS
-        values = value_list(values)
+        try:
+            values = value_list(values)
+        except TypeError as exc:
+            return [f"values for {flag!r}{where}: {exc}"]
         problems: List[str] = []
         expected = TEMPORAL_FLAG_COUNTS.get(str(flag).upper())
         if expected is None:
@@ -2075,6 +2080,17 @@ class Validator:
                     pathway, "profile_file",
                     f"file not found: '{met.profile_file}'"
                 ))
+
+        # PROFBASE: written with one_decimal_or_exact, so NaN or an
+        # infinity would be ``nan``/``inf``, which AERMOD's STODBL does not
+        # read (E208), and text or None would not be written at all.
+        base = met.profile_base_elevation
+        if not _is_finite_number(base):
+            result.errors.append(ValidationError(
+                pathway, "profile_base_elevation",
+                f"must be a finite number (metres above sea level), got {base!r}: "
+                "PROFBASE would be written as AERMOD cannot read it (E208)"
+            ))
 
         # Date range: if any date field is set, all must be set
         date_fields = [met.start_year, met.start_month, met.start_day,

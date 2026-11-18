@@ -436,3 +436,58 @@ def test_a_string_ozone_sector_direction_is_an_error_not_a_crash():
     errors = Validator.validate(_no2_project(chem), advanced=False).errors
     assert any(e.field == "ozone_data.sectors" and "finite number" in e.message
                for e in errors), errors
+
+
+# ----------------------------------------------------------------------
+# A one-shot iterator (map, generator, zip) is no profile: the validator
+# used it up, so the writer then wrote a card without values. It is an
+# error asking for a list, and the validator takes nothing from it.
+# ----------------------------------------------------------------------
+
+def _one_shot(kind):
+    values = [1.0, 2.0, 3.0, 4.0]
+    return {"map": lambda: map(float, values),
+            "generator": lambda: (v for v in values),
+            "zip": lambda: zip(values, values)}[kind]()
+
+
+@pytest.mark.parametrize("kind", ["map", "generator", "zip"])
+def test_a_one_shot_iterator_is_an_error_asking_for_a_list(kind):
+    values = _one_shot(kind)
+    (msg,) = Validator._check_temporal_values("SEASON", values)
+    assert "one-shot iterator" in msg and "list" in msg, msg
+    assert next(values) is not None  # nothing was taken from it
+
+
+@pytest.mark.parametrize("kind", ["map", "generator", "zip"])
+@pytest.mark.parametrize("mode", ["period", "sector"])
+def test_a_background_given_a_one_shot_iterator_is_an_error(kind, mode):
+    values = _one_shot(kind)
+    if mode == "period":
+        bg = BackgroundConcentration(period_values={"SEASON": values})
+    else:
+        bg = BackgroundConcentration(sectors=_two_sectors(),
+                                     sector_values={(1, "SEASON"): values, (2, "ANNUAL"): 5.0})
+    for _ in range(2):  # validating twice gives the same answer
+        errors = _background_errors(_project_with(bg))
+        assert len(errors) == 1, errors
+        assert "one-shot iterator" in errors[0].message and "list" in errors[0].message
+    assert next(values) is not None
+
+
+@pytest.mark.parametrize("kind", ["map", "generator"])
+def test_an_o3values_or_nox_vals_one_shot_iterator_is_an_error(kind):
+    from pyaermod.input_generator import (
+        ChemistryMethod,
+        ChemistryOptions,
+        NOxBackground,
+        OzoneData,
+        TemporalValues,
+    )
+    chem = ChemistryOptions(
+        method=ChemistryMethod.GRSM,
+        ozone_data=OzoneData(varying=TemporalValues("SEASON", _one_shot(kind))),
+        nox_background=NOxBackground(varying=TemporalValues("SEASON", _one_shot(kind))))
+    errors = Validator.validate(_no2_project(chem), advanced=False).errors
+    for field in ("ozone_data", "nox_background"):
+        assert any(field in e.field and "one-shot iterator" in e.message for e in errors), (field, errors)

@@ -22,7 +22,8 @@ its class, so a list of sources (or a field holding a subclass) reads back
 as the right class. Enums are ``{"_enum": "EnumClass.MEMBER"}``; tuples,
 ranges and anything with a ``tolist()`` (numpy arrays, pandas Series,
 Index and Categorical: a background profile may be any of them) are
-lists, numpy scalars plain numbers; and a dict whose keys are not all strings is
+lists, numpy scalars plain numbers (a one-shot iterator, such as a map or
+a generator, is refused with a :class:`TypeError` asking for a list); and a dict whose keys are not all strings is
 ``{"_items": [[key, value], ...]}``.
 
 Reading is driven by the dataclass annotations, not by the file: each
@@ -42,6 +43,7 @@ object is built as the field's own class. Unknown keys are ignored.
 
 from __future__ import annotations
 
+import collections.abc
 import dataclasses
 import json
 import math
@@ -99,6 +101,13 @@ def _encode(obj: Any) -> Any:
         # Series its values in order, not its index. Neither library is
         # imported here.
         return _encode(tolist())
+    if isinstance(obj, collections.abc.Iterator):
+        # A map, generator or zip given as a profile: the first pass over
+        # it (the validator's, the writer's) uses it up, so it is no
+        # sequence of values a file could hold. Nothing is taken from it.
+        raise TypeError(
+            f"cannot save a {type(obj).__name__} in a project file: a one-shot "
+            "iterator is used up by the first pass over it; give a list of its values")
     raise TypeError(f"cannot save a {type(obj).__name__} in a project file")
 
 

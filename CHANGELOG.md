@@ -146,6 +146,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directions are written so they read back exactly. NaN, infinite and
   non-numeric background values and sector directions are validation
   errors.
+- `add_background` matched a date-keyed background only when the frame's
+  dates and the keys had the same type (`5010101` never matched
+  `"05010101"`). Both sides are now compared as YYMMDDHH stamps, and a
+  warning says how many dates have no background value, since those rows
+  get none. Float date columns (from a CSV round trip) are read as the
+  stamps they hold; they used to read 2005 as 1950.
+- Fortran numbers in a deck are read by one helper that accepts D
+  exponents and the E-free exponent form, and refuses `nan`, `inf` and
+  underscores, which AERMOD does not read. A profile given as a one-shot
+  iterator (a generator or `map`) is refused with a request for a list,
+  instead of being used up by validation and written empty.
 - The annual NO2 design value from `naaqs_compliance_report("NO2_annual",
   ...)` averaged the years' annual means. The standard is one calendar
   year's mean (40 CFR 50.11(e), Appendix S), so the design value is now

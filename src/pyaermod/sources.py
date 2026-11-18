@@ -1674,8 +1674,12 @@ class BackgroundConcentration:
     3. Sector-dependent: ``sectors`` and ``sector_values``, which maps
        ``(sector_id, flag)`` to a value or list of values.
 
-    A list of values may be any non-string iterable: a tuple, a numpy
-    array, a pandas Series (its values in order) or a range.
+    A list of values may be a list, a tuple, a range, a numpy array or a
+    pandas Series (its values in order); see
+    :func:`~pyaermod.pathways.value_list`. A one-shot iterator (a map, a
+    generator, a zip) is refused: the validator reports it, and the
+    writer raises :class:`TypeError` rather than write a ``BACKGRND``
+    card without values.
 
     An hourly background file (``BACKGRND [SECTn] HOURLY file``) is kept
     verbatim from a deck in :attr:`AERMODProject.unparsed_lines`.

@@ -511,6 +511,38 @@ class TestSavingRefusesWhatOpeningWould:
         assert reopened.sources.background.period_values == {"SEASON": values}
         assert reopened.to_aermod_input(validate=False) == deck
 
+    @pytest.mark.parametrize("kind", ["map", "generator", "zip"])
+    @pytest.mark.parametrize("where", ["period", "sector", "ozone"])
+    def test_a_one_shot_iterator_profile_is_a_type_error_asking_for_a_list(self, kind, where):
+        # A map, generator or zip is used up by the first pass over it; it
+        # was refused as "cannot save a map" without saying what to give.
+        from pyaermod.input_generator import (
+            ChemistryMethod,
+            ChemistryOptions,
+            OzoneData,
+            TemporalValues,
+        )
+        values = [1.0, 2.0, 3.0, 4.0]
+        it = {"map": lambda: map(float, values), "generator": lambda: (v for v in values),
+              "zip": lambda: zip(values)}[kind]()
+        project = _deposition_project()
+        if where == "period":
+            project.sources.background = BackgroundConcentration(period_values={"SEASON": it})
+        elif where == "sector":
+            project.sources.background = BackgroundConcentration(
+                sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+                sector_values={(1, "SEASON"): it, (2, "ANNUAL"): 5.0})
+        else:
+            project.control.chemistry = ChemistryOptions(
+                method=ChemistryMethod.OLM,
+                ozone_data=OzoneData(varying=TemporalValues("SEASON", it)))
+        for _ in range(2):
+            with pytest.raises(TypeError, match=(
+                    rf"cannot save a {type(it).__name__} in a project file: "
+                    r"a one-shot iterator .*list")):
+                project_to_json(project)
+        assert next(it) is not None  # nothing was taken from it
+
     @pytest.mark.parametrize("value", [b"5", bytearray(b"5"), memoryview(b"5")])
     def test_bytes_are_a_type_error_not_a_list_of_numbers(self, value):
         project = _full_project()

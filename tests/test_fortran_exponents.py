@@ -98,6 +98,35 @@ class TestFortranFloat:
         with pytest.raises(ValueError):
             fortran_float(text)
 
+    # The one reader for runstream fields too (input_reader's own D-only
+    # ``_fortran_float`` is gone): STODBL reads a D exponent ...
+    @pytest.mark.parametrize(("text", "value"), [
+        ("3.6D6", 3.6e6),
+        ("1.5d2", 150.0),
+        ("1.D+02", 100.0),
+        ("-2.5D-3", -2.5e-3),
+        ("7D0", 7.0),
+        (" 5.0D0 ", 5.0),
+    ])
+    def test_reads_a_d_exponent(self, text, value):
+        assert fortran_float(text) == value
+
+    # ... but not what only Python's float() reads: NaN, infinities,
+    # digit-group underscores and non-ASCII digits are no AERMOD number.
+    @pytest.mark.parametrize("text", [
+        "nan", "NaN", "-nan", "inf", "-inf", "+Inf", "infinity", "Infinity", "-INFINITY",
+        "1_000", "1_000.5", "1.0E1_0", "0.282_465-103", "1.5D1_0",
+        "١٢",          # Arabic-Indic digits, which float() reads as 12
+        "1.5D", "D5", "1.5DE3", "1.5ED3", "0x10",
+    ])
+    def test_refuses_what_only_python_reads(self, text):
+        with pytest.raises(ValueError):
+            fortran_float(text)
+
+    def test_input_reader_has_one_number_reader(self):
+        import pyaermod.input_reader as input_reader
+        assert not hasattr(input_reader, "_fortran_float")
+
 
 def test_every_recorded_file_holds_three_digit_exponents():
     """The fixture is only a test while AERMOD's files hold such numbers."""

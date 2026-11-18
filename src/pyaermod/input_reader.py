@@ -856,18 +856,12 @@ def _expand_source_ids(tokens: List[str], known_ids: List[str]) -> List[str]:
     return out
 
 
-def _fortran_float(token: str) -> float:
-    """``float()`` that also reads Fortran's ``D`` exponent (``3.6D6``),
-    which AERMOD's STODBL accepts and EPA's testpart deck uses."""
-    try:
-        return float(token)
-    except ValueError:
-        return float(token.replace("D", "e").replace("d", "e"))
-
-
 def _floats(toks: List[str]) -> Optional[List[float]]:
+    """Every token as a number AERMOD's STODBL reads (:func:`fortran_float`:
+    a ``D`` exponent is one, ``nan``, ``inf`` and ``1_000`` are not), or
+    None when one is not."""
     try:
-        return [_fortran_float(t) for t in toks]
+        return [fortran_float(t) for t in toks]
     except ValueError:
         return None
 
@@ -1157,7 +1151,7 @@ def _parse_sources(block: _PathwayBlock,
             if len(toks) >= 3:
                 with contextlib.suppress(ValueError):
                     units[_UNIT_KEYWORDS[kw]] = EmissionUnits(
-                        factor=_fortran_float(toks[0]), emission_label=toks[1],
+                        factor=fortran_float(toks[0]), emission_label=toks[1],
                         output_label=toks[2],
                     )
         elif kw == "RLEMCONV":
@@ -1953,7 +1947,8 @@ def _parse_meteorology(block: _PathwayBlock,
             kw_map["upper_air_station_id"] = _whole_number(toks[0], kw, ln)
         elif kw == "PROFBASE" and toks:
             # meset.f PRBASE: ``elev [METERS|FEET]``, read by STODBL (so a
-            # D exponent is a number); AERMOD converts FEET to metres, and
+            # D exponent is a number, and NaN, Infinity and 1_000, which
+            # float() reads, are not); AERMOD converts FEET to metres, and
             # the field is in metres. Another unit is warning W203 and
             # AERMOD takes the value as metres (probe 33e), as here. A
             # value that is no number stops AERMOD (E208), and the reader
@@ -1962,7 +1957,7 @@ def _parse_meteorology(block: _PathwayBlock,
             # PROFBASE the pathway always writes (a repeated keyword), and
             # removing it would silently give 0 m.
             try:
-                elevation = _fortran_float(toks[0])
+                elevation = fortran_float(toks[0])
             except ValueError:
                 raise ValueError(
                     f"line {ln}: PROFBASE expects a number, got {toks[0]!r}; "
