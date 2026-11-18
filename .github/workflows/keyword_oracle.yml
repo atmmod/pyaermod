@@ -107,13 +107,14 @@ jobs:
       - name: Fetch EPA test decks
         id: testdecks
         # EPA's server sometimes stalls; the probe decks below need
-        # only the met files in the repository, so they still run. Three
-        # attempts of at most 4 minutes each fit inside the step's limit.
+        # only the met files in the repository, so they still run. One
+        # attempt: curl itself tries 4 times (--retry 3) for at most 3
+        # minutes each, about 12 minutes, inside the step's limit.
         timeout-minutes: 15
         continue-on-error: true
         env:
-          FETCH_ATTEMPTS: "3"
-          FETCH_MAX_TIME: "240"
+          FETCH_ATTEMPTS: "1"
+          FETCH_MAX_TIME: "180"
         run: |
           set -euo pipefail
           mkdir -p /tmp/epa_tc && cd /tmp/epa_tc
@@ -152,5 +153,12 @@ jobs:
         # failed, not that the selection passed.
         if: inputs.pytest_args != '' && steps.testdecks.outcome == 'success'
         run: |
-          PATH="$PWD/bin:$PATH" python -m pytest -o addopts="" -p no:cacheprovider \
-            --strict-markers --tb=short -rA $PYTEST_ARGS
+          # shlex keeps a quoted -k/-m expression whole, as a shell would,
+          # without running the input as shell code.
+          PATH="$PWD/bin:$PATH" python - <<'PY'
+          import os, shlex, sys
+          import pytest
+          sys.exit(pytest.main(["-o", "addopts=", "-p", "no:cacheprovider",
+                                "--strict-markers", "--tb=short", "-rA",
+                                *shlex.split(os.environ["PYTEST_ARGS"])]))
+          PY
