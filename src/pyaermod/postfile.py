@@ -48,6 +48,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 import pandas as pd
 
 from ._fortran import fortran_float
+from .pathways import SHORT_TERM_HOURS
 
 #: AERMOD's output types, in the order AERMOD writes them.
 OUTPUT_TYPES: Tuple[str, ...] = ("CONC", "DEPOS", "DDEP", "WDEP")
@@ -74,10 +75,6 @@ _LABEL_TYPES = {
 
 OutputTypesArg = Union[str, Iterable[str], None]
 
-#: The hours of the short-term averaging periods AERMOD accepts on
-#: AVERTIME (``AVETIM`` in coset.f); each divides the day evenly.
-SHORT_TERM_HOURS: Tuple[int, ...] = (1, 2, 3, 4, 6, 8, 12, 24)
-
 #: KAVE for a MONTH average (``AVETIM`` in coset.f), which a binary record
 #: holds where a short-term one holds its hours.
 _MONTH_HOURS = 720
@@ -85,6 +82,16 @@ _MONTH_HOURS = 720
 #: NUMYRS counts years of met data, so an ANNUAL record's count is small;
 #: a count from here up can only be the hours of a PERIOD run.
 _PERIOD_ONLY_HOURS = 100
+
+
+def label_hours(label: str) -> Optional[int]:
+    """N of a POSTFILE ``AVE`` label ``"N-HR"`` (upper case, any N), else *None*.
+
+    The one reader of the label: whether N is an averaging period AERMOD
+    has (:data:`SHORT_TERM_HOURS`) is the caller's to judge.
+    """
+    match = re.fullmatch(r"(\d+)-HR", label, re.ASCII)
+    return int(match.group(1)) if match else None
 
 
 def _normalize_averaging_period(period: Union[str, int, None]) -> Optional[str]:
@@ -101,9 +108,9 @@ def _normalize_averaging_period(period: Union[str, int, None]) -> Optional[str]:
     text = "" if isinstance(period, bool) else str(period).strip().upper()
     if text in ("MONTH", "PERIOD", "ANNUAL"):
         return text
-    match = re.fullmatch(r"(\d+)(?:-HR)?", text)
-    if match and int(match.group(1)) in SHORT_TERM_HOURS:
-        return f"{int(match.group(1))}-HR"
+    hours = int(text) if text.isascii() and text.isdigit() else label_hours(text)
+    if hours in SHORT_TERM_HOURS:
+        return f"{hours}-HR"
     raise ValueError(
         f"averaging_period={period!r} is not an averaging period AERMOD "
         "writes: 1, 2, 3, 4, 6, 8, 12 or 24 (hours, or '1-HR' ... '24-HR'), "

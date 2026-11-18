@@ -399,23 +399,36 @@ def _split_sector(toks: List[str]) -> Tuple[Optional[int], List[str]]:
 def _parse_background_keyword(
     kw: str, toks: List[str], specs: Dict[Optional[int], BackgroundSpec],
     *, value_kw: str, file_kw: str, vals_kw: str,
+    dropped: Optional[List[int]], lineno: int,
 ) -> None:
     """Fill ``specs`` from one OZONEVAL/OZONEFIL/O3VALUES-style line.
 
     ``specs`` is keyed by sector index (``None`` for the whole-domain
     form). Field layout per coset.f: ``[SECTn] value [units]``,
     ``[SECTn] file [units [format]]``, ``[SECTn] flag values...`` with the
-    values of one flag accumulating over repeated lines.
+    values of one flag accumulating over repeated lines. Values are read
+    as STODBL reads them (strict :func:`fortran_float`: ``3.0D1`` is 30,
+    ``nan`` is no number); a line with no fields after its sector, or a
+    value that does not read, is not modelled but kept verbatim (line
+    ``lineno`` goes to ``dropped``).
     """
     sector, rest = _split_sector(toks)
     if not rest:
+        _drop(dropped, lineno)
+        return
+    try:
+        if kw == value_kw:
+            value = fortran_float(rest[0], strict=True)
+        elif kw == vals_kw:
+            values = [fortran_float(t, strict=True) for t in rest[1:]]
+    except ValueError:
+        _drop(dropped, lineno)
         return
     spec = specs.setdefault(sector, BackgroundSpec())
     if kw == value_kw:
-        with contextlib.suppress(ValueError):
-            spec.value = float(rest[0])
-            if len(rest) > 1:
-                spec.value_units = rest[1].upper()
+        spec.value = value
+        if len(rest) > 1:
+            spec.value_units = rest[1].upper()
     elif kw == file_kw:
         spec.hourly_file = rest[0]
         if len(rest) > 1:
@@ -424,10 +437,6 @@ def _parse_background_keyword(
             spec.file_format = rest[2]
     elif kw == vals_kw:
         flag = rest[0].upper()
-        try:
-            values = [float(t) for t in rest[1:]]
-        except ValueError:
-            return
         if spec.varying is None or spec.varying.flag != flag:
             spec.varying = TemporalValues(flag=flag, values=[])
         spec.varying.values.extend(values)
@@ -589,21 +598,25 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "O3VALUES" and toks and toks[0].upper() == "UNIFORM":
             # Not an AERMOD form (O3VALS rejects the flag, E203) but what
             # pyaermod < 2.1 wrote for a uniform value; read it as one.
-            if len(toks) >= 2:
-                with contextlib.suppress(ValueError):
-                    o3_specs.setdefault(None, BackgroundSpec()).value = float(toks[1])
+            try:
+                o3_specs.setdefault(None, BackgroundSpec()).value = fortran_float(
+                    toks[1], strict=True)
+            except (IndexError, ValueError):
+                _drop(dropped, ln)
         elif kw == "O3VALUES" and len(toks) == 1 and toks[0].upper() not in TEMPORAL_FLAG_COUNTS:
             # Likewise the old file form; AERMOD wants OZONEFIL for a file.
             o3_specs.setdefault(None, BackgroundSpec()).hourly_file = toks[0]
         elif kw in ("OZONEVAL", "OZONEFIL", "O3VALUES"):
-            _parse_background_keyword(kw, toks, o3_specs, **o3_kw)
+            _parse_background_keyword(kw, toks, o3_specs, **o3_kw,
+                                      dropped=dropped, lineno=ln)
         elif kw == "O3SECTOR":
             with contextlib.suppress(ValueError):
                 o3_sectors = [float(t) for t in toks]
         elif kw == "OZONUNIT" and toks:
             o3_units = toks[0].upper()
         elif kw in ("NOXVALUE", "NOX_FILE", "NOX_VALS"):
-            _parse_background_keyword(kw, toks, nox_specs, **nox_kw)
+            _parse_background_keyword(kw, toks, nox_specs, **nox_kw,
+                                      dropped=dropped, lineno=ln)
         elif kw == "NOXSECTR":
             with contextlib.suppress(ValueError):
                 nox_sectors = [float(t) for t in toks]

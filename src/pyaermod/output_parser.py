@@ -173,7 +173,7 @@ _SUMMARY_ROW = re.compile(
 
 def _float_or_nan(text: str) -> float:
     try:
-        return fortran_float(text.replace("D", "E").replace("d", "e"))
+        return fortran_float(text)
     except ValueError:
         return float("nan")
 

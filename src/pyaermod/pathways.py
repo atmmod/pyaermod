@@ -24,6 +24,10 @@ from ._fields import described
 if TYPE_CHECKING:
     from .sources import SourceGroupDefinition
 
+#: The hours of the short-term averaging periods AERMOD accepts on
+#: AVERTIME (``AVETIM`` in coset.f); each divides the day evenly.
+SHORT_TERM_HOURS: Tuple[int, ...] = (1, 2, 3, 4, 6, 8, 12, 24)
+
 
 def _normalize_title(text: Optional[str]) -> str:
     """Collapse a title's whitespace to match AERMOD's free-form runstream.
@@ -170,9 +174,11 @@ def exact_num(value: float) -> str:
     """``value`` as :func:`_num` writes it when that reads back to exactly
     the same float (``1``, ``3.5``, ``0.1``), otherwise the shortest text
     that does (``repr``: ``12.3456789012345``), so a profile written to a
-    deck reads back the same numbers."""
+    deck reads back the same numbers. The test is against ``float(value)``,
+    as the deck is read: a numpy float32 would compare at its own
+    precision, and ``0.1000000015`` reads back as another double."""
     text = _num(value)
-    return text if float(text) == value else repr(float(value))
+    return text if float(text) == float(value) else repr(float(value))
 
 
 def one_decimal_or_exact(value: float) -> str:
@@ -239,21 +245,7 @@ def profile_values(values) -> Tuple[list, bool]:
 
 
 def value_list(values) -> list:
-    """The values of a profile as a list.
-
-    A profile's values may be one value or a sequence of them that can be
-    read more than once: a list, a tuple, a range, or anything with a
-    ``tolist()`` (a numpy array, a pandas Series (its values, in order,
-    not its index), Index or Categorical). A string (or bytes) is one
-    value, not a sequence of characters, and so is anything that is not
-    iterable.
-
-    Any other iterable raises :class:`TypeError` asking for a list: a
-    one-shot iterator (a map, a generator, a zip) would be used up by the
-    first pass over it (the validator's), and the deck would then get a
-    card without values; a set or a dict has no order AERMOD's could be.
-    Nothing is taken from it. The rules are :func:`profile_values`'.
-    """
+    """The values of a profile as a list, by :func:`profile_values`' rules."""
     return profile_values(values)[0]
 
 

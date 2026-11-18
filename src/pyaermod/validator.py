@@ -20,6 +20,7 @@ from .pathways import (
     EVENT_OUTPUT_OPTIONS,
     NO2STACK_METHODS,
     NOHEADER_FILE_TYPES,
+    SHORT_TERM_HOURS,
     TEMPORAL_FLAG_COUNTS,
     TURBULENCE_OPTIONS,
     WIND_CATEGORY_COUNT,
@@ -30,7 +31,7 @@ from .pathways import (
 
 # Valid AERMOD averaging periods
 VALID_AVERAGING_PERIODS = {
-    "1", "2", "3", "4", "6", "8", "12", "24", "MONTH", "ANNUAL", "PERIOD",
+    *(str(hours) for hours in SHORT_TERM_HOURS), "MONTH", "ANNUAL", "PERIOD",
 }
 
 # Valid AERMOD pollutant IDs

@@ -90,22 +90,15 @@ def _encode(obj: Any) -> Any:
         return [_encode(v) for v in obj]
     if isinstance(obj, Path):
         return str(obj)
-    # Anything else is a sequence of values or one value by the rules a
-    # profile's values follow (pathways.profile_values): numpy arrays and
-    # pandas Series, Index and Categorical (BackgroundConcentration takes
-    # any of them as a profile) are their values as a list, a Series its
-    # values in order, not its index; a numpy scalar is its Python value.
-    # A one-shot iterator (a map, generator or zip given as a profile,
-    # which the first pass over it uses up) or an unordered iterable is
-    # refused, saying why, and nothing is taken from it. Bytes are one
+    # Anything else is one value or a sequence of them by the rules a
+    # profile's values follow (pathways.profile_values), which also say
+    # why a refused one is refused; nothing is taken from it. Bytes are one
     # value, which no JSON value can hold. Neither numpy nor pandas is
     # imported here.
     try:
         values, is_sequence = profile_values(obj)
     except NotAValueList as exc:
-        raise TypeError(
-            f"cannot save a {exc.kind} in a project file: {exc.reason}; "
-            "give a list of its values") from None
+        raise TypeError(f"cannot save a {exc.kind} in a project file: {exc}") from None
     if is_sequence:
         return [_encode(v) for v in values]
     if values[0] is not obj:

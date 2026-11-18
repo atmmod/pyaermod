@@ -70,19 +70,23 @@ def score_postfile_pair(
     candidate: Union[str, Path],
     *,
     case: str = "",
+    averaging_period: Union[str, int, None] = None,
 ) -> ParityScore:
     """
     Score a candidate POSTFILE against an EPA reference POSTFILE.
 
     Both files must be in the same format (PLOT or UNFORM); the auto-detect
     in :func:`pyaermod.postfile.read_postfile` is applied to each.
+    ``averaging_period`` is passed to it for both files: a binary (UNFORM)
+    ANNUAL or PERIOD POSTFILE needs it (``"ANNUAL"`` or ``"PERIOD"``), as
+    the file does not say which it is; a text file ignores it.
 
     Pairing is on (x, y, date, ave, grp). Receptors / timesteps that
     appear in only one file are dropped before scoring (their count is
     not subtracted from `n_paired`).
     """
-    ref_res = read_postfile(reference)
-    cand_res = read_postfile(candidate)
+    ref_res = read_postfile(reference, averaging_period=averaging_period)
+    cand_res = read_postfile(candidate, averaging_period=averaging_period)
     keys = ["x", "y", "date", "ave", "grp"]
     merged = ref_res.data.merge(
         cand_res.data, on=keys, how="inner", suffixes=("_ref", "_cand"),
@@ -116,9 +120,15 @@ def passes_parity(
     candidate: Union[str, Path],
     *,
     tolerance: float = DEFAULT_SLOPE_TOLERANCE,
+    averaging_period: Union[str, int, None] = None,
 ) -> bool:
-    """Convenience: True if the candidate's best-fit slope is within tolerance."""
-    return score_postfile_pair(reference, candidate).passes(tolerance)
+    """Convenience: True if the candidate's best-fit slope is within tolerance.
+
+    ``averaging_period`` is :func:`score_postfile_pair`'s.
+    """
+    return score_postfile_pair(
+        reference, candidate, averaging_period=averaging_period,
+    ).passes(tolerance)
 
 
 __all__ = [

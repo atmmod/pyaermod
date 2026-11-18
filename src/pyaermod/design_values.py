@@ -22,7 +22,6 @@ from __future__ import annotations
 import calendar
 import math
 import numbers
-import re
 import warnings
 from dataclasses import dataclass
 from fractions import Fraction
@@ -33,7 +32,8 @@ import numpy as np
 import pandas as pd
 
 from ._fortran import fortran_float
-from .postfile import SHORT_TERM_HOURS
+from .pathways import SHORT_TERM_HOURS
+from .postfile import label_hours
 
 if TYPE_CHECKING:
     from .pathways import OutputPathway
@@ -790,9 +790,8 @@ def _coverage_unit(ave: object) -> tuple[str, int]:
     named = {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}
     if text in named:
         return named[text], 1
-    match = re.fullmatch(r"(\d+)-HR", text)
-    if match:
-        hours = int(match.group(1))
+    hours = label_hours(text)
+    if hours is not None:
         if hours not in SHORT_TERM_HOURS:
             raise ValueError(
                 f"{text} is not an averaging period AERMOD writes: its short-"
@@ -889,6 +888,19 @@ def _no2_annual_input(
             f"df[df['ave'] == {aves[0]!r}]."
         )
     unit, per_value = _coverage_unit(aves[0]) if aves else ("day", 1)
+    if aves and label_hours(aves[0]) is not None and not work.empty \
+            and work.groupby(["x", "y"])["date"].nunique().max() == 1:
+        # One value per receptor is what an ANNUAL or PERIOD POSTFILE
+        # holds; a short-term series has many. A binary one read without
+        # its averaging period labels NUMYRS (or the run's hours) N-HR
+        # when N is a short-term period ending at the record's hour.
+        raise ValueError(
+            f"every receptor has one {aves[0]} value, which looks like an "
+            "ANNUAL or PERIOD POSTFILE: a binary one holds its number of "
+            "years (or hours) where a short-term one holds the hours "
+            "averaged. Read it with read_postfile(path, "
+            "averaging_period='ANNUAL' or 'PERIOD')."
+        )
     return work, unit, per_value
 
 

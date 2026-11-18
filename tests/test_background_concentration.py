@@ -614,6 +614,19 @@ def test_exact_num_keeps_short_forms_and_reads_back_exactly():
         assert float(exact_num(value)) == value
 
 
+@pytest.mark.parametrize("value", [0.1, 1.0 / 3.0, 12.3456789, 1e-5, 2.5, 7.0])
+def test_a_float32_reads_back_as_its_own_value(value):
+    # np.float32(0.1) == float("0.1000000015") at float32 precision, but
+    # the deck is read as a double: the text must read back to float(v).
+    np = pytest.importorskip("numpy")
+    from pyaermod.pathways import exact_num, one_decimal_or_exact
+    v = np.float32(value)
+    for write in (exact_num, one_decimal_or_exact):
+        assert float(write(v)) == float(v), (write.__name__, write(v))
+    assert exact_num(np.float32(7.0)) == "7"
+    assert one_decimal_or_exact(np.float32(2.5)) == "2.5"
+
+
 def test_an_unchanged_short_profile_is_written_as_before():
     text = BackgroundConcentration(period_values={"SEASON": [1.0, 2.0, 3.0, 4.0]}).to_aermod_input()
     assert _background_lines(text) == ["BACKGRND SEASON 1 2 3 4"]

@@ -106,8 +106,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   averaging_period="ANNUAL")` (or `"PERIOD"`) reads ANNUAL and PERIOD files
   as the text reader does, with the year or hour count in `date`; a record
   that cannot be told apart without it raises, and a file with one record
-  per group warns. Output readers read the `NaN` and `Infinity` gfortran
-  writes. `add_background` accepts numpy scalars.
+  per group warns. `regulatory_parity.score_postfile_pair` and
+  `passes_parity` pass `averaging_period` through. Output readers read the
+  `NaN` and `Infinity` gfortran writes. `add_background` accepts numpy
+  scalars.
+- `OZONEVAL`, `O3VALUES`, `NOXVALUE` and `NOX_VALS` refused D exponents
+  (`3.0D1`, as in EPA's decks) and dropped a line whose value did not read,
+  without keeping it. Values are read as AERMOD reads them, and a line
+  that cannot be modelled is kept verbatim.
 - `SO BACKGRND` with a temporal flag kept only the first value
   (`SEASON 1 2 3 4` became `SEASON 1`), and a line continuing a profile
   became an entry of its own. Every value is now read, a profile continued

@@ -784,3 +784,45 @@ def test_an_hour_count_aermod_never_averages_over_is_refused(form, ave):
     message = str(caught.value)
     assert ave in message
     assert "1, 2, 3, 4, 6, 8, 12" in message
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+@pytest.mark.parametrize("numyrs", [1, 2, 3, 4, 6, 8, 12, 24])
+def test_a_binary_annual_postfile_read_as_hours_is_refused(tmp_path, form, numyrs):
+    # NUMYRS of a short-term period ending at hour 24 reads as N-HR (with a
+    # warning). Counted as N hours, no year would reach 75 % and the
+    # report would give the whole-record mean of a multi-year ANNUAL
+    # average; one row per receptor gives it away.
+    from pyaermod.postfile import read_postfile
+
+    with pytest.warns(UserWarning, match="ANNUAL"):
+        df = read_postfile(_binary_annual(tmp_path, numyrs)).data
+    assert df["ave"].tolist() == [f"{numyrs}-HR"] * 2
+    with pytest.raises(ValueError, match=(
+            r"averaging_period='ANNUAL' or 'PERIOD'")) as caught:
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    message = str(caught.value)
+    assert "ANNUAL or PERIOD POSTFILE" in message
+    assert f"{numyrs}-HR" in message
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+def test_one_short_term_row_per_receptor_is_refused_in_each_source_group(form):
+    # Two receptors, one row each, in one group; the check is per receptor.
+    df = pd.concat([_rows("1-HR", [("21123124", 40.0)]),
+                    _rows("1-HR", [("21123124", 50.0)]).assign(x=100.0)],
+                   ignore_index=True)
+    with pytest.raises(ValueError, match="ANNUAL or PERIOD POSTFILE"):
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+def test_an_hourly_frame_with_one_short_receptor_is_not_refused(form):
+    # Only a frame where every receptor has one row looks like ANNUAL.
+    df = pd.concat([_hours(2019, 40.0), _rows("1-HR", [("19010101", 50.0)]).assign(x=100.0)],
+                   ignore_index=True)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    assert report["x"].tolist() == [0.0, 100.0]

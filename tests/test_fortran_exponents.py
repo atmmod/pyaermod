@@ -573,3 +573,14 @@ class TestNonFiniteOutput:
         df = read_maxdaily(path)
         assert math.isnan(df["concentration"].iloc[0])
         assert df["concentration"].iloc[1] == pytest.approx(0.02647)
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("1.5D-03", 1.5e-3), ("2.0d2", 200.0), ("0.282465-103", 2.82465e-104),
+    ("1.0E+01", 10.0), ("NaN", math.nan), ("bad", math.nan),
+])
+def test_a_summary_value_reads_as_fortran_writes_it(text, expected):
+    # The summary-table reader leaves D exponents to fortran_float.
+    from pyaermod.output_parser import _float_or_nan
+    got = _float_or_nan(text)
+    assert (math.isnan(got) and math.isnan(expected)) or got == expected
