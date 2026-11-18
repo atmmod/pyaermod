@@ -27,8 +27,8 @@ authors:
   - family-names: Capps
     given-names: Shannon
     email: shannon.capps@gmail.com
-version: 2.2.0
-date-released: "2026-10-20"
+version: 2.3.0
+date-released: "2026-11-18"
 doi: 10.5281/zenodo.23512927  # v2.2.0, minted by Zenodo on 2026-10-20
 repository-code: "https://github.com/atmmod/pyaermod"
 url: "https://atmmod.github.io/pyaermod/"
