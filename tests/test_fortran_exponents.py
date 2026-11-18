@@ -8,6 +8,7 @@ AERMOD printed there, quoted in the comment beside it.
 
 from __future__ import annotations
 
+import math
 import re
 import shutil
 import subprocess
@@ -112,7 +113,8 @@ class TestFortranFloat:
         assert fortran_float(text) == value
 
     # ... but not what only Python's float() reads: NaN, infinities,
-    # digit-group underscores and non-ASCII digits are no AERMOD number.
+    # digit-group underscores and non-ASCII digits are no runstream
+    # number (strict=True, as input_reader reads deck fields).
     @pytest.mark.parametrize("text", [
         "nan", "NaN", "-nan", "inf", "-inf", "+Inf", "infinity", "Infinity", "-INFINITY",
         "1_000", "1_000.5", "1.0E1_0", "0.282_465-103", "1.5D1_0",
@@ -121,7 +123,7 @@ class TestFortranFloat:
     ])
     def test_refuses_what_only_python_reads(self, text):
         with pytest.raises(ValueError):
-            fortran_float(text)
+            fortran_float(text, strict=True)
 
     def test_input_reader_has_one_number_reader(self):
         import pyaermod.input_reader as input_reader
@@ -486,3 +488,88 @@ def test_maxdaily_value(tmp_path):
 def test_maxdaily_malformed_value_is_an_error(tmp_path):
     with pytest.raises(ValueError):
         read_maxdaily(_maxdaily(tmp_path / "m.dat", "0.28246-5-10"))
+
+
+# ---------------------------------------------------------------------------
+# NaN and infinities in AERMOD's output files
+# ---------------------------------------------------------------------------
+#
+# gfortran writes a NaN as ``NaN`` and an infinity as ``Infinity`` (or
+# ``Inf`` in a narrow field), so AERMOD's output files can hold them; the
+# output readers take them as nan and inf. A runstream field is read by
+# STODBL, which reads neither, so deck parsing asks for ``strict=True``.
+
+class TestNonFiniteOutput:
+    @pytest.mark.parametrize(("text", "value"), [
+        ("NaN", math.nan), ("  NaN ", math.nan), ("nan", math.nan),
+        ("Infinity", math.inf), ("-Infinity", -math.inf), ("+Infinity", math.inf),
+        ("Inf", math.inf), ("-Inf", -math.inf),
+    ])
+    def test_output_reads_nan_and_infinity(self, text, value):
+        got = fortran_float(text)
+        if math.isnan(value):
+            assert math.isnan(got)
+        else:
+            assert got == value
+
+    @pytest.mark.parametrize("text", [
+        "NaN", "nan", "-nan", "Infinity", "-Infinity", "+Inf", "inf", "infinity",
+    ])
+    def test_deck_refuses_nan_and_infinity(self, text):
+        with pytest.raises(ValueError):
+            fortran_float(text, strict=True)
+
+    @pytest.mark.parametrize("text", [
+        "1_000", "0.282_465-103", "١٢", "NaN1", "nanx", "Infinit", "in f", "1.5D", "",
+    ])
+    def test_output_still_refuses_what_fortran_never_writes(self, text):
+        with pytest.raises(ValueError):
+            fortran_float(text)
+
+    @pytest.mark.parametrize("text", ["3.6D6", "0.282465-103", "1.5"])
+    def test_both_modes_read_numbers_alike(self, text):
+        assert fortran_float(text, strict=True) == fortran_float(text)
+
+    def test_postfile_row_with_nan_concentration_is_read_as_nan(self, tmp_path):
+        pst = tmp_path / "nan.pst"
+        pst.write_text(
+            "* AERMOD ( 26135 ): nan\n"
+            "* MODELING OPTIONS USED: CONC FLAT\n"
+            "* AVERTIME: 1-HR\n"
+            "* POLLUTID: SO2\n"
+            "* SRCGROUP: ALL\n"
+            "* POSTFILE OUTPUT FOR SOURCE GROUP: ALL\n"
+            "*         X             Y      AVERAGE CONC   ZELEV  ZHILL  ZFLAG    AVE     GRP       DATE\n"
+            "   500.00      500.00      1.23456E+01    0.00    0.00    0.00   1-HR    ALL    26010101\n"
+            "   600.00      500.00              NaN    0.00    0.00    0.00   1-HR    ALL    26010101\n"
+            "   700.00      500.00         Infinity    0.00    0.00    0.00   1-HR    ALL    26010101\n"
+        )
+        df = read_postfile(pst).data
+        assert len(df) == 3
+        conc = df["concentration"].tolist()
+        assert conc[0] == pytest.approx(12.3456)
+        assert math.isnan(conc[1])
+        assert conc[2] == math.inf
+
+    def test_headerless_postfile_starting_with_nan_keeps_its_columns(self, tmp_path):
+        pst = tmp_path / "nan_noheader.pst"
+        pst.write_text(
+            "   600.00      500.00              NaN    0.00    0.00    0.00   1-HR    ALL    26010101\n"
+            "   500.00      500.00      1.23456E+01    0.00    0.00    0.00   1-HR    ALL    26010101\n"
+        )
+        df = read_postfile(pst).data
+        assert len(df) == 2
+        assert math.isnan(df["concentration"].iloc[0])
+        assert df["concentration"].iloc[1] == pytest.approx(12.3456)
+        assert (df["ave"] == "1-HR").all()
+
+    def test_maxdaily_row_with_nan_is_read_as_nan(self, tmp_path):
+        path = tmp_path / "maxdaily.dat"
+        path.write_text(
+            "*        X             Y      AVERAGE CONC    ZELEV    ZHILL    ZFLAG    AVE     GRP     JDAY   HR    DATE     NET ID\n"
+            "     500.00000       0.00000           NaN     0.00     0.00     0.00    1-HR  ALL          1   13  99010113          \n"
+            "       0.00000    1000.00000       0.02647     0.00     0.00     0.00    1-HR  ALL          1   13  99010113          \n"
+        )
+        df = read_maxdaily(path)
+        assert math.isnan(df["concentration"].iloc[0])
+        assert df["concentration"].iloc[1] == pytest.approx(0.02647)

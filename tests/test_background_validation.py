@@ -65,6 +65,36 @@ def test_sector_ids_other_than_one_to_n_are_an_error(ids):
     assert any(e.field == "sectors" and "E203" in e.message for e in errors), errors
 
 
+@pytest.mark.parametrize("ids", [[1, 5], [0, 1], [1, 1], [2, 3], [1, 3]])
+@pytest.mark.parametrize("value_ids", ["same", "one_to_n"])
+def test_sector_ids_other_than_one_to_n_are_one_error(ids, value_ids):
+    # One mistake, one message: ids [1, 3] are not also "sector 2 has no
+    # values" (E238) or "sector_id 2 not defined", which follow from it.
+    sectors = [BackgroundSector(sid, d) for sid, d in zip(ids, [0.0, 180.0])]
+    keys = ids if value_ids == "same" else [1, 2]
+    bg = BackgroundConcentration(
+        sectors=sectors, sector_values={(sid, "ANNUAL"): 5.0 for sid in keys})
+    errors = _background_errors(_project_with(bg))
+    assert [e.field for e in errors] == ["sectors"], errors
+    assert "1..2" in errors[0].message and "E203" in errors[0].message
+
+
+def test_a_bad_profile_is_still_reported_beside_bad_sector_ids():
+    bg = BackgroundConcentration(
+        sectors=[BackgroundSector(1, 0.0), BackgroundSector(3, 180.0)],
+        sector_values={(1, "SEASON"): [1.0, 2.0], (3, "ANNUAL"): 5.0})
+    errors = _background_errors(_project_with(bg))
+    assert [e.field for e in errors] == ["sectors", "sector_values"], errors
+
+
+def test_values_for_a_sector_not_listed_are_an_error_when_the_ids_are_one_to_n():
+    bg = BackgroundConcentration(
+        sectors=_two_sectors(),
+        sector_values={(1, "ANNUAL"): 5.0, (2, "ANNUAL"): 4.0, (3, "ANNUAL"): 3.0})
+    errors = _background_errors(_project_with(bg))
+    assert [e.message for e in errors] == ["sector_id 3 not defined in sectors list"], errors
+
+
 def test_sector_ids_one_to_n_in_any_list_order_validate():
     bg = BackgroundConcentration(
         sectors=[BackgroundSector(2, 180.0), BackgroundSector(1, 0.0)],

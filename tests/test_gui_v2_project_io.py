@@ -543,6 +543,17 @@ class TestSavingRefusesWhatOpeningWould:
                 project_to_json(project)
         assert next(it) is not None  # nothing was taken from it
 
+    @pytest.mark.parametrize("values", [{1.0, 2.0}, frozenset({1.0}), {1.0: 2.0}.keys()])
+    def test_an_unordered_profile_is_a_type_error_saying_why(self, values):
+        # The same rules as pathways.value_list, which the deck writer and
+        # the validator use: a set has no order AERMOD's could be.
+        project = _deposition_project()
+        project.sources.background = BackgroundConcentration(period_values={"SEASON": values})
+        with pytest.raises(TypeError, match=(
+                rf"^cannot save a {type(values).__name__} in a project file: "
+                r"not an ordered sequence of values; give a list of its values$")):
+            project_to_json(project)
+
     @pytest.mark.parametrize("value", [b"5", bytearray(b"5"), memoryview(b"5")])
     def test_bytes_are_a_type_error_not_a_list_of_numbers(self, value):
         project = _full_project()

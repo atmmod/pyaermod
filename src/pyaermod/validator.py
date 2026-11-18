@@ -15,9 +15,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from .pathways import (
+    BACKGROUND_UNITS,
     EVENT_NAME_LENGTH,
     EVENT_OUTPUT_OPTIONS,
+    NO2STACK_METHODS,
     NOHEADER_FILE_TYPES,
+    TEMPORAL_FLAG_COUNTS,
     TURBULENCE_OPTIONS,
     WIND_CATEGORY_COUNT,
     dayrange_field_is_valid,
@@ -431,6 +434,13 @@ class Validator:
                     f"{', '.join(map(str, background.period_values))} (AERMOD E165)"
                 ))
 
+        # Sector ids other than 1..N are one error; the per-sector checks
+        # below (E238, an undefined sector_id) would only repeat it in
+        # other words, so they wait until the ids are right.
+        sector_ids_ok = not background.sectors or sorted(
+            s.sector_id for s in background.sectors) == list(
+                range(1, len(background.sectors) + 1))
+
         if background.sectors:
             # soset.f BGSECTOR: 2 to 6 directions, ascending, sectors at
             # least 30 degrees wide (E222/E227), as O3SECTOR and NOXSECTR.
@@ -443,7 +453,7 @@ class Validator:
             # the writer emits SECT{sector_id} in sector_id order, so the
             # ids must be exactly 1..N; SECTk with k > N is E203.
             ids = sorted(s.sector_id for s in background.sectors)
-            if ids != list(range(1, len(ids) + 1)):
+            if not sector_ids_ok:
                 result.errors.append(ValidationError(
                     pathway, "sectors",
                     f"sector ids must be 1..{len(ids)}, one per sector, got {ids}: "
@@ -452,7 +462,7 @@ class Validator:
                 ))
             # soset.f SRCQA: every sector needs a non-HOURLY profile (E238).
             with_values = {sid for sid, _flag in (background.sector_values or {})}
-            for sid in ids:
+            for sid in ids if sector_ids_ok else []:
                 if sid not in with_values:
                     result.errors.append(ValidationError(
                         pathway, "sector_values",
@@ -476,7 +486,7 @@ class Validator:
         if background.sectors and background.sector_values:
             valid_ids = {s.sector_id for s in background.sectors}
             for (sid, flag), values in background.sector_values.items():
-                if sid not in valid_ids:
+                if sector_ids_ok and sid not in valid_ids:
                     result.errors.append(ValidationError(
                         pathway, "sector_values",
                         f"sector_id {sid} not defined in sectors list"
@@ -560,7 +570,6 @@ class Validator:
         a number. Any other iterable (a one-shot iterator such as a map
         or a generator, which the writer would then find empty) is one
         problem asking for a list, and nothing is taken from it."""
-        from .pathways import TEMPORAL_FLAG_COUNTS
         try:
             values = value_list(values)
         except TypeError as exc:
@@ -1753,7 +1762,6 @@ class Validator:
     def _validate_background_spec(cls, label, spec, pathway, result,
                                   *, n_sectors: int, sector=None):
         """Checks shared by the ozone and NOx background specifications."""
-        from .pathways import BACKGROUND_UNITS
         where = f"{label}.by_sector[{sector}]" if sector is not None else label
         if sector is not None and not n_sectors:
             result.errors.append(ValidationError(
@@ -1854,7 +1862,6 @@ class Validator:
         # The ozone keywords (OZONEVAL, OZONEFIL, O3VALUES, ...) are read
         # only under OLM, PVMRM, GRSM or TTRM; with ARM2 coset.f stops
         # with E600.
-        from .pathways import NO2STACK_METHODS
         if (chemistry.ozone_data is not None
                 and chemistry.method.value not in NO2STACK_METHODS):
             result.errors.append(ValidationError(
@@ -1883,7 +1890,6 @@ class Validator:
         # Ozone sector forms and units
         if chemistry.ozone_data is not None:
             oz = chemistry.ozone_data
-            from .pathways import BACKGROUND_UNITS
             cls._validate_sectors("ozone_data.sectors", oz.sectors, pathway, result)
             cls._validate_background_spec(
                 "ozone_data", oz.spec(), pathway, result, n_sectors=len(oz.sectors))
@@ -1919,7 +1925,6 @@ class Validator:
                 f"not {chemistry.method.value} (E602)"
             ))
         if nox is not None:
-            from .pathways import BACKGROUND_UNITS
             cls._validate_sectors("nox_background.sectors", nox.sectors, pathway, result)
             cls._validate_background_spec(
                 "nox_background", nox, pathway, result, n_sectors=len(nox.sectors))

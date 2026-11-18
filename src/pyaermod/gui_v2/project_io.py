@@ -43,7 +43,6 @@ object is built as the field's own class. Unknown keys are ignored.
 
 from __future__ import annotations
 
-import collections.abc
 import dataclasses
 import json
 import math
@@ -56,6 +55,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
 from ..input_generator import AERMODProject
+from ..pathways import NotAValueList, profile_values
 
 SAVE_FORMAT_VERSION = 1
 
@@ -90,24 +90,26 @@ def _encode(obj: Any) -> Any:
         return [_encode(v) for v in obj]
     if isinstance(obj, Path):
         return str(obj)
-    if isinstance(obj, (bytes, bytearray, memoryview)):
-        # No JSON form; a memoryview's tolist() would turn it into numbers.
-        raise TypeError(f"cannot save a {type(obj).__name__} in a project file")
-    tolist = getattr(obj, "tolist", None)
-    if callable(tolist):
-        # numpy scalars and arrays, and pandas Series, Index and
-        # Categorical (BackgroundConcentration takes any sequence of
-        # values as a profile): tolist() gives plain Python values, a
-        # Series its values in order, not its index. Neither library is
-        # imported here.
-        return _encode(tolist())
-    if isinstance(obj, collections.abc.Iterator):
-        # A map, generator or zip given as a profile: the first pass over
-        # it (the validator's, the writer's) uses it up, so it is no
-        # sequence of values a file could hold. Nothing is taken from it.
+    # Anything else is a sequence of values or one value by the rules a
+    # profile's values follow (pathways.profile_values): numpy arrays and
+    # pandas Series, Index and Categorical (BackgroundConcentration takes
+    # any of them as a profile) are their values as a list, a Series its
+    # values in order, not its index; a numpy scalar is its Python value.
+    # A one-shot iterator (a map, generator or zip given as a profile,
+    # which the first pass over it uses up) or an unordered iterable is
+    # refused, saying why, and nothing is taken from it. Bytes are one
+    # value, which no JSON value can hold. Neither numpy nor pandas is
+    # imported here.
+    try:
+        values, is_sequence = profile_values(obj)
+    except NotAValueList as exc:
         raise TypeError(
-            f"cannot save a {type(obj).__name__} in a project file: a one-shot "
-            "iterator is used up by the first pass over it; give a list of its values")
+            f"cannot save a {exc.kind} in a project file: {exc.reason}; "
+            "give a list of its values") from None
+    if is_sequence:
+        return [_encode(v) for v in values]
+    if values[0] is not obj:
+        return _encode(values[0])
     raise TypeError(f"cannot save a {type(obj).__name__} in a project file")
 
 

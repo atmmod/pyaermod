@@ -594,3 +594,52 @@ def test_tuples_and_lists_are_profiles():
     for values in ((1.0, 2.0, 3.0, 4.0), [1.0, 2.0, 3.0, 4.0]):
         assert continued_value_lines("BACKGRND", "SEASON", values) == [
             "   BACKGRND  SEASON  1 2 3 4"]
+
+
+# ----------------------------------------------------------------------
+# Profile values read back exactly (BACKGRND, O3VALUES, NOX_VALS)
+# ----------------------------------------------------------------------
+# ``.10g`` keeps ten significant digits, so 12.3456789012345 was written
+# as 12.3456789 and read back as another number. A value ``.10g`` already
+# writes exactly keeps its short form.
+
+_LONG = [12.3456789012345, 0.1 + 0.2, 1.0 / 3.0, 123456789012.5]
+
+
+def test_exact_num_keeps_short_forms_and_reads_back_exactly():
+    from pyaermod.pathways import exact_num
+    assert [exact_num(v) for v in (1.0, 2, 3.5, 0.1, 1e-5, 6.0)] == [
+        "1", "2", "3.5", "0.1", "1e-05", "6"]
+    for value in _LONG:
+        assert float(exact_num(value)) == value
+
+
+def test_an_unchanged_short_profile_is_written_as_before():
+    text = BackgroundConcentration(period_values={"SEASON": [1.0, 2.0, 3.0, 4.0]}).to_aermod_input()
+    assert _background_lines(text) == ["BACKGRND SEASON 1 2 3 4"]
+
+
+@pytest.mark.parametrize("background", [
+    BackgroundConcentration(period_values={"SEASON": _LONG}),
+    BackgroundConcentration(uniform_value=12.3456789012345),
+    BackgroundConcentration(
+        sectors=[BackgroundSector(1, 0.0), BackgroundSector(2, 180.0)],
+        sector_values={(1, "SEASON"): _LONG, (2, "ANNUAL"): 1.0 / 3.0}),
+])
+def test_a_background_profile_reads_back_exactly(background):
+    again = parse_aermod_input(_deck(background.to_aermod_input())).sources.background
+    if background.uniform_value is not None:
+        assert again.period_values == {"ANNUAL": background.uniform_value}
+    else:
+        assert again.period_values == background.period_values
+        assert again.sector_values == background.sector_values
+
+
+def test_o3values_and_nox_vals_read_back_exactly():
+    from pyaermod._fortran import fortran_float
+    from pyaermod.pathways import NOxBackground, OzoneData, TemporalValues, _nox_lines, _ozone_lines
+    lines = (_ozone_lines(OzoneData(varying=TemporalValues("SEASON", _LONG)))
+             + _nox_lines(NOxBackground(varying=TemporalValues("SEASON", _LONG))))
+    for keyword in ("O3VALUES", "NOX_VALS"):
+        [line] = [ln for ln in lines if ln.split()[0] == keyword]
+        assert [fortran_float(t, strict=True) for t in line.split()[2:]] == _LONG

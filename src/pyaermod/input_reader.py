@@ -356,7 +356,7 @@ def _whole_number(token: str, keyword: str, lineno: int) -> int:
     except ValueError:
         pass
     try:
-        value = fortran_float(token)
+        value = fortran_float(token, strict=True)
     except ValueError:
         value = math.nan
     if not math.isfinite(value) or value != int(value):
@@ -857,11 +857,11 @@ def _expand_source_ids(tokens: List[str], known_ids: List[str]) -> List[str]:
 
 
 def _floats(toks: List[str]) -> Optional[List[float]]:
-    """Every token as a number AERMOD's STODBL reads (:func:`fortran_float`:
+    """Every token as a number AERMOD's STODBL reads (strict :func:`fortran_float`:
     a ``D`` exponent is one, ``nan``, ``inf`` and ``1_000`` are not), or
     None when one is not."""
     try:
-        return [fortran_float(t) for t in toks]
+        return [fortran_float(t, strict=True) for t in toks]
     except ValueError:
         return None
 
@@ -1151,7 +1151,7 @@ def _parse_sources(block: _PathwayBlock,
             if len(toks) >= 3:
                 with contextlib.suppress(ValueError):
                     units[_UNIT_KEYWORDS[kw]] = EmissionUnits(
-                        factor=fortran_float(toks[0]), emission_label=toks[1],
+                        factor=fortran_float(toks[0], strict=True), emission_label=toks[1],
                         output_label=toks[2],
                     )
         elif kw == "RLEMCONV":
@@ -1957,7 +1957,7 @@ def _parse_meteorology(block: _PathwayBlock,
             # PROFBASE the pathway always writes (a repeated keyword), and
             # removing it would silently give 0 m.
             try:
-                elevation = fortran_float(toks[0])
+                elevation = fortran_float(toks[0], strict=True)
             except ValueError:
                 raise ValueError(
                     f"line {ln}: PROFBASE expects a number, got {toks[0]!r}; "
@@ -2275,7 +2275,7 @@ def _parse_events(block: _PathwayBlock,
                 events[toks[0]] = EventPeriod(
                     event_name=toks[0], averaging_period=int(float(toks[1])),
                     source_group=toks[2], date=f"{int(float(toks[3])):08d}",
-                    original_conc=fortran_float(toks[4]),
+                    original_conc=fortran_float(toks[4], strict=True),
                 )
             except ValueError:
                 _drop(dropped, ln)
