@@ -130,6 +130,12 @@ jobs:
         run: |
           python scripts/keyword_oracle.py run ./bin/aermod scripts/oracle_decks tests/fixtures/epa_official
 
+      - name: Fail when a requested pytest selection could not run
+        if: inputs.pytest_args != '' && steps.testdecks.outcome != 'success'
+        run: |
+          echo "::error::EPA's test decks were not fetched, so the pytest selection '${{ inputs.pytest_args }}' did not run."
+          exit 1
+
       - name: Run pytest selection with the binary on PATH
         # Needs EPA's test decks and meteorology (test_cases/), so it runs
         # only when they were fetched; a skipped step here means the fetch
