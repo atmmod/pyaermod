@@ -371,6 +371,12 @@ def _add_background(
     The text (:func:`_stamp_text` of ``df['date']``, row for row) is what a
     date-keyed background is matched on; it is *None* for a uniform one,
     which reads no dates.
+
+    Its warnings name the line that called :func:`add_background` or
+    :func:`naaqs_compliance_report`, each of which calls this directly
+    (``stacklevel=3``): attributed to a line of this module, Python's
+    default filter would show them once a session, and a second
+    mismatched background would go unwarned.
     """
     out = df.copy()
     if isinstance(background, numbers.Real) and not isinstance(background, bool):
@@ -398,15 +404,17 @@ def _add_background(
         warnings.warn(
             "the background matches no date in the frame, so nothing was "
             "added; its keys must be YYMMDDHH stamps as in df['date'].",
-            stacklevel=2,
+            stacklevel=3,
         )
     elif bg.isna().any():
-        missing = stamps[bg.isna()].nunique()
+        # A row without a date gets no background either, so a missing
+        # date counts as one more unmatched date (nunique() would drop it).
+        missing = stamps[bg.isna()].nunique(dropna=False)
         warnings.warn(
-            f"{missing} of {stamps.nunique()} dates in the frame have no "
-            "background value, so nothing was added to their rows; give "
-            "the background for every hour, or a single number.",
-            stacklevel=2,
+            f"{missing} of {stamps.nunique(dropna=False)} dates in the frame "
+            "have no background value, so nothing was added to their rows; "
+            "give the background for every hour, or a single number.",
+            stacklevel=3,
         )
     out["concentration"] = out["concentration"] + bg.fillna(0.0)
     return out, stamps
@@ -888,12 +896,23 @@ def _no2_annual_input(
             f"df[df['ave'] == {aves[0]!r}]."
         )
     unit, per_value = _coverage_unit(aves[0]) if aves else ("day", 1)
-    if aves and label_hours(aves[0]) is not None and not work.empty \
-            and work.groupby(["x", "y"])["date"].nunique().max() == 1:
-        # One value per receptor is what an ANNUAL or PERIOD POSTFILE
-        # holds; a short-term series has many. A binary one read without
-        # its averaging period labels NUMYRS (or the run's hours) N-HR
-        # when N is a short-term period ending at the record's hour.
+    return work, unit, per_value
+
+
+def _refuse_one_value_per_receptor(work: pd.DataFrame, aves: list[str]) -> None:
+    """Refuse N-HR rows that hold one value per receptor.
+
+    One value per receptor is what an ANNUAL or PERIOD POSTFILE holds; a
+    short-term series has many. A binary one read without its averaging
+    period labels NUMYRS (or the run's hours) N-HR when N is a short-term
+    period ending at the record's hour. ``work`` is one source group's
+    rows, already deduplicated (:func:`_dedupe_receptors`), so a receptor
+    a deck declares twice still has one row. Only an N-HR label is
+    checked, and the receptors are counted once, against the row count.
+    """
+    if not aves or label_hours(aves[0]) is None or work.empty:
+        return
+    if len(work) == len(work[["x", "y"]].drop_duplicates()):
         raise ValueError(
             f"every receptor has one {aves[0]} value, which looks like an "
             "ANNUAL or PERIOD POSTFILE: a binary one holds its number of "
@@ -901,7 +920,6 @@ def _no2_annual_input(
             "averaged. Read it with read_postfile(path, "
             "averaging_period='ANNUAL' or 'PERIOD')."
         )
-    return work, unit, per_value
 
 
 def _no2_annual_design_value(
@@ -951,6 +969,7 @@ def _no2_annual_design_value(
     # Dedupe after the period check: rows of different periods that end on
     # the same hour would otherwise read as repeats of each other.
     work = _dedupe_receptors(work)
+    _refuse_one_value_per_receptor(work, aves)
     receptor = ["x", "y"]
     if unit in ("year", "period"):
         # One mean per receptor, used as it is.

@@ -537,13 +537,12 @@ class TestSavingRefusesWhatOpeningWould:
                 method=ChemistryMethod.OLM,
                 ozone_data=OzoneData(varying=TemporalValues("SEASON", it)))
         for _ in range(2):
-            # The refusal is pathways.NotAValueList's own message, after
-            # the project-file prefix.
+            # The rules are pathways.profile_values'; the wording is the
+            # project file's, which need not be saving a profile.
             name = type(it).__name__
             with pytest.raises(TypeError, match=(
-                    rf"^cannot save a {name} in a project file: a profile's values "
-                    rf"must be a list .*: a {name} is a one-shot iterator .*; "
-                    r"give list\(values\)$")):
+                    rf"^cannot save a {name} in a project file: a {name} is a "
+                    r"one-shot iterator; give a list of its values$")):
                 project_to_json(project)
         assert next(it) is not None  # nothing was taken from it
 
@@ -555,10 +554,20 @@ class TestSavingRefusesWhatOpeningWould:
         project.sources.background = BackgroundConcentration(period_values={"SEASON": values})
         name = type(values).__name__
         with pytest.raises(TypeError, match=(
-                rf"^cannot save a {name} in a project file: a profile's values must be "
-                rf"a list .*: a {name} is not an ordered sequence of values; "
-                r"give list\(values\)$")):
+                rf"^cannot save a {name} in a project file: a {name} is not an "
+                r"ordered sequence of values; give a list of its values$")):
             project_to_json(project)
+
+    def test_a_set_outside_a_profile_is_refused_without_naming_a_profile(self):
+        # Every unknown object goes through profile_values' rules, but a
+        # set in any other field is not a profile's values.
+        project = _full_project()
+        project.sources.sources[0].source_id = {"STK1"}
+        with pytest.raises(TypeError, match=(
+                r"^cannot save a set in a project file: a set is not an ordered "
+                r"sequence of values; give a list of its values$")) as caught:
+            project_to_json(project)
+        assert "profile" not in str(caught.value)
 
     @pytest.mark.parametrize("value", [b"5", bytearray(b"5"), memoryview(b"5")])
     def test_bytes_are_a_type_error_not_a_list_of_numbers(self, value):

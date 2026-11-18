@@ -54,5 +54,8 @@ hours item is the original review's Medium item and stays open.
   parsing; two copies of the YY century pivot in design_values.
 - Means from hourly POSTFILEs count AERMOD's calm/missing hours (original
   review, Medium).
+- design_values: other warnings (n_years in _average_across_years, the
+  stacklevel=4 ones in _no2_highest_complete_year) still point at library
+  lines when reached through naaqs_compliance_report.
 - PROFBASE / BACKGRND decks: remaining plain float() calls in input_reader
   (STARTEND, O3SECTOR, NOXSECTR, ~48 sites) do not use strict STODBL rules.

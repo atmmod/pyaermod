@@ -196,11 +196,15 @@ class NotAValueList(TypeError):
 
     ``kind`` is its type's name and ``reason`` says why, as a noun
     phrase: it is a one-shot iterator, or no ordered sequence.
+    ``one_shot`` is True for a one-shot iterator, so a caller that words
+    the refusal for something other than a profile (the project-file
+    writer) can say why without repeating the rules.
     """
 
-    def __init__(self, kind: str, reason: str) -> None:
+    def __init__(self, kind: str, reason: str, *, one_shot: bool = False) -> None:
         self.kind = kind
         self.reason = reason
+        self.one_shot = one_shot
         super().__init__(
             f"a profile's values must be a list (or a tuple, range, numpy array or "
             f"pandas Series): a {kind} is {reason}; give list(values)")
@@ -241,7 +245,8 @@ def profile_values(values) -> Tuple[list, bool]:
     raise NotAValueList(
         type(values).__name__,
         "a one-shot iterator that the first pass over it (the validator's) would use up"
-        if is_iterator else "not an ordered sequence of values")
+        if is_iterator else "not an ordered sequence of values",
+        one_shot=is_iterator)
 
 
 def value_list(values) -> list:

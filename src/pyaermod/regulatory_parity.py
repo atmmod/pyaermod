@@ -24,7 +24,7 @@ from typing import Union
 
 import pandas as pd
 
-from .postfile import read_postfile
+from .postfile import _read_postfile
 from .versions import VALIDATED_AERMET_VERSIONS, VALIDATED_AERMOD_VERSIONS
 
 #: EPA's published margin of error on best-fit slope (Compare_AERMOD_test_cases.R).
@@ -85,8 +85,31 @@ def score_postfile_pair(
     appear in only one file are dropped before scoring (their count is
     not subtracted from `n_paired`).
     """
-    ref_res = read_postfile(reference, averaging_period=averaging_period)
-    cand_res = read_postfile(candidate, averaging_period=averaging_period)
+    return _score_postfile_pair(
+        reference, candidate, case=case, averaging_period=averaging_period,
+        stacklevel=2,
+    )
+
+
+def _score_postfile_pair(
+    reference: Union[str, Path],
+    candidate: Union[str, Path],
+    *,
+    case: str,
+    averaging_period: Union[str, int, None],
+    stacklevel: int,
+) -> ParityScore:
+    """:func:`score_postfile_pair`, the reader's warnings ``stacklevel`` frames up.
+
+    ``stacklevel`` counts from this function's caller, as
+    :func:`pyaermod.postfile._read_postfile`'s does: 2 names the line
+    that called the public function, so a warning about either file is
+    attributed to the user's code.
+    """
+    ref_res = _read_postfile(reference, averaging_period=averaging_period,
+                             stacklevel=stacklevel + 1)
+    cand_res = _read_postfile(candidate, averaging_period=averaging_period,
+                              stacklevel=stacklevel + 1)
     keys = ["x", "y", "date", "ave", "grp"]
     merged = ref_res.data.merge(
         cand_res.data, on=keys, how="inner", suffixes=("_ref", "_cand"),
@@ -126,8 +149,9 @@ def passes_parity(
 
     ``averaging_period`` is :func:`score_postfile_pair`'s.
     """
-    return score_postfile_pair(
-        reference, candidate, averaging_period=averaging_period,
+    return _score_postfile_pair(
+        reference, candidate, case="", averaging_period=averaging_period,
+        stacklevel=2,
     ).passes(tolerance)
 
 

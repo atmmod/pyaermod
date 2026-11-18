@@ -147,3 +147,20 @@ def test_a_binary_annual_pair_is_scored_given_its_averaging_period(tmp_path):
     assert score.slope == pytest.approx(2.0)
     assert passes_parity(ref, ref, averaging_period="ANNUAL")
     assert not passes_parity(ref, cand, averaging_period="ANNUAL")
+
+
+def test_the_one_record_warning_names_the_parity_callers_line(tmp_path):
+    # NUMYRS = 3 also reads as a 3-HR record ending at hour 24: the
+    # reader's warning is the caller's, not the parity module's.
+    import warnings
+
+    ref = _write_binary_annual(tmp_path / "ref.bin", 3, [1.0, 2.0])
+    cand = _write_binary_annual(tmp_path / "cand.bin", 3, [1.0, 2.0])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        score_postfile_pair(ref, cand)
+        passes_parity(ref, cand)
+    mine = [w for w in caught if "one record per source group" in str(w.message)]
+    # Two files a call, two calls.
+    assert len(mine) == 4, [str(w.message) for w in caught]
+    assert {w.filename for w in mine} == {__file__}

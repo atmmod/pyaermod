@@ -817,6 +817,28 @@ def test_one_short_term_row_per_receptor_is_refused_in_each_source_group(form):
 
 
 @pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+def test_one_row_per_receptor_is_refused_when_a_receptor_is_listed_twice(form):
+    # A deck may declare a receptor twice (EPA's surfcoal does): its rows
+    # repeat byte for byte, and the check counts rows after they collapse.
+    one = _rows("1-HR", [("21123124", 40.0)])
+    df = pd.concat([one, one, one.assign(x=100.0, concentration=50.0)],
+                   ignore_index=True)
+    with pytest.raises(ValueError, match="ANNUAL or PERIOD POSTFILE"):
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+def test_two_rows_at_one_receptor_are_not_refused(form):
+    # As many rows as receptors is the cheap test; here there are more.
+    df = _rows("1-HR", [("19010101", 40.0), ("19010102", 50.0)])
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    assert report["x"].tolist() == [0.0]
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
 def test_an_hourly_frame_with_one_short_receptor_is_not_refused(form):
     # Only a frame where every receptor has one row looks like ANNUAL.
     df = pd.concat([_hours(2019, 40.0), _rows("1-HR", [("19010101", 50.0)]).assign(x=100.0)],

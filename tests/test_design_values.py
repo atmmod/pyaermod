@@ -90,6 +90,35 @@ class TestAddBackground:
         assert "671 of 672" in str(caught[0].message)
         assert out.loc[out["date"] == "20010101", "concentration"].tolist() == [10.0]
 
+    def test_rows_without_a_date_count_as_unmatched(self):
+        # nunique() drops NaN, so a frame of [5010101, NaN, 5010102] read
+        # as "1 of 2 dates" missing when two of its three rows got nothing.
+        df = pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": 1.0,
+                           "date": [5010101.0, np.nan, 5010102.0]})
+        with pytest.warns(UserWarning, match="no background value") as caught:
+            out = add_background(df, {"05010101": 1.0})
+        assert len(caught) == 1
+        assert "2 of 3" in str(caught[0].message)
+        assert out["concentration"].tolist() == [2.0, 1.0, 1.0]
+
+    @pytest.mark.parametrize("background", [{"05010101": 1.0}, {"bad": 1.0}])
+    def test_the_warning_names_the_callers_line_every_time(self, background):
+        # The default filter shows a warning once per location; attributed
+        # to the library's line, a second mismatched background in the same
+        # session went unwarned.
+        import warnings
+
+        df = pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": 1.0, "ave": "1-HR",
+                           "grp": "ALL", "date": ["05010101", "05010102"]})
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("default")
+            add_background(df, background)
+            add_background(df, background)
+            naaqs_compliance_report("NO2", df, background=background)
+        mine = [w for w in caught if "background" in str(w.message)]
+        assert len(mine) == 3, [str(w.message) for w in caught]
+        assert {w.filename for w in mine} == {__file__}
+
     def test_a_background_covering_every_date_does_not_warn(self):
         import warnings
         df = _hourly_postfile(years=(2020,), concentration_value=2.0)

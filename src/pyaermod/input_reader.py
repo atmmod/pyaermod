@@ -345,16 +345,19 @@ def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
     ]
 
 
+#: An integer as AERMOD reads one: an optional sign and ASCII digits only.
+_ASCII_INTEGER = re.compile(r"[+-]?[0-9]+")
+
+
 def _whole_number(token: str, keyword: str, lineno: int) -> int:
     """An integer field that AERMOD also accepts written as a real (``1988.0``).
 
     Anything that is not a whole number is an error naming the line, not a
-    bare ``int()`` traceback.
+    bare ``int()`` traceback; so is what only Python's :func:`int` reads
+    (``1_988``, non-ASCII digits), which AERMOD refuses.
     """
-    try:
+    if _ASCII_INTEGER.fullmatch(token):
         return int(token)
-    except ValueError:
-        pass
     try:
         value = fortran_float(token, strict=True)
     except ValueError:

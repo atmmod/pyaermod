@@ -991,6 +991,20 @@ class TestBinaryAveragingPeriod:
         assert result.data["ave"].tolist() == ["ANNUAL"]
         assert result.data["date"].tolist() == ["00000003"]
 
+    def test_the_one_record_warning_names_the_callers_line_every_time(self, tmp_path):
+        # Attributed to read_postfile's own line, the default filter showed
+        # it once a session; the caller's line shows it for every call.
+        import warnings
+        path = _write_records(tmp_path / "annual3.bin", (21123124, 3, "ALL", [40.0]))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("default")
+            read_postfile(path)
+            read_postfile(path)
+            UnformattedPostfileParser(path).parse()
+        mine = [w for w in caught if "one record per source group" in str(w.message)]
+        assert len(mine) == 3, [str(w.message) for w in caught]
+        assert {w.filename for w in mine} == {__file__}
+
     def test_a_named_short_term_period_is_not_flagged(self, tmp_path):
         import warnings
         path = _write_records(tmp_path / "24hr.bin", (26010124, 24, "ALL", [40.0]))

@@ -94,11 +94,15 @@ def _encode(obj: Any) -> Any:
     # profile's values follow (pathways.profile_values), which also say
     # why a refused one is refused; nothing is taken from it. Bytes are one
     # value, which no JSON value can hold. Neither numpy nor pandas is
-    # imported here.
+    # imported here. The refusal is worded for any field, not a profile's
+    # values: a set may be anywhere in a project.
     try:
         values, is_sequence = profile_values(obj)
     except NotAValueList as exc:
-        raise TypeError(f"cannot save a {exc.kind} in a project file: {exc}") from None
+        why = "a one-shot iterator" if exc.one_shot else exc.reason
+        raise TypeError(
+            f"cannot save a {exc.kind} in a project file: a {exc.kind} is "
+            f"{why}; give a list of its values") from None
     if is_sequence:
         return [_encode(v) for v in values]
     if values[0] is not obj:

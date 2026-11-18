@@ -948,6 +948,17 @@ class UnformattedPostfileParser:
             (``concentration``, ``total_depo``, ``dry_depo``,
             ``wet_depo``); a file with one keeps it in ``concentration``.
         """
+        return self._parse(stacklevel=2)
+
+    def _parse(self, stacklevel: int) -> PostfileResult:
+        """:meth:`parse`, warning ``stacklevel`` frames up from its caller.
+
+        ``stacklevel`` counts from the frame that called this, as
+        :func:`warnings.warn` counts from its own caller: 1 is that frame,
+        2 its caller. The warning that a file may be ANNUAL or PERIOD names
+        the line in the user's code that asked for the file, so Python's
+        default filter shows it for every such call, not once a session.
+        """
         data_rows: list = []
         header = PostfileHeader(averaging_period=self.averaging_period)
         types: Optional[Tuple[str, ...]] = None
@@ -1013,7 +1024,7 @@ class UnformattedPostfileParser:
                     data_rows.append(row)
 
         if records and all(n == 1 for n in records.values()):
-            self._warn_one_record(inferred)
+            self._warn_one_record(inferred, stacklevel + 2)
 
         if data_rows:
             df = pd.DataFrame(data_rows)
@@ -1069,8 +1080,11 @@ class UnformattedPostfileParser:
             "which; pass averaging_period='ANNUAL' or averaging_period='PERIOD'"
         )
 
-    def _warn_one_record(self, inferred: Set[Tuple[str, int]]) -> None:
-        """Warn that a file of one record per group may be ANNUAL or PERIOD."""
+    def _warn_one_record(self, inferred: Set[Tuple[str, int]], stacklevel: int) -> None:
+        """Warn that a file of one record per group may be ANNUAL or PERIOD.
+
+        ``stacklevel`` is :func:`warnings.warn`'s, counted from here.
+        """
         short = sorted((ianhrs, ave) for ave, ianhrs in inferred if ave != "PERIOD")
         if not short:
             return
@@ -1082,7 +1096,7 @@ class UnformattedPostfileParser:
             f"read as {ave}; an ANNUAL file over {ianhrs} year{plural}, or a "
             f"PERIOD of {ianhrs} hour{plural}, holds the same. Pass "
             f"averaging_period ('{ave}', 'ANNUAL' or 'PERIOD') to say which.",
-            stacklevel=3,
+            stacklevel=stacklevel,
         )
 
     def _read_record(self, f) -> Optional[dict]:
@@ -1255,6 +1269,31 @@ def read_postfile(
         file's output types and ``result.column_for("DDEP")`` the column
         that holds one of them.
     """
+    return _read_postfile(
+        filepath, num_receptors=num_receptors, receptor_coords=receptor_coords,
+        has_deposition=has_deposition, output_types=output_types,
+        averaging_period=averaging_period, stacklevel=2,
+    )
+
+
+def _read_postfile(
+    filepath: Union[str, Path],
+    *,
+    num_receptors: Optional[int] = None,
+    receptor_coords: Optional[List[Tuple[float, float]]] = None,
+    has_deposition: Optional[bool] = None,
+    output_types: OutputTypesArg = None,
+    averaging_period: Union[str, int, None] = None,
+    stacklevel: int,
+) -> PostfileResult:
+    """:func:`read_postfile`, its warnings ``stacklevel`` frames up from its caller.
+
+    ``stacklevel`` counts as :meth:`UnformattedPostfileParser._parse`'s
+    does: 2 names the line that called this function's caller. pyaermod's
+    own readers of a POSTFILE (:mod:`pyaermod.regulatory_parity`) call
+    this with the frames between them and the user added, so a warning
+    names the user's line.
+    """
     filepath = Path(filepath)
     parser: Union[PostfileParser, UnformattedPostfileParser]
     if _is_text_postfile(filepath):
@@ -1268,4 +1307,5 @@ def read_postfile(
             output_types=output_types,
             averaging_period=averaging_period,
         )
+        return parser._parse(stacklevel=stacklevel + 1)
     return parser.parse()

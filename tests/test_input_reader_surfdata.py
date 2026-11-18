@@ -38,7 +38,12 @@ def test_real_station_and_year_become_whole_numbers():
     assert "SURFDATA  14735  1988" in project.to_aermod_input(validate=False)
 
 
-@pytest.mark.parametrize("card", ["SURFDATA  KALB  1988", "SURFDATA  14735  1988.5"])
+@pytest.mark.parametrize("card", [
+    "SURFDATA  KALB  1988", "SURFDATA  14735  1988.5",
+    # Python's int() reads these; AERMOD's STONUM does not.
+    "SURFDATA  14735  1_988", "SURFDATA  14735  \u0661\u0669\u0668\u0668",
+    "SURFDATA  14_735  1988",
+])
 def test_a_field_that_is_not_a_whole_number_is_an_error_naming_the_line(card):
     with pytest.raises(ValueError, match=r"line \d+: SURFDATA"):
         parse_aermod_input(_deck(card))
