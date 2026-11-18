@@ -27,3 +27,32 @@ checked path, not an unchecked one. No other security impact found.
 
 Recommended for this PR: 3, 1, 2, 4, 10, then 7, 8, 9. Pre-existing, separate:
 5 (non-numeric PROFBASE), 6.
+
+## Review iterations (2026-11-17/18)
+
+Nine high-effort review rounds were run on PR #70, with fixes after each
+(agents, test-first). Counts of findings: 10, 10, 9, 9, 9, 9, 9, 10, 10.
+Rounds 2-8 each found medium/high correctness issues, many introduced by
+the previous round's fixes (partial-year handling, ANNUAL NUMYRS, binary
+POSTFILE labels, strict number parsing breaking output readers, workflow
+input injection). Round 9 found only low-severity items and improvements;
+six were fixed, four recorded as follow-ups below. Round 4's calm/missing
+hours item is the original review's Medium item and stays open.
+
+## Follow-ups (not in PR #70)
+
+- GUI/browser: compute the annual NO2 highest-year design value from a
+  1-HR POSTFILE in the run instead of showing AERMOD's multi-year ANNUAL
+  value as a lower bound (run_results._design_value).
+- design_values: the "looks like an ANNUAL or PERIOD POSTFILE" check also
+  refuses a one-day (or one-hour) short-term run asked for an annual NO2
+  value; accepted, since such a run cannot give an annual value.
+- input_reader: O3VALUES/NOX_VALS continuation lines are modelled line by
+  line; one unreadable continuation leaves a truncated modelled profile
+  (BACKGRND uses whole-or-nothing). Predates the PR.
+- Cleanup: _coverage_unit vs postfile._normalize_averaging_period label
+  parsing; two copies of the YY century pivot in design_values.
+- Means from hourly POSTFILEs count AERMOD's calm/missing hours (original
+  review, Medium).
+- PROFBASE / BACKGRND decks: remaining plain float() calls in input_reader
+  (STARTEND, O3SECTOR, NOXSECTR, ~48 sites) do not use strict STODBL rules.
