@@ -593,3 +593,84 @@ def test_the_input_is_checked_and_deduplicated_once(form, monkeypatch):
     assert report["design_value"].tolist() == [
         pytest.approx(120.0 if form == "highest_year" else 80.0)]
     assert calls == {"group": 1, "dedupe": 1}
+
+
+# ----------------------------------------------------------------------
+# A numeric date column (a CSV round trip) reads like the text one
+# ----------------------------------------------------------------------
+
+def _as_float_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """``df`` with its date column as float64, as a CSV with a gap reads back."""
+    return df.assign(date=df["date"].astype(float))
+
+
+@pytest.mark.parametrize(("form", "expected"),
+                         [("highest_year", 120.0), ("multi_year_mean", 80.0)])
+def test_a_float_date_column_is_read_like_the_text_one(form, expected):
+    # 2005 reads back as 5010101.0: the leading zero is gone as well.
+    df = pd.concat([_hours(2005, 40.0), _hours(2006, 120.0)], ignore_index=True)
+    floats = _as_float_dates(df)
+    assert floats["date"].dtype == "float64"
+    assert floats["date"].iloc[0] == 5010101.0
+    report = naaqs_compliance_report("NO2_annual", floats, no2_annual=form)
+    assert report["design_value"].tolist() == [pytest.approx(expected)]
+
+
+def test_a_csv_round_trip_with_a_missing_date_still_reads_the_dates(tmp_path):
+    # One blank date in a CSV turns the whole column to float64, and it
+    # stays float after the blank row is dropped.
+    df = pd.concat([_hours(2005, 40.0), _hours(2006, 120.0)], ignore_index=True)
+    df.loc[3, "date"] = ""
+    path = tmp_path / "post.csv"
+    df.to_csv(path, index=False)
+    back = pd.read_csv(path).dropna(subset=["date"])
+    assert back["date"].dtype == "float64"
+    report = naaqs_compliance_report("NO2_annual", back)
+    assert report["design_value"].tolist() == [pytest.approx(120.0)]
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+@pytest.mark.parametrize(("bad", "shown"), [(19010101.5, "19010101.5"),
+                                            (float("nan"), "nan")])
+def test_a_float_date_that_is_not_a_stamp_is_named(form, bad, shown):
+    df = _as_float_dates(_hours(2019, 40.0))
+    df.loc[5, "date"] = bad
+    with pytest.raises(ValueError, match="YYMMDDHH") as caught:
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    assert shown in str(caught.value)
+
+
+def test_an_annual_year_count_given_as_a_float_is_read():
+    df = _rows("ANNUAL", [(5.0, 40.0)])
+    with pytest.raises(ValueError, match="cover 5 years"):
+        naaqs_compliance_report("NO2_annual", df)
+    report = naaqs_compliance_report("NO2_annual", _rows("ANNUAL", [(1.0, 40.0)]))
+    assert report["design_value"].tolist() == [pytest.approx(40.0)]
+
+
+def test_a_fractional_annual_year_count_is_not_a_count():
+    df = _rows("ANNUAL", [(1.5, 40.0)])
+    with pytest.raises(ValueError, match="unknown number of years"):
+        naaqs_compliance_report("NO2_annual", df)
+
+
+# ----------------------------------------------------------------------
+# The averaging periods are read once
+# ----------------------------------------------------------------------
+
+def test_the_averaging_periods_are_read_once(monkeypatch):
+    from pyaermod import design_values as dv
+
+    calls = []
+    real = dv._ave_names
+
+    def counting(df):
+        calls.append(len(df))
+        return real(df)
+
+    monkeypatch.setattr(dv, "_ave_names", counting)
+    df = _two_years(40.0, 120.0)
+    background = dict.fromkeys(df["date"], 1.0)
+    report = naaqs_compliance_report("NO2_annual", df, background=background)
+    assert report["design_value"].tolist() == [pytest.approx(121.0)]
+    assert len(calls) == 1

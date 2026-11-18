@@ -52,7 +52,8 @@ class TestAddBackground:
         df = _hourly_postfile(years=(2020,), concentration_value=1.0)
         # Boost only the first hour of Jan 1
         bg = {"20010101": 99.0}
-        out = add_background(df, bg)
+        with pytest.warns(UserWarning, match="no background value"):
+            out = add_background(df, bg)
         ones = out[out["date"] == "20010101"]
         rest = out[out["date"] != "20010101"]
         assert (ones["concentration"] == 100.0).all()
@@ -61,7 +62,8 @@ class TestAddBackground:
     def test_series_keyed_by_date(self):
         df = _hourly_postfile(years=(2020,), concentration_value=2.0)
         bg = pd.Series({"20010101": 8.0, "20010102": 4.0})
-        out = add_background(df, bg)
+        with pytest.warns(UserWarning, match="no background value"):
+            out = add_background(df, bg)
         a = out[out["date"] == "20010101"]["concentration"].iloc[0]
         b = out[out["date"] == "20010102"]["concentration"].iloc[0]
         c = out[out["date"] == "20010103"]["concentration"].iloc[0]
@@ -75,15 +77,71 @@ class TestAddBackground:
             out = add_background(df, {"2020-01-01": 8.0})
         assert (out["concentration"] == 2.0).all()
 
-    def test_a_background_matching_some_dates_does_not_warn(self):
+    def test_a_background_matching_some_dates_warns_how_many_miss(self):
+        # Hours without a background value get none added (fillna(0)),
+        # which understates the total there, so a partial match warns
+        # with the count of dates left without one.
+        df = _hourly_postfile(years=(2020,), receptors=((1.0, 0.0),),
+                              concentration_value=2.0)
+        df = df[df["date"].str.startswith("2001")]   # January 1-28: 672 hours
+        with pytest.warns(UserWarning, match="no background value") as caught:
+            out = add_background(df, pd.Series({"20010101": 8.0}))
+        assert len(caught) == 1
+        assert "671 of 672" in str(caught[0].message)
+        assert out.loc[out["date"] == "20010101", "concentration"].tolist() == [10.0]
+
+    def test_a_background_covering_every_date_does_not_warn(self):
         import warnings
         df = _hourly_postfile(years=(2020,), concentration_value=2.0)
+        bg = dict.fromkeys(df["date"], 3.0)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            add_background(df, pd.Series({"20010101": 8.0}))
+            out = add_background(df, bg)
+        assert (out["concentration"] == 5.0).all()
+
+    @pytest.mark.parametrize("keys", ["text", "int", "float"])
+    @pytest.mark.parametrize("dates", ["text", "int", "float"])
+    def test_dates_and_keys_match_whatever_their_type(self, dates, keys):
+        # 2005 reads 05010101 as text but 5010101 as a number: both sides
+        # are matched as the zero-padded 8-character stamp.
+        import warnings
+        df = _hourly_postfile(years=(2005,), receptors=((1.0, 0.0),),
+                              concentration_value=2.0)
+        stamps = list(df["date"])
+        convert = {"text": str, "int": int, "float": float}
+        df = df.assign(date=[convert[dates](d) for d in stamps])
+        bg = {convert[keys](d): 3.0 for d in stamps}
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            out = add_background(df, bg)
+        assert (out["concentration"] == 5.0).all()
+        assert out["date"].tolist() == df["date"].tolist()   # left as given
+
+    def test_a_series_with_an_integer_index_matches_text_dates(self):
+        df = _hourly_postfile(years=(2005,), receptors=((1.0, 0.0),),
+                              concentration_value=2.0)
+        df = df[df["date"].isin(["05010101", "05010102"])]
+        out = add_background(df, pd.Series([1.0, 4.0], index=[5010101, 5010102]))
+        assert out["concentration"].tolist() == [3.0, 6.0]
+
+    def test_keys_that_name_one_stamp_twice_are_refused(self):
+        df = _hourly_postfile(years=(2005,), receptors=((1.0, 0.0),))
+        with pytest.raises(ValueError, match="05010101"):
+            add_background(df, {"05010101": 1.0, 5010101: 2.0})
 
 
 class TestAnnualMean:
+    @pytest.mark.parametrize("kind", [int, float])
+    def test_numeric_dates_of_the_2000s_keep_their_year(self, kind):
+        # 2005 written as a number has lost its leading zero (5010101, or
+        # 5010101.0 from a CSV with a blank): it is still 2005, not 1950.
+        df = _hourly_postfile(years=(2005,), receptors=((1.0, 0.0),),
+                              concentration_value=4.0)
+        df = df.assign(date=[kind(d) for d in df["date"]])
+        out = annual_mean(df)
+        assert out["year"].tolist() == [2005]
+        assert out["concentration"].tolist() == [pytest.approx(4.0)]
+
     def test_constant_returns_same_value(self):
         df = _hourly_postfile(years=(2018, 2019), concentration_value=4.0)
         out = annual_mean(df)
