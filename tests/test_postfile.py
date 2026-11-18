@@ -898,6 +898,144 @@ class TestBinaryEdgeCases:
 
 
 # ===========================================================================
+# The averaging period of a binary record (POSTFL in calc2.f, PSTANN in output.f)
+# ===========================================================================
+
+# A short-term record holds KURDAT (the hour its block ends) and KAVE, the
+# hours in its averaging period (720 for MONTH). A PERIOD record holds the
+# run's last hour and the number of hours in the run (IANHRS); an ANNUAL
+# record the last hour and the number of years (NUMYRS). The text POSTFILE
+# writes PERIOD or ANNUAL in the AVE column and the count, as I8.8, where
+# the date would be.
+
+def _write_records(path, *records):
+    path.write_bytes(b"".join(_build_binary_record(*r) for r in records))
+    return path
+
+
+class TestBinaryAveragingPeriod:
+
+    def test_a_multi_year_annual_record_is_not_read_as_hours(self, tmp_path):
+        # A five-year ANNUAL file: NUMYRS = 5, which is no averaging period
+        # AERMOD has, so the record is ANNUAL or PERIOD and the file cannot
+        # say which.
+        path = _write_records(tmp_path / "annual.bin", (21123124, 5, "ALL", [40.0, 120.0]))
+        with pytest.raises(ValueError, match="averaging_period") as caught:
+            read_postfile(path)
+        message = str(caught.value)
+        assert "ANNUAL" in message and "PERIOD" in message
+        assert "IANHRS" in message and "5" in message
+
+    def test_an_annual_record_reads_like_the_text_postfile(self, tmp_path):
+        path = _write_records(tmp_path / "annual.bin", (21123124, 5, "ALL", [40.0, 120.0]))
+        result = read_postfile(path, averaging_period="ANNUAL")
+        assert result.header.averaging_period == "ANNUAL"
+        assert result.data["ave"].tolist() == ["ANNUAL", "ANNUAL"]
+        # NUMYRS where the date would be, as PSTANN writes it (I8.8)
+        assert result.data["date"].tolist() == ["00000005", "00000005"]
+        assert result.data["concentration"].tolist() == [40.0, 120.0]
+
+    def test_a_period_record_reads_like_the_text_postfile(self, tmp_path):
+        path = _write_records(tmp_path / "period.bin", (21123124, 26280, "ALL", [7.0]))
+        result = read_postfile(path, averaging_period="PERIOD")
+        assert result.header.averaging_period == "PERIOD"
+        assert result.data["ave"].tolist() == ["PERIOD"]
+        assert result.data["date"].tolist() == ["00026280"]
+
+    def test_a_count_of_hours_no_year_count_reaches_is_a_period(self, tmp_path):
+        # NUMYRS counts met years, so it is never in the hundreds; IANHRS
+        # that large is the number of hours in a PERIOD run.
+        path = _write_records(tmp_path / "period.bin", (21123124, 26280, "ALL", [7.0]))
+        result = read_postfile(path)
+        assert result.data["ave"].tolist() == ["PERIOD"]
+        assert result.data["date"].tolist() == ["00026280"]
+
+    def test_a_count_that_ends_off_its_block_is_not_a_short_term_record(self, tmp_path):
+        # Four hours of PERIOD ending at hour 14: a 4-HR block ends at hour
+        # 4, 8, 12, 16, 20 or 24, so this is no 4-HR record.
+        path = _write_records(tmp_path / "period.bin", (96022814, 4, "ALL", [7.0]))
+        with pytest.raises(ValueError, match="averaging_period"):
+            read_postfile(path)
+        result = read_postfile(path, averaging_period="PERIOD")
+        assert result.data["ave"].tolist() == ["PERIOD"]
+        assert result.data["date"].tolist() == ["00000004"]
+
+    def test_short_term_records_keep_their_hours_and_dates(self, tmp_path):
+        path = _write_records(
+            tmp_path / "3hr.bin",
+            (26010103, 3, "ALL", [1.0]), (26010106, 3, "ALL", [2.0]))
+        result = read_postfile(path)
+        assert result.header.averaging_period == "3-HR"
+        assert result.data["ave"].tolist() == ["3-HR", "3-HR"]
+        assert result.data["date"].tolist() == ["26010103", "26010106"]
+
+    def test_a_month_record_is_labelled_month(self, tmp_path):
+        # KAVE is 720 for MONTH (AVETIM in coset.f); the text file says MONTH.
+        path = _write_records(
+            tmp_path / "month.bin",
+            (26013124, 720, "ALL", [1.0]), (26022824, 720, "ALL", [2.0]))
+        result = read_postfile(path)
+        assert result.header.averaging_period == "MONTH"
+        assert result.data["ave"].tolist() == ["MONTH", "MONTH"]
+        assert result.data["date"].tolist() == ["26013124", "26022824"]
+
+    def test_one_record_per_group_that_reads_as_hours_is_flagged(self, tmp_path):
+        # A three-year ANNUAL file holds NUMYRS = 3 at the last hour of the
+        # run, which a 3-HR record ending at hour 24 also could.
+        path = _write_records(tmp_path / "annual3.bin", (21123124, 3, "ALL", [40.0]))
+        with pytest.warns(UserWarning, match="ANNUAL") as caught:
+            result = read_postfile(path)
+        assert "averaging_period" in str(caught[0].message)
+        assert result.data["ave"].tolist() == ["3-HR"]
+        result = read_postfile(path, averaging_period="ANNUAL")
+        assert result.data["ave"].tolist() == ["ANNUAL"]
+        assert result.data["date"].tolist() == ["00000003"]
+
+    def test_a_named_short_term_period_is_not_flagged(self, tmp_path):
+        import warnings
+        path = _write_records(tmp_path / "24hr.bin", (26010124, 24, "ALL", [40.0]))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = read_postfile(path, averaging_period="24")
+        assert result.data["ave"].tolist() == ["24-HR"]
+        assert result.data["date"].tolist() == ["26010124"]
+
+    @pytest.mark.parametrize(("given", "label"), [
+        ("1", "1-HR"), ("1-hr", "1-HR"), (1, "1-HR"), (" annual ", "ANNUAL"),
+        ("Period", "PERIOD"), ("MONTH", "MONTH"),
+    ])
+    def test_the_averaging_period_is_read_as_aermod_names_it(self, tmp_path, given, label):
+        hours = {"1-HR": 1, "MONTH": 720}.get(label, 2)
+        path = _write_records(tmp_path / "p.bin", (26013124, hours, "ALL", [1.0]))
+        result = UnformattedPostfileParser(path, averaging_period=given).parse()
+        assert result.data["ave"].tolist() == [label]
+
+    @pytest.mark.parametrize("given", ["5", "5-HR", "720-HR", "YEARLY", "", True])
+    def test_an_averaging_period_aermod_has_not_is_refused(self, tmp_path, given):
+        path = _write_records(tmp_path / "p.bin", (26010101, 1, "ALL", [1.0]))
+        with pytest.raises(ValueError, match="averaging_period"):
+            UnformattedPostfileParser(path, averaging_period=given)
+
+    def test_a_short_term_period_that_disagrees_with_the_record_is_refused(self, tmp_path):
+        path = _write_records(tmp_path / "p.bin", (26010124, 1, "ALL", [1.0]))
+        with pytest.raises(ValueError, match="IANHRS") as caught:
+            read_postfile(path, averaging_period="24-HR")
+        assert "24-HR" in str(caught.value)
+
+    def test_an_empty_file_keeps_the_given_period(self, tmp_path):
+        path = tmp_path / "empty.bin"
+        path.write_bytes(b"")
+        result = UnformattedPostfileParser(path, averaging_period="ANNUAL").parse()
+        assert result.data.empty
+        assert result.header.averaging_period == "ANNUAL"
+
+    def test_a_text_postfile_ignores_it(self, tmp_path):
+        path = tmp_path / "text.pst"
+        path.write_text(SAMPLE_POSTFILE)
+        assert read_postfile(path, averaging_period="ANNUAL").data["ave"].iloc[0] == "1-HR"
+
+
+# ===========================================================================
 # Synthetic Deposition Format (12-column)
 # ===========================================================================
 

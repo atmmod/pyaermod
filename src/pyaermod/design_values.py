@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import calendar
 import math
+import numbers
 import re
 import warnings
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from ._fortran import fortran_float
+from .postfile import SHORT_TERM_HOURS
 
 if TYPE_CHECKING:
     from .pathways import OutputPathway
@@ -85,20 +87,34 @@ def _date_text(date_col: pd.Series) -> pd.Series:
     return date_col.astype(str).str.strip()
 
 
+def _stamp_text(date_col: pd.Series) -> pd.Series:
+    """A date column as 8-character YYMMDDHH text (:func:`_date_text`, zero-filled).
+
+    The one normalisation every stamp comparison and parse starts from;
+    callers that need both the text and the parsed dates compute it once
+    and hand it to :func:`_stamp_text_to_date`.
+    """
+    return _date_text(date_col).str.zfill(8)
+
+
 def _parse_yymmddhh_to_year(date_col: pd.Series) -> pd.Series:
     """Extract the 4-digit year from an YYMMDDHH POSTFILE date column.
 
     AERMOD encodes the year as 2 digits prefixed by century rollover
     behaviour: 00..49 -> 2000..2049, 50..99 -> 1950..1999.
     """
-    s = _date_text(date_col).str.zfill(8)
+    s = _stamp_text(date_col)
     yy = s.str.slice(0, 2).astype(int)
     return yy.where(yy < 50, yy + 1900).where(yy >= 50, yy + 2000)
 
 
 def _parse_yymmddhh_to_date(date_col: pd.Series) -> pd.Series:
     """Convert YYMMDDHH to a pandas Timestamp (truncated to day)."""
-    s = _date_text(date_col).str.zfill(8)
+    return _stamp_text_to_date(_stamp_text(date_col))
+
+
+def _stamp_text_to_date(s: pd.Series) -> pd.Series:
+    """Day timestamps of YYMMDDHH text already normalised by :func:`_stamp_text`."""
     yy = s.str.slice(0, 2).astype(int)
     yyyy = yy.where(yy < 50, yy + 1900).where(yy >= 50, yy + 2000)
     mm = s.str.slice(2, 4).astype(int)
@@ -320,8 +336,10 @@ def add_background(
     df
         POSTFILE-shaped DataFrame.
     background
-        Either a uniform float, a pd.Series indexed by date (YYMMDDHH),
-        or a dict mapping date -> float. Dates and keys are matched as
+        Either a uniform number (any real number, numpy scalars such as
+        ``np.float32`` included, but not a bool), a pd.Series indexed by
+        date (YYMMDDHH), or a dict mapping date -> float. Dates and keys
+        are matched as
         8-character YYMMDDHH stamps, so text, integers and whole-number
         floats all match (2005's first hour reads ``"05010101"``,
         ``5010101`` or ``5010101.0``). Two keys naming the same stamp
@@ -335,14 +353,37 @@ def add_background(
     that matches no date at all (usually keys that are not YYMMDDHH
     stamps) or only some of them (hours missing from the background
     series), since those hours then get no background.
+
+    Raises
+    ------
+    TypeError
+        If ``background`` is none of those (a bool, a string, a list ...).
+    """
+    return _add_background(df, background)[0]
+
+
+def _add_background(
+    df: pd.DataFrame,
+    background: Union[float, pd.Series, dict],
+) -> tuple[pd.DataFrame, Optional[pd.Series]]:
+    """:func:`add_background`, also returning the frame's dates as stamp text.
+
+    The text (:func:`_stamp_text` of ``df['date']``, row for row) is what a
+    date-keyed background is matched on; it is *None* for a uniform one,
+    which reads no dates.
     """
     out = df.copy()
-    if isinstance(background, (int, float)):
+    if isinstance(background, numbers.Real) and not isinstance(background, bool):
         out["concentration"] = out["concentration"] + float(background)
-        return out
+        return out, None
     if isinstance(background, dict):
         background = pd.Series(background)
-    keys = _date_text(pd.Series(background.index)).str.zfill(8)
+    if not isinstance(background, pd.Series):
+        raise TypeError(
+            "background must be a number, a pd.Series indexed by YYMMDDHH "
+            f"date or a dict of date -> value; got {type(background).__name__}"
+        )
+    keys = _stamp_text(pd.Series(background.index))
     repeated = keys[keys.duplicated()].unique()
     if len(repeated):
         raise ValueError(
@@ -351,7 +392,7 @@ def add_background(
             "stamp once."
         )
     by_stamp = pd.Series(background.to_numpy(), index=keys.to_numpy())
-    stamps = _date_text(out["date"]).str.zfill(8)
+    stamps = _stamp_text(out["date"])
     bg = stamps.map(by_stamp)
     if len(out) and bg.isna().all():
         warnings.warn(
@@ -368,7 +409,7 @@ def add_background(
             stacklevel=2,
         )
     out["concentration"] = out["concentration"] + bg.fillna(0.0)
-    return out
+    return out, stamps
 
 
 def annual_mean(
@@ -739,14 +780,31 @@ def _coverage_unit(ave: object) -> tuple[str, int]:
     mean), ``("period", 1)`` for PERIOD values (one mean over the whole
     run) and ``("day", 1)`` for everything else: 24-HR values, and
     anything not named.
+
+    An N-HR label whose N is no short-term period AERMOD has (1, 2, 3, 4,
+    6, 8, 12 or 24 hours) raises :class:`ValueError`: it is an ANNUAL or
+    PERIOD value whose year or hour count was read as an averaging period,
+    as a binary POSTFILE read without its averaging period can be.
     """
     text = str(ave).strip().upper()
     named = {"MONTH": "month", "ANNUAL": "year", "PERIOD": "period"}
     if text in named:
         return named[text], 1
     match = re.fullmatch(r"(\d+)-HR", text)
-    if match and 0 < int(match.group(1)) < 24:
-        return "hour", int(match.group(1))
+    if match:
+        hours = int(match.group(1))
+        if hours not in SHORT_TERM_HOURS:
+            raise ValueError(
+                f"{text} is not an averaging period AERMOD writes: its short-"
+                "term periods are 1, 2, 3, 4, 6, 8, 12 and 24 hours. A binary "
+                "ANNUAL POSTFILE holds its number of years (and a PERIOD one "
+                "its number of hours) where a short-term one holds the hours "
+                "averaged, so these are most likely ANNUAL or PERIOD values; "
+                "read the file with read_postfile(path, "
+                "averaging_period='ANNUAL') (or 'PERIOD')."
+            )
+        if hours < 24:
+            return "hour", hours
     return "day", 1
 
 
@@ -754,16 +812,21 @@ def _coverage_unit(ave: object) -> tuple[str, int]:
 _YYMMDDHH = r"\d{6}(?:[01]\d|2[0-4])"
 
 
-def _no2_stamps(date_col: pd.Series) -> tuple[pd.Series, pd.Series]:
+def _no2_stamps(
+    date_col: pd.Series, text: Optional[pd.Series] = None,
+) -> tuple[pd.Series, pd.Series]:
     """The date column as normalised YYMMDDHH text and as day timestamps.
 
+    ``text`` is :func:`_stamp_text` of ``date_col`` when the caller has it
+    already (from matching a background), so the column is not read again.
     Raises a ValueError naming the first few values that are not AERMOD
     YYMMDDHH stamps, rather than failing deep inside the parser.
     """
-    text = _date_text(date_col).str.zfill(8)
+    if text is None:
+        text = _stamp_text(date_col)
     bad = ~text.str.fullmatch(_YYMMDDHH)
     if not bad.any():
-        stamp = _parse_yymmddhh_to_date(text)
+        stamp = _stamp_text_to_date(text)
         bad = stamp.isna()
     if bad.any():
         shown = date_col[bad].map(str).unique()[:4]
@@ -831,10 +894,14 @@ def _no2_annual_input(
 
 def _no2_annual_design_value(
     df: pd.DataFrame, form: str, aves: list[str],
+    stamps: Optional[pd.Series] = None,
 ) -> pd.DataFrame:
     """Annual NO2 design value per receptor in ``form`` (see _NO2_ANNUAL_FORMS).
 
-    ``aves`` is :func:`_ave_names` of ``df``.
+    ``aves`` is :func:`_ave_names` of ``df``. ``stamps``, when given, is
+    :func:`_stamp_text` of ``df['date']`` row for row (as
+    :func:`_add_background` returns it), used instead of reading the dates
+    again.
 
     An ANNUAL value over N years is AERMOD's average of the N years'
     annual means: in the ``"multi_year_mean"`` form it is the design value
@@ -866,6 +933,9 @@ def _no2_annual_design_value(
                 "means."
             )
 
+    if stamps is not None:
+        # By position, not index label: the frame's labels may repeat.
+        work = work.assign(_stamp=stamps.to_numpy())
     # Dedupe after the period check: rows of different periods that end on
     # the same hour would otherwise read as repeats of each other.
     work = _dedupe_receptors(work)
@@ -882,14 +952,21 @@ def _no2_annual_design_value(
             )
         return (work.groupby(receptor, as_index=False, sort=False)
                 ["concentration"].max())
-    text, stamp = _no2_stamps(work["date"])
+    text, stamp = _no2_stamps(
+        work["date"], work["_stamp"] if stamps is not None else None)
+    years = stamp.dt.year
     if form == "multi_year_mean":
-        return (_annual_means(work, stamp.dt.year)
+        return (_annual_means(work, years)
                 .groupby(receptor, as_index=False, sort=False)
                 ["concentration"].mean())
-    unit_of_row = {"hour": text, "day": stamp, "month": stamp.dt.month}[unit]
+    if unit == "hour":
+        unit_of_row = text
+    elif unit == "month":
+        unit_of_row = stamp.dt.month
+    else:
+        unit_of_row = stamp
     return _no2_highest_complete_year(
-        work.assign(_year=stamp.dt.year, _unit=unit_of_row), unit, per_value)
+        work.assign(_year=years, _unit=unit_of_row), unit, per_value)
 
 
 def _no2_highest_complete_year(
@@ -1035,7 +1112,8 @@ def naaqs_compliance_report(
                 "is keyed on, so it would add nothing. Pass the background as "
                 "a single number, e.g. its annual mean."
             )
-    work = add_background(df, background) if background is not None else df
+    work, stamps = (_add_background(df, background) if background is not None
+                    else (df, None))
 
     if pollutant == "PM2.5" or pollutant == "PM25":
         dv = pm25_24hr_design_value(work, n_years=n_years)
@@ -1056,7 +1134,7 @@ def naaqs_compliance_report(
         if no2_annual not in _NO2_ANNUAL_FORMS:
             raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
                              f"got {no2_annual!r}")
-        dv = _no2_annual_design_value(work, no2_annual, aves)
+        dv = _no2_annual_design_value(work, no2_annual, aves, stamps)
         std = get_naaqs("NO2", "annual")
     elif pollutant == "SO2":
         dv = so2_1hr_design_value(work, n_years=n_years)

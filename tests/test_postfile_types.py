@@ -539,12 +539,23 @@ class TestPeriodPostfileTypes:
     def test_binary_matches_text(self, case):
         text = read_postfile(FIXTURES / case / "post_per.pst")
         binary = read_postfile(FIXTURES / case / "post_per.bin",
-                               receptor_coords=RECEPTORS, output_types=_modelopt(case))
+                               receptor_coords=RECEPTORS, output_types=_modelopt(case),
+                               averaging_period="PERIOD")
         assert binary.output_types == CASES[case]
+        assert binary.header.averaging_period == "PERIOD"
         assert list(binary.data.columns) == list(text.data.columns)
+        # PERIOD and the run's hours where a 1-hour file has the date
+        assert list(binary.data["ave"]) == list(text.data["ave"])
+        assert list(binary.data["date"]) == list(text.data["date"])
         for t in CASES[case]:
             column = text.column_for(t)
             np.testing.assert_allclose(binary.data[column], text.data[column], atol=6e-6)
+
+    def test_binary_period_record_is_not_read_as_a_short_term_one(self):
+        # The record holds IANHRS = 4 (the run's hours) at hour 14, where a
+        # 4-HR block never ends; PERIOD or ANNUAL is for the caller to say.
+        with pytest.raises(ValueError, match="averaging_period='PERIOD'"):
+            read_postfile(FIXTURES / "conc" / "post_per.bin")
 
 
 # ---------------------------------------------------------------------------

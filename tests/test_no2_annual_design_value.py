@@ -235,16 +235,17 @@ def test_the_date_column_is_parsed_once(monkeypatch):
     from pyaermod import design_values as dv
 
     calls = []
-    real = dv._parse_yymmddhh_to_date
+    real = dv._stamp_text_to_date
 
-    def counting(col):
-        calls.append(len(col))
-        return real(col)
+    def counting(text):
+        calls.append(len(text))
+        return real(text)
 
     def refused(col):
         raise AssertionError("the year is derived from the parsed date")
 
-    monkeypatch.setattr(dv, "_parse_yymmddhh_to_date", counting)
+    monkeypatch.setattr(dv, "_stamp_text_to_date", counting)
+    monkeypatch.setattr(dv, "_parse_yymmddhh_to_date", refused)
     monkeypatch.setattr(dv, "_parse_yymmddhh_to_year", refused)
     report = naaqs_compliance_report("NO2_annual", _two_years(40.0, 120.0))
     assert report["design_value"].tolist() == [pytest.approx(120.0)]
@@ -403,6 +404,7 @@ def _no_date_parsing(monkeypatch):
 
     monkeypatch.setattr(dv, "_parse_yymmddhh_to_date", refused)
     monkeypatch.setattr(dv, "_parse_yymmddhh_to_year", refused)
+    monkeypatch.setattr(dv, "_stamp_text_to_date", refused)
 
 
 @pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
@@ -674,3 +676,111 @@ def test_the_averaging_periods_are_read_once(monkeypatch):
     report = naaqs_compliance_report("NO2_annual", df, background=background)
     assert report["design_value"].tolist() == [pytest.approx(121.0)]
     assert len(calls) == 1
+
+
+# ----------------------------------------------------------------------
+# The date column is read as text once
+# ----------------------------------------------------------------------
+
+@pytest.mark.parametrize(("form", "unit"), [
+    ("highest_year", "1-HR"), ("multi_year_mean", "1-HR"),
+    ("highest_year", "24-HR"), ("highest_year", "MONTH"),
+])
+def test_the_date_column_is_read_as_text_once(form, unit, monkeypatch):
+    # A date-keyed background reads the dates as YYMMDDHH text to match
+    # them; the design value reuses that text instead of reading it again.
+    from pyaermod import design_values as dv
+
+    if unit == "1-HR":
+        df = _two_years(40.0, 120.0)
+    elif unit == "24-HR":
+        df = pd.concat([_days(2019, 40.0), _days(2020, 120.0)], ignore_index=True)
+    else:
+        df = _rows("MONTH", [(_month_end(y, m), v) for y, v in ((2019, 40.0), (2020, 120.0))
+                             for m in range(1, 13)])
+    calls = []
+    real = dv._date_text
+
+    def counting(col):
+        calls.append(len(col))
+        return real(col)
+
+    monkeypatch.setattr(dv, "_date_text", counting)
+    background = dict.fromkeys(df["date"], 1.0)
+    report = naaqs_compliance_report("NO2_annual", df, background=background,
+                                     no2_annual=form)
+    expected = 121.0 if form == "highest_year" else 81.0
+    assert report["design_value"].tolist() == [pytest.approx(expected)]
+    # once for the background's keys, once for the frame's dates
+    assert calls == [len(background), len(df)]
+
+
+def test_a_background_on_a_frame_with_repeated_index_labels_is_matched_by_row():
+    # pd.concat without ignore_index repeats index labels; the dates read
+    # for the background must still line up row by row with the design value.
+    df = pd.concat([_hours(2019, 40.0), _hours(2020, 120.0)])
+    assert df.index.duplicated().any()
+    background = {d: (1.0 if d.startswith("19") else 2.0) for d in df["date"]}
+    report = naaqs_compliance_report("NO2_annual", df, background=background)
+    assert report["design_value"].tolist() == [pytest.approx(122.0)]
+
+
+# ----------------------------------------------------------------------
+# A binary ANNUAL POSTFILE is an ANNUAL value, not N-hour blocks
+# ----------------------------------------------------------------------
+
+def _binary_annual(tmp_path, numyrs: int, values=(40.0, 120.0)):
+    """A binary (UNFORM) ANNUAL POSTFILE as PSTANN in output.f writes it.
+
+    One Fortran sequential record: KURDAT (the run's last hour), NUMYRS,
+    the group ID (CHARACTER*8) and one REAL*8 per receptor, between two
+    4-byte record-length markers.
+    """
+    import struct
+
+    payload = struct.pack("<ii8s", 21123124, numyrs, b"ALL     ")
+    payload += struct.pack(f"<{len(values)}d", *values)
+    marker = struct.pack("<i", len(payload))
+    path = tmp_path / "annual.bin"
+    path.write_bytes(marker + payload + marker)
+    return path
+
+
+def test_a_binary_multi_year_annual_postfile_is_refused_like_the_text_one(tmp_path):
+    from pyaermod.postfile import read_postfile
+
+    path = _binary_annual(tmp_path, 5)
+    # The file cannot say whether 5 is NUMYRS or a PERIOD's hours.
+    with pytest.raises(ValueError, match="averaging_period"):
+        read_postfile(path)
+    binary = read_postfile(path, averaging_period="ANNUAL").data
+    text = _annual_postfile(tmp_path, "00000005")
+    assert binary["ave"].tolist() == text["ave"].tolist()
+    assert binary["date"].tolist() == text["date"].tolist()
+    with pytest.raises(ValueError, match="lower bound") as caught:
+        naaqs_compliance_report("NO2_annual", binary)
+    assert "5 years" in str(caught.value)
+    report = naaqs_compliance_report("NO2_annual", binary, no2_annual="multi_year_mean")
+    assert report["design_value"].tolist() == [pytest.approx(40.0), pytest.approx(120.0)]
+
+
+def test_a_binary_one_year_annual_postfile_is_the_design_value(tmp_path):
+    from pyaermod.postfile import read_postfile
+
+    binary = read_postfile(_binary_annual(tmp_path, 1), averaging_period="ANNUAL").data
+    report = naaqs_compliance_report("NO2_annual", binary)
+    assert report["design_value"].tolist() == [pytest.approx(40.0), pytest.approx(120.0)]
+
+
+@pytest.mark.parametrize("form", ["highest_year", "multi_year_mean"])
+@pytest.mark.parametrize("ave", ["5-HR", "720-HR", "0-HR", "48-HR"])
+def test_an_hour_count_aermod_never_averages_over_is_refused(form, ave):
+    # AERMOD's short-term periods are 1, 2, 3, 4, 6, 8, 12 and 24 hours; a
+    # frame labelled otherwise is a binary ANNUAL or PERIOD file whose
+    # NUMYRS or hours were read as an averaging period.
+    df = _rows(ave, [("21123124", 40.0)])
+    with pytest.raises(ValueError, match="averaging_period='ANNUAL'") as caught:
+        naaqs_compliance_report("NO2_annual", df, no2_annual=form)
+    message = str(caught.value)
+    assert ave in message
+    assert "1, 2, 3, 4, 6, 8, 12" in message

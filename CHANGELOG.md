@@ -99,6 +99,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The unformatted (binary) POSTFILE reader labelled every record with the
+  first record's averaging period and called an ANNUAL record over five
+  years "5-HR", so a multi-year ANNUAL average could pass for hourly data.
+  Each record is now labelled on its own; `read_postfile(path,
+  averaging_period="ANNUAL")` (or `"PERIOD"`) reads ANNUAL and PERIOD files
+  as the text reader does, with the year or hour count in `date`; a record
+  that cannot be told apart without it raises, and a file with one record
+  per group warns. Output readers read the `NaN` and `Infinity` gfortran
+  writes. `add_background` accepts numpy scalars.
 - `SO BACKGRND` with a temporal flag kept only the first value
   (`SEASON 1 2 3 4` became `SEASON 1`), and a line continuing a profile
   became an entry of its own. Every value is now read, a profile continued

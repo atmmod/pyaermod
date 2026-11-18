@@ -17,6 +17,10 @@ AERMOD unformatted POSTFILE (UNFORM):
     - Fortran unformatted sequential records.
     - Each record contains: KURDAT (int32), IANHRS (int32), GRPID (char*8),
       then one block of num_receptors float64 values per output type.
+    - IANHRS is the hours in a short-term record's averaging period, the
+      number of hours in the run for a PERIOD record and the number of
+      years (NUMYRS) for an ANNUAL one, so it does not always say which
+      kind of record it is (see :class:`UnformattedPostfileParser`).
     - Receptor coordinates are NOT stored in the binary file; they must be
       supplied externally or default to index-based values.
 
@@ -39,7 +43,7 @@ import struct
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
@@ -69,6 +73,42 @@ _LABEL_TYPES = {
 }
 
 OutputTypesArg = Union[str, Iterable[str], None]
+
+#: The hours of the short-term averaging periods AERMOD accepts on
+#: AVERTIME (``AVETIM`` in coset.f); each divides the day evenly.
+SHORT_TERM_HOURS: Tuple[int, ...] = (1, 2, 3, 4, 6, 8, 12, 24)
+
+#: KAVE for a MONTH average (``AVETIM`` in coset.f), which a binary record
+#: holds where a short-term one holds its hours.
+_MONTH_HOURS = 720
+
+#: NUMYRS counts years of met data, so an ANNUAL record's count is small;
+#: a count from here up can only be the hours of a PERIOD run.
+_PERIOD_ONLY_HOURS = 100
+
+
+def _normalize_averaging_period(period: Union[str, int, None]) -> Optional[str]:
+    """
+    Return *period* as AERMOD's AVE column writes it, or *None*.
+
+    Accepts an AVERTIME keyword (``"1"``, ``"24"``, ``"MONTH"``,
+    ``"PERIOD"``, ``"ANNUAL"``), its POSTFILE label (``"1-HR"``) or a
+    number of hours, in any case; returns ``"1-HR"`` ... ``"24-HR"``,
+    ``"MONTH"``, ``"PERIOD"`` or ``"ANNUAL"``.
+    """
+    if period is None:
+        return None
+    text = "" if isinstance(period, bool) else str(period).strip().upper()
+    if text in ("MONTH", "PERIOD", "ANNUAL"):
+        return text
+    match = re.fullmatch(r"(\d+)(?:-HR)?", text)
+    if match and int(match.group(1)) in SHORT_TERM_HOURS:
+        return f"{int(match.group(1))}-HR"
+    raise ValueError(
+        f"averaging_period={period!r} is not an averaging period AERMOD "
+        "writes: 1, 2, 3, 4, 6, 8, 12 or 24 (hours, or '1-HR' ... '24-HR'), "
+        "'MONTH', 'PERIOD' or 'ANNUAL'"
+    )
 
 
 def _normalize_output_types(output_types: OutputTypesArg) -> Optional[Tuple[str, ...]]:
@@ -698,6 +738,30 @@ class UnformattedPostfileParser:
         AVEVAL()  — float64 × num_receptors × NUMTYP
         [4-byte record-length marker]
 
+    A short-term record (``POSTFL`` in calc2.f) holds the hour its block
+    average ends and ``KAVE``, the hours in its averaging period (1, 2, 3,
+    4, 6, 8, 12 or 24, or 720 for MONTH). A PERIOD or ANNUAL record
+    (``PSTANN`` in output.f) holds the run's last hour and, in the same
+    field, the number of hours in the run (PERIOD) or of years (ANNUAL,
+    NUMYRS). The text POSTFILE labels these rows ``PERIOD`` or ``ANNUAL``
+    and writes the count where the date would be (``I8.8``, so five years
+    read ``00000005``); this parser gives a binary file the same ``ave`` and
+    ``date``.
+
+    The record does not say which kind it is, so *averaging_period* names
+    it. Without it each record is read as:
+
+    - ``N-HR`` (or ``MONTH`` for 720) when IANHRS is a short-term period
+      and KURDAT is an hour that period's blocks end on (a 3-HR block ends
+      at hour 3, 6, ... 24; a MONTH at hour 24). An ANNUAL file over 1, 2,
+      3, 4, 6, 8, 12 or 24 years, or a PERIOD file of that many hours ending
+      on such an hour, reads this way too, so when every source group has
+      just one record, as in an ANNUAL or PERIOD file, a ``UserWarning``
+      asks for *averaging_period*.
+    - ``PERIOD`` when IANHRS is 100 or more: no run has that many years.
+    - Otherwise ``ValueError``: the record is ANNUAL or PERIOD, and only
+      the caller knows which.
+
     The values come in one block of num_receptors per output type, in
     AERMOD's order CONC, DEPOS, DDEP, WDEP (``POSTFL`` in calc2.f writes
     ``((AVEVAL(IREC,IGRP,IAVE,ITYP),IREC=1,NUMREC),ITYP=1,NUMTYP)``). The
@@ -737,6 +801,14 @@ class UnformattedPostfileParser:
         type.  With *output_types*, a receptor count that disagrees with
         the record catches a wrong set of types that still divides the
         record evenly.
+    averaging_period : str or int, optional
+        The file's averaging period, as on the POSTFILE keyword: ``"1"``
+        ... ``"24"`` (or ``"1-HR"`` ... ``"24-HR"``), ``"MONTH"``,
+        ``"PERIOD"`` or ``"ANNUAL"``.  ``"PERIOD"`` and ``"ANNUAL"`` label
+        every record so and put its IANHRS (hours, or NUMYRS) in ``date``
+        as the text POSTFILE does; a short-term period or MONTH must match
+        every record's IANHRS.  Without it the period is read from each
+        record as described above.
 
     Raises
     ------
@@ -751,12 +823,14 @@ class UnformattedPostfileParser:
         receptor_coords: Optional[List[Tuple[float, float]]] = None,
         has_deposition: Optional[bool] = None,
         output_types: OutputTypesArg = None,
+        averaging_period: Union[str, int, None] = None,
     ):
         self.filepath = Path(filepath)
         if not self.filepath.exists():
             raise FileNotFoundError(
                 f"POSTFILE not found: {self.filepath}"
             )
+        self.averaging_period = _normalize_averaging_period(averaging_period)
         self.num_receptors = num_receptors
         self.receptor_coords = receptor_coords
         self.has_deposition = has_deposition
@@ -858,16 +932,22 @@ class UnformattedPostfileParser:
             info; ``version``, ``title``, ``model_options``, and
             ``pollutant_id`` are set to *None* (not present in binary format).
             ``output_types`` is set when the caller gave the types or the
-            record size settled them.
+            record size settled them.  ``ave`` and ``date`` are as the
+            text POSTFILE writes them (see the class notes on PERIOD and
+            ANNUAL records); ``header.averaging_period`` is the first
+            record's ``ave``.
 
             A file with more than one output type has one column per type
             (``concentration``, ``total_depo``, ``dry_depo``,
             ``wet_depo``); a file with one keeps it in ``concentration``.
         """
         data_rows: list = []
-        header = PostfileHeader()
+        header = PostfileHeader(averaging_period=self.averaging_period)
         types: Optional[Tuple[str, ...]] = None
         value_cols: Optional[List[str]] = None
+        # Records per source group, and the labels read from IANHRS
+        records: Dict[str, int] = {}
+        inferred: Set[Tuple[str, int]] = set()
 
         with open(self.filepath, "rb") as f:
             while True:
@@ -880,15 +960,15 @@ class UnformattedPostfileParser:
                 grpid = record["grpid"]
                 values = record["values"]
 
+                ave, date_str = self._label(kurdat_int, ianhrs)
+                records[grpid] = records.get(grpid, 0) + 1
+                if self.averaging_period is None:
+                    inferred.add((ave, ianhrs))
+
                 # --- Layout from the first record ------------------------
                 if value_cols is None:
                     header.source_group = grpid
-                    if ianhrs == 1:
-                        header.averaging_period = "1-HR"
-                    elif ianhrs == 24:
-                        header.averaging_period = "24-HR"
-                    else:
-                        header.averaging_period = f"{ianhrs}-HR"
+                    header.averaging_period = ave
                     types = self._resolve_types(len(values))
                     header.output_types = types
                     value_cols = _value_columns(types, len(types) if types else 1)
@@ -902,8 +982,6 @@ class UnformattedPostfileParser:
                         f"Expected {expected} floats per record but "
                         f"got {len(values)}"
                     )
-
-                date_str = self._kurdat_to_str(kurdat_int)
 
                 # Resolve receptor coordinates (_resolve_types has checked
                 # that a caller's list has one pair per receptor)
@@ -921,11 +999,14 @@ class UnformattedPostfileParser:
                         "zelev": 0.0,
                         "zhill": 0.0,
                         "zflag": 0.0,
-                        "ave": header.averaging_period or "1-HR",
+                        "ave": ave,
                         "grp": grpid,
                         "date": date_str,
                     })
                     data_rows.append(row)
+
+        if records and all(n == 1 for n in records.values()):
+            self._warn_one_record(inferred)
 
         if data_rows:
             df = pd.DataFrame(data_rows)
@@ -944,6 +1025,58 @@ class UnformattedPostfileParser:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _label(self, kurdat: int, ianhrs: int) -> Tuple[str, str]:
+        """
+        The ``ave`` and ``date`` of a record, as the text POSTFILE has them.
+
+        PERIOD and ANNUAL rows have the record's IANHRS (hours, or NUMYRS)
+        where a short-term row has its date, written as ``I8.8``.
+        """
+        given = self.averaging_period
+        if given in ("PERIOD", "ANNUAL"):
+            return given, f"{ianhrs:08d}"
+        date = self._kurdat_to_str(kurdat)
+        if given is not None:
+            hours = _MONTH_HOURS if given == "MONTH" else int(given.split("-")[0])
+            if ianhrs != hours:
+                raise ValueError(
+                    f"averaging_period={given!r} but the record at {date} holds "
+                    f"IANHRS={ianhrs}, where a {given} record holds {hours}; "
+                    "a PERIOD or ANNUAL record holds the run's hours or years"
+                )
+            return given, date
+        hour = kurdat % 100
+        if ianhrs in SHORT_TERM_HOURS and hour % ianhrs == 0:
+            return f"{ianhrs}-HR", date
+        if ianhrs == _MONTH_HOURS and hour % 24 == 0:
+            return "MONTH", date
+        if ianhrs >= _PERIOD_ONLY_HOURS:
+            return "PERIOD", f"{ianhrs:08d}"
+        raise ValueError(
+            f"{self.filepath.name}: the record at {date} holds IANHRS={ianhrs}, "
+            "which is not a short-term averaging period ending at that hour "
+            "(1, 2, 3, 4, 6, 8, 12 or 24 hours, or 720 for MONTH). It is an "
+            "ANNUAL record (IANHRS is NUMYRS, the years averaged) or a PERIOD "
+            "one (the hours in the run), and a binary POSTFILE does not say "
+            "which; pass averaging_period='ANNUAL' or averaging_period='PERIOD'"
+        )
+
+    def _warn_one_record(self, inferred: Set[Tuple[str, int]]) -> None:
+        """Warn that a file of one record per group may be ANNUAL or PERIOD."""
+        short = sorted((ianhrs, ave) for ave, ianhrs in inferred if ave != "PERIOD")
+        if not short:
+            return
+        ianhrs, ave = short[0]
+        plural = "" if ianhrs == 1 else "s"
+        warnings.warn(
+            f"{self.filepath.name} holds one record per source group, as an "
+            f"ANNUAL or PERIOD POSTFILE does, and its IANHRS of {ianhrs} was "
+            f"read as {ave}; an ANNUAL file over {ianhrs} year{plural}, or a "
+            f"PERIOD of {ianhrs} hour{plural}, holds the same. Pass "
+            f"averaging_period ('{ave}', 'ANNUAL' or 'PERIOD') to say which.",
+            stacklevel=3,
+        )
 
     def _read_record(self, f) -> Optional[dict]:
         """
@@ -1068,6 +1201,7 @@ def read_postfile(
     receptor_coords: Optional[List[Tuple[float, float]]] = None,
     has_deposition: Optional[bool] = None,
     output_types: OutputTypesArg = None,
+    averaging_period: Union[str, int, None] = None,
 ) -> PostfileResult:
     """
     Parse an AERMOD POSTFILE and return the result.
@@ -1098,6 +1232,14 @@ def read_postfile(
         does a text file written without a header that has two or three
         value columns.  A text file with a header names its types there,
         and a different *output_types* raises ``ValueError``.
+    averaging_period : str or int, optional
+        Binary files only: the file's averaging period, as on its POSTFILE
+        keyword (``"1"`` ... ``"24"``, ``"MONTH"``, ``"PERIOD"``,
+        ``"ANNUAL"``).  A binary record holds the hours of a short-term
+        period, the hours of a PERIOD run or the years of an ANNUAL one in
+        the same field, so an ANNUAL or PERIOD file needs it to be labelled
+        as its text POSTFILE is (see :class:`UnformattedPostfileParser`).
+        Ignored for text files, which name the period in every row.
 
     Returns
     -------
@@ -1117,5 +1259,6 @@ def read_postfile(
             receptor_coords=receptor_coords,
             has_deposition=has_deposition,
             output_types=output_types,
+            averaging_period=averaging_period,
         )
     return parser.parse()

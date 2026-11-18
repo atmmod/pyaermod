@@ -130,6 +130,30 @@ class TestAddBackground:
             add_background(df, {"05010101": 1.0, 5010101: 2.0})
 
 
+    @pytest.mark.parametrize("value", [
+        np.float32(7.0), np.float64(7.0), np.int64(7), np.int32(7), 7, 7.0,
+    ])
+    def test_a_uniform_background_may_be_any_real_number(self, value):
+        df = _hourly_postfile(years=(2020,), receptors=((1.0, 0.0),),
+                              concentration_value=5.0)
+        out = add_background(df, value)
+        assert (out["concentration"] == 12.0).all()
+
+    def test_a_uniform_background_from_numpy_reduces_a_series(self):
+        # A background read from a monitor file and averaged is a numpy scalar.
+        df = _hourly_postfile(years=(2020,), receptors=((1.0, 0.0),),
+                              concentration_value=5.0)
+        monitor = pd.Series([6.0, 8.0], dtype="float32")
+        out = add_background(df, monitor.mean())
+        assert (out["concentration"] == 12.0).all()
+
+    @pytest.mark.parametrize("value", [True, np.bool_(True), "7.0", [7.0]])
+    def test_a_background_that_is_no_number_series_or_dict_is_refused(self, value):
+        df = _hourly_postfile(years=(2020,), receptors=((1.0, 0.0),))
+        with pytest.raises(TypeError, match="background"):
+            add_background(df, value)
+
+
 class TestAnnualMean:
     @pytest.mark.parametrize("kind", [int, float])
     def test_numeric_dates_of_the_2000s_keep_their_year(self, kind):
