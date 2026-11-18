@@ -37,6 +37,10 @@ on:
         default: "true"
 
 env:
+  # Dispatch inputs reach the shell as environment variables, never as
+  # ${{ }} text inside a run script, so quotes in them cannot become code.
+  KEYWORDS: ${{ inputs.keywords }}
+  PYTEST_ARGS: ${{ inputs.pytest_args }}
   AERMOD_SOURCE_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
   AERMOD_TESTCASES_URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip"
 
@@ -83,8 +87,10 @@ jobs:
           echo "source dir: $dir"
 
       - name: Fortran for each keyword
+        env:
+          SRC_DIR: ${{ steps.src.outputs.dir }}
         run: |
-          python scripts/keyword_oracle.py source "/tmp/aermod_build/${{ steps.src.outputs.dir }}" ${{ inputs.keywords }}
+          python scripts/keyword_oracle.py source "/tmp/aermod_build/$SRC_DIR" $KEYWORDS
 
       - name: Compile AERMOD
         run: |
@@ -101,9 +107,13 @@ jobs:
       - name: Fetch EPA test decks
         id: testdecks
         # EPA's server sometimes stalls; the probe decks below need
-        # only the met files in the repository, so they still run.
-        timeout-minutes: 10
+        # only the met files in the repository, so they still run. Three
+        # attempts of at most 4 minutes each fit inside the step's limit.
+        timeout-minutes: 15
         continue-on-error: true
+        env:
+          FETCH_ATTEMPTS: "3"
+          FETCH_MAX_TIME: "240"
         run: |
           set -euo pipefail
           mkdir -p /tmp/epa_tc && cd /tmp/epa_tc
@@ -123,7 +133,7 @@ jobs:
       - name: EPA decks using each keyword
         if: steps.testdecks.outcome == 'success'
         run: |
-          python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs ${{ inputs.keywords }}
+          python scripts/keyword_oracle.py decks test_cases/aermet26135_aermod26135/inputs $KEYWORDS
 
       - name: Run probe decks
         if: inputs.run_probe_decks == 'true'
@@ -133,7 +143,7 @@ jobs:
       - name: Fail when a requested pytest selection could not run
         if: inputs.pytest_args != '' && steps.testdecks.outcome != 'success'
         run: |
-          echo "::error::EPA's test decks were not fetched, so the pytest selection '${{ inputs.pytest_args }}' did not run."
+          echo "::error::EPA's test decks were not fetched, so the requested pytest selection did not run: $PYTEST_ARGS"
           exit 1
 
       - name: Run pytest selection with the binary on PATH
@@ -143,4 +153,4 @@ jobs:
         if: inputs.pytest_args != '' && steps.testdecks.outcome == 'success'
         run: |
           PATH="$PWD/bin:$PATH" python -m pytest -o addopts="" -p no:cacheprovider \
-            --strict-markers --tb=short -rA ${{ inputs.pytest_args }}
+            --strict-markers --tb=short -rA $PYTEST_ARGS
