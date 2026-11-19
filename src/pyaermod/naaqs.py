@@ -160,7 +160,9 @@ def get_naaqs(pollutant: str, averaging_period: str) -> NAAQSStandard:
     # Table keys are the conventional spellings ("PM2.5", "Pb"), so match
     # case-insensitively rather than upper-casing the caller's string --
     # "Pb".upper() is "PB", which is not a key.
+    # AERMOD POLLUTID spellings (PM25, PB) map to the table keys.
     key = pollutant.strip().upper()
+    key = _POLLUTID_KEYS.get(key, key).upper()
     rows = next(
         (v for k, v in NAAQS_TABLE.items() if k.upper() == key), None
     )
@@ -189,7 +191,7 @@ _AVERTIME_TOKENS = {
 }
 
 #: AERMOD's ``POLLUTID`` spellings that differ from the table's keys.
-_POLLUTID_KEYS = {"PM25": "PM2.5", "PB": "Pb"}
+_POLLUTID_KEYS = {"PM25": "PM2.5", "PM-2.5": "PM2.5", "PB": "Pb", "LEAD": "Pb"}
 
 
 def naaqs_averaging_periods(pollutant: str) -> list[str]:

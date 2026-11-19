@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from .aersurface import AERSURFACEConfig
-from .runner import _dir_state, _files_written, _read_capped
+from .runner import _dir_state, _files_written, _read_capped, _run_tree
 
 
 @dataclass
@@ -171,13 +171,12 @@ class AERSURFACERunner:
         )
         try:
             try:
-                proc = subprocess.run(
+                proc = _run_tree(
                     [str(self.executable)],
                     cwd=str(work),
                     text=True,
                     stdout=stdout_fh, stderr=stderr_fh,
                     timeout=timeout,
-                    check=False,
                 )
             except subprocess.TimeoutExpired as e:
                 end = datetime.now()
@@ -197,18 +196,31 @@ class AERSURFACERunner:
 
         out = _read_capped(stdout_path, 1_000_000)
         err = _read_capped(stderr_path, 1_000_000)
-        # AERSURFACE sometimes exits 0 even with FATAL messages logged.
-        success = proc.returncode == 0 and "FATAL" not in out.upper()
         outputs = _files_written(work, before)
+        # AERSURFACE sometimes exits 0 even with FATAL messages logged, and
+        # an exit code says nothing about the table it was asked to write:
+        # a run succeeds when it exits 0, says nothing fatal on either
+        # stream, and the surface-characteristics file is there, non-empty
+        # and written by this run (a relative name is the work directory's).
+        sfc = work / config.sfcchar_file
+        sfc_written = (str(sfc) in outputs and sfc.is_file()
+                       and sfc.stat().st_size > 0)
+        fatal = "FATAL" in (out + "\n" + err).upper()
+        success = proc.returncode == 0 and not fatal and sfc_written
+        if success:
+            error = None
+        elif proc.returncode != 0 or fatal:
+            error = "AERSURFACE reported FATAL or non-zero exit"
+        else:
+            error = (f"AERSURFACE wrote no {config.sfcchar_file} "
+                     "(missing, empty or left over from an earlier run)")
         return AERSURFACERunResult(
             success=success,
             input_file=str(deck_path),
             return_code=proc.returncode,
             runtime_seconds=(end - start).total_seconds(),
             stdout=out, stderr=err, output_files=outputs,
-            error_message=(
-                None if success else "AERSURFACE reported FATAL or non-zero exit"
-            ),
+            error_message=error,
             start_time=start, end_time=end,
         )
 

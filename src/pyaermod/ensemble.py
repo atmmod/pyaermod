@@ -986,7 +986,9 @@ def run_design(
     by_id: Dict[str, int] = {}
 
     for index, factors in enumerate(design):
-        project = copy.deepcopy(build_fn(dict(factors)))
+        # build_fn gets its own deep copy, so a nested value it mutates
+        # cannot change the run ID or the caller's rows.
+        project = copy.deepcopy(build_fn(copy.deepcopy(factors)))
         met_sha: Dict[str, str] = {}
         met_src: Dict[str, Path] = {}
         input_sha: Dict[str, str] = {}
@@ -1071,7 +1073,7 @@ def run_design(
             git_dirty=dirty,
             pyaermod_version=pyaermod_version,
         )
-        plan = _Planned(index, rid, dict(factors), run_dir, deck_text, entry,
+        plan = _Planned(index, rid, copy.deepcopy(factors), run_dir, deck_text, entry,
                         list(link_name.items()))
         plan.done = resume and _is_done(manifest.entries.get(rid), plan)
         plans.append(plan)

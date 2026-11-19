@@ -64,14 +64,16 @@ class TestApply:
         assert project.control.terrain_type == "ELEV"
 
     def test_apply_disables_nondefault_flags(self):
-        project = _make_project()
-        project.control.flat_terrain = True
-        project.control.no_stack_tip_downwash = True
+        # The real switches (these tests once set attributes ControlPathway
+        # does not have, so the profile never acted on a real project).
+        project = _make_project(extra_model_options=["FLAT", "NOSTD", "FASTAREA"],
+                                beta=True)
         changes = EPA_APPENDIX_W_2017.apply(project)
         assert any("flat_terrain" in c for c in changes)
         assert any("no_stack_tip_downwash" in c for c in changes)
-        assert project.control.flat_terrain is False
-        assert project.control.no_stack_tip_downwash is False
+        assert any("beta_options" in c for c in changes)
+        assert project.control.extra_model_options == ["FASTAREA"]
+        assert project.control.beta is False
 
     def test_apply_is_idempotent(self):
         project = _make_project()
@@ -97,10 +99,19 @@ class TestCheck:
         assert any("terrain_type" in w for w in warnings)
 
     def test_forbidden_flag_warns(self):
-        project = _make_project()
-        project.control.use_lowwind1 = True
+        project = _make_project(extra_model_options=["LOWWIND1"])
         warnings = EPA_APPENDIX_W_2017.check(project)
         assert any("use_lowwind1" in w for w in warnings)
+
+    def test_custom_profile_forbids_a_modelopt_token(self):
+        profile = RegulatoryProfile(name="X", description="",
+                                    forbid_nondefault_flags=("FASTAREA", "psd_credit"))
+        project = _make_project(extra_model_options=["fastarea"], psd_credit=True,
+                                terrain_type="ELEV")
+        assert len(profile.check(project)) == 2
+        profile.apply(project)
+        assert project.control.extra_model_options == []
+        assert project.control.psd_credit is False
 
     def test_disallowed_low_wind_warns(self):
         project = _make_project(low_wind_option="LOWWIND1")
