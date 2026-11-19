@@ -41,6 +41,7 @@ MAKEMET), ``scripts/build_aermod.sh`` (AERMOD and AERMAP) and
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -57,7 +58,7 @@ from .aerscreen import (
     AERSCREENSummary,
     parse_aerscreen_output,
 )
-from .runner import _dir_state, _files_written, _read_capped
+from .runner import _dir_state, _files_written, _read_capped, _run_tree
 
 #: The programs AERSCREEN spawns, and the marker file it checks for each.
 _HELPERS = {
@@ -362,6 +363,20 @@ class AERSCREENRunner:
         env["PATH"] = str(work) + os.pathsep + env.get("PATH", "")
 
         self.logger.info(f"Running AERSCREEN ({mode}): {input_path} (workdir={work})")
+        # AERSCREEN's verdict is read from its log and output, and its exit
+        # code is 0 even after a validation error: files an earlier run left
+        # in this directory must not stand in for this run's.
+        stem = config.output_file[:-4]
+        for stale in (
+            _written_file(work, config.output_file),
+            _written_file(work, stem + ".log", "aerscreen.log"),
+            _written_file(work, "max_conc_distance.txt"
+                          if config.output_file.upper() == "AERSCREEN.OUT"
+                          else stem + "_max_conc_distance.txt"),
+        ):
+            if stale is not None:
+                with contextlib.suppress(OSError):
+                    stale.unlink()
         start = datetime.now()
         before = _dir_state(work)
         stdout_path = work / "aerscreen.subproc.stdout"
@@ -376,7 +391,7 @@ class AERSCREENRunner:
         )
         try:
             try:
-                proc = subprocess.run(
+                proc = _run_tree(
                     [str(self.executable)],
                     cwd=str(work),
                     env=env,
@@ -384,7 +399,6 @@ class AERSCREENRunner:
                     text=True,
                     stdout=stdout_fh, stderr=stderr_fh,
                     timeout=timeout,
-                    check=False,
                 )
             except subprocess.TimeoutExpired as e:
                 end = datetime.now()
@@ -404,7 +418,6 @@ class AERSCREENRunner:
 
         out = _read_capped(stdout_path, 1_000_000)
         err = _read_capped(stderr_path, 1_000_000)
-        stem = config.output_file[:-4]
         # Each file is reported as AERSCREEN spelled it, whatever the case
         # of the name asked for (see _written_file).
         output_path = _written_file(work, config.output_file)
