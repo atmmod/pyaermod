@@ -11,6 +11,42 @@ A review of the whole codebase (2026-11-18) checked the library against
 AERMOD's Fortran and the v24142 and v26135 binaries. The fixes below came
 out of it; each has a test that failed before the fix.
 
+### GUI (`pyaermod-app` and the browser app)
+
+- **Unsaved work.** Import deck, Read deck and Recent files ask before
+  replacing a modified project or stopping a run, as New and Open do.
+  The browser asks before a tab with unsaved changes or a run in progress
+  is closed or reloaded. In the browser app, a reload no longer clears
+  "(modified)".
+- **Editors.** The source and receptor editors stay open on Esc and on a
+  click outside, with Cancel and Save. Vertex lists read `x y` as AERMOD
+  writes it, as well as commas and semicolons, and list the lines they
+  cannot read. An emptied required number, a blank or duplicate ID, an
+  ID with a blank in it and an ID over 12 characters refuse Save. Each
+  editor lists the validator's findings for its item.
+- **Results** say when the project has changed since the run they show.
+- **NAAQS comparison.** A value from a record shorter than the form needs
+  reads "Not a design value", with the number of days, and every verdict
+  says when the run added no background concentration.
+- **Readiness.** The header, the step badges and Review & Run read one
+  source and no longer disagree. A missing met file blocks the run before
+  AERMOD starts. A station ID or year that differs from the surface file
+  is a warning with a "Use the file's values" button.
+- **Run files.** Each run writes its own deck and `.out` file
+  (`pyaermod_gui_runN.inp`), so a reused working directory cannot show one
+  run's results under another's name.
+- **Large grids.** The plan view counts and samples grid points, so a
+  mistyped grid count no longer freezes the server.
+- A reloaded page rejoins the run in progress. Downloads and KMZ export
+  run off the event loop. Temporary run folders are removed when no
+  session lists the run.
+
+### Documentation
+
+- The documentation was checked against the code and shortened by about
+  1,100 lines: wrong counts, option names and examples are corrected,
+  and each topic is described in one place.
+
 ### Changed
 
 - **Exported source geometry is different, because the old output was

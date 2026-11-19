@@ -1,6 +1,6 @@
 """J5: import EPA's AERTEST deck with its met files, run it and open Results.
 
-What the user must see (PLAN-gui.md): the steps are populated from the
+What the user must see (.10x/plans/PLAN-gui.md): the steps are populated from the
 deck, the run succeeds, and the 1-hour plot-file values match EPA's
 ``AERTEST_01H.PLT`` within the tolerance ``tests/test_real_aermod.py``
 uses. Tier T2 replays recording ``aertest``; tier T3 runs the real binary.

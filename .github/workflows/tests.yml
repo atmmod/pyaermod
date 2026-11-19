@@ -118,7 +118,7 @@ jobs:
         run: pytest --tb=short -q -p no:cacheprovider --no-cov
 
   gui-e2e:
-    # The GUI's end-to-end journeys (PLAN-gui.md, tier T2): Chromium drives
+    # The GUI's end-to-end journeys (.10x/plans/PLAN-gui.md, tier T2): Chromium drives
     # a real GUI server, and AERMOD is replayed from the recordings in
     # tests/fixtures/gui/aermod_recordings. A step the current GUI cannot
     # do is a known gap and shows as xfailed; -rxX lists each one with the
@@ -147,7 +147,7 @@ jobs:
 
       - name: Upload the screenshot of every journey step
         # Reviewers look at these on every PR, and the GUI guide's
-        # screenshots come from them (PLAN-gui.md, rule 4).
+        # screenshots come from them (.10x/plans/PLAN-gui.md, rule 4).
         if: always()
         uses: actions/upload-artifact@v4
         with:

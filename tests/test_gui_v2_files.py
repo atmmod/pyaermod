@@ -3,7 +3,7 @@
 The app shell runs in-process under ``nicegui.testing.User`` through the
 ``gui`` fixture of :mod:`tests.test_gui_v2_smoke`, and every test asserts
 what the user sees: notifications, the import notice, table rows and
-field values (PLAN-gui.md, "Rules for every GUI test"). Uploads are sent
+field values (.10x/plans/PLAN-gui.md, "Rules for every GUI test"). Uploads are sent
 through the Import control's own uploader, as the browser sends them.
 
 The acceptance test of WP-G6 is :func:`test_every_epa_deck_uploads_or_says_why_not`:

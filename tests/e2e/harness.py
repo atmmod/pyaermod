@@ -3,7 +3,7 @@
 The fixtures in ``conftest.py`` wire these together; journeys only see the
 page objects in ``pages.py``, ``step`` and ``known_gap``.
 
-Tiers (PLAN-gui.md, "Test strategy"):
+Tiers (.10x/plans/PLAN-gui.md, "Test strategy"):
 
 * **T2** (default): the GUI server finds ``fake_aermod.py`` as ``aermod``
   on its ``PATH``, replaying the recording a test names with

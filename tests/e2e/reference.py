@@ -1,4 +1,4 @@
-"""The "Albany stack" reference scenario of PLAN-gui.md, as a user enters it.
+"""The "Albany stack" reference scenario of .10x/plans/PLAN-gui.md, as a user enters it.
 
 ``scripts/record_aermod_fixtures.py`` builds the same scenario with the
 library; the fake AERMOD checks that what the GUI writes from these UI

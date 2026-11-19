@@ -5,7 +5,7 @@ The GUI's end-to-end journeys (``tests/e2e/``) replace AERMOD with a fake
 that *replays* these recordings: the stdout, the exit code and every file
 the binary wrote. Replaying the real binary's behaviour, rather than
 hand-writing it, is what lets the journeys catch the defects the
-hand-written fakes hid (PLAN-gui.md, D1: AERMOD aborts with fatal error
+hand-written fakes hid (.10x/plans/PLAN-gui.md, D1: AERMOD aborts with fatal error
 E480 and still exits with code 0).
 
 Each scenario's deck is built with the library exactly as the GUI writes
@@ -85,7 +85,7 @@ AERTEST_REWRITES = {
 # ---------------------------------------------------------------------------
 
 def _albany_project(averaging_periods: List[str], surface_file: str):
-    """The "Albany stack" reference scenario of PLAN-gui.md."""
+    """The "Albany stack" reference scenario of .10x/plans/PLAN-gui.md."""
     from pyaermod.gui_v2.state import _empty_project
     from pyaermod.input_generator import PointSource, PolarGrid, PollutantType
 
@@ -154,7 +154,7 @@ def _scenarios() -> Dict[str, Scenario]:
         "albany_success": Scenario(
             name="albany_success",
             description=(
-                "PLAN-gui.md reference scenario (Albany stack) with averaging "
+                ".10x/plans/PLAN-gui.md reference scenario (Albany stack) with averaging "
                 "periods 1, 3, 24 and PERIOD. Runs to completion."
             ),
             met_files=ALBANY_MET,

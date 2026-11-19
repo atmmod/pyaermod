@@ -9,7 +9,7 @@ browser, no selenium. Each test:
 3. opens ``/`` and interacts with the rendered elements.
 
 Tests assert what the user sees: widget values, table rows, labels,
-notifications and the header (PLAN-gui.md, "Rules for every GUI test").
+notifications and the header (.10x/plans/PLAN-gui.md, "Rules for every GUI test").
 The browser tab's :class:`~pyaermod.gui_v2.session.Session` is captured by
 wrapping ``app._session_for``, and assertions on it only supplement the
 visible ones. A second ``gui.open()`` on the same simulated user is a

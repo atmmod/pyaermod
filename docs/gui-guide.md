@@ -99,7 +99,8 @@ file format (`pyaermod.gui_v2.project_io`) is versioned, so files from
 earlier versions still open.
 
 **Import an AERMOD deck** — **Import deck...** reads an existing `.inp`
-deck into the project, replacing it without asking, so save first. In
+deck into the project. If the project has unsaved changes, or AERMOD
+is running, it asks first, as New and Open do. In
 the browser the deck is uploaded and brings none of the files it names;
 one whose paths lead outside its own folder is refused, with those paths
 listed. In the desktop app, or with **Deck file path** and **Read deck**
@@ -111,7 +112,8 @@ pickers for the met files that were not. The imported project has no
 file yet; the header shows the deck's name.
 
 **Recent files** — up to ten projects and decks opened, saved or
-imported by a path on this computer, newest first; a click reopens one.
+imported by a path on this computer, newest first; a click reopens one,
+asking first in the same way.
 The list lives in `~/.pyaermod/recent_files.json`
 (`PYAERMOD_RECENT_FILES` overrides it).
 
@@ -265,8 +267,9 @@ that stops the deck being written, the preview says so instead.
 **Run options** — the **working directory** (blank means a new temporary
 folder for each run) and the **timeout** in seconds (600 by default).
 These belong to the session, not to the project, and are not saved in
-the project file. The deck is written into the working directory as
-`pyaermod_gui.inp`, and AERMOD runs there.
+the project file. Each run writes its own deck into the working
+directory (`pyaermod_gui_run1.inp`, `pyaermod_gui_run2.inp`, ...) with
+an `.out` file of the same name, and AERMOD runs there.
 
 **The run** — AERMOD runs in the background, so the other steps, and
 other browser tabs, stay usable. A progress bar follows AERMOD's day
@@ -348,7 +351,9 @@ For a successful run the step shows, from AERMOD's own summary tables:
 ## Tips
 
 - Save your project at every checkpoint. Reloading the browser tab
-  restores it, but closing the tab or stopping the server does not.
+  restores it, but closing the tab or stopping the server does not. The
+  browser asks before a tab with unsaved changes, or with AERMOD
+  running, is closed or reloaded.
 - The working directory of a run is left in place after the run, so
   its deck, `.out` file, plot files and POSTFILEs can be used outside
   the GUI. The run history reopens the runs of this session; the GUI
