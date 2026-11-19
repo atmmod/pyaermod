@@ -5,3 +5,4 @@
 - [DISCOVERED] Tests: ~140 test files; GUI journeys under tests/e2e with Playwright against recorded AERMOD runs; real-binary tests gated by workflows (real_aermod.yml, wasm_aermod.yml).
 
 - browser-gui (see browser-gui.md, ADR-001)
+- codebase-review (see codebase-review.md)

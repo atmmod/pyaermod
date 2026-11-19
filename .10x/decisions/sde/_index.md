@@ -5,3 +5,4 @@
 ## Features
 - plan-view-hang (done, review H1)
 - browser-gui (pending design)
+- codebase-review (see codebase-review.md)

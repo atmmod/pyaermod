@@ -47,3 +47,33 @@ Blocker (non-fatal): AERMOD-wasm not buildable/downloadable here; wasm tiers ver
 | H2/H3/H5/H6 fixes | in PR #70, CI green |
 | Code review (10 findings) | verified: 9 confirmed, 1 partly refuted (.10x/reviews/2026-11-17-pr70-review-verification.md) |
 | Fixes for confirmed findings | awaiting maintainer go-ahead |
+
+## 2026-11-18: codebase-review
+**Phase:** Planning complete; review stages running. Branch `claude/codebase-review-2026-11-18`. Spec: `.10x/specs/2026-11-18-codebase-review-design.md`.
+| Item | State |
+|---|---|
+| Stage 0 tooling | running |
+| Stages 1-3 review agents | next |
+| Stage 4 verification | pending |
+| Report | pending |
+| PR1 bugs, PR2 simplifications, PR3 GUI, PR4 docs | pending |
+
+### 2026-11-18 checkpoint (paused at the maintainer's request)
+- Stage 0 done: ruff clean, mypy 60 = baseline, strict docs build passes, default suite 5,530 passed / 2 failed / 97.1% coverage on Python 3.15 (the 2 failures are being classified by a verifier).
+- Stages 1-3 and 5: 15 of 16 reviewers reported; raw findings in `.10x/reviews/2026-11-18-codebase-review-raw/`. Outstanding: gui-live (live GUI walkthrough).
+- Stage 4: verifiers v-validator, v-deck, v-run-out-geo, v-gui-reg-tools launched; verdicts and failing tests go to the session scratchpad `verify/` (not durable: copy on completion).
+- Next: collect gui-live and verdicts, write `.10x/reviews/2026-11-18-codebase-review.md`, then PR1 bugs, PR2 simplifications, PR3 GUI, PR4 docs.
+- Held for the maintainer: POLICY items in slice-f.md; moving epa_sources/epa_testcases out of the wheel; CHANGELOG archive; deleting requirements.txt and archiving PLAN-*.md.
+
+### 2026-11-19: review complete
+Report written: `.10x/reviews/2026-11-18-codebase-review.md`. All 16 reviewers and 4 verifiers done. Next: fix PRs from origin/main, one writer per file set.
+
+### 2026-11-19: bug-fix PRs open
+#72-#78 open, CI green on all that have finished. Waiting on maintainer review and merge (#77 after #76). Docs PR in progress (parts that do not depend on the fixes).
+Next after merges: follow-ups in decisions/sde/codebase-review.md, simplification PRs, CHANGELOG entries.
+
+### 2026-11-19: docs PR open
+#79 (claude/docs-accuracy-concision): accuracy fixes, one home per topic, net -1,131 lines. Fix-dependent doc lines and CHANGELOG entries for #72-#78 wait for those merges.
+
+### 2026-11-19: moved to a cloud session
+Merged: #72-#77, #79. Open: #78 (merge when green). Pushed, no PR yet: claude/changelog-and-housekeeping, claude/regulatory-text-and-met-year (WIP). Next steps: .10x/handoff.md.
