@@ -35,8 +35,9 @@ nav:
   - Quick Start: quickstart.md
   - Run in Your Browser: browser.md
   - Ten Common AERMOD Jobs: use-cases.md
-  - GUI User Guide: gui-guide.md
-  - Desktop Window: desktop.md
+  - GUI User Guide:
+      - Guide: gui-guide.md
+      - Desktop Window: desktop.md
   - Guides:
       - AERMET Tuning: aermet-tuning-guide.md
       - AERMAP Troubleshooting: aermap-troubleshooting.md
@@ -58,18 +59,17 @@ nav:
           - Glossary: teaching/student-guide/glossary.md
       - Refinery Assignments: teaching/refinery-assignments.md
       - Practice Deck (browser app): teaching/practice/README.md
-      - README: teaching/README.md
   - Validation:
       - Validation Report: validation.md
       - Design-Value Validation: design-value-validation.md
-      - Keyword Audit (v26135): keyword-audit-v26135.md
+      - Keyword Audit: keyword-audit-v26135.md
       - Benchmarks: benchmarks.md
   - Release Notes:
       - v2.3.0: release-notes/v2.3.0.md
       - v2.2.0: release-notes/v2.2.0.md
-  - How pyaermod Is Organised: architecture.md
-  - API Reference:
-      - Overview: api/index.md
+  - Reference:
+      - How pyaermod Is Organised: architecture.md
+      - API Overview: api/index.md
       - Project building:
           - input_generator (facade): api/input_generator.md
           - sources: api/sources.md
@@ -80,7 +80,7 @@ nav:
           - unparsed: api/unparsed.md
           - source_importers: api/source_importers.md
           - psd: api/psd.md
-      - Validation:
+      - Checks and regulatory:
           - validator: api/validator.md
           - validator_advanced: api/validator_advanced.md
           - regulatory: api/regulatory.md
@@ -119,7 +119,7 @@ nav:
           - prime: api/prime.md
       - Chemistry:
           - chemistry_presets: api/chemistry_presets.md
-      - Validation:
+      - EPA parity:
           - regulatory_parity: api/regulatory_parity.md
           - epa_sources: api/epa_sources.md
       - GUI:

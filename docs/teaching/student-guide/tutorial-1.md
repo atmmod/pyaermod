@@ -1,6 +1,6 @@
 # 4. Tutorial 1 — Your First Point Source
 
-**Goal:** Create a simple AERMOD input file for a single smokestack emitting
+**Goal:** Create a simple AERMOD input file (a *deck*) for a single smokestack emitting
 PM2.5, and understand what each setting means.
 
 **Time:** 15--20 minutes

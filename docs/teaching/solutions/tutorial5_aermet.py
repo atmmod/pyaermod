@@ -12,7 +12,7 @@ Usage:
 
 Outputs:
     aermet_stage1.inp  — Stage 1: Extract & QA/QC
-    aermet_stage3.inp  — METPREP (pyaermod's Stage 3): merge and boundary layer
+    aermet_stage2.inp  — Stage 2 (METPREP): merge and boundary layer
 """
 
 import argparse
@@ -115,13 +115,13 @@ def main(output_dir: str = ".") -> None:
     s1_path.write_text(s1_text)
     print(f"  Stage 1 written to {s1_path}")
 
-    # --- Stage 3 ---
+    # --- Stage 2 (METPREP) ---
     # METPREP reads the QAOUT files Stage 1 writes.
     stage3 = build_stage3(station).with_inputs_from(stage1)
     s3_text = stage3.to_aermet_input()
-    s3_path = out / "aermet_stage3.inp"
+    s3_path = out / "aermet_stage2.inp"
     s3_path.write_text(s3_text)
-    print(f"  Stage 3 written to {s3_path}")
+    print(f"  Stage 2 written to {s3_path}")
 
     # --- Verification ---
     print("\n--- Verification ---")
@@ -139,14 +139,14 @@ def main(output_dir: str = ".") -> None:
     print("    Upper Air: 72215 (Peachtree City, 33.36N 84.57W)")
     print("    Period: 2020/01/01 - 2020/12/31, Format: ISHD")
 
-    # Stage 3 checks
+    # Stage 2 checks
     assert "QAOUT      stage1_qa.out" in s3_text, "Stage 1 QAOUT input missing"
     assert "aermod.sfc" in s3_text, "SFC output file missing"
     assert "aermod.pfl" in s3_text, "PFL output file missing"
     # Verify suburban surface parameters
     assert "0.15" in s3_text, "Summer albedo (0.15) missing"
     assert "0.5" in s3_text, "Summer Bowen ratio (0.5) missing"
-    print("  Stage 3: all checks passed")
+    print("  Stage 2: all checks passed")
     print("    Output: aermod.sfc / aermod.pfl")
 
     # Print monthly surface parameters

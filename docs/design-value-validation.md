@@ -69,7 +69,7 @@ tolerance is applied.
 
 | Check | Reference file | Coverage |
 |---|---|---|
-| 1st-highest at every receptor | `plotfiles/*.PLT` | all 47 PST/PLT pairs in the reference set |
+| 1st-highest at every receptor | `plotfiles/*.PLT` | every PST/PLT pair in the reference set |
 | Ranks 1–8 of the 24-hour series | `Outputs/PSET2PA.DA1`–`DA8` | EPA's `surfcoal` deck, every receptor |
 | NAAQS design value | `plotfiles/PSDCRED_*.PLT` | AERMOD's own 1-hour NO2 design-value output, every receptor |
 | Overall-maximum table | `Outputs/AERTEST.SUM` | ranks 1–3, value and coordinates |
@@ -80,8 +80,7 @@ what AERMOD writes under its own 1-hour NO2 NAAQS processing
 them receptor-by-receptor is EPA's implementation of the design-value
 algorithm agreeing with pyaermod's.
 
-The `.SUM` overall-maximum table is worth noting because it is easy to
-misread: for rank *n* it lists the largest *n*-th-highest value at any
+The `.SUM` overall-maximum table is easy to misread: for rank *n* it lists the largest *n*-th-highest value at any
 receptor, not the *n*-th largest value in the record. On AERTEST the
 second row is 421.98845, while the second largest hourly value in the
 `.PST` is 746.09714 at a different receptor.
@@ -116,7 +115,7 @@ the rest of this phase used too:
 | Design values | 40 CFR 50 app. N/S/T tables; EPA's `.PLT` / `DA1-8` / `.SUM` | exact |
 | BPIP | EPA's BPIP-PRIME, compiled from source | exact, 6,480 direction comparisons |
 | AERSURFACE | the binary's own setup pass (`RUNORNOT NOT`) | EPA's reference reproduced byte-for-byte; ~30 configurations accepted |
-| AERMOD decks | AERMOD's setup pass, all 10 source types | accepted |
+| AERMOD decks | AERMOD's setup pass, all 13 source types | accepted |
 | AERSCREEN | EPA's AERSCREEN 21112 compiled from source (patched for gfortran), spawning MAKEMET, AERMOD, BPIP-PRIME and AERMAP | all 12 flat test cases reproduced line for line through both interfaces (typed answers and restart file) and all 9 terrain cases through AERMAP; all 22 restart headers byte-for-byte |
 
 ## Running it

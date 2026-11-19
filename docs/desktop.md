@@ -1,9 +1,9 @@
 # Desktop Window
 
-`pyaermod-desktop` opens the PyAERMOD GUI in a native window instead of
-a browser tab. It is the same NiceGUI app as `pyaermod-app`, shown in a
-[pywebview](https://pywebview.flowrl.com/) window, and it is installed
-with pip like the rest of the package.
+`pyaermod-desktop` opens the pyaermod GUI in a native window instead of a
+browser tab. It is the same NiceGUI app as `pyaermod-app`, shown in a
+[pywebview](https://pywebview.flowrl.com/) window, and it is installed with
+pip like the rest of the package.
 
 ## Install and start
 
@@ -58,21 +58,8 @@ naming GTK and Qt. The browser mode (`pyaermod-app`) needs none of this.
 ## What it does
 
 The command starts the NiceGUI server on a free loopback port in the
-background and opens a window on it. It opens to the **Project** step,
-with the seven steps of the [GUI User Guide](gui-guide.md) listed on the
-left:
-
-1. On **Project**, name the run and choose the pollutant and averaging
-   periods, **Open** a saved `.json` project, or **Import deck** an
-   existing AERMOD `.inp` file
-2. Build the run on **Sources**, **Receptors**, **Meteorology** and
-   **Output**
-3. **Review & Run** lists what still blocks the run, previews the deck
-   and runs the AERMOD binary (which must be on the system PATH) with a
-   progress bar and Cancel
-4. **Results** shows the maxima for each averaging period, every summary
-   table, the concentration map, the NAAQS comparison, the downloads and
-   the run history
+background and opens a window on it, at the **Project** step, with the
+seven steps of the [GUI user guide](gui-guide.md) on the left.
 
 ## What differs from the browser
 
@@ -95,24 +82,10 @@ progress is stopped when the window closes.
 
 ## AERMOD binary
 
-PyAERMOD does **not** ship the AERMOD Fortran binary. Install
-[AERMOD from EPA SCRAM](https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/)
-separately and ensure `aermod` is on your system `PATH`. When the
-executable isn't found, the Review & Run step's readiness checklist
-says "No 'aermod' binary on PATH. Install AERMOD and re-launch." and
-the Run AERMOD button stays disabled.
-
-## Web mode
-
-The same app also runs in a browser tab, which suits multi-user and
-server deployments:
-
-```bash
-pip install "pyaermod[gui]"
-pyaermod-app
-```
-
-Opens a browser tab pointed at `http://127.0.0.1:8080`.
+pyaermod does **not** ship AERMOD. Install it as described in
+[Install](install.md#aermod-and-the-other-epa-programs) and make sure
+`aermod` is on your system `PATH`; the GUI user guide says what the Review &
+Run step shows when it is not found.
 
 ## Desktop downloads discontinued
 
@@ -145,8 +118,6 @@ page.
 
 ## Reporting issues
 
-The desktop window is a thin pywebview wrapper around the same NiceGUI
-app, so most bug reports apply equally to both modes. File issues at
-<https://github.com/atmmod/pyaermod/issues> with the OS, the PyAERMOD
-version (`pip show pyaermod`) and, on Linux, whether pywebview is using
-GTK or Qt.
+The window is a thin wrapper around the same app, so most bug reports apply
+to both modes; see [the GUI user guide](gui-guide.md#reporting-issues). On
+Linux, add whether pywebview is using GTK or Qt.
