@@ -303,7 +303,7 @@ In a terminal, go to the directory with your input files and run each stage:
 # Stage 1
 aermet aermet_stage1.inp
 
-# METPREP (merge + boundary layer)
+# Stage 2 (METPREP: merge + boundary layer)
 aermet aermet_stage2.inp
 ```
 

@@ -1,17 +1,17 @@
 # Ensembles: many AERMOD runs from one design
 
 `pyaermod.ensemble` runs a designed set of AERMOD runs, such as one run
-per particle size bin, met set and source configuration, and keeps the
-books on them. You give it the design as a list of rows and a function
-that builds the project for one row. It then does four things:
+per particle size bin, met set and source configuration, and records them.
+You give it the design as a list of rows and a function that builds the
+project for one row. It then does four things:
 
 - It runs every row in its own directory, several at a time.
 - It names each run by a hash of what defines it.
 - It records each run in a manifest as the run finishes.
 - It picks up where it stopped when you run the same design again.
 
-`collect_plotfiles` then reads the PLOTFILEs of the design's finished
-runs into one table.
+`collect_plotfiles` then reads the PLOTFILEs (AERMOD's per-receptor files)
+of the design's finished runs into one table.
 
 ```python
 from pyaermod.ensemble import collect_plotfiles, run_design
@@ -50,8 +50,7 @@ when decks share a directory:
 - **They run one at a time.** `AERMODRunner` locks the working directory
   for the length of a run, so that two runs do not both use its
   `aermod.inp`. Decks in one directory therefore run one after another,
-  whatever `n_workers` is. Two 16-second runs in one directory on two
-  workers took 35 s, one starting as the other ended.
+  whatever `n_workers` is.
 
 `run_design` gives every run the directory `root/runs/<run ID>`. It
 rewrites every output file name in the deck to a bare name inside that
@@ -138,9 +137,7 @@ that:
 - **A new binary, or an edited met or emission file,** gives new IDs,
   so its runs go to new directories and the old runs are kept. An
   emission profile kept in a `HOUREMIS` file is therefore part of the
-  run's identity even when no factor names it: on 2026-09-30, with
-  v26135, scaling a `HOUREMIS` file by ten between two calls made a new
-  run whose period concentrations were ten times as large.
+  run's identity even when no factor names it.
 - **Two rows with the same factors** are an error, because they would be
   the same run.
 - **A factor is anything that defines the run.** Put the met set or the
@@ -262,22 +259,12 @@ share a machine slow each other down, so each run's own time is longer
 than it would be alone. To measure the speed-up, time the same design
 with `n_workers=1`.
 
-On 2026-09-30 we measured this on a 12-core Apple M2 Pro, with a
-gfortran 15.2 `-O2 -fbounds-check` build of AERMOD v26135:
-
-- **The design.** Four single-bin OPENPIT runs on EPA's Cordero Mine
-  met: 720 hours, with `NOCHKD` because the days alternate. Each run had
-  8,064 polar receptors.
-- **Timing.** The runs took 60.0 to 60.6 s each alone. The whole design
-  took 240.9 s with `n_workers=1` and 64.6 s with `n_workers=4`, a
-  speed-up of 3.7. Each run took about 62 s on four workers, and
-  `concurrency` was 3.85.
-- **No overwrites.** Each run's PLOTFILE data rows were identical in the
-  two roots.
-- **Resume.** A four-run design on two workers was sent SIGINT after two
-  runs finished. The manifest then showed two `success` and two
-  `pending`. Run again on four workers, it made only the two pending
-  runs.
+On a 12-core Apple M2 Pro (gfortran 15.2 `-O2 -fbounds-check` build of
+AERMOD v26135), a design of four single-bin OPENPIT runs of 60 s each (720
+hours of EPA's Cordero Mine met, 8,064 polar receptors) took 240.9 s with
+`n_workers=1` and 64.6 s with `n_workers=4`: a speed-up of 3.7, with
+`concurrency` 3.85. [Benchmarks](benchmarks.md) has the batch throughput of
+pyaermod itself.
 
 ## `BatchRunner.parameter_sweep`
 

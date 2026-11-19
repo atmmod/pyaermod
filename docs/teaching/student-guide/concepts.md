@@ -34,7 +34,7 @@ AERMOD is a **steady-state Gaussian plume model**, which means:
   neutral hours; in convective (unstable) hours AERMOD uses a skewed,
   bi-Gaussian vertical distribution (`calc2.f`).
 
-PyAERMOD is a Python wrapper that lets you set up, run, and analyze AERMOD
+pyaermod is a Python wrapper that lets you set up, run, and analyze AERMOD
 models through a graphical interface or Python code, instead of editing text
 files by hand.
 
@@ -114,7 +114,7 @@ file. Tutorial 3 shows how to connect real meteorological files.
 ### 2.4 What AERMOD Produces
 
 For each receptor, AERMOD calculates the **pollutant concentration** (typically
-in micrograms per cubic meter, ug/m3) for each hour of the simulation. It then
+in micrograms per cubic meter, µg/m³) for each hour of the simulation. It then
 computes summary statistics:
 
 - **Annual average** — the mean concentration over all hours. Compared to the
@@ -145,4 +145,4 @@ Run AERMOD  -->  Output file (.out)
 Analyze results (tables, maps, compliance checks)
 ```
 
-The PyAERMOD GUI walks you through each of these steps in order.
+The pyaermod GUI walks you through each of these steps in order.

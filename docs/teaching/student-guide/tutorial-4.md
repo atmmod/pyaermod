@@ -30,15 +30,15 @@ These sources are modeled as **area sources** in AERMOD. The key difference
 from point sources is how emission rates are specified:
 
 - **Point source**: total mass emitted per second (**g/s**)
-- **Area source**: mass emitted per second *per unit area* (**g/s/m2**)
+- **Area source**: mass emitted per second *per unit area* (**g/(s·m²)**)
 
 Because area sources spread emissions over a large surface, the per-square-meter
-rate is typically a very small number (e.g., 0.0001 g/s/m2).
+rate is typically a very small number (e.g., 0.0001 g/(s·m²)).
 
 > **Example calculation:**
 > A 100 m x 50 m stockpile emits 0.5 g/s total.
 > Area = 100 x 50 = 5,000 m2.
-> Emission rate = 0.5 / 5,000 = **0.0001 g/s/m2**.
+> Emission rate = 0.5 / 5,000 = **0.0001 g/(s·m²)**.
 
 ## Step 1: Set Up the Project
 
@@ -89,7 +89,7 @@ rate is typically a very small number (e.g., 0.0001 g/s/m2).
    | Initial lateral dimension (m) | `100.0` | Xinit, the X side: 100 m in the X direction |
    | Initial vertical dimension (m) | `50.0` | Yinit, the Y side: 50 m in the Y direction |
    | Angle (deg) | `0` | Aligned with the grid (no rotation) |
-   | Emission rate (g/(s·m²)) | `0.000100` | 0.0001 g/s/m2 (see calculation above) |
+   | Emission rate (g/(s·m²)) | `0.000100` | 0.0001 g/(s·m²) (see calculation above) |
 
 3. Click **Save**.
 
@@ -210,7 +210,7 @@ step's concentration map:
 
 At this point you should understand:
 
-- [x] Area source emission rates are per unit area (g/s/m2), not total (g/s)
+- [x] Area source emission rates are per unit area (g/(s·m²)), not total (g/s)
 - [x] Rectangular area sources are placed by their southwest corner and
   defined by full side lengths, not half-widths
 - [x] Circular sources are approximated by polygons (Num Vertices)

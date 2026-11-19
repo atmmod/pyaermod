@@ -227,7 +227,7 @@ against AERMOD with the figure it drew:
 
 - several stacks, source groups and a polar grid
   ([job 2](use-cases.md#2-facility-with-several-stacks-source-groups-and-a-polar-grid));
-  building downwash with BPIP-PRIME and PRIME
+  building downwash with EPA's BPIP-PRIME tools
   ([job 3](use-cases.md#3-building-downwash-with-bpip-prime))
 - dry and wet deposition with particle size categories
   ([job 9](use-cases.md#9-particle-dry-and-wet-deposition); size
