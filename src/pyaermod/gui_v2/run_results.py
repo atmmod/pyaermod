@@ -162,6 +162,19 @@ class RunFile:
     def name(self) -> str:
         return self.path.name
 
+    def verify(self) -> Path:
+        """The file's path, once its contents are checked against the run's;
+        :class:`StaleFileError` if it changed since. Reads in pieces, so a
+        multi-GB POSTFILE is never held in memory: call it off the event loop."""
+        fresh = RunFile.of(self.label, self.path, self.run_number)
+        if fresh is None:
+            raise StaleFileError(f"{self.name} of run {self.run_number} can no longer be read")
+        if fresh.sha256 != self.sha256:
+            raise StaleFileError(
+                f"{self.name} has changed since run {self.run_number} finished "
+                f"(a later run in {self.path.parent} wrote it again)")
+        return self.path
+
     def read(self) -> bytes:
         """The file's bytes; :class:`StaleFileError` if it changed since."""
         try:
@@ -277,9 +290,10 @@ def deck_lines(text: str) -> Iterator[Tuple[str, List[str]]]:
             yield f"{pathway} {fields[0].upper()}", fields[1:]
 
 
-def _written_since(path: Path, since: float) -> bool:
+def _written_since(path: Path, since: float, until: Optional[float] = None) -> bool:
     try:
-        return path.is_file() and path.stat().st_mtime >= since
+        mtime = path.stat().st_mtime
+        return path.is_file() and mtime >= since and (until is None or mtime <= until)
     except OSError:
         return False
 
@@ -301,6 +315,10 @@ def _written_by(record: RunRecord, keyword: str, suffixes: Sequence[str]) -> Lis
     run started count.
     """
     since = record.started_at.timestamp() - _MTIME_SLACK_S
+    # A file written after the run finished is a later run's (the view of
+    # a run is built when it ends, but may be built later).
+    until = (record.finished_at.timestamp() + _MTIME_SLACK_S
+             if record.finished_at is not None else None)
     found: List[Path] = []
     try:
         deck = record.deck_path.read_text(encoding="utf-8", errors="replace")
@@ -314,14 +332,15 @@ def _written_by(record: RunRecord, keyword: str, suffixes: Sequence[str]) -> Lis
             if name.name in ("", ".", ".."):
                 continue
             path = name if name.is_absolute() else record.work_dir / name
-            if _written_since(path, since) and not any(_same_file(path, f) for f in found):
+            if (_written_since(path, since, until)
+                    and not any(_same_file(path, f) for f in found)):
                 found.append(path)
     try:
         entries = sorted(record.work_dir.iterdir())
     except OSError:
         entries = []
     for path in entries:
-        if (path.suffix.upper() in suffixes and _written_since(path, since)
+        if (path.suffix.upper() in suffixes and _written_since(path, since, until)
                 and not any(_same_file(path, f) for f in found)):
             found.append(path)
     return found
@@ -349,7 +368,8 @@ class NaaqsCheck:
     level_ugm3: float
     value: Optional[float]         # µg/m³
     location: Optional[Tuple[float, float]]
-    basis: str                     # "design value", "screening", "lower bound" or "not compared"
+    basis: str                     # "design value", "short record", "screening",
+                                   # "lower bound" or "not compared"
     how: str                       # where the value comes from
     verdict: str
 
@@ -383,9 +403,15 @@ def _design_table(results: AERMODResults, period: str, rank: int) -> Optional[Co
     return None
 
 
+#: Days of data a design value computed from a POSTFILE needs before it
+#: is called one: the NAAQS forms the GUI computes average 3 years.
+_FORM_DAYS = 365 * 3
+
+
 def _postfile_design_value(postfiles: Sequence[Path], pollutant: str, period: str
-                           ) -> Optional[Tuple[float, Tuple[float, float], str]]:
-    """A design value from a text POSTFILE of ``period``, via design_values."""
+                           ) -> Optional[Tuple[float, Tuple[float, float], str, int]]:
+    """A design value from a text POSTFILE of ``period``, via design_values,
+    and the number of days of data it was computed from."""
     from ..design_values import naaqs_compliance_report
     from ..postfile import read_postfile
 
@@ -412,8 +438,9 @@ def _postfile_design_value(postfiles: Sequence[Path], pollutant: str, period: st
         best = report.loc[report["design_value"].idxmax()]
         how = (f"design value computed by pyaermod from {path.name} "
                f"({days} days of hourly values"
-               + ("; the NAAQS form needs 3 years)" if days < 365 * 3 else ")"))
-        return float(best["design_value"]), (float(best["x"]), float(best["y"])), how
+               + ("; the NAAQS form needs 3 years)" if days < _FORM_DAYS else ")"))
+        return (float(best["design_value"]), (float(best["x"]), float(best["y"])), how,
+                int(days))
     return None
 
 
@@ -425,7 +452,8 @@ def _too_large(path: Path) -> bool:
         return False
 
 
-def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List[NaaqsCheck]:
+def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = (), *,
+                 background: Optional[bool] = None) -> List[NaaqsCheck]:
     """Compare a successful run's concentrations with the NAAQS for its pollutant.
 
     For each standard, the value compared is, in this order: AERMOD's own
@@ -441,6 +469,13 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
     8th-highest alone, say) is not compared: that value is not the highest
     and can be below the design value. Empty when the pollutant has no
     NAAQS or the concentrations are not in µg/m³.
+
+    A design value computed from a POSTFILE of fewer days than the form
+    needs (3 years) is no design value: its row is a "short record", and
+    its verdict says so before it says how the value compares. With
+    ``background=False`` (the run's deck has no ``SO BACKGRND``) each
+    verdict says that no background concentration was added to the
+    modelled value; ``None`` (not known) says nothing about background.
     """
     from ..naaqs import NAAQS_TABLE
 
@@ -469,12 +504,18 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
             checks.append(NaaqsCheck(standard, period, level, None, None, "not compared",
                                      where, "Not compared"))
             continue
-        value, location, basis, how = found
+        value, location, basis, how = found[:4]
         if basis == "not compared":
             checks.append(NaaqsCheck(standard, period, level, None, None, basis, how,
                                      "Not compared"))
             continue
-        if basis == "design value":
+        days = found[4] if len(found) > 4 else None
+        if days is not None and days < _FORM_DAYS:
+            basis = "short record"
+            verdict = (f"Not a design value: {days} day{'s' if days != 1 else ''} of hourly "
+                       f"values, and the NAAQS form needs 3 years. This value is "
+                       f"{'above' if value > level else 'below'} the NAAQS level")
+        elif basis == "design value":
             verdict = "Above the NAAQS" if value > level else "Below the NAAQS"
         elif basis == "lower bound":
             verdict = ("Above the NAAQS (so is the highest single year)" if value > level
@@ -484,8 +525,14 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = ()) -> List
             verdict = "Below the NAAQS (so is any design value)"
         else:
             verdict = "Highest value above the NAAQS; a design value is needed"
+        if background is False:
+            verdict += NO_BACKGROUND
         checks.append(NaaqsCheck(standard, period, level, value, location, basis, how, verdict))
     return checks
+
+
+#: Ends each verdict of a run whose deck adds no background concentration.
+NO_BACKGROUND = " (modelled value only: the run added no background concentration)"
 
 
 def naaqs_caption(checks: Sequence[NaaqsCheck]) -> str:
@@ -494,10 +541,12 @@ def naaqs_caption(checks: Sequence[NaaqsCheck]) -> str:
     The lower-bound sentence is there only when a row is a lower bound
     (AERMOD's multi-year ANNUAL average against the annual NO2 standard).
     """
-    caption = ("A screening comparison uses the highest value of the period, which no "
-               "design value can exceed.")
+    caption = ""
+    if any(c.basis == "screening" for c in checks):
+        caption = ("A screening comparison uses the highest value of the period, which no "
+                   "design value can exceed.")
     if any(c.basis == "lower bound" for c in checks):
-        caption += (" A lower bound is AERMOD's average of several years' annual means, "
+        caption += (" " if caption else "") + ("A lower bound is AERMOD's average of several years' annual means, "
                     "which the annual NO2 design value, the highest single year, cannot "
                     "be below.")
     return caption
@@ -515,7 +564,7 @@ def _design_value(results: AERMODResults, standard: NAAQSStandard, period: str,
         if pollutant in ("SO2", "NO2", "PM2.5"):
             computed = _postfile_design_value(postfiles, pollutant, period)
             if computed is not None:
-                return computed[0], computed[1], "design value", computed[2]
+                return computed[0], computed[1], "design value", computed[2], computed[3]
     top = results.concentrations.get(period)
     if top is None or math.isnan(float(top.max_value)):
         return None
@@ -675,7 +724,8 @@ def build_view(record: RunRecord) -> RunView:
     checks: Tuple[NaaqsCheck, ...] = ()
     if results is not None:
         try:
-            checks = tuple(naaqs_checks(results, postfiles))
+            checks = tuple(naaqs_checks(results, postfiles,
+                                        background=_adds_background(record)))
         except Exception as exc:
             logger.warning("could not compare run %d with the NAAQS: %s", number, exc)
             notes.append(f"Could not compare with the NAAQS: {exc}")
@@ -683,6 +733,16 @@ def build_view(record: RunRecord) -> RunView:
                    f"AERMOD finished successfully with {counts}.",
                    deck=deck, out=out, plots=tuple(plots), postfiles=posts, results=results,
                    naaqs=checks, notes=tuple(notes), started_at=started, finished_at=finished)
+
+
+def _adds_background(record: RunRecord) -> Optional[bool]:
+    """Whether the run's deck adds a background concentration (``SO BACKGRND``);
+    None when the deck cannot be read."""
+    try:
+        deck = record.deck_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return any(keyword == "SO BACKGRND" for keyword, _ in deck_lines(deck))
 
 
 _LOCK = threading.Lock()
@@ -836,6 +896,7 @@ def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:
 
 __all__ = [
     "FLAG_MEANINGS",
+    "NO_BACKGROUND",
     "OUTPUT_TYPES",
     "POSTFILE_DESIGN_VALUE_MAX_BYTES",
     "NaaqsCheck",

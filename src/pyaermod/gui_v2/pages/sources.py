@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from ..._fields import units_of
 from ...input_generator import (
@@ -38,8 +38,9 @@ from ...input_generator import (
     VolumeSource,
 )
 from .._form import emit_fields
-from .._layout import Goto, Pager, plan_view, section, step_page
+from .._layout import Goto, Pager, editor_dialog, plan_view, section, step_page
 from .._live import live
+from ..readiness import item_findings
 from ..session import Session, SessionEvent
 
 # ---------------------------------------------------------------------
@@ -215,15 +216,18 @@ def split_fields(obj: Any) -> tuple:
             [f for f in fields if f.name in ADVANCED_FIELDS])
 
 
-def editor_body(draft: Any) -> None:
-    """The editor's fields: the basic ones, then the rest under "Advanced"."""
+def editor_body(draft: Any, on_change: Optional[Callable[[], None]] = None) -> None:
+    """The editor's fields: the basic ones, then the rest under "Advanced".
+
+    ``on_change()`` is called after each edit.
+    """
     from nicegui import ui
 
     basic, advanced = split_fields(draft)
-    emit_fields(draft, basic)
+    emit_fields(draft, basic, on_change=on_change)
     if advanced:
         with ui.expansion("Advanced", icon="tune").classes("w-full"):
-            emit_fields(draft, advanced)
+            emit_fields(draft, advanced, on_change=on_change)
 
 
 def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> None:
@@ -240,29 +244,25 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
     pager = Pager(session=session)
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
-        with dialogs, ui.dialog().mark("editor-dialog") as dialog, \
-                ui.card().classes("w-full max-w-4xl"):
-            # "Edit PointSource — NEW_SRC": the page objects and T1 tests
-            # find the editor by its first words.
-            ui.label(f"Edit {type(draft).__name__} — {draft.source_id}").classes("text-h6")
-            with ui.column().classes("w-full gap-2"):
-                editor_body(draft)
-            with ui.row().classes("justify-end w-full q-gutter-sm q-mt-md"):
-                ui.button("Close", on_click=dialog.close).props("flat")
+        def refused() -> List[str]:
+            others = [s.source_id for k, s in session.source_entries() if k != key]
+            if draft.source_id in others:
+                return [f"Source ID: another source is called {draft.source_id}; AERMOD "
+                        "needs a different ID for each"]
+            return []
 
-                def _on_save() -> None:
-                    if key is None:
-                        session.add_source(draft)
-                    elif not session.update_source(key, draft):
-                        dialog.close()
-                        ui.notify("That source was removed", color="warning")
-                        return
-                    dialog.close()
+        def save() -> bool:
+            if key is None:
+                session.add_source(draft)
+                return True
+            return session.update_source(key, draft)
 
-                ui.button("Save", on_click=_on_save).props("color=primary")
-        # A closed editor is gone for good; the next one is built afresh.
-        dialog.on_value_change(lambda e: None if e.value else dialog.delete())
-        dialog.open()
+        # "Edit PointSource — NEW_SRC": the page objects and T1 tests find
+        # the editor by its first words.
+        editor_dialog(dialogs, title=f"Edit {type(draft).__name__} — {draft.source_id}",
+                      build=lambda changed: editor_body(draft, changed),
+                      findings=lambda: item_findings(session.project, draft),
+                      refused=refused, save=save, gone="That source was removed")
 
     def _on_edit(e) -> None:
         for key, src in session.source_entries():

@@ -121,7 +121,8 @@ def test_aermods_own_design_value_is_compared_with_the_naaqs(tmp_path):
     assert check.value == pytest.approx(76.07952, abs=5e-6)
     assert check.location == pytest.approx((519.62, -300.0))
     assert check.level_ugm3 == pytest.approx(196.39, abs=0.01)
-    assert check.verdict == "Below the NAAQS"
+    # The deck adds no BACKGRND, and the verdict says so (code-G10).
+    assert check.verdict == "Below the NAAQS (modelled value only: the run added no background concentration)"
     assert check.level_text == "196.4 µg/m³ (75 ppb)"
 
 
@@ -299,7 +300,10 @@ def test_the_plot_files_and_postfiles_are_the_ones_the_deck_names(tmp_path):
     assert [(f.name, f.path.parent.name) for f in view.postfiles] == [
         ("AERTEST_01H.PST", "postfiles")]
     [check] = view.naaqs
-    assert check.basis == "design value"
+    # Four days of hourly values: no design value (live-G6).
+    assert check.basis == "short record"
+    assert check.verdict.startswith("Not a design value: 4 days of hourly values, and the "
+                                    "NAAQS form needs 3 years. This value is above")
     assert check.how.startswith("design value computed by pyaermod from AERTEST_01H.PST")
     assert check.value == pytest.approx(753.65603, abs=5e-6)
 

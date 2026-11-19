@@ -20,11 +20,16 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .session import DeckError, Session
 from .steps import STEP_IDS as _STEP_IDS
 from .steps import STEPS as _STEPS
+from .steps import step_of
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..aermet import SurfaceFilePeriod
+    from ..validator import ValidationError
 
 #: The GUI's steps, in order (the shell's, :data:`..steps.STEP_IDS`).
 #: ``goto`` callbacks receive one of these.
@@ -45,6 +50,24 @@ COMMON_ERRORS = {
 }
 
 NO_BINARY = "No 'aermod' binary on PATH. Install AERMOD and re-launch."
+
+
+def aermod_available() -> bool:
+    """Whether a run would find AERMOD: the search ``AERMODRunner()`` makes.
+
+    The names ``aermod``, ``AERMOD``, ``aermod.exe`` and ``AERMOD.EXE`` on
+    ``PATH`` (EPA's own build is called ``AERMOD``), or AERMOD's
+    WebAssembly build under Pyodide.
+    """
+    from ..runner import AERMODRunner
+
+    try:
+        # The runner's own search, without building a runner (which would
+        # set up its logging).
+        AERMODRunner._find_or_set_executable(object.__new__(AERMODRunner), None)
+    except (FileNotFoundError, OSError):
+        return False
+    return True
 
 # ----------------------------------------------------------------------
 # The review: what blocks a run, and what the user should know first
@@ -86,19 +109,14 @@ class Review:
 
 
 def _step_for_pathway(pathway: str) -> str:
-    """The step that edits what a :class:`ValidationError` names."""
-    p = pathway.lower()
-    if p.startswith(("control", "chemistry", "event")):
-        return "project"
-    if "receptor" in p or "grid" in p:
-        return "receptors"
-    if "meteorolog" in p:
-        return "meteorology"
-    if p.startswith("output"):
-        return "output"
-    if "source" in p or "background" in p or "barrier" in p or "buoyline" in p:
-        return "sources"
-    return "project"
+    """The step that edits what a :class:`ValidationError` names.
+
+    The step badges' mapping (:func:`~pyaermod.gui_v2.steps.step_of`), so a
+    badge and the checklist name the same step; what no step edits is the
+    Project step's.
+    """
+    step = step_of(pathway)
+    return "project" if step == "run" else step
 
 
 _PROJECT_PARTS = {"control": "project", "sources": "sources", "receptors": "receptors",
@@ -244,6 +262,139 @@ def _relative_met_files(met: Any) -> List[Tuple[str, str]]:
             if not name.startswith("~") and not Path(name).is_absolute()]
 
 
+def _met_file_text(label: str, problem: str) -> str:
+    """``problem`` ("surface file X does not exist") without its leading label.
+
+    Findings carry the field (``surface_file``) and the rest of the
+    sentence, which :func:`_problem_text` puts back together.
+    """
+    return problem[len(label) + 1:] if problem.startswith(f"{label} ") else problem
+
+
+def met_file_findings(met: Any, working_dir: str) -> List[ValidationError]:
+    """The met files AERMOD would not find, as validator findings (errors).
+
+    A path starting with ``~`` (:data:`HOME_MET`), a relative path with a
+    blank working directory (:data:`RELATIVE_MET`), and a file that is not
+    there where AERMOD opens it: a relative path in ``working_dir``. An
+    empty field is the validator's ("must not be empty").
+    """
+    from ..validator import ValidationError
+
+    found = []
+    for label, name in _met_files(met):
+        attr = label.replace(" ", "_")
+        path = Path(name)
+        if name.startswith("~"):
+            problem = HOME_MET.format(label=label, name=name)
+        elif not path.is_absolute() and not working_dir:
+            problem = RELATIVE_MET.format(label=label, name=name)
+        else:
+            if not path.is_absolute():
+                path = Path(working_dir).expanduser() / path
+            if path.is_file():
+                continue
+            what = "is a folder, not a file" if path.is_dir() else "does not exist"
+            problem = f"{label} {path} {what}"
+        found.append(ValidationError("MeteorologyPathway", attr,
+                                     _met_file_text(label, problem)))
+    return found
+
+
+def met_header_findings(met: Any, period: Optional[SurfaceFilePeriod]) -> List[ValidationError]:
+    """Warnings for station IDs and a first year that differ from the surface file's header.
+
+    AERMOD compares the SURFDATA and UAIRDATA station IDs with the IDs in
+    the surface file's header, as integers, and warns (W530) when they
+    differ (``meset.f``).
+    """
+    from ..validator import ValidationError
+
+    if period is None:
+        return []
+    found = []
+    for attr, header, what in (("surface_station_id", period.surface_station, "surface"),
+                               ("upper_air_station_id", period.upper_air_station, "upper-air")):
+        text = str(header or "").strip()
+        value = getattr(met, attr, None)
+        if text.isdigit() and value != int(text):
+            found.append(ValidationError(
+                "MeteorologyPathway", attr,
+                f"is {value}, but the surface file's header names {what} station {text}",
+                severity="warning"))
+    year = getattr(met, "data_start_year", None)
+    if year != period.first_year:
+        found.append(ValidationError(
+            "MeteorologyPathway", "data_start_year",
+            f"is {year}, but the surface file's data start in {period.first_year}",
+            severity="warning"))
+    return found
+
+
+def project_findings(session: Session) -> List[ValidationError]:
+    """Everything the checks find in the session's project, as the next run would see it.
+
+    The validator's findings, the met files AERMOD would not find
+    (:func:`met_file_findings`), ANNUAL with less than a year of met data
+    and station IDs or a year that differ from the surface file's header
+    (:func:`met_header_findings`). The header's readiness line and the
+    step badges (``Session.validate(check_files=True)``) and the Review &
+    Run checklist (:func:`review`) are all made from this, so they agree.
+    """
+    import logging
+
+    from ..validator import Validator
+
+    project = session.project
+    findings = list(Validator.validate(project).errors)
+    working_dir = str(session.run_options.working_dir or "").strip()
+    findings += met_file_findings(project.meteorology, working_dir)
+    try:
+        coverage = session.met_coverage()
+    except Exception:                   # a surface file the reader trips on
+        logging.getLogger(__name__).exception("checking the met data's coverage raised")
+        return findings
+    findings += coverage.warnings
+    findings += met_header_findings(project.meteorology, coverage.period)
+    return findings
+
+
+def item_findings(project: Any, draft: Any) -> List[str]:
+    """The validator's findings for one source or receptor, as sentences.
+
+    The draft is checked alone, in a shallow copy of ``project`` (its
+    control options apply), so a large project costs nothing extra.
+    """
+    import copy
+
+    from ..input_generator import ReceptorPathway, SourcePathway
+    from ..validator import Validator
+
+    probe = copy.copy(project)
+    if hasattr(draft, "source_id"):
+        probe.sources = SourcePathway(sources=[draft])
+        probe.receptors = ReceptorPathway()
+    else:
+        probe.sources = SourcePathway(sources=[])
+        probe.receptors = ReceptorPathway()
+        attr = {"CartesianGrid": "cartesian_grids", "PolarGrid": "polar_grids",
+                "DiscreteReceptor": "discrete_receptors"}.get(type(draft).__name__)
+        if attr is not None:
+            getattr(probe.receptors, attr).append(draft)
+    names = (type(draft).__name__, "BuoyLineSegment")
+    found: List[str] = []
+    try:
+        errors = Validator.validate(probe, advanced=False).errors
+    except Exception as exc:            # a value the validator cannot compare, say
+        return [f"it could not be checked: {exc}"]
+    for finding in errors:
+        if finding.severity == "error" and str(finding.pathway).startswith(names):
+            text = _problem_text(finding)
+            if text not in found:
+                found.append(text)
+    return found
+
+
 def review(session: Session, *, have_binary: bool = True) -> Review:
     """Review the session's project for a run. Emits nothing.
 
@@ -257,18 +408,22 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
     data (:func:`~pyaermod.validator_advanced.check_annual_met_coverage`)
     do not.
     """
-    from ..validator import Validator
 
     blocking: Dict[str, ChecklistItem] = {}
     warnings: Dict[str, ChecklistItem] = {}
-    project = session.project
 
+    # Not read from the server's own directory with a blank working
+    # directory, nor from the home folder: AERMOD would see neither.
+    coverage = session.met_coverage()
+    annual = {f.message for f in coverage.warnings}
     try:
-        findings = Validator.validate(project).errors
+        findings = project_findings(session)
     except Exception as exc:  # a value the validator cannot compare, say
         findings = []
         _add(blocking, "project", f"the project could not be checked: {exc}")
     for finding in findings:
+        if finding.message in annual:
+            continue                    # below, with its link to Project
         target = blocking if finding.severity == "error" else warnings
         _add(target, _step_for_pathway(finding.pathway), _problem_text(finding))
 
@@ -285,19 +440,11 @@ def review(session: Session, *, have_binary: bool = True) -> Review:
     if deck is not None:
         for step, missing in _missing_output_folders(session, deck, working_dir):
             _add(blocking, step, missing)
-    home = _home_met_files(project.meteorology)
-    for label, name in home:
-        _add(blocking, "meteorology", HOME_MET.format(label=label, name=name))
-    relative = [] if working_dir else _relative_met_files(project.meteorology)
-    for label, name in relative:
-        _add(blocking, "meteorology", RELATIVE_MET.format(label=label, name=name))
 
-    # Not read from the server's own directory with a blank working
-    # directory, nor from the home folder: AERMOD would see neither.
-    coverage = session.met_coverage()
     path, period, problem = coverage.path, coverage.period, coverage.problem
     summary = None
-    if problem is not None:
+    if problem is not None and path is not None and path.is_file():
+        # A missing file is a blocking finding already.
         _add(warnings, "meteorology", f"surface file {problem}")
     elif period is not None:
         summary = f"{path.name if path else 'The surface file'} holds {period.describe()}."
@@ -325,6 +472,11 @@ __all__ = [
     "STEP_TITLES",
     "ChecklistItem",
     "Review",
+    "aermod_available",
+    "item_findings",
+    "met_file_findings",
+    "met_header_findings",
     "output_folders",
+    "project_findings",
     "review",
 ]
