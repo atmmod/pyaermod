@@ -92,7 +92,7 @@ def test_g3_contour_bands_are_valid_nonoverlapping_with_holes():
     assert sum(len(p.interiors) for geom in g.geometry
                for p in (geom.geoms if geom.geom_type == "MultiPolygon" else [geom])) > 0
     # bands partition the domain: total area == area of the union
-    assert g.geometry.area.sum() == pytest.approx(g.geometry.union_all().area, rel=1e-6)
+    assert g.geometry.area.sum() == pytest.approx(pytest.importorskip("shapely.ops").unary_union(list(g.geometry)).area, rel=1e-6)
 
 
 # ------------------------------------------------------------------ G4
@@ -117,7 +117,7 @@ def test_g4_polar_grid_about_a_source_is_placed_at_the_source(tmp_path):
         sources=sp, receptors=ReceptorPathway(polar_grids=[grid]),
         meteorology=MeteorologyPathway(surface_file="a.sfc", profile_file="a.pfl"),
         output=OutputPathway())
-    paths = VectorExporter(FACTORY).export_all(project, output_dir=tmp_path, driver="GeoJSON")
+    paths = VectorExporter(FACTORY).export_all(project, output_dir=tmp_path, driver="GPKG")
     pts = gpd.read_file(paths["receptors"]).to_crs(FACTORY.transformer.utm_crs)
     assert pts.geometry.x.iloc[0] == pytest.approx(500100.0, abs=0.01)
     assert pts.geometry.y.iloc[0] == pytest.approx(4500000.0, abs=0.01)
