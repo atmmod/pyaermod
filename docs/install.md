@@ -1,8 +1,8 @@
 # Install
 
-PyAERMOD needs Python 3.11 or later. AERMOD itself is a separate
-program; see [AERMOD and the other EPA programs](#aermod-and-the-other-epa-programs)
-below.
+pyaermod needs Python 3.11 or later. AERMOD, EPA's dispersion model, is a
+separate program; see
+[AERMOD and the other EPA programs](#aermod-and-the-other-epa-programs) below.
 
 **Nothing to install:** the [app and notebooks on this site](browser.md)
 run pyaermod and AERMOD (compiled to WebAssembly) in your web browser.
@@ -56,7 +56,7 @@ uv tool install "pyaermod[gui]"
 Then start it with `pyaermod-app`. To upgrade later:
 `pipx upgrade pyaermod` or `uv tool upgrade pyaermod`.
 
-The [GUI User Guide](gui-guide.md) says how to use it.
+The [GUI user guide](gui-guide.md) says how to use it.
 
 ## conda
 
@@ -85,7 +85,8 @@ pyaermod runs the `aermod` executable it finds on your `PATH` (and
 them.
 
 - **Windows:** EPA publishes executables on
-  [SCRAM](https://www.epa.gov/scram/air-quality-dispersion-modeling-preferred-and-recommended-models).
+  [SCRAM](https://www.epa.gov/scram/air-quality-dispersion-modeling-preferred-and-recommended-models)
+  (EPA's Support Center for Regulatory Atmospheric Modeling).
   Put the folder that holds `aermod.exe` on your `PATH`.
 - **macOS and Linux:** EPA publishes source code only.
   `scripts/build_aermod.sh` in the
@@ -104,7 +105,7 @@ with `pyaermod info`, which lists what can run on this computer.
 | `zsh: no matches found: pyaermod[gui]` | Put the package name in quotes: `pip install "pyaermod[gui]"`. |
 | `pyaermod-app: command not found` | The environment it was installed into is not active: activate the virtual environment (or conda environment) again. After `pipx install`, run `pipx ensurepath`; after `uv tool install`, run `uv tool update-shell`; then open a new terminal. `python -m pyaermod.gui_v2` starts the same app without the command being on `PATH`. |
 | `pyaermod-app needs NiceGUI, which is not installed.` | pyaermod was installed without the extra. Run the command the message gives: `pip install "pyaermod[gui]"`. |
-| `Cannot listen on 127.0.0.1 port 8080` | Another program, or another PyAERMOD window, is using the port. Choose another: `pyaermod-app --port 8081`. |
+| `Cannot listen on 127.0.0.1 port 8080` | Another program, or another pyaermod window, is using the port. Choose another: `pyaermod-app --port 8081`. |
 | No browser tab opens | Open the address the terminal shows (`http://127.0.0.1:8080`). Over SSH there is no browser to open: start with `--no-browser` and forward the port. |
 | pip starts compiling packages and fails (`error: subprocess-exited-with-error`, a missing compiler or Rust) | Your Python is newer than the wheels of some dependency. Python 3.11 to 3.14 install without compiling anything; choose one of them, for example `uv tool install --python 3.13 "pyaermod[gui]"`. |
 | `pyaermod-app --port 8081` still serves on port 8080, or `--help` starts the app | That is pyaermod 2.2.0, whose `pyaermod-app` reads no options. Upgrade: `python -m pip install --upgrade "pyaermod[gui]"`. `pyaermod gui`, `python -m pyaermod.gui_v2` and the one-line messages above are also newer than 2.2.0. |

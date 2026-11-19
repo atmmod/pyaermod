@@ -105,9 +105,8 @@ When you eventually run both files through AERMOD with real meteorological data:
   push the peak concentration **farther downwind** because the plume takes
   longer to mix down to ground level.
 
-This is a fundamental principle in air quality engineering: **effective stack
-height is the single most important factor for ground-level concentrations**
-from a point source.
+In this exercise, **stack height** changes the ground-level concentrations
+from a point source the most.
 
 ## Checkpoint
 

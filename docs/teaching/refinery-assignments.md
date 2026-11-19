@@ -1,58 +1,46 @@
 # Houston Refinery Modeling Assignments
 
-Advanced tutorials for PyAERMOD: from meteorological preprocessing
-through terrain processing to a complete oil refinery dispersion model.
+Tutorials 6--8: AERMET for Houston, AERMAP terrain, and a ten-source
+refinery model. They assume [Tutorials 1--5](student-guide/index.md). The
+model is built in the GUI (`pyaermod-app`); the steps the GUI does not cover
+(AERMET input files, AERMAP elevations, a background concentration,
+POSTFILE analysis) use short Python scripts you copy and run, as in
+Tutorial 5.
 
-These three tutorials build on [Tutorials 1--5](student-guide/index.md) and assume
-you are comfortable with the PyAERMOD GUI (`pyaermod-app`), point/area
-sources, receptor grids, and basic AERMET concepts. The model is built in
-the GUI; the steps the GUI does not cover (AERMET input files, AERMAP
-elevations, a background concentration, POSTFILE analysis) use short Python
-scripts that you copy and run, as in Tutorial 5.
-
----
-
-## Table of Contents
-
-1. [Tutorial 6 — AERMET for Houston, Texas](#tutorial-6-aermet-for-houston-texas)
-2. [Tutorial 7 — Terrain Processing with AERMAP](#tutorial-7-terrain-processing-with-aermap)
-3. [Tutorial 8 — Modeling a Simplified Oil Refinery](#tutorial-8-modeling-a-simplified-oil-refinery)
+1. [Tutorial 6: AERMET for Houston, Texas](#tutorial-6-aermet-for-houston-texas)
+2. [Tutorial 7: Terrain Processing with AERMAP](#tutorial-7-terrain-processing-with-aermap)
+3. [Tutorial 8: Modeling a Simplified Oil Refinery](#tutorial-8-modeling-a-simplified-oil-refinery)
 4. [Assignment Deliverables](#assignment-deliverables)
 5. [Supplemental Reference Tables](#supplemental-reference-tables)
 
 ---
 
-## Tutorial 6 — AERMET for Houston, Texas
+## Tutorial 6: AERMET for Houston, Texas
 
-**Goal:** Generate a complete set of AERMOD-ready meteorological files
-(`.sfc` and `.pfl`) for the Houston Ship Channel area using real station
-data and site-appropriate surface parameters.
+**Goal:** Generate AERMOD-ready meteorological files (`.sfc` and `.pfl`)
+for the Houston Ship Channel from real station data and Houston surface
+parameters.
 
 **Time:** 40--50 minutes
 
 **What you'll learn:**
-- How to identify surface and upper air stations for a specific location
-- How Gulf Coast meteorology differs from inland sites
+- How to identify surface and upper air stations for a location
 - How to select monthly surface parameters for an industrial/coastal setting
-- How to run AERMET's two stages (Stage 1 and METPREP) and verify the output
+- How to run AERMET's two stages (Stage 1 and Stage 2, METPREP) and verify
+  the output
 
 ### Background: Why Houston?
 
-The Houston Ship Channel and surrounding area contains one of the largest
-concentrations of petroleum refining and petrochemical manufacturing in the
-world. The meteorology of this region is distinctive:
+The Houston Ship Channel holds one of the largest concentrations of
+refining and petrochemical plants in the world. Its meteorology:
 
-- **Prevailing winds** from the south-southeast (Gulf of Mexico) during
-  summer, rotating to northerly during winter cold fronts.
-- **High humidity** year-round reduces the Bowen ratio compared to arid
-  inland sites.
-- **Sea-breeze circulation** can reverse wind direction along the coast
-  during afternoon hours, recirculating pollutants back over populated areas.
-- **Atmospheric stability** is frequently unstable during summer days (strong
-  solar heating) but can become very stable during clear winter nights.
-
-These characteristics make Houston a challenging and instructive location for
-air quality modeling.
+- **Winds** from the south-southeast (Gulf of Mexico) in summer, turning
+  northerly in winter cold fronts.
+- **High humidity** all year, which lowers the Bowen ratio compared with
+  arid inland sites.
+- **Sea breezes** that can reverse the wind along the coast in the
+  afternoon (Discussion Question 3).
+- **Unstable** summer days and **stable** clear winter nights.
 
 ### Step 1: Identify the Meteorological Stations
 
@@ -63,20 +51,18 @@ For a refinery near the Houston Ship Channel (approximately 29.75 N,
 
 | Parameter | Value | Notes |
 |---|---|---|
-| Station ID | `12918` | WBAN number (ICAO `KHOU`). AERMET needs the WBAN: it reads the surface ID as a number |
+| Station ID | `12918` | WBAN number (Weather-Bureau-Army-Navy; ICAO code `KHOU`). AERMET reads the surface ID as a number, so it needs the WBAN |
 | Station Name | `Houston Hobby Airport` | |
 | Latitude | `29.6454` | Decimal degrees |
 | Longitude | `-95.2789` | Negative = west |
 | Time Zone (UTC offset) | `-6` | Central Standard Time |
 | Elevation (m) | `14.0` | Near sea level — typical for coastal Houston |
 | Anemometer Height (m) | `10.0` | Standard |
-| Data Format | `ISHD` | NOAA Integrated Surface Hourly Data |
+| Data Format | `ISHD` | Integrated Surface Hourly Data (NOAA) |
 
-> **Why Hobby instead of Intercontinental?** Houston Hobby Airport (KHOU) is
-> closer to the Ship Channel and more representative of the coastal/industrial
-> area. George Bush Intercontinental (KIAH) is 35 km north-northwest and sits
-> in a more suburban/forested environment with different roughness and moisture
-> characteristics.
+> **Why Hobby instead of Intercontinental?** Hobby is closer to the Ship
+> Channel and more coastal and industrial. George Bush Intercontinental
+> (KIAH) is 35 km north-northwest in a more suburban, forested setting.
 
 #### Upper Air Station — Lake Charles, Louisiana
 
@@ -88,10 +74,8 @@ For a refinery near the Houston Ship Channel (approximately 29.75 N,
 | Longitude | `-93.2200` | |
 | Elevation (m) | `4.6` | Station elevation above sea level |
 
-> **Why Lake Charles?** It is the closest radiosonde station to Houston
-> (~200 km east). The only alternative would be Corpus Christi (~330 km
-> southwest). Lake Charles is more representative of the Houston area's
-> upper-atmosphere conditions because it shares the Gulf Coast environment.
+> **Why Lake Charles?** It is the closest radiosonde station (about 200 km
+> east); the alternative, Corpus Christi, is about 330 km southwest.
 
 #### Data Files and Date Range
 
@@ -108,12 +92,9 @@ NOAA's NCEI archive.
 
 ### Step 2: Configure Stage 1
 
-As in Tutorial 5, the AERMET input files come from a short Python script,
-not from the GUI.
-
-1. In your working folder, create `make_houston_aermet.py` and start it
-   with the stations and Stage 1, using the parameters from the tables
-   above:
+As in Tutorial 5, the AERMET input files come from a short Python script.
+Create `make_houston_aermet.py` and start it with the stations and
+Stage 1 (`AERMETStage1`), using the values above:
 
 ```python
 from pathlib import Path
@@ -149,48 +130,21 @@ stage1 = AERMETStage1(
 )
 ```
 
-2. You will write the file in Step 4, as `aermet_houston_s1.inp`.
+You write the file in Step 3, as `aermet_houston_s1.inp`.
 
-> **Check yourself:** Once written, the Stage 1 file should contain:
-> - A `SURFACE` block with `DATA khou_2023.dat ISHD`
-> - An `UPPERAIR` block with `DATA 72240_2023.dat FSL`
-> - An `XDATES` line showing `2023/01/01 TO 2023/12/31`
+### Step 3: Configure Stage 2 (METPREP) — Houston Surface Parameters
 
-### Step 3: Configure Stage 2
+The land around the Ship Channel is a mix of **industrial facilities, port
+infrastructure, open water and coastal grassland**, unlike the suburban
+values of Tutorial 5. Stage 2 (class `AERMETStage3`) uses these dates and
+output files:
 
-> **Skip this step.** Current AERMET has no separate merge stage: METPREP
-> (Stage 3) reads Stage 1's output and merges it itself, and there is no
-> `s2` file to run. Go on to Step 4. The steps below are kept for readers
-> of older AERMET material.
-
-Stage 2 took the filenames that Stage 1 produces:
-
-   | Parameter | Value |
-   |---|---|
-   | Surface Extract File | `khou_extract.sfc` |
-   | Upper Air Extract File | `lch_extract.ua` |
-   | Start Date | `2023/01/01` |
-   | End Date | `2023/12/31` |
-   | Merge Output File | `houston_merged.mrg` |
-
-### Step 4: Configure Stage 3 — Houston Surface Parameters
-
-This is where your knowledge of the Houston area matters. The land around the
-Ship Channel is a mix of **industrial facilities, port infrastructure, open
-water, and coastal grassland**. This is very different from the suburban
-values of Tutorial 5.
-
-1. Stage 3 uses these dates and output files:
-
-   | Parameter | Value |
-   |---|---|
-   | Start Date | `2023/01/01` |
-   | End Date | `2023/12/31` |
-   | Surface Output | `houston_2023.sfc` |
-   | Profile Output | `houston_2023.pfl` |
-
-2. **Set the monthly surface parameters** to the Houston-specific
-   values below:
+| Parameter | Value |
+|---|---|
+| Start Date | `2023/01/01` |
+| End Date | `2023/12/31` |
+| Surface Output | `houston_2023.sfc` |
+| Profile Output | `houston_2023.pfl` |
 
 #### Houston Ship Channel Monthly Surface Parameters
 
@@ -209,20 +163,15 @@ values of Tutorial 5.
 | Nov | 0.17 | 0.7 | 0.45 | Leaf drop begins, drier air |
 | Dec | 0.18 | 0.8 | 0.40 | Dormant season, some cold fronts |
 
-> **Key differences from the suburban defaults (Tutorial 5):**
->
-> - **Lower albedo** (0.14--0.18 vs 0.15--0.35): Houston's dark industrial
->   surfaces, asphalt, and green vegetation absorb more sunlight than light-
->   colored suburban roofs and snow cover.
-> - **Lower Bowen ratio** (0.3--0.8 vs 0.5--1.5): The Gulf Coast moisture
->   keeps latent heat flux high. Moist surfaces partition more energy into
->   evaporation than sensible heating.
-> - **Higher roughness** (0.40--0.60 vs 0.30--0.50): The industrial Ship
->   Channel area has large structures (tanks, stacks, buildings) that create
->   more aerodynamic drag than low-rise suburban neighborhoods.
+> **Compared with Tutorial 5's suburban values:** albedo is lower
+> (0.14--0.18 vs 0.15--0.35), the Bowen ratio is lower (0.3--0.8 vs
+> 0.5--1.5) and roughness is higher (0.40--0.60 vs 0.30--0.50). Moist Gulf
+> Coast surfaces put more energy into evaporation (a lower Bowen ratio),
+> and tanks, stacks and buildings add roughness. Compare the `.sfc` files
+> from the two sets to see the effect.
 
-3. Add Stage 3 to your script, with the Houston values, and the lines that
-   write both files. `station=surface` uses the Stage 1 surface station.
+Add Stage 2 to your script with the Houston values, and the lines that
+write both files. `station=surface` uses the Stage 1 surface station.
 
 ```python
 stage3 = AERMETStage3(
@@ -239,27 +188,26 @@ stage3 = AERMETStage3(
 ).with_inputs_from(stage1)
 
 Path("aermet_houston_s1.inp").write_text(stage1.to_aermet_input())
-Path("aermet_houston_s3.inp").write_text(stage3.to_aermet_input())
+Path("aermet_houston_s2.inp").write_text(stage3.to_aermet_input())
 ```
 
-4. Run the script: `python make_houston_aermet.py`. It writes
-   `aermet_houston_s1.inp` and `aermet_houston_s3.inp`.
+Run `python make_houston_aermet.py`. It writes `aermet_houston_s1.inp` and
+`aermet_houston_s2.inp`.
 
-### Step 5: Run AERMET
+### Step 4: Run AERMET
 
-In a terminal, run Stage 1 and then METPREP (current AERMET has no separate
-merge stage, so there is no `s2` file to run):
+In a terminal, run Stage 1 and then Stage 2:
 
 ```bash
 aermet aermet_houston_s1.inp
-aermet aermet_houston_s3.inp
+aermet aermet_houston_s2.inp
 ```
 
 AERMET exits without an error code even when it fails: check that each run
-ends with `AERMET FINISHED SUCCESSFULLY`. When METPREP completes, you should have `houston_2023.sfc` and
-`houston_2023.pfl` in your working directory.
+ends with `AERMET FINISHED SUCCESSFULLY`. When Stage 2 completes, the working
+directory holds `houston_2023.sfc` and `houston_2023.pfl`.
 
-### Step 6: Verify the Output
+### Step 5: Verify the Output
 
 Launch the GUI (`pyaermod-app`):
 
@@ -293,20 +241,11 @@ Launch the GUI (`pyaermod-app`):
    reverse the wind direction. Would you expect to see this in the `.sfc`
    file? How might it affect a refinery's downwind impacts?
 
-### Checkpoint
-
-- [x] Surface and upper air station selection for a specific area
-- [x] How Gulf Coast climate affects surface parameter choices
-- [x] The role of albedo, Bowen ratio, and roughness in boundary layer
-  calculations
-- [x] Running AERMET and verifying the output files
-- [x] Why station representativeness matters for regulatory modeling
-
 ---
 
-## Tutorial 7 — Terrain Processing with AERMAP
+## Tutorial 7: Terrain Processing with AERMAP
 
-**Goal:** Use PyAERMOD and AERMAP to assign terrain elevations to
+**Goal:** Use pyaermod and AERMAP to assign terrain elevations to
 all receptors and sources for a model domain near the Houston Ship Channel.
 
 **Time:** 30--40 minutes
@@ -320,52 +259,18 @@ all receptors and sources for a model domain near the Houston Ship Channel.
 
 ### Conceptual Background
 
-In Tutorials 1--5, we used FLAT terrain — meaning every receptor and source
-sat at elevation zero. This is a simplification. In reality, even modest
-elevation differences can affect concentrations:
+Tutorials 1--5 used FLAT terrain: every receptor and source at elevation
+zero. AERMAP reads digital elevation models (DEMs) and assigns:
 
-- **Elevated receptors** (on a hill or ridge) can intercept the plume at
-  a height closer to the effective plume centerline, increasing concentrations.
-- **Depressed receptors** (in a valley) may be partially shielded, but
-  channeling effects can concentrate pollutants.
-- **Source base elevation** determines where the plume originates relative to
-  the surrounding terrain.
+1. **Receptor terrain elevation** (`z_elev`): ground height at each receptor.
+2. **Receptor hill height** (`z_hill`): the controlling hill height AERMOD
+   uses in its terrain calculations.
+3. **Source base elevation**: ground height at each source.
 
-AERMAP is the terrain preprocessor that extracts elevation data from digital
-elevation models (DEMs) and assigns:
-
-1. **Receptor terrain elevation** (`z_elev`) — ground height at each receptor.
-2. **Receptor hill height** (`z_hill`) — the controlling hill height that
-   AERMOD uses for terrain-aware plume calculations.
-3. **Source base elevation** — ground height at each emission source.
-
-```
-Digital Elevation Model (DEM)
-         |
-    AERMAP preprocessor
-         |
-    +-----------------+
-    | z_elev, z_hill  |  --> Receptor elevations
-    | for each        |  --> Source base elevations
-    | receptor/source |
-    +-----------------+
-         |
-    Import into AERMOD project
-```
-
-### Why Bother Near Houston?
-
-Houston is coastal and mostly flat, but "flat" is relative:
-
-- The Ship Channel itself sits near sea level (0--5 m elevation).
-- Surrounding neighborhoods are 10--25 m above sea level.
-- The terrain rises gradually to 30--50 m northwest of the city.
-- Even a 15 m elevation difference can influence concentrations when the
-  plume effective height is 50--100 m.
-
-For regulatory work, EPA requires terrain processing for virtually all
-analyses. Learning the workflow here — where terrain effects are small —
-prepares you for mountainous or hilly sites where terrain is critical.
+Houston is coastal and mostly flat: the Ship Channel is at 0--5 m, the
+surrounding neighborhoods at 10--25 m. Even 15 m can matter when the plume
+is 50--100 m above ground, and the workflow here, where terrain effects are
+small, is the one you use at hilly sites.
 
 ### Step 1: Define the Model Domain
 
@@ -375,7 +280,8 @@ receptor grid. We will use the domain for the refinery model in Tutorial 8.
 **Refinery location (approximate center):**
 - Latitude: 29.7350 N
 - Longitude: -95.1050 W
-- UTM Zone 15N: approximately X = 279,200 m E, Y = 3,291,700 m N
+- UTM (Universal Transverse Mercator) zone 15N, NAD83 datum: approximately
+  X = 279,200 m E, Y = 3,291,700 m N
 
 **Receptor grid extent** (5 km x 5 km centered on the refinery):
 
@@ -392,18 +298,11 @@ AERMAP requires elevation data in GeoTIFF or USGS DEM format. The easiest
 approach is to use the USGS 3D Elevation Program (3DEP) data at
 1/3 arc-second resolution (~10 m).
 
-**Option A — PyAERMOD's built-in downloader (if available):**
-
-PyAERMOD includes a `DEMDownloader` class that can query the USGS TNM API
-and download the needed tiles automatically. Your instructor may provide
-a script or notebook for this. The downloader needs:
-
-- Bounding box in latitude/longitude
-- South: 29.700
-- North: 29.770
-- West: -95.140
-- East: -95.060
-- A local cache directory for downloaded tiles
+**Option A — `DEMDownloader`:** it queries the USGS National Map (TNM)
+service and downloads the tiles for a bounding box (south 29.700, north
+29.770, west -95.140, east -95.060) into a cache directory; see
+[job 8](../use-cases.md#8-elevated-and-complex-terrain-with-aermap) for the
+call.
 
 **Option B — Manual download:**
 
@@ -429,21 +328,9 @@ a script or notebook for this. The downloader needs:
    The coordinates below are UTM zone 15 north (NAD83) meters. The GUI has
    no setting for the zone; you give it to AERMAP in Step 4.
 
-3. Go to **Sources** and add a placeholder `PointSource` at the
-   refinery center. We will replace this with the full source inventory in
-   Tutorial 8, but AERMAP needs at least one source to process.
-
-   | Parameter | Value |
-   |---|---|
-   | Source ID | `FCCSTK` |
-   | X coord (m) | `279200` |
-   | Y coord (m) | `3291700` |
-   | Stack height (m) | `60` |
-   | Stack temp (K) | `470` |
-   | Exit velocity (m/s) | `20` |
-   | Stack diameter (m) | `3.0` |
-   | Emission rate (g/s) | `5.0` |
-   | Base elevation (m), under **Advanced** | `0` |
+3. Go to **Sources** and add `FCCSTK` as in Tutorial 8, Step 2 (Source 1),
+   with **Base elevation (m)** `0` under **Advanced**. Tutorial 8 replaces
+   it with the full source inventory, but AERMAP needs one source.
 
 4. Go to **Receptors** and add a `CartesianGrid`:
 
@@ -465,15 +352,10 @@ a script or notebook for this. The downloader needs:
 
 ### Step 4: Run AERMAP
 
-AERMAP is a separate executable from AERMOD (download from EPA SCRAM). The
-process differs slightly depending on how your instructor has set things up:
-
-**Option A — Using PyAERMOD's terrain module (recommended):**
-
-If the AERMAP executable is installed (on your PATH), PyAERMOD can write
-the AERMAP input file from your saved project, run AERMAP, and put the
-elevations into the project. In your working directory, create
-`run_terrain.py`:
+AERMAP is a separate executable from AERMOD (from the EPA's SCRAM site). If
+it is on your PATH, pyaermod can write the AERMAP input file from your saved
+project, run AERMAP and put the elevations into the project. In your
+working directory, create `run_terrain.py`:
 
 ```python
 from pyaermod.gui_v2.project_io import load_project, save_project
@@ -505,17 +387,8 @@ The script saves a copy of your project with those elevations as
 `tutorial7_terrain.json`. If AERMAP stops with an error, see the
 [AERMAP troubleshooting guide](../aermap-troubleshooting.md).
 
-**Option B — Command line:**
-
-Your instructor may provide the AERMAP input file. Run it as:
-
-```bash
-aermap aermap_houston.inp
-```
-
-AERMAP typically runs in under a minute for a domain this size. Your
-instructor will then give you the project file with the elevations for
-Step 5, or you can use Option A.
+If AERMAP stops with an error, see the
+[AERMAP troubleshooting guide](../aermap-troubleshooting.md).
 
 ### Step 5: Open the Project with Its Elevations
 
@@ -552,13 +425,11 @@ preview**. Look for:
 
 3. The `MODELOPT` line of the `CO` pathway should contain `ELEV` (not `FLAT`).
 
-> **Compare FLAT vs ELEVATED:** If you save this project and create a
-> FLAT-terrain copy (change **Terrain** on the Project step and untick
-> **Regulatory default options (DFAULT)**), you can compare
-> the two input files. The FLAT version omits all elevation data. When you
-> run both through AERMOD with the same meteorology, the ELEVATED version
-> will typically produce slightly higher maximum concentrations because
-> nearby terrain "lifts" some receptors closer to the plume centerline.
+> **Compare FLAT vs ELEVATED:** save this project, make a FLAT copy
+> (change **Terrain** on the Project step and untick **Regulatory default
+> options (DFAULT)**) and compare the two input files: the FLAT one omits
+> all elevation data. Run both with the same meteorology and compare the
+> maximum concentrations.
 
 ### Discussion Questions
 
@@ -577,17 +448,9 @@ preview**. Look for:
    stack height). If this ratio exceeds ~0.1, terrain effects are non-
    negligible.
 
-### Checkpoint
-
-- [x] Why even modest terrain matters for regulatory modeling
-- [x] How to obtain DEM data for a project domain
-- [x] How AERMAP processes DEMs to produce receptor/source elevations
-- [x] How to bring AERMAP's elevations into your project
-- [x] The difference between FLAT and ELEVATED terrain modes in AERMOD
-
 ---
 
-## Tutorial 8 — Modeling a Simplified Oil Refinery
+## Tutorial 8: Modeling a Simplified Oil Refinery
 
 **Goal:** Build a complete AERMOD model for a simplified petroleum refinery
 near the Houston Ship Channel, including multiple source types, realistic
@@ -614,9 +477,10 @@ Houston Ship Channel at approximately:
 - **UTM Zone 15N:** X = 279,200 m E, Y = 3,291,700 m N
 - **Base elevation:** ~5 m above sea level
 
-The refinery processes 150,000 barrels per day of crude oil into gasoline,
-diesel, jet fuel, and petrochemical feedstocks. Its main emission sources
-include:
+The refinery processes 150,000 barrels per day (150 kbpd) of crude oil into
+gasoline, diesel, jet fuel and petrochemical feedstocks. Its main sources
+(NOx is nitrogen oxides, VOC volatile organic compounds, H2S hydrogen
+sulfide, FCC fluid catalytic cracking):
 
 | Unit | Source Type | Primary Pollutant | Description |
 |---|---|---|---|
@@ -631,15 +495,11 @@ include:
 | Cooling towers | Volume | PM2.5 | Drift from cooling water (mineral salts) |
 | Equipment leaks (fugitives) | Volume | VOC | Valves, pumps, flanges throughout process area |
 
-For this assignment, we will model **SO2** as the primary pollutant. SO2 is
-a classic refinery pollutant with a clear 1-hour NAAQS (196 ug/m3, the
-equivalent of 75 ppb). The principles apply equally to PM2.5, NO2, or any
-other pollutant — only the emission rates and standards change.
-
-> **Real-world note:** An actual refinery permit application would include
-> hundreds of emission sources and multiple pollutants. We simplify to
-> ~10 sources to keep the assignment manageable while demonstrating all the
-> key concepts.
+This assignment models **SO2**, which has a 1-hour National Ambient Air
+Quality Standard (NAAQS) of 196 µg/m³ (75 ppb). The same steps apply to
+PM2.5, NO2 or any other pollutant; only the emission rates and standards
+change. A real permit application would have hundreds of sources and
+several pollutants; ten sources are enough here to show the main concepts.
 
 ### Step 1: Set Up the Project
 
@@ -657,239 +517,59 @@ other pollutant — only the emission rates and standards change.
    All coordinates in this tutorial are UTM zone 15 north (NAD83) meters.
 
 > **Why these averaging periods?** The SO2 NAAQS is a 1-hour standard
-> (75 ppb = 196 ug/m3). We also include 3-hour, 24-hour, and annual for
+> (75 ppb = 196 µg/m³). We also include 3-hour, 24-hour, and annual for
 > secondary NAAQS comparison and general analysis. Regulatory practice
 > requires demonstrating compliance with all applicable standards.
 
 ### Step 2: Define Emission Sources
 
-Now add all the refinery sources. Go to **Sources** and add them one
-at a time in the order below: set **Type**, click **Add**, fill in the
-editor and click **Save**. **Base elevation (m)** is under **Advanced**. The refinery is oriented roughly north-south
-along the Ship Channel, with process units in the center and tank farms to
-the south.
+Go to **Sources** and add the ten sources below one at a time: set **Type**,
+click **Add**, fill in the editor and click **Save**. **Base elevation (m)**
+is under **Advanced**; it is `5.0` for every source. The process units are
+in the center and the tank farms to the south.
 
-#### Source 1 — FCC Regenerator Stack (FCCSTK)
+**Point sources** (type `PointSource`):
 
-The fluid catalytic cracking (FCC) unit is the largest single SO2 source
-at most refineries. The regenerator burns coke off the catalyst, releasing
-SO2, CO, and particulate matter through a tall stack.
+| Source ID | X (m) | Y (m) | Stack height (m) | Stack temp (K) | Exit velocity (m/s) | Stack diameter (m) | Emission rate (g/s) |
+|---|---|---|---|---|---|---|---|
+| `FCCSTK` | 279200 | 3291750 | 60 | 470 | 20 | 3.0 | 5.0 |
+| `HTR1` | 279100 | 3291800 | 40 | 420 | 12 | 1.8 | 2.0 |
+| `HTR2` | 279300 | 3291850 | 35 | 410 | 10 | 1.5 | 1.5 |
+| `BOILER` | 279050 | 3291600 | 45 | 430 | 14 | 2.0 | 3.0 |
+| `FLARE` | 279400 | 3291500 | 15 | 1273 | 20 | 1.0 | 1.0 |
 
-Type: `PointSource`
+- `FCCSTK` is the FCC regenerator stack, the largest source. Its tall, hot
+  plume may put the effective release height at 120--180 m, so expect the
+  peak 1--3 km downwind; check this against your results.
+- `FLARE` is a short, hot point source, a simplification. Real flares are
+  modeled with EPA's flare guidance (flame length, radiative heat loss,
+  effective release parameters).
 
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `FCCSTK` | FCC regenerator stack |
-| X coord (m) | `279200` | Center of the process area |
-| Y coord (m) | `3291750` | |
-| Base elevation (m), under **Advanced** | `5.0` | Near sea level |
-| Stack height (m) | `60.0` | Tall stack — regulatory requirement for FCC units |
-| Stack temp (K) | `470.0` | Hot regenerator flue gas (~197 C) |
-| Exit velocity (m/s) | `20.0` | High velocity through large stack |
-| Stack diameter (m) | `3.0` | Large diameter for high flow volume |
-| Emission rate (g/s) | `5.0` | 5 g/s SO2 — major source |
+**Area and volume sources:**
 
-> **Intuition:** The FCC stack is the "big gun" of the refinery. Its tall
-> stack and hot exhaust give it substantial plume rise (the effective release
-> height could be 120--180 m), so peak ground-level impacts will be
-> 1--3 km downwind despite the high emission rate.
+| Source ID | Type | X (m) | Y (m) | Release height (m) | Size | Emission rate |
+|---|---|---|---|---|---|---|
+| `TANKS` | `AreaSource` | 279150 | 3291300 | 15 | X side 200 m, Y side 150 m, angle 0 | 0.000010 g/(s·m²) |
+| `LOADRK` | `AreaSource` | 279350 | 3291400 | 4 | X side 80 m, Y side 30 m, angle 0 | 0.000005 g/(s·m²) |
+| `WWATER` | `AreaCircSource` | 278900 | 3291400 | 1 | radius 50 m, 20 vertices (**Advanced**) | 0.000030 g/(s·m²) |
+| `COOL1` | `VolumeSource` | 279250 | 3291550 | 12 | initial lateral 8 m, initial vertical 6 m | 0.2 g/s |
+| `FUGITV` | `VolumeSource` | 279200 | 3291700 | 5 | initial lateral 25 m, initial vertical 4 m | 0.5 g/s |
 
-#### Source 2 — Process Heater #1 (HTR1)
-
-Crude unit charge heater — burns refinery fuel gas to heat crude oil.
-
-Type: `PointSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `HTR1` | Crude unit heater |
-| X coord (m) | `279100` | West of FCC, within process area |
-| Y coord (m) | `3291800` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Stack height (m) | `40.0` | Shorter than FCC — typical for heaters |
-| Stack temp (K) | `420.0` | Hot flue gas (~147 C) |
-| Exit velocity (m/s) | `12.0` | Moderate velocity |
-| Stack diameter (m) | `1.8` | Smaller than FCC |
-| Emission rate (g/s) | `2.0` | 2 g/s SO2 |
-
-#### Source 3 — Process Heater #2 (HTR2)
-
-Vacuum unit charge heater — similar to Heater #1 but slightly smaller.
-
-Type: `PointSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `HTR2` | Vacuum unit heater |
-| X coord (m) | `279300` | East of FCC |
-| Y coord (m) | `3291850` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Stack height (m) | `35.0` | Slightly shorter |
-| Stack temp (K) | `410.0` | |
-| Exit velocity (m/s) | `10.0` | |
-| Stack diameter (m) | `1.5` | |
-| Emission rate (g/s) | `1.5` | 1.5 g/s SO2 |
-
-#### Source 4 — Boiler Stack (BOILER)
-
-Package boiler generating steam for process heat and utilities.
-
-Type: `PointSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `BOILER` | Utility boiler |
-| X coord (m) | `279050` | Utility area, west side of refinery |
-| Y coord (m) | `3291600` | South of process area |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Stack height (m) | `45.0` | Mid-height industrial stack |
-| Stack temp (K) | `430.0` | |
-| Exit velocity (m/s) | `14.0` | |
-| Stack diameter (m) | `2.0` | |
-| Emission rate (g/s) | `3.0` | 3 g/s SO2 — second-largest source |
-
-#### Source 5 — Flare (FLARE)
-
-The refinery's ground-level flare (modeled as a short elevated point source
-for simplicity). During normal operations, the flare burns small amounts of
-waste gas. During upsets, emissions can be much higher.
-
-Type: `PointSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `FLARE` | Ground flare |
-| X coord (m) | `279400` | East side of refinery, away from process units |
-| Y coord (m) | `3291500` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Stack height (m) | `15.0` | Low effective height for ground flare |
-| Stack temp (K) | `1,273.0` | Very hot (~1000 C) — combustion temperature |
-| Exit velocity (m/s) | `20.0` | High exit velocity |
-| Stack diameter (m) | `1.0` | |
-| Emission rate (g/s) | `1.0` | 1 g/s SO2 — normal operations |
-
-> **Note on flare modeling:** In real regulatory work, flares are modeled
-> using EPA's flare modeling guidance, which accounts for flame length,
-> radiative heat loss, and effective release parameters. Our simplified
-> point source is an approximation suitable for teaching.
-
-#### Source 6 — Crude Tank Farm (TANKS)
-
-A rectangular area of large floating-roof crude oil storage tanks.
-The emission rate represents fugitive losses through the floating roof
-seals. For this SO2 model, we use a small emission rate representing
-H2S/SO2 emissions from sour crude storage.
-
-Type: `AreaSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `TANKS` | Crude tank farm |
-| X coord (m) | `279150` | Southwest corner of the tank farm |
-| Y coord (m) | `3291300` | South of the process area |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Release height (m) | `15.0` | Tank top height (~15 m for large tanks) |
-| Initial lateral dimension (m) | `200.0` | Xinit, the X side: 200 m east-west |
-| Initial vertical dimension (m) | `150.0` | Yinit, the Y side: 150 m north-south |
-| Angle (deg) | `0` | Aligned with grid |
-| Emission rate (g/(s·m²)) | `0.000010` | 0.00001 g/s/m2 — small fugitive rate |
-
-> **Emission rate calculation:**
-> Area = 200 m x 150 m = 30,000 m2 (AERMOD takes Xinit and Yinit as the
-> full side lengths from the southwest corner, not half-widths).
-> Total emission = 0.00001 x 30,000 = **0.3 g/s** from the entire tank farm.
-> This is small compared to the stacks — fugitive SO2 from tanks is minor.
-
-#### Source 7 — Loading Rack (LOADRK)
-
-The truck/railcar loading area where refined products are loaded for
-distribution. Vapor displacement during loading produces emissions.
-
-Type: `AreaSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `LOADRK` | Product loading rack |
-| X coord (m) | `279350` | East side of the refinery |
-| Y coord (m) | `3291400` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Release height (m) | `4.0` | Vehicle height |
-| Initial lateral dimension (m) | `80.0` | Xinit, the X side: 80 m east-west |
-| Initial vertical dimension (m) | `30.0` | Yinit, the Y side: 30 m north-south |
-| Angle (deg) | `0` | |
-| Emission rate (g/(s·m²)) | `0.000005` | 0.000005 g/s/m2 — very low SO2 |
-
-#### Source 8 — Wastewater Treatment (WWATER)
-
-The wastewater treatment area includes API oil-water separators and
-aeration basins. H2S and SO2 can be released from exposed water surfaces.
-
-Type: `AreaCircSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `WWATER` | Wastewater treatment |
-| X coord (m) | `278900` | West side, buffered from process area |
-| Y coord (m) | `3291400` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Release height (m) | `1.0` | At ground level (open basins) |
-| Radius (m) | `50.0` | 50 m radius circular treatment area |
-| Num vertices, under **Advanced** | `20` | |
-| Emission rate (g/(s·m²)) | `0.000030` | 0.00003 g/s/m2 |
-
-> **Emission rate calculation:**
-> Area = pi x 50^2 = ~7,854 m2.
-> Total emission = 0.00003 x 7,854 = **0.24 g/s**.
-
-#### Source 9 — Cooling Towers (COOL1)
-
-Large mechanical-draft cooling towers. Drift (small water droplets carrying
-dissolved minerals) escapes from the tower. We model these as volume sources
-because emissions come from the entire tower structure.
-
-Type: `VolumeSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `COOL1` | Cooling tower bank |
-| X coord (m) | `279250` | Adjacent to process area |
-| Y coord (m) | `3291550` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Release height (m) | `12.0` | Tower exit height |
-| Initial lateral dimension (m) | `8.0` | Initial sigma-y: ~ tower width / 4.3 (EPA guidance) |
-| Initial vertical dimension (m) | `6.0` | Initial sigma-z: ~ tower height / 2.15 |
-| Emission rate (g/s) | `0.2` | 0.2 g/s total (drift PM, minor SO2 content) |
-
-> **Volume source parameters:** EPA guidance recommends:
-> - Initial sigma-Y = building width / 4.3
-> - Initial sigma-Z = building height / 2.15
-> These represent the initial lateral and vertical spread of the plume
-> caused by the source's physical dimensions.
-
-#### Source 10 — Equipment Leak Fugitives (FUGITV)
-
-Distributed fugitive emissions from thousands of valves, pumps, flanges,
-and connections throughout the refinery process area. Modeled as a single
-large volume source representing the aggregate.
-
-Type: `VolumeSource`
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Source ID | `FUGITV` | Process area fugitives |
-| X coord (m) | `279200` | Center of process area |
-| Y coord (m) | `3291700` | |
-| Base elevation (m), under **Advanced** | `5.0` | |
-| Release height (m) | `5.0` | Average equipment height |
-| Initial lateral dimension (m) | `25.0` | Initial sigma-y: Large lateral extent (~100 m process area) |
-| Initial vertical dimension (m) | `4.0` | Initial sigma-z: Low release height |
-| Emission rate (g/s) | `0.5` | 0.5 g/s total from all leak points |
+- For an area source, X and Y are the southwest corner, and AERMOD takes the
+  two sides as full lengths, not half-widths. The emission rate is per unit
+  area: `TANKS` emits 0.00001 × (200 × 150) = **0.3 g/s** and `WWATER`
+  0.00003 × (π × 50²) = **0.24 g/s**.
+- For a volume source, the initial lateral dimension (σy) is about the
+  source width / 4.3 and the initial vertical dimension (σz) about its
+  height / 2.15 (EPA guidance).
+- `TANKS`, `LOADRK` and `WWATER` stand for small SO2 releases (fugitive
+  losses from sour crude and wastewater); `COOL1` is cooling-tower drift
+  and `FUGITV` the aggregate of valve, pump and flange leaks.
 
 ### Step 3: Create Source Groups
 
-Source groups let you evaluate the contribution of different parts of the
-refinery separately. This is required for regulatory work and invaluable
-for understanding where impacts come from.
+Source groups report the contribution of different parts of the refinery
+separately.
 
 A source belongs to the groups named in its **Source groups** field. There
 is no separate list of groups to create:
@@ -906,22 +586,17 @@ is no separate list of groups to create:
 | `FCCONLY` | FCCSTK | FCC unit alone (largest single source) |
 | `ALL` | All 10 sources | Total facility impact |
 
-Do not type `ALL`: AERMOD's `ALL` group holds every source, and PyAERMOD
+Do not type `ALL`: AERMOD's `ALL` group holds every source, and pyaermod
 writes it for you.
 
-> **Why source groups?** When the regulator asks "What happens if you add
-> a scrubber to the FCC unit?", you can compare the FCCONLY group results
-> before and after to quantify the benefit — without re-running the entire
-> model.
+> If a regulator asks what a scrubber on the FCC unit would do, compare the
+> `FCCONLY` results before and after, without rerunning the other sources.
 
 ### Step 4: Set Up a Multi-Scale Receptor Network
 
-A good receptor network captures both the near-field peak and the broader
-impact area. We will use three receptor configurations:
+Three receptor sets cover the near-field peak and the wider impact area:
 
 #### Receptor Set 1 — Fine Grid (Near-Field)
-
-This captures the peak concentration close to the refinery.
 
 On the **Receptors** step, add a `CartesianGrid`:
 
@@ -940,8 +615,6 @@ a 2 km x 2 km area centered on the refinery.
 
 #### Receptor Set 2 — Coarse Grid (Far-Field)
 
-This captures impacts several kilometers downwind.
-
 Add a second `CartesianGrid`:
 
 | Parameter | Value |
@@ -959,8 +632,7 @@ a 5 km x 5 km area.
 
 #### Receptor Set 3 — Discrete Sensitive Receptors
 
-Add discrete receptors at locations of special concern. These represent
-nearby communities, schools, and monitoring stations.
+Discrete receptors stand for nearby communities, schools and monitors.
 
 1. Set **Type** to `DiscreteReceptor` and click **Add** once for each row,
    entering **Label**, **X coord (m)** and **Y coord (m)**:
@@ -974,9 +646,7 @@ nearby communities, schools, and monitoring stations.
 | `Hospital` | `280000` | `3292800` | Medical center, 1.2 km NE |
 | `Monitor` | `279500` | `3292200` | Air quality monitoring station |
 
-> **Total receptor count:** 1,681 + 676 + 6 = **2,363 receptors**.
-> With hourly meteorology over one year and 10 sources, this is a
-> moderately large model that may take 5--15 minutes to run.
+> Total: 1,681 + 676 + 6 = **2,363 receptors**.
 
 ### Step 5: Connect Meteorology
 
@@ -1044,9 +714,8 @@ step shows them under **Summary tables**.
 
 3. Set the **Working directory** and click **Run AERMOD**.
 
-> **Runtime estimate:** With ~2,400 receptors, 10 sources, and 8,760 hours
-> of meteorology, expect approximately 5--15 minutes depending on your
-> computer.
+> **Runtime:** with about 2,400 receptors, 10 sources and 8,760 hours of
+> meteorology, expect roughly 5--15 minutes, depending on your computer.
 
 ### Step 9: Analyze the Results
 
@@ -1074,7 +743,7 @@ NAAQS** and **Summary tables** sections to answer these questions:
 
 **Question 1: Does the refinery comply with the SO2 1-hour NAAQS?**
 
-The SO2 1-hour standard is **196 ug/m3** (equivalent to 75 ppb).
+The SO2 1-hour standard is **196 µg/m³** (equivalent to 75 ppb).
 
 - What does the **Comparison with the NAAQS** table report for the 1-hour
   standard, and which value did it compare (the **Value from** column)?
@@ -1127,7 +796,7 @@ group (the group column), read from AERMOD's `.out` file:
 
 Compare the maximum 1-hour concentrations from each source group:
 
-| Source Group | Max 1-hr (ug/m3) | % of Total |
+| Source Group | Max 1-hr (µg/m³) | % of Total |
 |---|---|---|
 | ALL (total) | | 100% |
 | STACKS | | |
@@ -1166,8 +835,7 @@ print(peak)                                # date is YYMMDDHH
 
 ### Step 10: Sensitivity Analysis (Assignment Extension)
 
-Repeat the model run with one change at a time to understand how each factor
-affects the results. This is the heart of engineering analysis.
+Change one thing per run.
 
 #### Scenario A: Taller FCC Stack
 
@@ -1188,11 +856,8 @@ on the FCC unit. Reduce the FCC emission rate from 5.0 g/s to 1.0 g/s
 
 #### Scenario C: Background Concentration
 
-Real air has background SO2 from regional sources (power plants, shipping,
-other refineries). Add a background concentration:
-
-The GUI cannot enter a background concentration; add it to a saved project
-from Python:
+Real air carries background SO2 from regional sources. The GUI cannot enter
+a background concentration; add one to a saved project from Python:
 
 1. Save the project as `refinery_project.json` (**Project** step, **Save
    as...**).
@@ -1203,7 +868,7 @@ from pyaermod.gui_v2.project_io import load_project, save_project
 from pyaermod.input_generator import BackgroundConcentration
 
 project = load_project("refinery_project.json")
-project.sources.background = BackgroundConcentration(uniform_value=10.0)  # ug/m3
+project.sources.background = BackgroundConcentration(uniform_value=10.0)  # µg/m³
 save_project(project, "refinery_background.json")
 ```
 
@@ -1221,26 +886,6 @@ and ELEVATED terrain:
 
 - What is the maximum concentration difference between the two terrain modes?
 - Where do the differences occur? (Hint: look at receptors on higher terrain.)
-
-### Report Template
-
-Compile your results into a brief technical report (3--5 pages) with these
-sections:
-
-1. **Introduction** — Describe the facility, pollutant, and modeling
-   objectives (1 paragraph).
-
-2. **Model Configuration** — Summarize source inventory (table), receptor
-   network, meteorological data, and terrain data used.
-
-3. **Results** — Present your answers to Questions 1--4 above, with
-   supporting maps and tables from the Results step.
-
-4. **Sensitivity Analysis** — Summarize Scenarios A--D and what they reveal
-   about the most effective control strategies.
-
-5. **Conclusions** — Does the simplified refinery comply with the SO2 NAAQS?
-   What would you recommend to the facility operator if it does not?
 
 ---
 
@@ -1266,13 +911,16 @@ Submit the following files and documents:
   (**Save as...**)
 - [ ] Generated AERMOD input file (`refinery.inp`) — **Download deck** on the
   Review & Run step, renamed
-- [ ] Technical report (3--5 pages) including:
-  - Source inventory table
-  - Results maps (screenshots of the Results step's concentration map)
-  - Compliance analysis table
-  - Source contribution analysis
-  - Sensitivity analysis results (Scenarios A--D)
-  - Conclusions and recommendations
+- [ ] Technical report (3--5 pages):
+  - Introduction: the facility, pollutant and modeling objectives
+  - Model configuration: source inventory table, receptor network,
+    meteorology, terrain
+  - Results: answers to Questions 1--4, with maps from the Results step and
+    a compliance table
+  - Sensitivity analysis: Scenarios A--D and what they show about control
+    strategies
+  - Conclusions: does the refinery comply with the SO2 NAAQS, and what would
+    you recommend if it does not
 
 ### Grading Rubric
 
@@ -1291,21 +939,11 @@ Submit the following files and documents:
 
 ## Supplemental Reference Tables
 
-### Houston-Area Meteorological Stations
-
-| Station | ID | Type | Lat | Lon | Elev (m) | Notes |
-|---|---|---|---|---|---|---|
-| Houston Hobby | KHOU / 12918 | Surface | 29.6454 | -95.2789 | 14 | Recommended for Ship Channel area |
-| Houston IAH | KIAH / 12960 | Surface | 29.9844 | -95.3414 | 29 | Better for north Houston |
-| Galveston | KGLS / 12923 | Surface | 29.2653 | -94.8603 | 5 | Coastal, high winds |
-| Lake Charles, LA | 72240 | Upper Air | 30.12 | -93.22 | 5 | Closest radiosonde to Houston |
-| Corpus Christi | 72251 | Upper Air | 27.77 | -97.50 | 14 | Alternative (far south) |
-
 ### Typical Refinery Emission Rates (SO2, g/s)
 
-These are approximate emission rates for a 150,000 bpd refinery burning
-low-sulfur fuel gas (50--150 ppm H2S). Actual rates depend on sulfur
-content, control equipment, and operating conditions.
+Teaching estimates for a 150 kbpd refinery burning low-sulfur fuel gas
+(50--150 ppm H2S), not measured data. Actual rates depend on sulfur
+content, controls and operating conditions.
 
 | Source | Typical SO2 (g/s) | Range |
 |---|---|---|
@@ -1317,31 +955,4 @@ content, control equipment, and operating conditions.
 | Tank farm (fugitive) | 0.05--0.5 | Total; primarily H2S oxidized to SO2 |
 | Cooling tower | 0.01--0.3 | Drift PM, minimal SO2 |
 
-### NAAQS Quick Reference
-
-| Pollutant | Averaging Period | Standard (ug/m3) | Standard (ppb) | Form |
-|---|---|---|---|---|
-| SO2 | 1-hour | 196 | 75 | 99th percentile of daily max, averaged over 3 years |
-| PM2.5 | Annual | 9.0 | — | Annual mean, averaged over 3 years |
-| PM2.5 | 24-hour | 35 | — | 98th percentile, averaged over 3 years |
-| PM10 | 24-hour | 150 | — | Not to be exceeded more than once per year |
-| NO2 | 1-hour | 188 | 100 | 98th percentile of daily max, averaged over 3 years |
-| NO2 | Annual | 100 | 53 | Annual mean |
-| CO | 1-hour | 40,000 | 35,000 | Not to be exceeded more than once per year |
-| CO | 8-hour | 10,000 | 9,000 | Not to be exceeded more than once per year |
-| O3 | 8-hour | 137 | 70 | Annual 4th-highest, averaged over 3 years |
-
-### Land Use Surface Parameters for Coastal Texas
-
-| Land Cover | Season | Albedo | Bowen Ratio | Roughness (m) |
-|---|---|---|---|---|
-| Open water | All | 0.10 | 0.0 | 0.001 |
-| Coastal marsh | Summer | 0.14 | 0.2 | 0.15 |
-| Coastal marsh | Winter | 0.18 | 0.5 | 0.10 |
-| Industrial/port | All | 0.18 | 0.8--1.5 | 0.50--1.00 |
-| Residential suburban | Summer | 0.16 | 0.5 | 0.50 |
-| Residential suburban | Winter | 0.20 | 1.0 | 0.30 |
-| Grassland/pasture | Summer | 0.18 | 0.3 | 0.10 |
-| Grassland/pasture | Winter | 0.20 | 0.8 | 0.05 |
-| Forest (mixed) | Summer | 0.12 | 0.3 | 1.00 |
-| Forest (mixed) | Winter | 0.18 | 0.8 | 0.50 |
+NAAQS values are in the `pyaermod.naaqs` module ([reference](../api/naaqs.md)).

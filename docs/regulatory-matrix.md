@@ -10,9 +10,9 @@ checklist when building a modeling protocol — the profile API
 |---|---|
 | DFAULT option in MODELOPT | `ControlPathway.regulatory_default=True` |
 | Elevated terrain | `ControlPathway.terrain_type = TerrainType.ELEVATED` |
-| Rural/urban dispersion | `ControlPathway.urban_option` per source if urban |
+| Rural/urban dispersion | `is_urban=True` on each urban source (URBANSRC); `ControlPathway.urban_areas` (or `urban_option`, the urban area's name) writes URBANOPT |
 | LOWWIND | only `LOWWIND3` is currently accepted with documentation |
-| NO2 chemistry | OLM or PVMRM (set via `ChemistryOptions`) — GRSM and PVMRM2 remain BETA through 2023 |
+| NO2 chemistry | OLM or PVMRM (set via `ChemistryOptions`); PVMRM2 and GRSM were BETA in v23132/v24142 (see the 2023 updates) |
 | Stack-tip downwash | on by default; **don't** add `NOSTD` to `ControlPathway.extra_model_options` |
 | BETA / experimental options | not permitted under DFAULT |
 
@@ -28,8 +28,9 @@ warnings = EPA_APPENDIX_W_2017.check(project)
 
 Same base constraints as 2017. Two new NO2 chemistry methods
 (**PVMRM2**, **GRSM**) are available in AERMOD v23132/v24142 but
-remain **BETA** (AERMOD v26135 removes the BETA flag from GRSM, which is
-still a non-DFAULT option) — they require case-by-case EPA concurrence before
+were **BETA** in those versions (AERMOD v26135's `coset.f` no longer
+requires the BETA option for GRSM and no longer rejects it beside DFAULT;
+whether EPA accepts it is a policy question) — they require case-by-case EPA concurrence before
 use in a regulatory submittal. `EPA_APPENDIX_W_2023` therefore keeps
 only OLM and PVMRM in its `allow_chemistry_methods` tuple; the BETA
 set is listed separately in `EPA_APPENDIX_W_2023_BETA_METHODS` for
