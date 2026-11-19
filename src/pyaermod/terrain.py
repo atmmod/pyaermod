@@ -146,6 +146,9 @@ class DEMDownloader:
         self.dataset = dataset
         self.logger = logging.getLogger(f"{__name__}.DEMDownloader")
 
+    _PAGE_SIZE = 50
+    _MAX_PAGES = 40
+
     def find_tiles(
         self,
         bounds: Tuple[float, float, float, float],
@@ -178,15 +181,30 @@ class DEMDownloader:
             "datasets": self.dataset,
             "bbox": f"{west},{south},{east},{north}",
             "prodFormats": "GeoTIFF",
-            "max": 50,
+            "max": self._PAGE_SIZE,
         }
         self.logger.info(f"Querying USGS TNM API for tiles covering {bounds}")
-        response = self._get_with_retries(params, retries, backoff)
-        response.raise_for_status()
-        data = response.json()
+        # The API lists every dated version of a tile and returns at most
+        # ``max`` products a call, so a large box needs several pages: keep
+        # asking, from the offset reached, until ``total`` products are in.
+        items: list = []
+        for _ in range(self._MAX_PAGES):
+            params["offset"] = len(items)
+            response = self._get_with_retries(params, retries, backoff)
+            response.raise_for_status()
+            data = response.json()
+            page = data.get("items", [])
+            items.extend(page)
+            total = data.get("total")
+            if not page or not isinstance(total, int) or len(items) >= total:
+                break
+        else:
+            self.logger.warning(
+                f"Stopped after {self._MAX_PAGES} pages ({len(items)} products); "
+                "the bounding box may have more tiles than were listed. Use a smaller box.")
 
         tiles = []
-        for item in data.get("items", []):
+        for item in items:
             tile = DEMTileInfo(
                 title=item.get("title", "Unknown"),
                 download_url=item.get("downloadURL", ""),
@@ -252,6 +270,8 @@ class DEMDownloader:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = Path(tile.download_url).name
+        if filename in ("", ".", ".."):
+            raise ValueError(f"cannot name a file from the tile URL {tile.download_url!r}")
         output_path = output_dir / filename
 
         if output_path.exists():
@@ -264,9 +284,24 @@ class DEMDownloader:
         response = requests.get(tile.download_url, stream=True, timeout=300)
         response.raise_for_status()
 
-        with open(output_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        # Write to a temporary name and rename on success: a connection
+        # lost half way must not leave a truncated file that the next call
+        # takes for a cached tile.
+        part_path = output_path.with_name(filename + ".part")
+        try:
+            with open(part_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            headers = getattr(response, "headers", None) or {}
+            expected = headers.get("Content-Length")
+            if isinstance(expected, (str, int)) and expected and not headers.get("Content-Encoding"):
+                got = part_path.stat().st_size
+                if got != int(expected):
+                    raise OSError(f"incomplete download of {filename}: got {got} of {expected} bytes")
+            os.replace(part_path, output_path)
+        except BaseException:
+            part_path.unlink(missing_ok=True)
+            raise
 
         self.logger.info(f"Downloaded: {output_path} ({output_path.stat().st_size} bytes)")
         if uncompressed:
