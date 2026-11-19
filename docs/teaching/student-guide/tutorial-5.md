@@ -1,7 +1,7 @@
 # 8. Tutorial 5 — Processing Meteorological Data with AERMET
 
-**Goal:** Use PyAERMOD to generate the two AERMET input files (Stage 1 and
-METPREP) needed to process raw weather station data into AERMOD-ready
+**Goal:** Use pyaermod to write the two AERMET input files (Stage 1 and
+Stage 2, called METPREP) that turn raw weather station data into AERMOD-ready
 meteorological files.
 
 > **This tutorial uses a short Python script, not the GUI.** The GUI's
@@ -13,27 +13,19 @@ meteorological files.
 
 **What you'll learn:**
 - What AERMET does and why AERMOD needs it
-- How AERMET's two stages, Stage 1 and METPREP, work
-- How to configure each stage with PyAERMOD
+- How AERMET's two stages, Stage 1 and Stage 2 (METPREP), work
+- How to configure each stage with pyaermod
 - What the monthly surface parameters mean and how to choose values
 
-**Prerequisites:**
-- PyAERMOD generates AERMET *input files*, but to actually process them you
-  need the `aermet` executable installed on your computer.
-- **macOS/Linux:** If you followed [Section 3.2, Option A](setup.md#32-install-the-aermod-and-aermet-executables)
-  (compile from source), you already have it.
-- **Windows:** The EPA's AERMOD Modeling System download from the
-  [SCRAM website](https://www.epa.gov/scram/air-quality-dispersion-modeling-preferred-and-recommended-models)
-  includes `aermet.exe` alongside `aermod.exe`.
-- Verify it's installed: run `which aermet` (Mac/Linux) or `where aermet`
-  (Windows) in a terminal.
+**Prerequisite:** pyaermod writes AERMET *input files*; running them needs
+the `aermet` executable, installed as in
+[Section 3.2](setup.md#32-install-the-aermod-and-aermet-executables).
+`which aermet` (Mac/Linux) or `where aermet` (Windows) shows whether it is
+found.
 
 ## Conceptual Background
 
-AERMOD cannot use raw weather data directly. Raw data from weather stations
-comes in formats designed for archival and general forecasting — not
-atmospheric dispersion modeling. AERMOD needs specially processed files that
-contain:
+AERMOD cannot use raw station observations. It reads two processed files:
 
 - **Hourly surface data** (`.sfc` file): wind speed, wind direction, ambient
   temperature, atmospheric stability class, mixing height, friction velocity,
@@ -41,9 +33,8 @@ contain:
 - **Hourly profile data** (`.pfl` file): vertical profiles of wind speed, wind
   direction, and temperature at multiple heights above ground.
 
-**AERMET** is the preprocessor that transforms raw weather station observations
-into these two files. Current AERMET (versions 24142 and 26135) runs in two
-stages, each from its own input file:
+**AERMET** turns raw station observations into these two files in two runs,
+Stage 1 and Stage 2 (METPREP), each from its own input file:
 
 ```
 Raw weather data (NOAA archives)
@@ -52,15 +43,10 @@ Raw weather data (NOAA archives)
           |
    Quality-assured hourly data (QAOUT files)
           |
-   METPREP: merge surface + upper air, compute boundary-layer parameters
+   Stage 2 (METPREP): merge surface + upper air, compute boundary-layer parameters
           |
    aermod.sfc  +  aermod.pfl   (ready for AERMOD)
 ```
-
-Older AERMET versions had a separate merge stage between the two; current
-AERMET merges the data inside METPREP. pyaermod calls the METPREP deck
-"Stage 3" (`AERMETStage3`, `aermet_stage3.inp`) so older projects keep their
-file names.
 
 ## What Data Does AERMET Need?
 
@@ -93,15 +79,13 @@ from pyaermod.aermet import AERMETStage1, AERMETStage3, AERMETStation, UpperAirS
 ```
 
 You will add to this file in Steps 2 and 3 and run it in Step 4. The script
-describes two stages, Stage 1 and Stage 3. Current AERMET (11 and later) has
-no separate Stage 2: METPREP (Stage 3) merges the surface and upper-air data
-itself.
+describes Stage 1 and Stage 2. The class for Stage 2 keeps its old name,
+`AERMETStage3`.
 
 ## Step 2: Configure Stage 1 — Extract & QA/QC
 
-**Purpose:** Stage 1 reads raw weather station data, performs quality assurance
-checks (flagging missing or suspicious values), and extracts the variables
-AERMET needs.
+**Purpose:** Stage 1 reads raw station data, checks its quality (flagging
+missing or suspicious values) and extracts the variables AERMET needs.
 
 ### Surface Station
 
@@ -110,14 +94,14 @@ values. Example for Atlanta, GA:
 
 | Parameter | Example Value | What It Means |
 |---|---|---|
-| Station ID | `13874` | The station's WBAN number (Atlanta Hartsfield, ICAO `KATL`). AERMET reads it as a number, so an ICAO code such as `KATL` makes the METPREP stage stop |
+| Station ID | `13874` | The station's WBAN number (Weather-Bureau-Army-Navy; Atlanta Hartsfield, ICAO code `KATL`). AERMET reads it as a number, so `KATL` makes Stage 2 stop |
 | Station Name | `Atlanta Hartsfield` | Descriptive name (for your reference) |
 | Latitude | `33.6300` | Station latitude (decimal degrees, negative = south) |
 | Longitude | `-84.4400` | Station longitude (decimal degrees, negative = west) |
 | Time Zone (UTC offset) | `-5` | Eastern Standard Time = UTC-5 |
 | Elevation (m) | `315.0` | Station elevation above sea level |
 | Anemometer Height (m) | `10.0` | Height of the wind sensor (usually 10 m) |
-| Data Format | `ISHD` | NOAA Integrated Surface Hourly Data (most common) |
+| Data Format | `ISHD` | Integrated Surface Hourly Data (ISHD, NOAA); the other formats are listed in `pyaermod.aermet.SURFACE_FORMATS` |
 
 Add the station to your script:
 
@@ -134,13 +118,6 @@ surface = AERMETStation(
 ```
 
 The data format goes into Stage 1 itself, below.
-
-> **Data Format options:**
-> - **ISHD** — Integrated Surface Hourly Data (NOAA, post-2006). This is the
->   most common format for recent U.S. data.
-> - **HUSWO** — Hourly US Weather Observations (legacy NCDC format).
-> - **SCRAM** — EPA SCRAM format (older pre-processed data).
-> - **SAMSON** — Solar and Meteorological Surface Observational Network.
 
 ### Upper Air Station
 
@@ -202,13 +179,12 @@ The file this produces (you will write it in Step 4) contains keywords like:
 - `UPPERAIR` with a `DATA` line — points to the upper air data file
 - `XDATES` — specifies the date range to extract
 
-## Step 3: Configure Stage 3 — Boundary Layer Parameters
+## Step 3: Configure Stage 2 (METPREP) — Boundary Layer Parameters
 
-**Purpose:** This is the most important stage. Stage 3 (AERMET's METPREP)
-reads Stage 1's quality-assured files, merges them, and computes the **planetary boundary layer parameters** that AERMOD needs:
-friction velocity, Monin-Obukhov length, convective velocity scale, mixing
-height, and more. These parameters depend on both the meteorological data and
-the **surface characteristics** around the station.
+**Purpose:** METPREP merges Stage 1's quality-assured data and computes the
+boundary-layer parameters AERMOD reads: friction velocity, Monin-Obukhov
+length, convective velocity scale and mixing height. They depend on the
+weather data and on the **surface characteristics** around the station.
 
 ### File Paths
 
@@ -221,8 +197,8 @@ the **surface characteristics** around the station.
 
 ### Monthly Surface Parameters
 
-This is the part that requires the most judgment. Stage 3 takes three
-parameters for each month:
+METPREP takes three parameters for each month; choosing them takes the most
+judgment:
 
 | Parameter | What It Controls | Typical Range |
 |---|---|---|
@@ -230,9 +206,8 @@ parameters for each month:
 | **Bowen Ratio** | Ratio of sensible heat to latent heat. Dry surfaces (deserts, cities) have high Bowen ratios; moist surfaces (wetlands, irrigated fields) have low values. | 0.1 -- 10.0 |
 | **Roughness (m)** | Aerodynamic roughness length — how "bumpy" the surface is to wind flow. Open water is very smooth (~0.001 m); a city center is very rough (~1.0 m). | 0.001 -- 2.0 |
 
-This tutorial uses **suburban values** — these are reasonable starting values
-for an area with moderate development (residential neighborhoods, scattered
-trees):
+This tutorial uses **suburban values** (moderate development: residential
+neighborhoods, scattered trees):
 
 | Month | Albedo | Bowen Ratio | Roughness (m) |
 |---|---|---|---|
@@ -259,8 +234,6 @@ trees):
 >   (dark pavement).
 > - **If there's winter snow cover:** Increase albedo to 0.50--0.70 during
 >   snowy months.
-> - **When in doubt:** Use the suburban values above. They're
->   conservative and widely used in regulatory work.
 
 In the script each parameter is a list of twelve numbers, January first. To
 change a month, edit its number in the list.
@@ -270,7 +243,7 @@ change a month, edit its number in the list.
 `station=surface` tells METPREP to use the surface station you described for
 Stage 1, with its latitude and longitude.
 
-Add Stage 3 to your script:
+Add Stage 2 to your script:
 
 ```python
 stage3 = AERMETStage3(
@@ -298,8 +271,8 @@ End your script with the lines that write the two files:
 
 ```python
 Path("aermet_stage1.inp").write_text(stage1.to_aermet_input())
-Path("aermet_stage3.inp").write_text(stage3.to_aermet_input())
-print("Wrote aermet_stage1.inp and aermet_stage3.inp")
+Path("aermet_stage2.inp").write_text(stage3.to_aermet_input())
+print("Wrote aermet_stage1.inp and aermet_stage2.inp")
 ```
 
 Run it in a terminal, from the folder that holds the script:
@@ -313,40 +286,30 @@ You now have two AERMET input files to run:
 | File | Stage | What It Does |
 |---|---|---|
 | `aermet_stage1.inp` | Extract & QA/QC | Reads raw data, checks quality |
-| `aermet_stage3.inp` | METPREP | Merges surface + upper air, computes AERMOD-ready parameters |
+| `aermet_stage2.inp` | Stage 2 (METPREP) | Merges surface + upper air, computes AERMOD-ready parameters |
 
 Open them in a text editor and find the keywords listed in Step 2 and your
-monthly surface parameters (`SITE_CHAR` lines) in the Stage 3 file.
+monthly surface parameters (`SITE_CHAR` lines) in the Stage 2 file.
 
 ## Step 5: Run AERMET
 
 AERMET itself must be run separately (it's a different executable from AERMOD).
-First, verify that `aermet` is installed:
+If `which aermet` (`where aermet` on Windows) prints nothing, install it
+from [Section 3.2](setup.md#32-install-the-aermod-and-aermet-executables).
 
-```bash
-which aermet        # Mac/Linux — should print a path like ~/bin/aermet
-where aermet        # Windows — should print a path like C:\AERMOD\aermet.exe
-```
-
-If nothing is printed, go back to
-[Section 3.2](setup.md#32-install-the-aermod-and-aermet-executables) to install it
-(Option A for Mac/Linux, Option B for Windows).
-
-Then, in a terminal, navigate to the directory containing your
-input files and run each stage:
+In a terminal, go to the directory with your input files and run each stage:
 
 ```bash
 # Stage 1
 aermet aermet_stage1.inp
 
 # METPREP (merge + boundary layer)
-aermet aermet_stage3.inp
+aermet aermet_stage2.inp
 ```
 
-AERMET reads the input file named after the command (not from `<`
-redirection). METPREP reads the QAOUT files Stage 1 writes, so the two must
-be run **in order**. When METPREP completes, you'll have your `aermod.sfc`
-and `aermod.pfl` files — the meteorological inputs AERMOD needs.
+Give the input file as an argument: `aermet file.inp`. METPREP reads the
+QAOUT files Stage 1 writes, so run the stages **in order**. When METPREP
+completes you have `aermod.sfc` and `aermod.pfl`.
 
 AERMET exits without an error code even when it fails. Check that the
 screen output ends with `AERMET FINISHED SUCCESSFULLY` and read the messages
@@ -354,15 +317,8 @@ file each deck names (`MESSAGES`) for lines with an `E` code such as `E05`.
 From Python, `pyaermod.aermet_runner.run_aermet_pipeline` runs both decks
 and reports each run's `success` and first error for you.
 
-> **Troubleshooting common errors:**
->
-> - *"File not found"*: Check that the data file paths in Stage 1 are correct
->   and the files exist in the working directory.
-> - *"Missing data exceeds threshold"*: Your raw data has too many gaps.
->   AERMET flags this in the Stage 1 output. You may need to use a different
->   station or a year with more complete records.
-> - *"Upper air sounding missing"*: The upper air station may not have data
->   for all dates. A few missing soundings are normal; AERMET interpolates.
+If a run fails, read the messages file; the codes are explained under
+[Common AERMET failures](../../aermet-tuning-guide.md#common-aermet-failures).
 
 ## Step 6: Use the Processed Met Data in AERMOD
 
@@ -393,21 +349,6 @@ The `.pfl` file contains vertical wind and temperature profiles for each
 hour — the information AERMOD uses to model how the plume disperses at
 different heights.
 
-You don't need to read these files directly — AERMOD reads them
-automatically — but understanding what's in them helps you interpret your
-results. For example, if your maximum concentrations all occur during
-nighttime hours, it's likely because stable conditions (high Monin-Obukhov
-length, low mixing height) trapped the plume near the ground.
-
-## Checkpoint
-
-At this point you should understand:
-
-- [x] Why AERMOD needs preprocessed meteorological data (not raw observations)
-- [x] The two AERMET stages: Stage 1 (extract and QA) and METPREP (merge and
-  boundary layer)
-- [x] That surface characteristics (albedo, Bowen ratio, roughness) vary by
-  land use and season
-- [x] How to generate the two AERMET input files with PyAERMOD
-- [x] That AERMET must be run in order (Stage 1, then METPREP, which pyaermod
-  calls Stage 3) to produce `.sfc` and `.pfl` files
+AERMOD reads these files itself. If your maximum concentrations all fall at
+night, look at the stable hours (small positive Monin-Obukhov length, low
+mixing height): they hold the plume near the ground.

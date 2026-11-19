@@ -40,9 +40,19 @@ read_aermod_input ◀─────────────┘                 
   `postfile` text and binary POSTFILEs. `design_values` and `naaqs` turn
   them into NAAQS design values; `visualization`, `geospatial` and
   `kmz_export` map and export them.
-- **The other EPA programs** each have a module that writes its input and
-  one that runs it: AERMET (`aermet`, `aermet_runner`), AERMAP (`aermap`,
-  `terrain`), AERSURFACE, AERSCREEN and BPIP-PRIME (`bpip`).
+- **The other EPA programs**: AERMET (`aermet`, `aermet_runner`), AERMAP
+  (`aermap`, `terrain`), AERSURFACE (`aersurface`, `aersurface_runner`) and
+  AERSCREEN (`aerscreen`, `aerscreen_runner`) each have a module that writes
+  the input and one that runs the program. BPIP-PRIME's building-dimension
+  calculation is reimplemented in Python (`bpip`, `prime`) and checked
+  against EPA's program.
+
+## Code conventions
+
+- Source types are dataclasses with a `to_aermod_input() -> str` method;
+  the validator dispatches on them with `isinstance` in `validator.py`.
+- Optional dependencies are imported in `try/except ImportError` with a
+  `HAS_*` flag and a `_require_*()` guard function.
 
 ## The graphical interfaces
 
@@ -59,6 +69,28 @@ read_aermod_input ◀─────────────┘                 
   compiled to WebAssembly (`scripts/build_aermod_wasm.sh`), run by
   `wasm_runner` through the same `AERMODRunner`. The JupyterLite notebooks
   use the same build.
+
+### How the GUI's editors are built
+
+Every editor is generated from the source's dataclass by a shared form
+helper (`pyaermod.gui_v2._form`). The widget follows the field's type:
+
+| Field annotation | Widget |
+|---|---|
+| `str` / `Optional[str]` | text input; full width when the field names a file |
+| `float` / `Optional[float]` | numeric input (clearable when Optional) |
+| `int` / `Optional[int]` | integer input that stores an `int` |
+| `bool` | checkbox |
+| `List[Tuple[float, float]]` | text area, one `x, y` pair per line |
+| `List[str]`, `List[float]` | text area, one entry per line |
+| `Optional[Union[float, List[float]]]` (building dimensions) | numeric input while the value is a scalar; text area once it holds 36 sector values |
+| anything else | read-only summary |
+
+Fields the helper does not model (lists of dataclasses, enums, nested
+deposition objects) are shown read-only in `pyaermod-app`; the browser
+app's editor (`pyaermod.browser.schema`, `webapp/forms.js`) takes them as
+JSON text. A number box never writes an empty value into a required field:
+emptying it shows "Required" and keeps the value.
 
 ## Tests
 

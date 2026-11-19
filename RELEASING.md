@@ -21,14 +21,13 @@ Check that the switch took: the repository's *Settings → Webhooks* must
 list a hook to `zenodo.org/api/hooks/receivers/github/events/`. Zenodo's
 list of repositories is a snapshot from its last sync, so a repository
 made public after that sync is missing from it until you press *Sync
-now*. For v2.2.0 this happened: pyaermod, private until February, was
-missing from the list, no hook existed, the first release was not archived, and the release had to be deleted (keeping
-the tag) and published again once the hook existed. Publishing again
-re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
+now*. If a release was published before the hook existed, delete it
+(keeping the tag) and publish it again once the hook exists. Publishing
+again re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
 
 ## 1. Prepare the release commit
 
-1. **Bump the version** in all three files that carry it (the package
+1. **Bump the version** in all five files that carry it (the package
    re-exports `api.__version__` over its own, so a bump that misses
    `api.py` leaves `pyaermod.__version__` at the old number;
    `tests/test_citation.py` fails on a partial bump):
@@ -42,12 +41,9 @@ re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
 2. **Date the release**:
    - `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`
      (today's date) and open a fresh, empty `## [Unreleased]` above it.
-     For v2.2.0 the section already exists with a `YYYY-MM-DD`
-     placeholder; replace the placeholder and delete the comment under
-     it.
    - `CITATION.cff`: set `date-released` to the same date.
    - `docs/release-notes/vX.Y.Z.md`: the notes to paste into the release
-     (v2.2.0's are written; check them against the final changelog).
+     (check them against the changelog).
 
 3. **Run the gates** and make sure they are green:
    ```bash
@@ -55,6 +51,7 @@ re-runs `publish.yml`, whose `skip-existing` leaves PyPI unchanged.
    make typecheck
    make test-full                       # full suite, slow tests included
    make test-binaries                   # after scripts/build_aermod.sh etc.
+   pip install -r docs/requirements.txt
    mkdocs build --strict
    python -m build && twine check dist/*
    cffconvert --validate
@@ -106,8 +103,8 @@ the one specific to vX.Y.Z, not the concept DOI) and paste it into:
 
 - `CITATION.cff` → `doi: 10.5281/zenodo.NNNNNNN` (replacing the
   previous release's DOI and its comment)
-- `README.md` and `docs/index.md` → the "Citing PyAERMOD" section
-  (the version number and the `https://doi.org/...` link)
+- `README.md` → the "Citing" section, if it names a version DOI (it
+  names the concept DOI, which needs no change)
 
 Commit and push that on `main` ("Record the Zenodo DOI for vX.Y.Z").
 The tag itself keeps the previous DOI; that is expected, since the DOI
@@ -129,8 +126,8 @@ curl -s https://pypi.org/pypi/pyaermod/X.Y.Z/json \
 
 and paste it into `source: sha256:` in `conda-recipe/recipe.yaml`.
 
-- **First time** (the first release after 2.2.0): lint and build the
-  recipe locally, copy it to `recipes/pyaermod/recipe.yaml` in a fork of
+- **First time** (the first release after the recipe is ready): lint and
+  build the recipe locally, copy it to `recipes/pyaermod/recipe.yaml` in a fork of
   conda-forge/staged-recipes, open the pull request and ask the
   `conda-forge/help-python` team for review ("Submit to conda-forge
   (once)" in `conda-recipe/README.md`). Every login in
@@ -150,12 +147,10 @@ and paste it into `source: sha256:` in `conda-recipe/recipe.yaml`.
 
 ## Important
 
-- **Do NOT run `twine upload` manually.** The GitHub Actions workflow
-  (`.github/workflows/publish.yml`) handles PyPI publishing
-  automatically via trusted publishing when a release is created.
-- Manual uploads will cause the workflow to fail with "File already exists."
-- PyPI does not allow re-uploading the same version, so version numbers
-  cannot be reused. If a release must be redone, bump the patch version.
+- **Do not run `twine upload` manually.** `publish.yml` uploads to PyPI
+  through trusted publishing when a release is created; a manual upload
+  makes it fail with "File already exists." PyPI does not allow re-uploading
+  a version, so if a release must be redone, bump the patch version.
 - A GitHub release saved as a **draft** publishes nothing and mints no
   DOI; both happen when it is published.
 
@@ -166,11 +161,8 @@ To attach macOS binaries to a release:
 ./scripts/build_aermod.sh all
 ```
 This builds `bin/aermod`, `bin/aermap` and `bin/aermet` from Fortran
-source (requires `gfortran` via `brew install gcc`). `BIN_DIR=<dir>`
-builds into another directory instead, and each binary's build record
-(SHA-256, compiler version, compile and link flags, and AERMOD's banner
-version) is printed as it is linked; quote the SHA-256 when attaching a
-binary to a release. The other `scripts/build_*.sh` scripts take the same
-`BIN_DIR` and print the same record. `make test-binaries` always tests
-`./bin`, so build release binaries without `BIN_DIR` (or run pytest with
-that directory first on `PATH`).
+source (needs `gfortran`, `brew install gcc` on macOS) and prints each
+binary's build record; quote the SHA-256 when attaching a binary to a
+release. `BIN_DIR=<dir>` builds into another directory.
+`make test-binaries` always tests `./bin`, so build
+release binaries without `BIN_DIR`.
