@@ -426,17 +426,17 @@ class AERMODRunner:
         stderr_path: Optional[Path] = None
         stdout_fh = None
         stderr_fh = None
-        if capture_output:
-            stdout_path = work_dir / f"{input_name}.subproc.stdout"
-            stderr_path = work_dir / f"{input_name}.subproc.stderr"
-            # Manually manage these file handles — they outlive a single
-            # `with` block (handed to subprocess.run, closed in the
-            # finally clause below).
-            stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
-            stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
-
         trap: Optional[str] = None
         try:
+            if capture_output:
+                stdout_path = work_dir / f"{input_name}.subproc.stdout"
+                stderr_path = work_dir / f"{input_name}.subproc.stderr"
+                # Manually manage these file handles — they outlive a single
+                # `with` block (handed to subprocess.run, closed in the
+                # finally clause below). Opened inside the try, so a failure
+                # here still reaches the finally (the lock and the link).
+                stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+                stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
             # Execute AERMOD (reads aermod.inp automatically)
             result: subprocess.CompletedProcess[str]
             if wasm_runner.IS_EMSCRIPTEN and wasm_runner.is_wasm_executable(self.executable):
@@ -579,12 +579,25 @@ class AERMODRunner:
         :meth:`_unstage` releases it.
 
         Returns the :class:`_Staged` run, or a failed :class:`AERMODRunResult`
-        (the lock already released) when ``aermod.inp`` is another deck.
+        (the lock already released, nothing left behind) when ``aermod.inp``
+        is another deck or the directory cannot be prepared.
         It is :meth:`_claim` then :meth:`_prepare`.
         """
         staged = self._claim(input_path, work_dir)
         if not isinstance(staged, AERMODRunResult):
-            self._prepare(input_path, work_dir, staged)
+            try:
+                self._prepare(input_path, work_dir, staged)
+            except Exception as exc:
+                # A stale output that cannot be removed, a link and a copy
+                # that both fail: give the directory back, with nothing of
+                # ours left in it, and say so in the result.
+                self._unstage(staged)
+                self.logger.error(f"Could not prepare {work_dir} for AERMOD: {exc}")
+                return AERMODRunResult(
+                    success=False,
+                    input_file=str(input_path),
+                    error_message=f"Could not prepare the working directory {work_dir}: {exc}",
+                )
         return staged
 
     def _claim(self, input_path: Path, work_dir: Path) -> Union["_Staged", AERMODRunResult]:
@@ -1202,8 +1215,7 @@ class AERMODRun:
             self._cancel_at = time.monotonic()
             proc = self._proc
         if proc is not None:
-            with contextlib.suppress(OSError):
-                proc.terminate()
+            _kill_tree(proc, force=False)
         return True
 
     def wait(self, timeout: Optional[float] = None) -> AERMODRunResult:
@@ -1273,7 +1285,7 @@ class AERMODRun:
                     proc = subprocess.Popen(
                         [str(runner.executable)], cwd=str(work_dir),
                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr_fh,
-                        env=env,
+                        env=env, **_tree_popen_kwargs(),
                     )
                     self._proc = proc
                 reader = threading.Thread(target=self._read_stdout,
@@ -1328,17 +1340,16 @@ class AERMODRun:
             now = time.monotonic()
             cancel_at = self._cancel_at
             if cancel_at is not None and now - cancel_at > CANCEL_GRACE_SECONDS:
-                proc.kill()
+                _kill_tree(proc)
             elif cancel_at is None and now > deadline:
-                proc.kill()
+                _kill_tree(proc)
                 proc.wait()
                 return True
 
     def _kill(self) -> None:
         proc = self._proc
         if proc is not None and proc.poll() is None:
-            with contextlib.suppress(OSError):
-                proc.kill()
+            _kill_tree(proc)
             with contextlib.suppress(Exception):
                 proc.wait(timeout=10)
 
@@ -1410,9 +1421,16 @@ def _acquire_dir_lock(lock_path: Path):
         except ImportError:
             try:
                 import msvcrt  # Windows
-                # Lock the first byte; LOCK_NB would be non-blocking,
-                # LOCK_RETRY isn't a thing — use blocking LK_LOCK.
-                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                # Lock the first byte. LK_LOCK gives up after about ten
+                # seconds (OSError), so a queued run would fail instead of
+                # waiting its turn: try without blocking, until it is ours.
+                # (Not run on Windows in this repository's tests.)
+                while True:
+                    try:
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        time.sleep(0.1)
             except ImportError:
                 logging.getLogger(__name__).warning(
                     "Neither fcntl nor msvcrt available; concurrent runs "
@@ -1526,6 +1544,61 @@ class _FileState(NamedTuple):
     mtime_ns: int
     size: int
     ino: int
+
+
+def _tree_popen_kwargs() -> Dict[str, Any]:
+    """Popen arguments that make a child the root of its own process tree.
+
+    POSIX: a session of its own, so ``killpg`` reaches it and everything it
+    started. Windows: a new process group (``taskkill /T`` does the walk).
+    """
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+def _kill_tree(proc: "subprocess.Popen[Any]", *, force: bool = True) -> None:
+    """Stop ``proc`` and the processes it started.
+
+    ``proc`` must have been started with :func:`_tree_popen_kwargs`.
+    ``force=False`` asks politely (SIGTERM) where the platform has such a
+    thing; Windows always ends the tree (``taskkill /T /F``, then
+    ``proc.kill()`` as a fallback; correct by inspection, not run here).
+    """
+    if os.name == "nt":
+        with contextlib.suppress(Exception):
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=30, check=False)
+        with contextlib.suppress(OSError):
+            proc.kill()
+        return
+    sig = signal.SIGKILL if force else signal.SIGTERM
+    try:
+        os.killpg(proc.pid, sig)
+    except (ProcessLookupError, PermissionError):
+        # The group is gone (or was never ours): the child alone.
+        with contextlib.suppress(OSError):
+            proc.kill() if force else proc.terminate()
+
+
+def _run_tree(cmd: Sequence[str], *, timeout: Optional[float] = None,
+              input: Optional[str] = None, **popen_kwargs: Any) -> "subprocess.CompletedProcess[str]":
+    """``subprocess.run`` that, on a timeout or an interrupt, ends the whole process tree.
+
+    ``subprocess.run`` kills only the process it started; AERSCREEN's
+    AERMOD, MAKEMET and AERMAP would run on after the caller was told
+    "timed out". Raises :class:`subprocess.TimeoutExpired` like it.
+    """
+    if input is not None:
+        popen_kwargs["stdin"] = subprocess.PIPE
+    with subprocess.Popen(cmd, **_tree_popen_kwargs(), **popen_kwargs) as proc:
+        try:
+            proc.communicate(input, timeout=timeout)
+        except BaseException:
+            _kill_tree(proc)
+            proc.wait()
+            raise
+    return subprocess.CompletedProcess(list(cmd), proc.returncode)
 
 
 def _dir_state(directory: Path) -> Dict[str, _FileState]:
