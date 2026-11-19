@@ -40,6 +40,67 @@ LOW_WIND_THRESHOLD_MS = 0.5                  # AERMOD LOWWIND default floor
 LOW_WIND_FRACTION_WARN = 0.25                # warn if >25% of hours are calm
 
 
+# ---------------------------------------------------------------------------
+# AERMET .SFC records (what read_surface_file returns)
+# ---------------------------------------------------------------------------
+
+# SFC field -> (canonical field used by the checks, additive offset).
+# Temperature is kelvin in an .SFC file; the checks work in deg C.
+_SFC_FIELDS = {
+    "wind_speed": ("wind_speed_ms", 0.0),
+    "temp": ("temp_c", -273.15),
+    "L": ("monin_obukhov_m", 0.0),
+    "Zic": ("convective_mix_height_m", 0.0),
+    "Zim": ("mechanical_mix_height_m", 0.0),
+}
+
+# AERMET's "missing" sentinels per SFC field (AERMET writes 999. for wind and
+# temperature, -999. for the mixing heights, -99999. for L, -9. for u*).
+_SFC_MISSING = {
+    "wind_speed": (99.0, 999.0, -999.0),
+    "wind_dir": (999.0, -999.0),
+    "temp": (999.0, -999.0),
+    "L": (-99999.0, -999.0, 99999.0),
+    "Zic": (-999.0, 999.0),
+    "Zim": (-999.0, 999.0),
+    "ustar": (-9.0, -999.0, 999.0),
+}
+
+
+def _is_missing_value(v: Any) -> bool:
+    return v is None or (isinstance(v, float) and v != v)
+
+
+def _canonical_records(records: Sequence[Dict[str, Any]]) -> Sequence[Dict[str, Any]]:
+    """Records in the field names and units the checks use.
+
+    A record from :func:`~pyaermod.aermet.read_surface_file` (``wind_speed``,
+    ``temp`` in kelvin, ``L``, ``Zic``, ``Zim``, AERMET's missing codes such
+    as 999. and -999.) is returned with the ISD-style fields filled in
+    (``wind_speed_ms``, ``temp_c``, ``monin_obukhov_m``, ...), missing codes
+    turned into ``None`` and kelvin turned into deg C. A field that is
+    already present under its checked name is left as it is. Records with
+    none of the SFC names come back unchanged.
+    """
+    if not any(k in r for r in records for k in _SFC_FIELDS):
+        return records
+    out: List[Dict[str, Any]] = []
+    for r in records:
+        c = dict(r)
+        for name, codes in _SFC_MISSING.items():
+            if name in c:
+                v = c[name]
+                if _is_missing_value(v) or (
+                        isinstance(v, (int, float)) and float(v) in codes):
+                    c[name] = None
+        for sfc_name, (canon, offset) in _SFC_FIELDS.items():
+            if sfc_name in c and canon not in c:
+                v = c[sfc_name]
+                c[canon] = None if v is None else float(v) + offset
+        out.append(c)
+    return out
+
+
 @dataclass
 class QAQCFinding:
     """One QA/QC issue found in a met record set."""
@@ -145,6 +206,7 @@ def check_missing_data(
     Raises *warnings* for long missing runs and an *error* if any field
     exceeds `max_missing_fraction` (default 10% — AERMET guidance).
     """
+    records = _canonical_records(records)
     rep = QAQCReport(n_records=len(records))
     for field_name in fields:
         n_miss = sum(1 for r in records if r.get(field_name) is None)
@@ -199,6 +261,7 @@ def _check_range(value: Any, lo: float, hi: float) -> Optional[str]:
 
 def check_extremes(records: Sequence[Dict[str, Any]]) -> QAQCReport:
     """Flag records whose values are outside physically plausible ranges."""
+    records = _canonical_records(records)
     rep = QAQCReport(n_records=len(records))
     field_limits = [
         ("temp_c", AIR_TEMP_LIMITS_C),
@@ -260,6 +323,7 @@ def check_stability_consistency(records: Sequence[Dict[str, Any]]) -> QAQCReport
     AERMET writes an SFC record with both; inconsistency is a red flag
     that the MMIF or raw obs data were misinterpreted.
     """
+    records = _canonical_records(records)
     rep = QAQCReport(n_records=len(records))
     for i, r in enumerate(records):
         L = r.get("monin_obukhov_m")
@@ -312,6 +376,7 @@ def check_low_wind_bias(
     processing. AERMOD has its own LOWWIND options; this is a *data
     quality* alarm, not a runtime config check.
     """
+    records = _canonical_records(records)
     rep = QAQCReport(n_records=len(records))
     if not records:
         return rep
@@ -379,7 +444,14 @@ def check_profile_monotonic(levels: Sequence[Dict[str, Any]]) -> QAQCReport:
 # ---------------------------------------------------------------------------
 
 def run_all_qaqc(records: Sequence[Dict[str, Any]]) -> QAQCReport:
-    """Run every surface-data QA/QC check and return a merged report."""
+    """Run every surface-data QA/QC check and return a merged report.
+
+    ``records`` are dicts in either form: ``met_ingest``'s hourly records
+    (``wind_speed_ms``, ``temp_c``, ``monin_obukhov_m``, ...) or the rows
+    of :func:`~pyaermod.aermet.read_surface_file` (``wind_speed``, ``temp``
+    in kelvin, ``L``, ``Zic``, ``Zim``, with AERMET's missing codes).
+    """
+    records = _canonical_records(records)
     out = QAQCReport(n_records=len(records))
     out.extend(check_missing_data(records))
     out.extend(check_extremes(records))

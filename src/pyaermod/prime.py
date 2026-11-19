@@ -56,28 +56,23 @@ def gep_from_building(building: Building,
                       stack_y: float) -> float:
     """Compute GEP stack height from a Building + stack location.
 
-    Per 40 CFR 51.100(ii), GEP is the MAXIMUM over all wind directions
-    of ``BH + 1.5 * L``, where L is the lesser of building height and
-    the projected building width for that direction. We compute the
-    per-direction GEP for each of the 36 BPIP sectors and return the
-    maximum — this is the correct formulation.
+    Per 40 CFR 51.100(ii), GEP is ``H + 1.5 L`` for the direction that
+    gives the greatest value, where L is the lesser of the building's
+    height and projected width, counting only directions in which the
+    building's influence zone (5L) reaches the stack; the result is never
+    below the 65 m floor. This is the quarter-degree sweep of
+    :class:`~pyaermod.bpip.BPIPCalculator` (the one checked against EPA's
+    BPIP output), so the two agree. A stack outside every direction's
+    influence zone gets the 65 m floor.
 
-    (Prior versions computed L using max projected width across all
-    sectors and then applied ``min(bh, max_width)`` once, which
-    underestimates GEP for buildings that are tall and narrow from
-    some wind directions but tall and wide from others.)
+    (Earlier versions scored every 36-sector direction where BPIP reports
+    a zero width, that is, where the stack is *not* influenced, as
+    ``L = BH``, which overstated GEP, up to ``BH + 1.5 BH`` for a narrow
+    tower.)
     """
-    bh = building.get_effective_height()
-    calc = BPIPCalculator(building=building, stack_x=stack_x, stack_y=stack_y)
-    result = calc.calculate_all()
-    widths = result.buildwid or [0.0]
-
-    # Per-direction GEP, then maximize.
-    per_direction_gep = [
-        gep_stack_height(bh, min(bh, w) if w > 0 else bh)
-        for w in widths
-    ]
-    return max(per_direction_gep)
+    swept = BPIPCalculator(
+        building=building, stack_x=stack_x, stack_y=stack_y)._gep()
+    return max(GEP_FLOOR_M, swept[0]) if swept else GEP_FLOOR_M
 
 
 # ---------------------------------------------------------------------------
