@@ -289,9 +289,19 @@ class AERMODVisualizer:
                               show_sources: bool = True,
                               show_max: bool = True,
                               basemap: str = 'OpenStreetMap',
-                              save_path: Optional[Union[str, Path]] = None) -> 'folium.Map':
+                              save_path: Optional[Union[str, Path]] = None,
+                              utm_zone: Optional[int] = None,
+                              northern_hemisphere: bool = True) -> 'folium.Map':
         """
         Create interactive Leaflet map
+
+        The results are in model coordinates (UTM metres). Leaflet needs
+        latitude and longitude, so pass ``utm_zone`` (and
+        ``northern_hemisphere=False`` for a southern zone) to have the
+        receptors, sources and maximum converted. Without a zone the
+        coordinates are used as given, as latitude (y) and longitude (x),
+        and a warning says so; that is right only for results already in
+        degrees.
 
         Args:
             averaging_period: Averaging period to plot
@@ -303,6 +313,9 @@ class AERMODVisualizer:
             show_max: Show maximum concentration marker
             basemap: Base map style
             save_path: Path to save HTML file
+            utm_zone: UTM zone of the model coordinates (1-60); converts
+                them to latitude and longitude
+            northern_hemisphere: False for a southern-hemisphere zone
 
         Returns:
             folium.Map object
@@ -314,11 +327,33 @@ class AERMODVisualizer:
         df = self.results.get_concentrations(averaging_period)
         max_info = self.results.get_max_concentration(averaging_period)
 
+        # Leaflet wants (lat, lon); the results are UTM metres.
+        if utm_zone is not None:
+            from .geospatial import CoordinateTransformer
+            transformer = CoordinateTransformer(
+                utm_zone, "N" if northern_hemisphere else "S")
+
+            def to_latlon(xs, ys):
+                lons, lats = transformer._to_latlon.transform(xs, ys)
+                return lats, lons
+        else:
+            warnings.warn(
+                "create_interactive_map was given no utm_zone, so the model "
+                "coordinates are used as latitude and longitude as they are; "
+                "pass utm_zone= to convert UTM metres.",
+                UserWarning, stacklevel=2,
+            )
+
+            def to_latlon(xs, ys):
+                return ys, xs
+
+        df = df.copy()
+        df['lat'], df['lon'] = to_latlon(df['x'].values, df['y'].values)
+
         # Determine map center
         if center is None:
-            center_x = (df['x'].min() + df['x'].max()) / 2
-            center_y = (df['y'].min() + df['y'].max()) / 2
-            center = (center_y, center_x)  # folium uses (lat, lon)
+            center = ((df['lat'].min() + df['lat'].max()) / 2,
+                      (df['lon'].min() + df['lon'].max()) / 2)
 
         # Create map
         m = folium.Map(
@@ -328,8 +363,7 @@ class AERMODVisualizer:
         )
 
         # Add heat map
-        heat_data = [[row['y'], row['x'], row['concentration']]
-                    for _, row in df.iterrows()]
+        heat_data = df[['lat', 'lon', 'concentration']].values.tolist()
 
         from folium.plugins import HeatMap
         HeatMap(heat_data,
@@ -343,6 +377,7 @@ class AERMODVisualizer:
         # Add source markers
         if show_sources and self.results.sources:
             for source in self.results.sources:
+                (src_lat,), (src_lon,) = to_latlon([source.x_coord], [source.y_coord])
                 popup_parts = [
                     f"<b>{source.source_id}</b>",
                     f"Type: {source.source_type}",
@@ -352,7 +387,7 @@ class AERMODVisualizer:
                 if source.emission_rate is not None:
                     popup_parts.append(f"Rate: {source.emission_rate:.2f} g/s")
                 folium.Marker(
-                    location=[source.y_coord, source.x_coord],
+                    location=[float(src_lat), float(src_lon)],
                     popup="<br>".join(popup_parts),
                     icon=folium.Icon(color='red', icon='industry', prefix='fa'),
                     tooltip=source.source_id
@@ -360,8 +395,9 @@ class AERMODVisualizer:
 
         # Add maximum concentration marker
         if show_max:
+            (max_lat,), (max_lon,) = to_latlon([max_info['x']], [max_info['y']])
             folium.Marker(
-                location=[max_info['y'], max_info['x']],
+                location=[float(max_lat), float(max_lon)],
                 popup=f"<b>Maximum Concentration</b><br>"
                       f"{max_info['value']:.4f} {max_info['units']}<br>"
                       f"Period: {averaging_period}",
@@ -546,7 +582,9 @@ def quick_plot(results,
 
 def quick_map(results,
              averaging_period: str = 'ANNUAL',
-             save_path: Optional[str] = None) -> 'folium.Map':
+             save_path: Optional[str] = None,
+             utm_zone: Optional[int] = None,
+             northern_hemisphere: bool = True) -> 'folium.Map':
     """
     Quick interactive map with default settings
 
@@ -554,12 +592,15 @@ def quick_map(results,
         results: AERMODResults object
         averaging_period: Averaging period to plot
         save_path: Optional save path (HTML)
+        utm_zone: UTM zone of the results (see ``create_interactive_map``)
+        northern_hemisphere: False for a southern-hemisphere zone
 
     Returns:
         folium.Map object
     """
     viz = AERMODVisualizer(results)
-    return viz.create_interactive_map(averaging_period=averaging_period, save_path=save_path)
+    return viz.create_interactive_map(averaging_period=averaging_period, save_path=save_path,
+                                      utm_zone=utm_zone, northern_hemisphere=northern_hemisphere)
 
 
 # ============================================================================
