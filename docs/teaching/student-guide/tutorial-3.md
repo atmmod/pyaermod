@@ -23,15 +23,9 @@ using the GUI's Results step.
 
 ## Step 1: Verify AERMOD Is Installed
 
-Open a terminal and type:
-
-```bash
-aermod
-```
-
-If AERMOD is installed, you'll see an error about missing input files (that's
-OK — it just confirms the executable is found). If you get "command not found,"
-you need to install AERMOD or add it to your PATH.
+Type `aermod` in a terminal. An error about missing input files confirms the
+executable is found; "command not found" means you need to install AERMOD or
+add it to your PATH ([Section 3.2](setup.md#32-install-the-aermod-and-aermet-executables)).
 
 ## Step 2: Set Up the Model
 
@@ -136,7 +130,7 @@ This is where you do compliance analysis:
 
 **Common NAAQS values for reference:**
 
-| Pollutant | Period | Standard (ug/m3) |
+| Pollutant | Period | Standard (µg/m³) |
 |---|---|---|
 | PM2.5 | Annual | 9.0 |
 | PM2.5 | 24-hour | 35 |

@@ -8,45 +8,37 @@ on this page is a complete script from
 included here verbatim, and every figure is what that script drew when
 it was run against AERMOD 26135.
 
-| # | Job | Main pyaermod pieces |
-|---|-----|----------------------|
-| 1 | [Single stack, flat terrain: annual and 24-hour PM2.5](#1-single-stack-flat-terrain-annual-and-24-hour-pm25) | `PointSource`, `CartesianGrid`, `period_plot_files`, `read_plotfile` |
-| 2 | [Facility with several stacks: source groups and a polar grid](#2-facility-with-several-stacks-source-groups-and-a-polar-grid) | `SourceGroupDefinition`, `PolarGrid`, `plot_file_groups` |
-| 3 | [Building downwash with BPIP-PRIME](#3-building-downwash-with-bpip-prime) | `Building`, `set_building_from_bpip`, `gep_from_building` |
-| 4 | [Fugitive emissions: area, polygon and volume sources](#4-fugitive-emissions-area-polygon-and-volume-sources) | `AreaPolySource`, `AreaSource`, `VolumeSource`, `footprints` |
-| 5 | [Near-road roadway modeling with RLINE](#5-near-road-roadway-modeling-with-rline) | `RLineSource`, `CartesianGrid` `x_points`/`y_points` |
-| 6 | [1-hour NO2 with Tier 2 and Tier 3 chemistry](#6-1-hour-no2-with-tier-2-and-tier-3-chemistry) | `ChemistryOptions` (ARM2/OLM/PVMRM), `OzoneData` |
-| 7 | [NAAQS compliance: the 1-hour SO2 design value](#7-naaqs-compliance-the-1-hour-so2-design-value) | `naaqs_output_pathway`, `read_maxdaily`, `naaqs_compliance_report` |
-| 8 | [Elevated and complex terrain with AERMAP](#8-elevated-and-complex-terrain-with-aermap) | `DEMDownloader`, `TerrainProcessor`, AERMAP |
-| 9 | [Particle dry and wet deposition](#9-particle-dry-and-wet-deposition) | `ParticleDepositionParams`, `calculate_dry/wet_deposition` |
-| 10 | [Air-toxics screening with a unit emission rate (χ/Q) and GIS export](#10-air-toxics-screening-with-a-unit-emission-rate-q-and-gis-export) | `latlon_to_utm`, GeoTIFF/GeoJSON export, `to_kmz` |
+| # | Job |
+|---|-----|
+| 1 | [Single stack, flat terrain: annual and 24-hour PM2.5](#1-single-stack-flat-terrain-annual-and-24-hour-pm25) |
+| 2 | [Facility with several stacks: source groups and a polar grid](#2-facility-with-several-stacks-source-groups-and-a-polar-grid) |
+| 3 | [Building downwash with BPIP-PRIME](#3-building-downwash-with-bpip-prime) |
+| 4 | [Fugitive emissions: area, polygon and volume sources](#4-fugitive-emissions-area-polygon-and-volume-sources) |
+| 5 | [Near-road roadway modeling with RLINE](#5-near-road-roadway-modeling-with-rline) |
+| 6 | [1-hour NO2 with Tier 2 and Tier 3 chemistry](#6-1-hour-no2-with-tier-2-and-tier-3-chemistry) |
+| 7 | [NAAQS compliance: the 1-hour SO2 design value](#7-naaqs-compliance-the-1-hour-so2-design-value) |
+| 8 | [Elevated and complex terrain with AERMAP](#8-elevated-and-complex-terrain-with-aermap) |
+| 9 | [Particle dry and wet deposition](#9-particle-dry-and-wet-deposition) |
+| 10 | [Air-toxics screening with a unit emission rate (χ/Q) and GIS export](#10-air-toxics-screening-with-a-unit-emission-rate-q-and-gis-export) |
 
 ## Before you start
 
-**1. Install pyaermod with its plotting and GIS extras.**
-
-```bash
-pip install "pyaermod[all]"
-```
-
-**2. Put AERMOD on your `PATH`.** pyaermod writes and reads AERMOD's
-files; it does not ship the model. Download the executable (or the
-source) from [EPA SCRAM](https://www.epa.gov/scram/air-quality-dispersion-modeling-preferred-and-recommended-models#aermod),
-or build it with `scripts/build_aermod.sh` from a pyaermod checkout.
-Check it is found:
+**1. Install pyaermod with its plotting and GIS extras**
+(`pip install "pyaermod[all]"`), and **put AERMOD on your `PATH`**
+([Install](install.md#aermod-and-the-other-epa-programs) says how). pyaermod
+writes and reads AERMOD's files; it does not ship the model. Check that it is
+found:
 
 ```bash
 python -c "from pyaermod.runner import AERMODRunner; print(AERMODRunner().executable)"
 ```
 
-Use case 8 also needs AERMAP on `PATH` (same EPA page, or
-`scripts/build_aermod.sh`), and downloads its terrain from USGS.
+Use case 8 also needs AERMAP on `PATH`, and downloads its terrain from USGS.
 
-**3. Get the meteorology.** The scripts use one year (1988) of
+**2. Get the meteorology.** The scripts use one year (1988) of
 AERMET-processed surface and profile data from the Lovett site in New
 York's Hudson Valley, `LOVETT.SFC` and `LOVETT.PFL`, which EPA
-distributes with the AERMOD test cases. Pull just those files out of
-the archive:
+distributes with the AERMOD test cases. Extract those files:
 
 ```bash
 curl -LO https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_test_cases.zip
@@ -63,7 +55,7 @@ precipitation value in `LOVETT.SFC` is missing.
 For your own site, replace them with the `.SFC`/`.PFL` pair AERMET made
 for it (see [AERMET Tuning](aermet-tuning-guide.md)).
 
-**4. Run a script.** Each script reads the met directory from
+**3. Run a script.** Each script reads the met directory from
 `AERMOD_MET_DIR` (default `./met`) and writes its deck, AERMOD's
 output and its figure under `USE_CASE_OUT` (default `./out`):
 
@@ -126,6 +118,7 @@ The two short process stacks (18 m and 25 m) dominate the impact even though the
     - Set the polar grid's `dist_init`/`dist_delta`/`dist_num` so the innermost ring sits at or just beyond the fence line. Polar grids are coarse far out (the ring at 1 km has receptors 175 m apart), so add a Cartesian or discrete grid where the maximum lands.
     - `plot_file_groups` takes `(averaging period, group, filename)`, or `(averaging period, group, filename, rank)` for a lower rank such as `"H2H"`. A short-term period writes the highest (`FIRST`) value per receptor unless a rank is given.
     - To get each source's contribution to one specific modelled event, rather than to the long-term average, use an EVENT run (`ControlPathway.eventfil`).
+    - A source can also name its groups itself, `source_groups=["BOILERS"]`. Those cards are written with the definitions, after every source: AERMOD reports error `SO E140` for a group card among the source cards (`soset.f`). Naming `ALL` adds nothing, since every source is in it.
 
 ---
 
@@ -287,7 +280,7 @@ AERMAP put the stack base at 5.2 m on the riverbank. It gave the 3,721 receptors
 
 ![Annual dry and wet PM deposition maps around a 30 m stack, shared logarithmic colour scale in g/m² per year](images/use-cases/09_deposition.png)
 
-Dry deposition dominates. It peaks at `2.3132 g/m^2/yr` 300 m north-north-west of the stack, downwind of Houston's prevailing south-easterlies, where the 15 µm particles settle out. Wet deposition is more symmetric, because it follows the wind directions of the 253 hours with rain, and it peaks at only `0.1622 g/m^2/yr` next to the stack. Of the 63 t emitted in the year, `3723 kg` (5.9%) lands as dry deposition and `130 kg` (0.2%) as wet deposition inside the 5 km × 5 km grid. The rest is carried further away. The annual-average concentration peaks at `1.804 ug/m^3`.
+Dry deposition dominates. It peaks at `2.3132 g/m^2/yr` 300 m north-north-west of the stack, downwind of Houston's prevailing south-easterlies, where the 15 µm particles settle out. Wet deposition is more symmetric, because it follows the wind directions of the 253 hours with rain, and it peaks at only `0.1622 g/m^2/yr` next to the stack. Of the 63 t emitted in the year, `3723 kg` (5.9%) lands as dry deposition and `130 kg` (0.2%) as wet deposition inside the 5 km × 5 km grid. The rest is carried further away. The annual-average concentration peaks at `1.804 µg/m³`.
 
 !!! tip "Adapting it"
     - Wet deposition needs hourly precipitation in the `.SFC` file. EPA's LOVETT.SFC has every precipitation value missing (-9), which is why this example uses HOUSTON_ADJU.SFC. Check your own AERMET output before you trust a WDEP of zero.

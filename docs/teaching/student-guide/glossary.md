@@ -9,13 +9,15 @@
 | **Base elevation** | The ground-level elevation at the base of a source or receptor (meters above sea level) |
 | **Buoyancy rise** | The upward motion of a hot plume due to its lower density relative to ambient air |
 | **Cartesian grid** | A rectangular array of evenly spaced receptor points |
-| **Concentration** | The amount of pollutant in a given volume of air, typically in ug/m3 |
+| **Concentration** | The amount of pollutant in a given volume of air, typically in µg/m³ |
+| **Deck** | An AERMOD input file (`.inp`), the modelers' word for it |
 | **Discrete receptor** | A single receptor placed at a specific location of interest |
 | **Effective stack height** | Physical stack height + plume rise; the height at which the plume levels off |
-| **Emission rate** | The mass of pollutant released per unit time (g/s for point sources, g/s/m2 for area sources) |
+| **Emission rate** | The mass of pollutant released per unit time (g/s for point sources, g/(s·m²) for area sources) |
 | **Exceedance** | When a predicted concentration is higher than the applicable air quality standard |
 | **Exit velocity** | Speed of exhaust gas leaving the stack (m/s) |
-| **Gaussian plume** | A mathematical model where pollutant concentration follows a bell curve in both horizontal and vertical cross-sections |
+| **Gaussian plume** | A model where pollutant concentration follows a bell curve across the plume; AERMOD uses it horizontally, and vertically in stable and neutral hours |
+| **METPREP** | AERMET's second stage (Stage 2): merges Stage 1's data and computes the boundary-layer parameters that AERMOD reads |
 | **Momentum rise** | The upward motion of a plume due to the velocity of the exhaust gas |
 | **NAAQS** | National Ambient Air Quality Standards — EPA's health-based concentration limits |
 | **Pathway** | One of AERMOD's five input sections: CO (Control), SO (Source), RE (Receptor), ME (Meteorology), OU (Output) |

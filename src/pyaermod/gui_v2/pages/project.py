@@ -242,7 +242,7 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None,
                 "project-save-as")
         # WP-G6's deck import, below the file buttons and outside any live
         # section: its uploader and subscription live as long as the page.
-        files.import_controls(session, dialogs=dialogs, goto=goto)
+        files.import_controls(session, dialogs=dialogs, goto=goto, actions=actions)
 
         @live(session)
         def _settings() -> None:

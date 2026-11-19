@@ -1,31 +1,15 @@
 # GUI User Guide
 
-PyAERMOD ships an interactive GUI built on [NiceGUI](https://nicegui.io).
-The same codebase runs in two modes:
-
-- **Browser tab** via `pyaermod-app` — the NiceGUI server runs on
-  loopback. Best for development, multi-user / server deployments,
-  and remote access.
-- **Native desktop window** via `pyaermod-desktop` — wraps the same
-  app in a [pywebview](https://pywebview.flowrl.com/) shell, for those
-  who would rather not have it in a browser. See
-  [Desktop Window](desktop.md).
+pyaermod's GUI is a [NiceGUI](https://nicegui.io) app. `pyaermod-app` serves
+it to a browser tab; `pyaermod-desktop` shows the same app in a native window
+([Desktop window](desktop.md)). [Install](install.md) says how to install it
+(`pipx install "pyaermod[gui]"`).
 
 To try the GUI without installing anything, the documentation site has
 [an app with the same seven steps](browser.md#the-app) that runs pyaermod
 and AERMOD (compiled to WebAssembly) in the browser. It opens the same
 project files. It is not for regulatory use and cannot run AERMET or
 AERMAP.
-
-## Install
-
-```bash
-pipx install "pyaermod[gui]"       # or: uv tool install "pyaermod[gui]"
-pyaermod-app
-```
-
-[Install](install.md) has every way to install the GUI (pip, pipx, uv,
-conda) and what to do when an install fails.
 
 ## Launch
 
@@ -48,12 +32,10 @@ port on 127.0.0.1.
 
 ## The AERMOD binary
 
-The GUI runs the `aermod` executable it finds on your `PATH`; it does
-not ship one. Install AERMOD from
-[EPA SCRAM](https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/)
-separately. When the executable is not found, the Review & Run step's
-readiness checklist says "No 'aermod' binary on PATH. Install AERMOD and
-re-launch." and the **Run AERMOD** button stays disabled.
+The GUI runs the `aermod` executable it finds on your `PATH`; it does not
+ship one ([how to get it](install.md#aermod-and-the-other-epa-programs)).
+When it is not found, the Review & Run checklist says "No 'aermod' binary on
+PATH. Install AERMOD and re-launch." and **Run AERMOD** stays disabled.
 
 ## Layout
 
@@ -78,19 +60,18 @@ Both modes share one layout:
 | **Meteorology** | The AERMET surface and profile files, the stations and the period to model |
 | **Output** | The files the Results step reads, the tables in the `.out` file, other output files |
 | **Review & Run** | The readiness checklist, warnings, a deck preview, and the run itself with progress and Cancel |
-| **Results** | Per-period maxima, every summary table, the concentration map, the NAAQS comparison, downloads and the run history |
+| **Results** | Per-period maxima, every summary table, the concentration map, the comparison with the NAAQS (National Ambient Air Quality Standards), downloads and the run history |
 
 The steps can be done in any order; the order is guidance, not a gate.
 
 ### Status badges
 
-Each step's badge reads **not started**, **error**, **warning** or
-**complete**, from the validator's findings for the part of the project
-that step edits (for Review & Run and Results, from the latest run that
-was not cancelled). The project is checked again shortly after every
-change, met files included, so the badges and the header's readiness
-line ("Ready to run", or "Not ready to run: *N* problems in Sources,
-Meteorology") follow your edits.
+A step's badge (**not started**, **error**, **warning**, **complete**) comes
+from the validator's findings for the part of the project the step edits; for
+Review & Run and Results, from the latest run that was not cancelled. The
+project is checked again shortly after every change, met files included, so
+the badges and the header's readiness line ("Ready to run", or "Not ready to
+run: *N* problems in Sources, Meteorology") follow your edits.
 
 ### Sessions and browser tabs
 
@@ -111,8 +92,8 @@ plot file and a POSTFILE for every period). **Open...** reads a saved
 refused with "Load failed: ..." and nothing is replaced. **Save** writes
 back to the project's file when it has one on disk, and otherwise acts
 as **Save as...**, which downloads the file in the browser or asks where
-to save it in the desktop app. Saving refuses a project its file could
-not be reopened with ("Save failed: ..." names the field). New and Open
+to save it in the desktop app. Save refuses a project that could not
+be reopened, naming the field ("Save failed: ..."). New and Open
 ask before they discard unsaved changes or stop a run in progress. The
 file format (`pyaermod.gui_v2.project_io`) is versioned, so files from
 earlier versions still open.
@@ -210,8 +191,8 @@ dialog. Below the files, the step says what the surface file holds, as
 the next run would read it: the period it covers, the surface and
 upper-air station IDs in its header and the first year of its data.
 When ANNUAL is among the averaging periods and the file holds less than
-a year of data, a warning says so (AERMOD would stop the run with E480)
-with a button, "Change the averaging periods on the Project step".
+a year of data, a warning says so (AERMOD would stop the run with
+[E480](common-errors.md#e480)) with a button, "Change the averaging periods on the Project step".
 
 **Stations** — SURFDATA, UAIRDATA and PROFBASE: the surface and
 upper-air station IDs, the data start year and the profile base
@@ -359,10 +340,10 @@ For a successful run the step shows, from AERMOD's own summary tables:
 - **Sources** — the sources AERMOD listed for the run.
 - **Downloads** — the deck, the `.out` file, every plot file and every
   POSTFILE, with their paths on disk. Below them, **Download KMZ** writes
-  the sources and the values of the plot file shown on the map for
-  Google Earth; it asks for the UTM zone of the model coordinates and
-  whether they are in the southern hemisphere, and needs pyproj
-  (`pip install pyproj`).
+  a KMZ file (zipped KML, for Google Earth) of the sources and the values of
+  the plot file shown on the map; it asks for the UTM (Universal Transverse
+  Mercator) zone of the model coordinates and whether they are in the
+  southern hemisphere, and needs pyproj (`pip install pyproj`).
 
 ## Tips
 
@@ -372,8 +353,6 @@ For a successful run the step shows, from AERMOD's own summary tables:
   its deck, `.out` file, plot files and POSTFILEs can be used outside
   the GUI. The run history reopens the runs of this session; the GUI
   does not reopen run directories from an earlier session.
-- A blank working directory gives every run a fresh temporary folder,
-  which keeps runs from overwriting each other's files.
 - For headless or scripted workflows, build `AERMODProject` instances
   in Python directly: the GUI is an authoring layer on top of the same
   dataclasses, and a project saved by the GUI can be loaded with

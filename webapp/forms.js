@@ -162,11 +162,27 @@ export function fieldInput(field, value, onChange) {
       input = el('input', { id, type: 'text', 'aria-describedby': describedBy });
       input.value = value ?? '';
       input.addEventListener('change', () => {
+        if (field.name === 'source_id') {
+          // AERMOD reads a deck line's fields split at blanks, and an ID of
+          // more than 12 characters is its error E230.
+          const problem = sourceIdProblem(input.value);
+          invalid(input, !!problem, problem || '');
+          if (problem) return;
+        }
         onChange(input.value === '' && field.optional ? null : input.value);
       });
     }
   }
   return el('div', { class: `field field-${field.kind}` }, label, input, error, help);
+}
+
+// Why AERMOD could not read `text` as a source ID, or '' (as
+// pyaermod.gui_v2._form.source_id_problem says it).
+export function sourceIdProblem(text) {
+  if (!text.trim()) return 'Enter an ID.';
+  if (/\s/.test(text)) return 'No blanks: AERMOD reads a deck line\'s fields split at blanks.';
+  if (text.length > 12) return `At most 12 characters (${text.length} now).`;
+  return '';
 }
 
 // The names of the fields in `root` whose text does not parse.

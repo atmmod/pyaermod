@@ -25,8 +25,9 @@ from ...input_generator import (
     PolarGrid,
     ReceptorPathway,
 )
-from .._layout import Goto, Pager, plan_view, section, step_page
+from .._layout import Goto, Pager, editor_dialog, plan_view, section, step_page
 from .._live import live
+from ..readiness import item_findings
 from ..session import Session, SessionEvent
 
 _RECEPTOR_TYPES: Dict[str, Type] = {
@@ -132,26 +133,16 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
     pager = Pager(session=session)
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
-        with dialogs, ui.dialog().mark("editor-dialog") as dialog, \
-                ui.card().classes("w-full max-w-4xl"):
-            ui.label(f"Edit {type(draft).__name__}").classes("text-h6")
-            with ui.column().classes("w-full gap-2"):
-                editor_body(draft)
-            with ui.row().classes("justify-end w-full q-gutter-sm q-mt-md"):
-                ui.button("Close", on_click=dialog.close).props("flat")
+        def save() -> bool:
+            if key is None:
+                session.add_receptor(draft)
+                return True
+            return session.update_receptor(key, draft)
 
-                def _on_save() -> None:
-                    if key is None:
-                        session.add_receptor(draft)
-                    elif not session.update_receptor(key, draft):
-                        dialog.close()
-                        ui.notify("That receptor was removed", color="warning")
-                        return
-                    dialog.close()
-
-                ui.button("Save", on_click=_on_save).props("color=primary")
-        dialog.on_value_change(lambda e: None if e.value else dialog.delete())
-        dialog.open()
+        editor_dialog(dialogs, title=f"Edit {type(draft).__name__}",
+                      build=lambda changed: editor_body(draft, changed),
+                      findings=lambda: item_findings(session.project, draft),
+                      refused=list, save=save, gone="That receptor was removed")
 
     def _on_edit(e) -> None:
         for key, _kind, rec in session.receptor_entries():
