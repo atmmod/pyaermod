@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -55,19 +56,30 @@ class AERMODFileHeader:
     record_format: Optional[str] = None     # Fortran FORMAT printed by AERMOD
     field_widths: List[int] = field(default_factory=list)  # data-field widths
     raw_lines: List[str] = field(default_factory=list)
+    #: Header values of a binary TOXXFILE (title, ISYEAR, NUMGRP, NUMREC,
+    #: NUMPER, ITAB, NXTOX, NYTOX, TOXTHR); empty for the text files.
+    extra: Dict[str, Any] = field(default_factory=dict)
 
 
+# The file's own heading (ouset.f, output.f): "PLOT FILE OF  HIGH ...",
+# "POST/PLOT FILE OF ...", "MAXI-FILE FOR ...", "RANK-FILE OF UP TO ...",
+# "FILE OF SEASON/HOUR VALUES ..."; the one-word names are what hand-written
+# headers (and this package's tests) use.
 _TYPE_RE = re.compile(
-    r"\b(PLOT\s*FILE|PLOTFILE|MAXI\s*FILE|MAXIFILE|RANK\s*FILE|RANKFILE|"
-    r"SEASONHR|TOXX\s*FILE|TOXXFILE|DDEP|WDEP|TOTDEP)\b",
+    r"\b(PLOT\s*FILE|PLOTFILE|MAXI[\s-]*FILE|RANK[\s-]*FILE|"
+    r"SEASON\s*/\s*HOUR|SEASONHR|TOXX\s*FILE|TOXXFILE|DDEP|WDEP|TOTDEP)\b",
     re.IGNORECASE,
 )
 
-# Map possibly-spaced variants to canonical single-word forms.
+# Map the spelling variants to the canonical names.
 _TYPE_NORMALIZE = {
     "PLOT FILE": "PLOTFILE",
     "MAXI FILE": "MAXIFILE",
+    "MAXI-FILE": "MAXIFILE",
     "RANK FILE": "RANKFILE",
+    "RANK-FILE": "RANKFILE",
+    "SEASON/HOUR": "SEASONHR",
+    "SEASON / HOUR": "SEASONHR",
     "TOXX FILE": "TOXXFILE",
 }
 
@@ -82,8 +94,22 @@ _AVG_RE = re.compile(
     r"(ANNUAL|PERIOD|\d+\s*-?\s*HR|\d+-hr|\d+HR)",
     re.IGNORECASE,
 )
+# "PLOT FILE OF  HIGH   1ST HIGH 24-HR VALUES", "POST/PLOT FILE OF PERIOD
+# VALUES", "MAXI-FILE FOR  1-HR VALUES >= ...", "RANK-FILE OF UP TO 10 TOP
+# 1-HR VALUES": the period sits just before "VALUES".
+_FILE_AVG_RE = re.compile(
+    r"\bFILE\s+(?:OF|FOR)\b.*?\b(ANNUAL|PERIOD|MONTH|\d+\s*-?\s*HR)\s+VALUES\b",
+    re.IGNORECASE,
+)
 _GRP_RE = re.compile(r"Source\s+Group:\s*(\S+)", re.IGNORECASE)
-_RANK_RE = re.compile(r"(HIGH|H)[- ]?(\d+)(?:ST|ND|RD|TH)?", re.IGNORECASE)
+# "HIGH   1ST HIGH 24-HR VALUES" (PLOTFILE) and "1ST-HIGHEST MAX DAILY".
+_REAL_RANK_RE = re.compile(
+    r"\bHIGH\s+(\d+)(?:ST|ND|RD|TH)\s+HIGH\b|\b(\d+)(?:ST|ND|RD|TH)-HIGHEST\b",
+    re.IGNORECASE,
+)
+# Hand-written "HIGH-8TH"; "HIGH 24-HR" is a period, not a rank.
+_RANK_RE = re.compile(
+    r"(HIGH|H)[- ]?(\d+)(?:ST|ND|RD|TH)?\b(?!\s*-?\s*HR)", re.IGNORECASE)
 _VER_RE = re.compile(r"AERMOD[^\d]*(\d{5}|\d{2}\d{3})")
 
 
@@ -229,18 +255,22 @@ def parse_aermod_header(lines: List[str]) -> AERMODFileHeader:
                 elif fallback_type is None:
                     fallback_type = found
         if h.averaging_period is None:
-            m = _AVG_RE.search(stripped)
+            m = _FILE_AVG_RE.search(stripped) or _AVG_RE.search(stripped)
             if m:
-                h.averaging_period = m.group(1).upper()
+                h.averaging_period = re.sub(r"\s+", "", m.group(1).upper())
         if h.source_group is None:
             m = _GRP_RE.search(stripped)
             if m:
                 h.source_group = m.group(1).upper()
         if h.rank is None:
-            m = _RANK_RE.search(stripped)
+            m = _REAL_RANK_RE.search(stripped)
             if m:
-                with contextlib.suppress(ValueError):
-                    h.rank = int(m.group(2))
+                h.rank = int(m.group(1) or m.group(2))
+            else:
+                m = _RANK_RE.search(stripped)
+                if m:
+                    with contextlib.suppress(ValueError):
+                        h.rank = int(m.group(2))
         if h.model_version is None:
             m = _VER_RE.search(stripped)
             if m:
@@ -281,12 +311,20 @@ def _split_header_and_rows(text: str) -> Tuple[List[str], List[str]]:
 
 
 def _coerce(tok: str) -> Any:
+    if set(tok) == {"*"}:
+        # An overflowed field (the value did not fit its width): NaN, as
+        # the .out parser reads it, so the column stays numeric.
+        return float("nan")
     try:
         if "." in tok or "e" in tok.lower():
             return fortran_float(tok)
         return int(tok)
     except ValueError:
-        return tok
+        # NaN / Infinity as gfortran writes them
+        try:
+            return fortran_float(tok)
+        except ValueError:
+            return tok
 
 
 def _split_row(raw: str, slices: Optional[List[Tuple[int, int]]]) -> List[str]:
@@ -335,9 +373,12 @@ def _infer_columns(n_tokens: int, file_type: Optional[str]) -> List[str]:
     elif ft in {"MAXIFILE", "RANKFILE", "TOXXFILE"}:
         names = ["RANK", "X", "Y", "CONC", "DATE"]
     elif ft == "SEASONHR":
-        # X, Y + 96 seasonal-hour slots
-        slots = [f"{s}_{h:02d}" for s in ("WIN", "SPR", "SUM", "FAL") for h in range(1, 25)]
-        names = ["X", "Y", *slots]
+        # SHOUT (output.f) writes one row per receptor, season and hour:
+        # X Y value ZELEV ZHILL ZFLAG GRP NHRS SEAS HOUR NETID. With one
+        # output type that is 10 or 11 fields; a file with more value
+        # columns carries its own column heading.
+        names = ["X", "Y", "VALUE", "ZELEV", "ZHILL", "ZFLAG", "GRP",
+                 "NHRS", "SEAS", "HOUR", "NETID"]
     else:
         names = [f"COL{i + 1}" for i in range(n_tokens)]
     # Pad or trim to match tokens
@@ -382,9 +423,16 @@ class AERMODAuxResult:
             (n for n in names if n.startswith("AVERAGE") or "CONC" in n), None
         )
 
+    @property
+    def deposition_column(self) -> Optional[str]:
+        """Name of the first deposition value column (``DRY_DEPO``,
+        ``WET_DEPO``, ``TOTAL_DEPO``), if the file has one."""
+        return next((n for n in self.column_names if n.endswith("_DEPO")), None)
+
     def values(self, column: Optional[str] = None) -> List[float]:
-        """Numeric values of ``column`` (default: the concentration)."""
-        col = column or self.concentration_column
+        """Numeric values of ``column`` (default: the concentration, or for a
+        deposition file its first deposition column)."""
+        col = column or self.concentration_column or self.deposition_column
         if col is None:
             return []
         return [
@@ -454,14 +502,125 @@ def read_seasonhr(filepath: Union[str, Path]) -> AERMODAuxResult:
     return _read_expecting(filepath, ("SEASONHR",))
 
 
+def _read_fortran_records(data: bytes, name: str) -> List[bytes]:
+    """Split a Fortran unformatted sequential file (4-byte little-endian
+    record markers, as gfortran writes it) into its records."""
+    records: List[bytes] = []
+    pos = 0
+    while pos < len(data):
+        if pos + 4 > len(data):
+            raise ValueError(f"{name}: truncated record marker at byte {pos}")
+        (length,) = struct.unpack_from("<i", data, pos)
+        end = pos + 4 + length
+        if length < 0 or end + 4 > len(data):
+            raise ValueError(f"{name}: truncated or corrupt record at byte {pos}")
+        if struct.unpack_from("<i", data, end)[0] != length:
+            raise ValueError(f"{name}: record length markers disagree at byte {pos}")
+        records.append(data[pos + 4:end])
+        pos = end + 4
+    return records
+
+
+def _read_toxxfile_binary(path: Path) -> AERMODAuxResult:
+    """Read the unformatted TOXXFILE AERMOD writes.
+
+    Layout (OUTOXX in ouset.f, TOXXFL in calc2.f, the flush after the hour
+    loop in aermod.f), default integers being 4 bytes:
+
+    1. ``TITLE1(1:68), BUF12``: an 80-character title.
+    2. ``ISYEAR, NUMGRP, NUMREC, NUMPER, ITAB, NXTOX, NYTOX`` and three
+       zero integers.
+    3. ``TOXTHR`` (double, the threshold) and nine zero integers.
+    4. Then, repeated to the end of the file, a record of ``NPAIR`` (100)
+       integers ``IDCONC = 100000*ILINE + 1000*IG + IREC`` and a record of
+       the same number of doubles ``TXCONC`` (the value in g/s units, i.e.
+       divided by the emission-rate factor). The last pair is padded
+       with zeros.
+
+    Each returned record is ``{"ICODE", "ILINE", "GROUP", "RECEPTOR",
+    "VALUE"}``; ``GROUP`` (IG) and ``RECEPTOR`` (IREC) are the indices
+    ICODE packs below 100000 (``1000*IG + IREC``), so they are only
+    unambiguous for a run of fewer than 1000 receptors. Zero padding is
+    dropped.
+    """
+    name = path.name
+    recs = _read_fortran_records(path.read_bytes(), name)
+    if len(recs) < 3 or (len(recs[0]), len(recs[1]), len(recs[2])) != (80, 40, 44):
+        raise ValueError(
+            f"{name}: not a TOXXFILE this reader knows: expected an 80-byte title "
+            "record and 40- and 44-byte header records (default 4-byte integers, "
+            "little-endian) before the data records"
+        )
+    if (len(recs) - 3) % 2:
+        raise ValueError(f"{name}: the data records do not come in (IDCONC, TXCONC) pairs")
+    isyear, numgrp, numrec, numper, itab, nxtox, nytox = struct.unpack_from("<7i", recs[1])
+    (toxthr,) = struct.unpack_from("<d", recs[2])
+    header = AERMODFileHeader(file_type="TOXXFILE")
+    header.column_names = ["ICODE", "ILINE", "GROUP", "RECEPTOR", "VALUE"]
+    header.extra = {
+        "title": recs[0].decode("latin-1").strip(),
+        "ISYEAR": isyear, "NUMGRP": numgrp, "NUMREC": numrec, "NUMPER": numper,
+        "ITAB": itab, "NXTOX": nxtox, "NYTOX": nytox, "TOXTHR": toxthr,
+    }
+    out: List[Dict[str, Any]] = []
+    for ids, vals in zip(recs[3::2], recs[4::2]):
+        n = len(ids) // 4
+        if len(ids) != 4 * n or len(vals) != 8 * n:
+            raise ValueError(f"{name}: an IDCONC record and its TXCONC record differ in length")
+        codes = struct.unpack(f"<{n}i", ids)
+        values = struct.unpack(f"<{n}d", vals)
+        for code, value in zip(codes, values):
+            if code == 0 and value == 0.0:
+                continue
+            out.append({
+                "ICODE": code, "ILINE": code // 100000,
+                "GROUP": (code % 100000) // 1000, "RECEPTOR": code % 1000,
+                "VALUE": value,
+            })
+    return AERMODAuxResult(header=header, records=out)
+
+
+def _is_binary(path: Path) -> bool:
+    with open(path, "rb") as f:
+        chunk = f.read(512)
+    return any(b not in b"\t\n\r" and not 0x20 <= b < 0x7F for b in chunk)
+
+
 def read_toxxfile(filepath: Union[str, Path]) -> AERMODAuxResult:
-    """Read a TOXXFILE (toxics post-processing top-N)."""
-    return _read_expecting(filepath, ("TOXXFILE",))
+    """Read a TOXXFILE (toxics post-processing top-N).
+
+    AERMOD writes the TOXXFILE as Fortran unformatted binary; that layout
+    is read here (see :func:`_read_toxxfile_binary`) and a binary file
+    that does not match it raises ``ValueError`` rather than being read
+    as text. A text file with a ``TOXXFILE`` header is read as the other
+    auxiliary files are.
+    """
+    path = Path(filepath)
+    if _is_binary(path):
+        return _read_toxxfile_binary(path)
+    return _read_expecting(path, ("TOXXFILE",))
 
 
 def read_deposition(filepath: Union[str, Path]) -> AERMODAuxResult:
-    """Read a deposition output file (DDEP, WDEP, or TOTDEP)."""
-    return _read_expecting(filepath, ("DDEP", "WDEP", "TOTDEP"))
+    """Read a deposition output file.
+
+    AERMOD writes deposition to the ordinary PLOTFILE/POSTFILE layout with
+    a ``DRY DEPO``, ``WET DEPO`` or ``TOTAL DEPO`` value column, so a
+    PLOTFILE with such a column is accepted; so is a file whose header
+    names its type DDEP, WDEP or TOTDEP. Any other file raises
+    ``ValueError``.
+    """
+    res = read_aermod_aux_file(filepath)
+    ft = (res.header.file_type or "").upper()
+    if ft in ("DDEP", "WDEP", "TOTDEP"):
+        return res
+    has_depo = any(n == "DEPO" or n.endswith("_DEPO") for n in res.column_names)
+    if has_depo and ft in ("PLOTFILE", ""):
+        return res
+    raise ValueError(
+        f"file {filepath} looks like {ft or 'no known type'!r} without a deposition "
+        "column (DRY DEPO, WET DEPO, TOTAL DEPO), expected a deposition file"
+    )
 
 
 # ---------------------------------------------------------------------------
