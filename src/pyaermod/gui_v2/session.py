@@ -24,10 +24,15 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import functools
+import hashlib
 import logging
+import os
 import re
+import shutil
 import tempfile
 import threading
+import weakref
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -79,12 +84,34 @@ _RECEPTOR_LISTS = {
     "DiscreteReceptor": "discrete_receptors",
 }
 
-#: The deck's file name in the run directory. NOT "aermod.inp":
-#: AERMODRunner reserves that name for the symlink it points at the real
-#: deck (and renames aermod.out -> <stem>.out afterwards). A deck written
-#: as aermod.inp would be unlinked and replaced by a self-referencing
-#: symlink.
+#: The deck's file name in the Review & Run step's "Download deck". NOT
+#: "aermod.inp": AERMODRunner reserves that name for the symlink it points
+#: at the real deck (and renames aermod.out -> <stem>.out afterwards). A
+#: deck written as aermod.inp would be unlinked and replaced by a
+#: self-referencing symlink.
 DECK_NAME = "pyaermod_gui.inp"
+
+#: A run's deck in its working directory: one name per run
+#: (:func:`run_deck_name`), so a later run in the same directory, from this
+#: tab or another, never rewrites an earlier run's deck or ``.out`` file
+#: (the runner names the ``.out`` file after the deck).
+RUN_DECK_STEM = "pyaermod_gui_run{number}"
+
+
+def run_deck_name(number: int, extra: int = 0) -> str:
+    """``pyaermod_gui_run3.inp``; ``pyaermod_gui_run3_2.inp`` for ``extra=2``."""
+    stem = RUN_DECK_STEM.format(number=number)
+    return f"{stem}_{extra}.inp" if extra else f"{stem}.inp"
+
+
+# The decks of the runs in progress in this process (resolved paths), so
+# two tabs' runs in one directory never write the same deck.
+_DECKS_IN_USE: set = set()
+_DECKS_LOCK = threading.Lock()
+
+# Every session of this process, so a temporary run directory is removed
+# only when no session still lists a run in it (a forked tab shares runs).
+_SESSIONS: weakref.WeakSet[Session] = weakref.WeakSet()
 
 _DEFAULT_FILE_NAME = "project.json"
 
@@ -111,6 +138,12 @@ class RunRecord:
     # to process (from the surface file; None when it could not be read).
     progress: Optional[AERMODProgress] = None
     expected_days: Optional[int] = None
+    # The SHA-256 of the deck the run was started with: Results says when
+    # the project has changed since (Session.changed_since).
+    deck_sha256: Optional[str] = None
+    # True when the session made ``work_dir`` itself (a blank working
+    # directory): it is removed when no session lists the run any more.
+    temp_dir: bool = False
 
     @property
     def in_progress(self) -> bool:
@@ -279,6 +312,105 @@ class DeckImport:
 Observer = Callable[[Change], None]
 
 
+class _RunLink:
+    """The sessions one background run reports to.
+
+    A run belongs to the session that started it, and to every fork made
+    from that session while it runs (a desktop window's reload, a
+    duplicated browser tab): each of them shows its progress, can cancel
+    it and records its end. The runner's callbacks go through the link, so
+    a fork made after the start still hears them.
+    """
+
+    def __init__(self, session: Session, serial: int, deck: Path) -> None:
+        self._lock = threading.Lock()
+        self._members: List[Tuple[Session, int]] = [(session, serial)]
+        self.deck = deck
+
+    def members(self) -> List[Tuple[Session, int]]:
+        with self._lock:
+            return list(self._members)
+
+    def add(self, session: Session, serial: int) -> None:
+        with self._lock:
+            self._members.append((session, serial))
+
+    def leave(self, session: Session) -> bool:
+        """Stop reporting to ``session`` if another session shares the run.
+
+        Returns whether it left; the last session stays, to hear the end of
+        the run it stops.
+        """
+        with self._lock:
+            others = [(s, n) for s, n in self._members if s is not session]
+            if not others:
+                return False
+            self._members = others
+            return True
+
+    def progress(self, progress: AERMODProgress) -> None:
+        for session, serial in self.members():
+            session._progress_arrived(serial, progress)
+
+    def finish(self, result: AERMODRunResult) -> None:
+        _release_deck(self.deck)
+        for session, serial in self.members():
+            session._dispatch(functools.partial(session._finish_run, serial, result=result))
+
+
+def _claim_deck(work_dir: Path, number: int) -> Path:
+    """A deck path in ``work_dir`` for run ``number`` that no run in progress uses."""
+    extra = 0
+    with _DECKS_LOCK:
+        while True:
+            path = work_dir / run_deck_name(number, extra)
+            key = os.path.abspath(path)
+            if key not in _DECKS_IN_USE:
+                _DECKS_IN_USE.add(key)
+                return path
+            extra = extra + 1 if extra else 2
+
+
+def _release_deck(path: Path) -> None:
+    with _DECKS_LOCK:
+        _DECKS_IN_USE.discard(os.path.abspath(path))
+
+
+def _holds_dir(session: Session, work_dir: Path) -> bool:
+    records = list(session.runs)
+    if session.run_in_progress is not None:
+        records.append(session.run_in_progress)
+    return any(r.work_dir == work_dir for r in records)
+
+
+def _remove_temp_dirs(records: Iterable[RunRecord], *, owner: Session) -> None:
+    """Remove the temporary run directories of ``records`` that no other session lists."""
+    for record in records:
+        if not record.temp_dir:
+            continue
+        if any(other is not owner and _holds_dir(other, record.work_dir)
+               for other in list(_SESSIONS)):
+            continue
+        logger.info("Removing the temporary run directory %s", record.work_dir)
+        shutil.rmtree(record.work_dir, ignore_errors=True)
+
+
+def remove_temp_run_dirs() -> None:
+    """Remove every temporary run directory a session of this process made.
+
+    For when the app exits (after its runs have been stopped): a run with
+    a blank working directory goes to a folder of its own under the
+    system's temporary folder, which nothing else removes.
+    """
+    for session in list(_SESSIONS):
+        records = list(session.runs) + list(session._abandoned.values())
+        if session.run_in_progress is not None:
+            records.append(session.run_in_progress)
+        for record in records:
+            if record.temp_dir:
+                shutil.rmtree(record.work_dir, ignore_errors=True)
+
+
 def _orphan_record(result: Optional[AERMODRunResult]) -> RunRecord:
     """A record for the end of a run the session no longer tracks."""
     deck = Path(result.input_file) if result is not None else Path(DECK_NAME)
@@ -369,13 +501,18 @@ class Session:
         # The background run in progress: its handle and serial number, and
         # the newest progress not yet applied on the owner's thread.
         self._run_handle: Optional[AERMODRun] = None
+        self._run_link: Optional[_RunLink] = None
         self._run_serial = 0
+        # Runs stopped by a replaced project, by serial, until they end
+        # (their temporary directory is removed then).
+        self._abandoned: Dict[int, RunRecord] = {}
         self._progress_lock = threading.Lock()
         self._pending_progress: Optional[Tuple[int, AERMODProgress]] = None
         # id(obj) -> (key, obj). Holding obj keeps its id from being reused
         # while the key exists.
         self._keys: Dict[int, Tuple[str, object]] = {}
         self._next_key = 1
+        _SESSIONS.add(self)
 
     # ------------------------------------------------------------------
     # Read-only views
@@ -490,7 +627,10 @@ class Session:
         self.dirty = imported is not None
         self.last_import = imported
         self.show_import_notice = imported is not None
-        self.runs = []
+        old_runs, self.runs = self.runs, []
+        # The confirm before a replace says the runs are lost: their
+        # temporary directories go with them.
+        _remove_temp_dirs(old_runs, owner=self)
         self.validation = None
         self._keys.clear()
         self._emit(Change(SessionEvent.PROJECT_REPLACED))
@@ -789,20 +929,22 @@ class Session:
     def validate(self, check_files: bool = False) -> ValidationResult:
         """Validate the project, keep the result and emit VALIDATION_CHANGED.
 
-        With ``check_files`` the files are checked on disk, and the surface
+        With ``check_files`` the result is the one the Review & Run step
+        reviews (:func:`~pyaermod.gui_v2.readiness.project_findings`): the
+        met files are looked for where AERMOD will open them (a relative
+        path in :attr:`run_options`' working directory), and the surface
         file is read for the warning that ANNUAL needs a year of met data
-        (:meth:`met_coverage`), which ``Validator.validate`` does not
-        read: the header's readiness line and the step badges count it
-        as the Review & Run step does.
+        and for the station IDs and year in its header. So the header's
+        readiness line, the step badges and the checklist agree.
         """
-        from ..validator import Validator
+        from ..validator import ValidationResult, Validator
 
-        result = Validator.validate(self.project, check_files=check_files)
         if check_files:
-            try:
-                result.errors.extend(self.met_coverage().warnings)
-            except Exception:           # a surface file the reader trips on
-                logger.exception("checking the met data's coverage raised")
+            from .readiness import project_findings
+
+            result = ValidationResult(project_findings(self))
+        else:
+            result = Validator.validate(self.project)
         self.validation = result
         self._emit(Change(SessionEvent.VALIDATION_CHANGED))
         return self.validation
@@ -810,6 +952,21 @@ class Session:
     # ------------------------------------------------------------------
     # Runs
     # ------------------------------------------------------------------
+    def changed_since(self, record: RunRecord) -> bool:
+        """Whether the deck the project writes now differs from ``record``'s.
+
+        False when the record does not know its deck (made by hand); True
+        when the project cannot be written as a deck at the moment.
+        Emits nothing.
+        """
+        if record.deck_sha256 is None:
+            return False
+        try:
+            deck = self.deck_text()
+        except DeckError:
+            return True
+        return _sha256(deck) != record.deck_sha256
+
     def deck_text(self) -> str:
         """The AERMOD deck :meth:`start_run` would write for the project.
 
@@ -908,43 +1065,57 @@ class Session:
                 f"AERMOD is already running (run {self.run_in_progress.number})")
         deck = self.deck_text()
 
-        if working_dir is not None and str(working_dir).strip():
-            wd = Path(working_dir).expanduser()
+        number = len(self.runs) + 1
+        temp = not (working_dir is not None and str(working_dir).strip())
+        if not temp:
+            wd = Path(str(working_dir)).expanduser()
         else:
             wd = Path(tempfile.mkdtemp(prefix="pyaermod_"))
         wd.mkdir(parents=True, exist_ok=True)
-        deck_path = wd / DECK_NAME
-        deck_path.write_text(deck, encoding="utf-8")
+        # A deck of its own: a later run, or another tab's run, in the same
+        # directory leaves this run's deck and .out file alone.
+        deck_path = _claim_deck(wd, number)
+        try:
+            deck_path.write_text(deck, encoding="utf-8")
+        except BaseException:
+            _release_deck(deck_path)
+            raise
 
-        record = RunRecord(number=len(self.runs) + 1, work_dir=wd, deck_path=deck_path,
-                           started_at=datetime.now(), expected_days=self._expected_days(wd))
+        record = RunRecord(number=number, work_dir=wd, deck_path=deck_path,
+                           started_at=datetime.now(), expected_days=self._expected_days(wd),
+                           deck_sha256=_sha256(deck), temp_dir=temp)
         self._run_serial += 1
         serial = self._run_serial
         self.run_in_progress = record
         self._emit(Change(SessionEvent.RUN_STARTED, run=record))
 
+        link = _RunLink(self, serial, deck_path)
         try:
             if runner is None:
                 from ..runner import AERMODRunner
 
                 runner = AERMODRunner(log_level="WARNING")
             if not background:
-                result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+                try:
+                    result = runner.run(input_file=deck_path, working_dir=wd, timeout=timeout)
+                finally:
+                    _release_deck(deck_path)
                 return self._finish_run(serial, result=result)
+            self._run_link = link
             handle = runner.start(
                 input_file=deck_path, working_dir=wd, timeout=timeout,
-                on_progress=lambda progress: self._progress_arrived(serial, progress),
-                on_finish=lambda result: self._dispatch(
-                    lambda: self._finish_run(serial, result=result)),
+                on_progress=link.progress, on_finish=link.finish,
             )
         except FileNotFoundError as exc:
             # No AERMOD binary, or a file it needs: the user's setup, and the
             # Run step says so. Logged without a traceback.
+            _release_deck(deck_path)
             logger.warning("AERMOD run %d could not start: %s", record.number, exc)
             return self._finish_run(serial, error=str(exc) or type(exc).__name__)
         except Exception as exc:
             # Anything else is a bug: keep the traceback in the log, and show
             # the message on the Run step.
+            _release_deck(deck_path)
             logger.exception("AERMOD run %d raised", record.number)
             return self._finish_run(serial, error=str(exc) or type(exc).__name__)
         if self._run_serial == serial and self.run_in_progress is not None:
@@ -1014,9 +1185,13 @@ class Session:
         if record is None or serial != self._run_serial:
             if result is not None:
                 logger.info("A stopped run of a replaced project ended: %s", result)
-            return replace(record or _orphan_record(result), finished_at=datetime.now(),
-                           result=result, error=error)
+            stopped = self._abandoned.pop(serial, None)
+            if stopped is not None:
+                _remove_temp_dirs([stopped], owner=self)
+            return replace(stopped or record or _orphan_record(result),
+                           finished_at=datetime.now(), result=result, error=error)
         handle, self._run_handle = self._run_handle, None
+        self._run_link = None
         progress = record.progress
         if handle is not None and handle.progress is not None:
             progress = handle.progress
@@ -1030,21 +1205,42 @@ class Session:
     def _abandon_run(self) -> None:
         """Stop the run in progress without recording it (the project is going)."""
         handle, self._run_handle = self._run_handle, None
-        if self.run_in_progress is None:
+        link, self._run_link = self._run_link, None
+        record = self.run_in_progress
+        if record is None:
             return
-        logger.info("Stopping AERMOD run %d: the project was replaced",
-                    self.run_in_progress.number)
         self.run_in_progress = None
         self._run_serial += 1               # its finish no longer matches
+        if link is not None and link.leave(self):
+            # Another tab's session shares the run (a fork): it goes on there.
+            logger.info("Run %d goes on in another tab: this tab's project was replaced",
+                        record.number)
+            return
+        logger.info("Stopping AERMOD run %d: the project was replaced", record.number)
         if handle is not None:
+            self._abandoned[self._run_serial - 1] = record
             handle.cancel()
+        else:
+            _remove_temp_dirs([record], owner=self)
 
     # ------------------------------------------------------------------
     # Tabs
     # ------------------------------------------------------------------
     def fork(self, tab_id: Optional[str]) -> Session:
-        """An independent copy for another tab: same content and runs, no observers."""
+        """An independent copy for another tab: same content and runs, no observers.
+
+        A run in progress is shared: the fork shows its progress, can
+        cancel it and records its end too (a desktop window's reload arrives
+        as a fork while the old page lingers, and must not lose the run).
+        """
         other = type(self)(copy.deepcopy(self.project), tab_id=tab_id)
+        link = self._run_link
+        if self.run_in_progress is not None and link is not None:
+            other.run_in_progress = self.run_in_progress
+            other._run_handle = self._run_handle
+            other._run_link = link
+            other._run_serial = 1
+            link.add(other, other._run_serial)
         other.project_path = self.project_path
         other.file_name = self.file_name
         other.dirty = self.dirty
@@ -1057,6 +1253,10 @@ class Session:
 
 
 # --- WP-G6: deck import helpers ----------------------------------------------
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 def _shorten_deck_name(name: str) -> str:
     """``name``, cut to fit the header, keeping its suffix."""
@@ -1116,4 +1316,6 @@ __all__ = [
     "SessionEvent",
     "clean_file_name",
     "read_met_period",
+    "remove_temp_run_dirs",
+    "run_deck_name",
 ]

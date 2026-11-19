@@ -404,7 +404,7 @@ class _TableStep(_Step):
         """Open the editor for ``name``, read one field and close it."""
         dialog = self._open_editor(name)
         value = dialog.get_by_label(_label(label)).input_value()
-        dialog.get_by_role("button", name="Close", exact=True).click()
+        dialog.get_by_role("button", name="Cancel", exact=True).click()
         expect(dialog).to_be_hidden()
         return value
 

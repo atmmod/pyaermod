@@ -131,8 +131,14 @@ function project() {
   return state.doc.project;
 }
 
+// Kept with the document: a reload must not forget unsaved changes.
+function saveMeta() {
+  store.saveMeta({ dirty: state.dirty, fileName: state.fileName });
+}
+
 function changed() {
   state.dirty = true;
+  saveMeta();
   // Kept in this browser only once pyaermod has accepted it (runCheck), so
   // a value it refuses never replaces the last good copy.
   renderHeader();
@@ -146,6 +152,7 @@ async function replaceDocument(doc, fileName) {
   state.editing = null;
   state.run = null;
   store.saveDocument(doc);
+  saveMeta();
   await runCheck();
   render();
 }
@@ -177,6 +184,7 @@ function saveProject() {
   download(name, new Blob([JSON.stringify(state.doc, null, 2)], { type: 'application/json' }));
   state.fileName = name;
   state.dirty = false;
+  saveMeta();
   renderHeader();
 }
 
@@ -346,6 +354,38 @@ function itemTable(entries, onEdit, onDelete, emptyText) {
     })));
 }
 
+// The document with the item under edit in its place, and where it is.
+function withEditedItem() {
+  const e = state.editing;
+  const doc = structuredClone(state.doc);
+  const target = e.kind === 'source' ? doc.project.sources.sources : doc.project.receptors[e.list];
+  const index = e.index === null ? target.length : e.index;
+  target[index] = structuredClone(e.item);
+  return { document: doc, kind: e.kind, index, list_name: e.list };
+}
+
+// What pyaermod's checks find in the item under edit: shown in the editor,
+// not only on Review & Run.
+async function checkEditedItem() {
+  if (!state.editing) return null;
+  const reply = await api('check_item', withEditedItem(), { quiet: true });
+  return reply.ok ? reply : { findings: [reply.error.message], refused: [] };
+}
+
+let findingsTimer = null;
+
+function showFindings() {
+  clearTimeout(findingsTimer);
+  findingsTimer = setTimeout(async () => {
+    const found = await checkEditedItem();
+    const box = document.getElementById('editor-findings');
+    if (!box || !found) return;
+    box.replaceChildren(...(found.findings.length ? [
+      el('p', { text: 'The checks find these problems (Review & Run lists them until they are fixed):' }),
+      el('ul', { class: 'checklist blocking' }, ...found.findings.map((f) => el('li', { text: f })))] : []));
+  }, 300);
+}
+
 function editor(kind) {
   const e = state.editing;
   if (!e || e.kind !== kind) return null;
@@ -361,6 +401,12 @@ function editor(kind) {
       card.querySelector('[aria-invalid="true"]').focus();
       return;
     }
+    const found = await checkEditedItem();
+    if (found && found.refused.length) {
+      showError({ step: kind === 'source' ? 'sources' : 'receptors',
+        message: `Not saved: ${found.refused.join('; ')}.` });
+      return;
+    }
     const target = kind === 'source' ? project().sources.sources : project().receptors[e.list];
     const before = target.slice();
     if (e.index === null) target.push(e.item); else target[e.index] = e.item;
@@ -373,8 +419,10 @@ function editor(kind) {
     render();
     refreshPlan();
   };
+  setTimeout(showFindings, 0);
   card = section(`${e.index === null ? 'New' : 'Edit'} ${e.item._type}`, cls.doc,
-    fieldGroup(cls, e.item, null),
+    fieldGroup(cls, e.item, null, { onChange: showFindings }),
+    el('div', { id: 'editor-findings', class: 'notice warn', role: 'status' }),
     el('div', { class: 'toolbar' },
       el('button', { type: 'button', class: 'primary', text: 'Save', onclick: save }),
       el('button', { type: 'button', text: 'Cancel', onclick: () => { state.editing = null; render(); } })));
@@ -573,13 +621,14 @@ async function startRun() {
     if (node) node.textContent = `${Math.round((Date.now() - state.running.started) / 1000)} s`;
   }, 500);
   state.runs += 1;                            // "Run 2 succeeded": numbered on this page
+  const deck = state.review ? state.review.deck : null;
   const reply = await api('run', { document: state.doc, number: state.runs });
   const running = state.running;
   if (!running) return;                       // cancelled meanwhile
   clearInterval(running.timer);
   state.running = null;
   if (reply.ok) {
-    state.run = reply;
+    state.run = { ...reply, deck, number: state.runs };
     goto('results');
   } else {
     render();
@@ -620,13 +669,19 @@ function resultsStep() {
   const run = state.run;
   if (!run) return [el('p', { class: 'empty', text: 'Run AERMOD on the Review & Run step to see results here.' })];
   const res = run.results;
-  const cards = [section(res.headline, res.detail,
+  // The deck the project writes now, against the run's (live-G5).
+  const now = state.review ? state.review.deck : null;
+  const changedSince = run.deck && now !== run.deck ? el('p', { class: 'notice warn', role: 'status',
+    text: `The project has changed since run ${run.number} started. These results are for the `
+      + 'project as it was then; run AERMOD again for results of the project as it is now.' }) : null;
+  const cards = [changedSince, section(res.headline, res.detail,
     res.succeeded ? null : el('p', { text: run.status_text }), run.counts_text ? el('p', { text: run.counts_text }) : null)];
   if (!res.succeeded) {
     cards.push(section('No results', res.ran ? 'AERMOD did not complete the run, so its output holds '
       + 'no valid concentrations.' : 'AERMOD did not run.',
     res.fatal.length ? el('ul', { class: 'checklist blocking' }, ...res.fatal.map((f) => el('li', { text: f }))) : null));
   }
+  cards.splice(0, cards.length, ...cards.filter(Boolean));
   for (const note of res.notes) cards.push(el('p', { class: 'notice warn', text: note }));
   const maxCols = [['period', 'Period'], ['value', 'Max'], ['units', 'Units'], ['x', 'X (m)'], ['y', 'Y (m)'],
     ['group', 'Group'], ['date', 'Date (YYMMDDHH)'], ['flag', 'Note']];
@@ -644,8 +699,8 @@ function resultsStep() {
   if (res.naaqs.length) {
     // pyaermod.browser writes the caption, so it explains only the bases the rows use.
     cards.push(section('Comparison with the NAAQS', res.naaqs_caption,
-    table([['standard', 'Standard'], ['level', 'NAAQS'], ['value', 'This run (µg/m³)'], ['basis', 'Compared'],
-      ['verdict', 'Result'], ['how', 'Value from']], res.naaqs, 'Comparison with the NAAQS')));
+    table([['standard', 'Standard'], ['verdict', 'Result'], ['value', 'This run (µg/m³)'], ['level', 'NAAQS'],
+      ['basis', 'Compared'], ['how', 'Value from']], res.naaqs, 'Comparison with the NAAQS')));
   }
   if (run.messages.length) {
     cards.push(el('details', { class: 'card' }, el('summary', { text: `AERMOD's messages (${run.messages.length})` }),
@@ -707,7 +762,13 @@ async function boot() {
         new Blob([JSON.stringify(saved, null, 2)], { type: 'application/json' })) } };
     }
   }
-  if (!doc) doc = (await api('new_project')).document;
+  if (doc) {
+    const meta = store.loadMeta();
+    state.dirty = !!meta.dirty;
+    state.fileName = typeof meta.fileName === 'string' ? meta.fileName : null;
+  } else {
+    doc = (await api('new_project')).document;
+  }
   state.doc = doc;
   await runCheck();
   setStatus('');
@@ -727,8 +788,10 @@ function loadFailed(err) {
   setStatus('');
 }
 
+// Closing or reloading the tab asks first while AERMOD runs (the run is
+// lost) or the project has changes not saved to a file.
 window.addEventListener('beforeunload', (event) => {
-  if (state.running) { event.preventDefault(); event.returnValue = ''; }
+  if (state.running || state.dirty) { event.preventDefault(); event.returnValue = ''; }
 });
 
 boot();

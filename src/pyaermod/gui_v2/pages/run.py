@@ -34,7 +34,7 @@ shell passes ``goto(step_id)`` (step ids in :data:`STEP_IDS`).
 from __future__ import annotations
 
 import asyncio
-import shutil
+import os
 from datetime import datetime
 from typing import Any, Callable, List, Optional
 
@@ -61,9 +61,11 @@ from ..readiness import (  # noqa: F401 - re-exported: this step's checklist
     _relative_met_files,
     _step_for_deck_error,
     _step_for_pathway,
+    aermod_available,
     output_folders,
     review,
 )
+from ..run_results import build_error, cached_view, prepare
 from ..session import (
     DECK_NAME,
     Change,
@@ -78,7 +80,7 @@ Goto = Callable[[str], None]
 
 
 def _aermod_available() -> bool:
-    return shutil.which("aermod") is not None
+    return aermod_available()
 
 
 # ----------------------------------------------------------------------
@@ -233,13 +235,27 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
 
     ui.label("Review & Run").classes("text-h6")
 
-    def _start() -> None:
-        if session.run_in_progress is not None:
+    starting = {"now": False}
+
+    async def _start() -> None:
+        if session.run_in_progress is not None or starting["now"]:
             return                          # a second click of one double-click
         if not _aermod_available():
             ui.notify("No AERMOD binary; cannot run.", color="negative")
             return
         opts = session.run_options
+        earlier = _unread_runs_in(session, opts.working_dir)
+        if earlier:
+            # This run will write over their files: read them first, so each
+            # run's Results show its own files (code-G4).
+            starting["now"] = True
+            try:
+                await asyncio.gather(*(asyncio.wrap_future(prepare(r)) for r in earlier),
+                                     return_exceptions=True)
+            finally:
+                starting["now"] = False
+            if session.run_in_progress is not None:
+                return
         try:
             record = session.start_run(working_dir=opts.working_dir,
                                        timeout=int(opts.timeout_s or 600), background=True)
@@ -321,7 +337,13 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
     # A relative met file is read from the working directory, and needs
     # one: the review follows the directory when the field loses focus,
     # and the Run button at once when the field becomes blank or not.
-    workdir.on("blur", lambda: _review.refresh())
+    def _workdir_left() -> None:
+        # The header, the badges and the checklist all look for the met
+        # files in the working directory.
+        session.validate(check_files=True)
+        _review.refresh()
+
+    workdir.on("blur", _workdir_left)
     was_blank = [not str(session.run_options.working_dir or "").strip()]
 
     def _workdir_changed(_event: Any) -> None:
@@ -333,6 +355,7 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
         # typing at once must meet a button that already agrees.
         readiness["ready"] = review(session, have_binary=_aermod_available()).ready
         _sync_run_button()
+        session.validate(check_files=True)
         _review.refresh()
 
     workdir.on_value_change(_workdir_changed)
@@ -403,6 +426,17 @@ def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None
 
 def _now() -> datetime:
     return datetime.now()
+
+
+def _unread_runs_in(session: Session, working_dir: Any) -> List[RunRecord]:
+    """The session's finished runs in ``working_dir`` whose files are not read yet."""
+    text = str(working_dir or "").strip()
+    if not text:
+        return []                           # a new, empty folder of its own
+    target = os.path.abspath(os.path.expanduser(text))
+    return [r for r in session.runs
+            if os.path.abspath(r.work_dir) == target and cached_view(r) is None
+            and build_error(r) is None]
 
 
 def _checklist_item(ui: Any, item: ChecklistItem, go: Goto, *, color: str, icon: str) -> None:

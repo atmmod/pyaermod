@@ -231,6 +231,7 @@ class TestImportNotice:
         deck.write_text(text, encoding="utf-8")
         (tmp_path / "hourly.emi").write_text("x")
         _read_from_path(gui, deck)
+        await _discard_changes(gui)              # the imported deck is not saved
         await gui.user.should_see(
             "Found the other files it reads beside the deck: hourly.emi (SO HOUREMIS at line 52).")
         await gui.user.should_not_see("The deck also reads files")
@@ -246,6 +247,7 @@ class TestImportNotice:
         await _settle(gui)
         await gui.user.should_not_see(kind=ui.card, marker="import-notice")
         await _upload_deck(gui, "aertest.inp", AERTEST.read_bytes())
+        await _discard_changes(gui)              # the imported deck is not saved
         await gui.user.should_see(kind=ui.card, marker="import-notice")
 
     @pytest.mark.asyncio
@@ -270,8 +272,10 @@ class TestImportNotice:
         assert _title_input(gui).value == "Keep me"
         await gui.user.should_see("PyAERMOD — Untitled (modified)")
         await gui.user.should_not_see(kind=ui.card, marker="import-notice")
-        # The uploader was reset: a deck chosen next is sent.
+        # The uploader was reset: a deck chosen next is sent (and, since the
+        # title was changed, asks first).
         await _upload_deck(gui, "aertest.inp", AERTEST.read_bytes())
+        await _discard_changes(gui)
         await gui.user.should_see("Imported aertest.inp")
 
     @pytest.mark.asyncio
@@ -452,6 +456,8 @@ class TestRecentFiles:
         await gui.open()
         for deck in (first, second):
             _read_from_path(gui, deck)
+            if deck == second:
+                await _discard_changes(gui)      # the first is not saved
             await gui.user.should_see(f"Imported aertest.inp from {deck.parent}.")
         await gui.user.should_see(f"AERMOD deck · {first.parent}")
         buttons = {b.props.get("aria-label"): b for b in
@@ -459,6 +465,7 @@ class TestRecentFiles:
         assert set(buttons) == {f"Reopen aertest.inp from {first.parent}",
                                 f"Reopen aertest.inp from {second.parent}"}
         _click(gui, buttons[f"Reopen aertest.inp from {first.parent}"])
+        await _discard_changes(gui)
         await _value_becomes(lambda: _title_input(gui).value,
                              "A Simple Example Problem for the AERMOD Model with PRIME")
 

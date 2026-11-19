@@ -271,28 +271,50 @@ def met_file_input(session: Session, field_name: str, *, label: str) -> Any:
 
 
 def import_controls(session: Session, *, dialogs: Any = None,
-                    goto: Optional[Callable[[str], None]] = None) -> None:
+                    goto: Optional[Callable[[str], None]] = None,
+                    actions: Any = None) -> None:
     """Build the deck import controls, the import notice and the recent files.
 
     Call it once per page, outside any live section. ``dialogs`` is the
-    page's static dialog container (unused for now: nothing here opens a
-    dialog). ``goto(step_id)`` sends the user to another step; when given,
-    the notice links to the Meteorology step.
+    page's static dialog container. ``goto(step_id)`` sends the user to
+    another step; when given, the notice links to the Meteorology step.
+    ``actions`` is the page's :class:`~pyaermod.gui_v2.pages.project.FileActions`:
+    an import or a recent file that would replace a project with unsaved
+    changes, or stop a run in progress, asks first, as New and Open do.
+    A file that cannot be read is refused before anything asks.
     """
     from nicegui import run, ui
 
     desktop = _native.native_window() is not None
 
+    def _replace(what: str, do: Callable[[], Any]) -> None:
+        """Do ``do()`` now, or once the user agrees to lose unsaved work."""
+        if actions is None or not actions._asked_before_replacing(what, do):
+            do()
+
     # ----- actions ------------------------------------------------------
-    def _import_path(path: Path) -> bool:
+    def _import_path(path: Path, on_done: Optional[Callable[[], None]] = None) -> bool:
         try:
-            report = session.import_inp(path)
+            # Read on a scratch session first: a deck that cannot be
+            # imported is refused before anything asks.
+            Session().import_inp(path)
         except DeckImportError as exc:
             _notify(f"Import failed: {exc}", color="negative")
             return False
-        remember(path, DECK)
-        _recent.refresh()
-        _notify(imported_message(report))
+
+        def do() -> None:
+            try:
+                report = session.import_inp(path)
+            except DeckImportError as exc:      # changed on disk since
+                _notify(f"Import failed: {exc}", color="negative")
+                return
+            remember(path, DECK)
+            _recent.refresh()
+            if on_done is not None:
+                on_done()
+            _notify(imported_message(report))
+
+        _replace(f"Importing {path.name} replaces the project", do)
         return True
 
     async def _on_upload(e: Any) -> None:
@@ -301,14 +323,23 @@ def import_controls(session: Session, *, dialogs: Any = None,
             # Read inside the handler: an upload over 1 MiB is a temporary
             # file that goes away with the event.
             data = await e.file.read()
-            report = session.import_inp(data, name=name)
+            Session().import_inp(data, name=name)
         except DeckImportError as exc:
             _notify(f"Import failed: {exc}", color="negative")
             return
         finally:
             # Always, so choosing the same deck again sends it again.
             uploader.reset()
-        _notify(imported_message(report))
+
+        def do() -> None:
+            try:
+                report = session.import_inp(data, name=name)
+            except DeckImportError as exc:      # pragma: no cover - checked above
+                _notify(f"Import failed: {exc}", color="negative")
+                return
+            _notify(imported_message(report))
+
+        _replace(f"Importing {name} replaces the project", do)
 
     async def _import_clicked() -> None:
         path = await run.io_bound(ask_open_path, DECK_FILE_TYPES)
@@ -321,8 +352,10 @@ def import_controls(session: Session, *, dialogs: Any = None,
             _notify(f"Import failed: {problem or 'give the path of a deck'}",
                     color="negative")
             return
-        if _import_path(Path(path_input.value.strip()).expanduser()):
-            path_input.value = ""
+        def clear() -> None:
+            path_input.set_value("")
+
+        _import_path(Path(path_input.value.strip()).expanduser(), on_done=clear)
 
     def _reopen(entry: RecentFile) -> None:
         if not entry.exists:
@@ -334,11 +367,20 @@ def import_controls(session: Session, *, dialogs: Any = None,
             _import_path(entry.path)
             return
         try:
-            session.open_json(entry.path)
+            Session().open_json(entry.path)         # refused before anything asks
         except ProjectFileError as exc:
             _notify(f"Load failed: {exc}", color="negative")
             return
-        _notify(f"Loaded {entry.path.name}")
+
+        def do() -> None:
+            try:
+                session.open_json(entry.path)
+            except ProjectFileError as exc:         # changed on disk since
+                _notify(f"Load failed: {exc}", color="negative")
+                return
+            _notify(f"Loaded {entry.path.name}")
+
+        _replace(f"Opening {entry.path.name} replaces the project", do)
 
     # ----- import controls ----------------------------------------------
     ui.label("Import an AERMOD deck").classes("text-subtitle1")

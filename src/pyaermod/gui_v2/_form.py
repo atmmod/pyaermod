@@ -17,7 +17,7 @@ Annotation                               Widget
 ``float`` / ``Optional[float]``          ``ui.number`` (clearable when Optional)
 ``int`` / ``Optional[int]``              integer ``ui.number`` that stores ``int``
 ``bool``                                 ``ui.checkbox``
-``List[Tuple[float, float]]``            text area (one ``x, y`` pair per line)
+``List[Tuple[float, float]]``            text area (``x, y`` or ``x y`` pairs)
 ``List[str]``                            text area (one entry per line)
 ``List[float]`` / ``Optional[...]``      text area (one value per line)
 ``Optional[Union[float, List[float]]]``  ``ui.number`` (clearable) while the
@@ -31,8 +31,12 @@ anything else                            read-only summary: lists of dataclasses
 Every label carries the field's units ("Stack temp (K)") and every input
 shows its help text, both from the field metadata the library records
 with :func:`pyaermod._fields.described`. A number box never writes None
-into a field that is not Optional: emptying it shows "Required" and keeps
-the value. :func:`emit_fields` lays fields out in a grid of one to three
+into a field that is not Optional: emptying it shows "Enter a number"
+and keeps the value. A text area of numbers names the lines it could not
+read, and a source ID that AERMOD could not read (blank, longer than 12
+characters, or with a blank in it) is flagged at the field. An editor
+refuses to save while any field shows such an error
+(:func:`field_errors`). :func:`emit_fields` lays fields out in a grid of one to three
 columns, depending on the width of the window.
 
 "Numeric" means the *resolved* annotation is ``int`` or ``float``,
@@ -58,12 +62,13 @@ non-``None`` value, and an empty list would be rejected as "not 36 values".
 from __future__ import annotations
 
 import ast
-import contextlib
 import dataclasses
 import enum
+import math
+import re
 import types
 import typing
-from typing import Any, Callable, Iterable, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 from .._fields import help_of, units_of
 
@@ -437,11 +442,20 @@ def _add_help(widget, fmeta) -> None:
 
 
 def _textarea(parent, obj, fmeta, label: str, text: str, parse: Callable[[str], Any],
-              on_change: Optional[Callable[[], None]], placeholder: str = "") -> None:
+              on_change: Optional[Callable[[], None]], placeholder: str = "",
+              unread: Optional[Callable[[str], List[int]]] = None) -> None:
     from nicegui import ui
 
+    def check(value: Any) -> Optional[str]:
+        lines = unread(str(value or "")) if unread is not None else []
+        if not lines:
+            return None
+        which = ", ".join(str(n) for n in lines[:10]) + (" ..." if len(lines) > 10 else "")
+        return f"Line{'s' if len(lines) > 1 else ''} {which} could not be read: {_LINE_HINT}"
+
     with parent:
-        ta = ui.textarea(label=label, value=text, placeholder=placeholder or None).classes("w-full")
+        ta = ui.textarea(label=label, value=text, placeholder=placeholder or None,
+                         validation=check if unread is not None else None).classes("w-full")
         _add_help(ta, fmeta)
 
     def _save(_=None) -> None:
@@ -452,28 +466,99 @@ def _textarea(parent, obj, fmeta, label: str, text: str, parse: Callable[[str], 
     ta.on("update:model-value", _save)
 
 
+#: What a text area of numbers accepts, for its error message.
+_LINE_HINT = ("separate numbers with blanks, commas or semicolons, and write decimals "
+              "with a point (1.5)")
+
+#: A comma between two digits: a decimal comma ("1,5"), or two numbers
+#: written without a blank? Neither is guessed; the line is reported.
+_DECIMAL_COMMA = re.compile(r"\d,\d")
+
+
+def _line_numbers(line: str) -> Optional[List[float]]:
+    """The numbers on one line (blanks, commas or semicolons between them); None if unreadable."""
+    s = line.strip()
+    if _DECIMAL_COMMA.search(s):
+        return None
+    try:
+        values = [float(t) for t in re.split(r"[,;\s]+", s) if t]
+    except ValueError:
+        return None
+    return values if all(math.isfinite(v) for v in values) else None
+
+
+def _pairs_of(line: str) -> Optional[List[tuple]]:
+    values = _line_numbers(line)
+    if not values or len(values) % 2:
+        return None
+    return [(values[i], values[i + 1]) for i in range(0, len(values), 2)]
+
+
 def _parse_pairs(text: str) -> list:
-    rows = []
+    """``x, y`` pairs, one or more per line: ``100, 200``, ``100 200`` (as AREAVERT
+    writes them) or ``0 0 10 0 10 10``. Lines that cannot be read are left out;
+    :func:`_unread_pair_lines` names them."""
+    rows: list = []
     for line in text.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        parts = [p.strip() for p in s.replace(";", ",").split(",")]
-        if len(parts) >= 2:
-            with contextlib.suppress(ValueError):
-                rows.append((float(parts[0]), float(parts[1])))
+        if line.strip():
+            rows.extend(_pairs_of(line) or [])
     return rows
 
 
+def _unread_pair_lines(text: str) -> List[int]:
+    return [i for i, line in enumerate(text.splitlines(), start=1)
+            if line.strip() and _pairs_of(line) is None]
+
+
 def _parse_numbers(text: str) -> list:
-    values = []
+    """Numbers, one or more per line. Lines that cannot be read are left out;
+    :func:`_unread_number_lines` names them."""
+    values: list = []
     for line in text.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        with contextlib.suppress(ValueError):
-            values.append(float(s))
+        if line.strip():
+            values.extend(_line_numbers(line) or [])
     return values
+
+
+def _unread_number_lines(text: str) -> List[int]:
+    return [i for i, line in enumerate(text.splitlines(), start=1)
+            if line.strip() and not _line_numbers(line)]
+
+
+#: AERMOD's longest source ID (``modules.f``: a source ID of more than 12
+#: characters is error E230).
+MAX_SOURCE_ID = 12
+
+
+def source_id_problem(value: Any) -> Optional[str]:
+    """Why AERMOD could not read ``value`` as a source ID, or None.
+
+    A deck line is split at blanks, so an ID must be one word: not blank,
+    no blank inside it, and at most :data:`MAX_SOURCE_ID` characters.
+    """
+    text = "" if value is None else str(value)
+    if not text.strip():
+        return "Enter an ID"
+    if any(c.isspace() for c in text):
+        return "No blanks: AERMOD reads a deck line's fields split at blanks"
+    if len(text) > MAX_SOURCE_ID:
+        return f"At most {MAX_SOURCE_ID} characters ({len(text)} now)"
+    return None
+
+
+def field_errors(container: Any) -> List[str]:
+    """``"<label>: <error>"`` for every field under ``container`` that does not pass
+    its own check (an emptied number, an unreadable line, a source ID AERMOD
+    could not read). Checking shows the error at each field."""
+    from nicegui.elements.mixins.validation_element import ValidationElement
+
+    found = []
+    for element in container.descendants():
+        if (isinstance(element, ValidationElement) and element.validation is not None
+                and not element.validate()):
+            label = element.props.get("label") or "A field"
+            found.append(f"{label}: {element.error}")
+    return found
 
 
 def _number(parent, obj, fmeta, label: str, *, integer: bool, optional: bool,
@@ -491,24 +576,41 @@ def _number(parent, obj, fmeta, label: str, *, integer: bool, optional: bool,
     from nicegui import ui
 
     fname = fmeta.name
+    # The field's value when a required box was emptied: the box stays empty
+    # (and says "Enter a number") while the field keeps it. Without this the
+    # binding, which copies the field into the box whenever they differ,
+    # would put the old value back a moment later, so a Save that followed
+    # kept a number the user had deleted.
+    emptied: Dict[str, Any] = {}
 
     def to_model(value: Any) -> Any:
         if value is None:
-            return None if optional else getattr(obj, fname)
+            if optional:
+                emptied.clear()
+                return None
+            emptied["over"] = getattr(obj, fname)
+            return emptied["over"]
+        emptied.clear()
         if integer:
             return round(float(value))
         return value
 
+    def to_box(value: Any) -> Any:
+        if "over" in emptied and value == emptied["over"]:
+            return None
+        emptied.clear()                     # set from elsewhere: shown
+        return value
+
     with parent:
         box = ui.number(label=label, value=getattr(obj, fname),
-                        validation=None if optional else {"Required": lambda v: v is not None})
+                        validation=None if optional else {"Enter a number": lambda v: v is not None})
         if integer:
             box.props["precision"] = 0
             box.props["step"] = 1
         if optional:
             box.props["clearable"] = True
         _add_help(box, fmeta)
-        box.classes("w-full").bind_value(obj, fname, forward=to_model)
+        box.classes("w-full").bind_value(obj, fname, forward=to_model, backward=to_box)
         _notify_on_edit(box, on_change)
 
 
@@ -535,7 +637,9 @@ def emit_field(parent, obj: Any, fmeta, *,
         # Optional[str] fields (OutputPathway.summary_file, plot_file, ...)
         # are plain text inputs too; an empty box reads back as "".
         with parent:
-            box = ui.input(label=label, value=cur or "").classes("w-full").bind_value(obj, fname)
+            box = ui.input(label=label, value=cur or "",
+                           validation=source_id_problem if fname == "source_id" else None,
+                           ).classes("w-full").bind_value(obj, fname)
             _add_help(box, fmeta)
             _notify_on_edit(box, on_change)
     elif kind == BOOL:
@@ -550,7 +654,8 @@ def emit_field(parent, obj: Any, fmeta, *,
         # Dispatched before the numeric kinds on purpose: polygon vertices
         # once crashed the editor as a ``ui.number``.
         _textarea(parent, obj, fmeta, label,
-                  "\n".join(f"{x:g}, {y:g}" for x, y in (cur or [])), _parse_pairs, on_change)
+                  "\n".join(f"{x:g}, {y:g}" for x, y in (cur or [])), _parse_pairs, on_change,
+                  unread=_unread_pair_lines)
     elif kind == STR_LIST:
         _textarea(parent, obj, fmeta, label, "\n".join(str(v) for v in (cur or [])),
                   lambda text: [s.strip() for s in text.splitlines() if s.strip()], on_change)
@@ -561,7 +666,8 @@ def emit_field(parent, obj: Any, fmeta, *,
             return values if values or not optional else None
 
         _textarea(parent, obj, fmeta, label, "\n".join(f"{v:g}" for v in (cur or [])),
-                  parse, on_change, placeholder="one value per line")
+                  parse, on_change, placeholder="one value per line",
+                  unread=_unread_number_lines)
     elif kind == SCALAR_OR_LIST:
         # Building downwash (``Optional[Union[float, List[float]]]``): one
         # value for every direction, or 36 -- one per 10-degree wind
@@ -572,7 +678,8 @@ def emit_field(parent, obj: Any, fmeta, *,
         if isinstance(cur, (list, tuple)):
             _textarea(parent, obj, fmeta, label, "\n".join(f"{v:g}" for v in cur),
                       lambda text: _parse_numbers(text) or None, on_change,
-                      placeholder="one value per 10-degree sector")
+                      placeholder="one value per 10-degree sector",
+                      unread=_unread_number_lines)
         else:
             _number(parent, obj, fmeta, label, integer=False, optional=True, on_change=on_change)
     elif kind in (INT, FLOAT):
@@ -638,6 +745,7 @@ __all__ = [
     "emit_field",
     "emit_fields",
     "emit_form",
+    "field_errors",
     "field_kind",
     "field_label",
     "is_integer",
@@ -645,4 +753,5 @@ __all__ = [
     "is_numeric_or_numeric_list",
     "is_optional_numeric",
     "resolve_annotation",
+    "source_id_problem",
 ]

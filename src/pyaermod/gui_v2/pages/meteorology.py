@@ -17,7 +17,7 @@ section follows the validation that follows every change.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from ..._fields import help_of
 from .. import files
@@ -110,6 +110,32 @@ def surface_file_text(session: Session) -> List[str]:
     return lines
 
 
+def header_values(session: Session) -> Dict[str, int]:
+    """The station IDs and first year the surface file's header gives, by
+    field, where they differ from the project's ({} when they agree)."""
+    from ..readiness import met_header_findings
+
+    period = session.met_coverage().period
+    met = session.project.meteorology
+    if period is None:
+        return {}
+    wanted: Dict[str, Any] = {"surface_station_id": period.surface_station,
+                              "upper_air_station_id": period.upper_air_station,
+                              "data_start_year": period.first_year}
+    return {f.field: int(wanted[f.field]) for f in met_header_findings(met, period)}
+
+
+def use_header_values(session: Session) -> None:
+    """Set the station IDs and first year to the surface file's header."""
+    values = header_values(session)
+    if not values:
+        return
+    met = session.project.meteorology
+    for name, value in values.items():
+        setattr(met, name, value)
+    session.mark_edited("meteorology")
+
+
 def _surface_file_summary(ui: Any, session: Session, goto: Optional[Goto]) -> None:
     lines = surface_file_text(session)
     if not lines:
@@ -117,6 +143,19 @@ def _surface_file_summary(ui: Any, session: Session, goto: Optional[Goto]) -> No
     with ui.column().classes("q-gutter-xs q-mt-sm").mark("met-coverage"):
         for line in lines:
             ui.label(line).classes("text-body2")
+        differ = header_values(session)
+        if differ:
+            labels = {"surface_station_id": "surface station ID",
+                      "upper_air_station_id": "upper-air station ID",
+                      "data_start_year": "first year"}
+            with ui.row().classes("items-center q-gutter-sm"):
+                ui.icon("warning").classes("text-warning").props('aria-hidden="true"')
+                ui.label("The Stations below differ from the file's header: "
+                         + ", ".join(f"{labels[k]} {v}" for k, v in differ.items())
+                         + ". AERMOD warns when the station IDs differ (W530)."
+                         ).classes("text-body2")
+                ui.button("Use the file's values", on_click=lambda: use_header_values(session)
+                          ).props("outline no-caps").mark("met-use-header")
         for warning in session.met_coverage().warnings:
             with ui.row().classes("items-start no-wrap q-gutter-sm"):
                 ui.icon("warning").classes("text-warning").props('aria-hidden="true"')
@@ -138,4 +177,5 @@ def _met_file_pickers(session: Session, fmetas: Any) -> None:
             field.props["hint"] = text
 
 
-__all__ = ["GROUPS", "MET_FILES", "render", "surface_file_text"]
+__all__ = ["GROUPS", "MET_FILES", "header_values", "render", "surface_file_text",
+           "use_header_values"]

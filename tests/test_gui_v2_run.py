@@ -48,6 +48,9 @@ def _ready_session(periods=("1", "3", "24", "PERIOD")) -> Session:
     s.add_receptor(PolarGrid(grid_name="GRID1"))
     met = s.project.meteorology
     met.surface_file, met.profile_file = str(ALBANY_SFC), str(ALBANY_SFC.with_suffix(".PFL"))
+    # As the surface file's header names them.
+    met.surface_station_id = met.upper_air_station_id = 14735
+    met.data_start_year = 1988
     s.project.control.averaging_periods = list(periods)
     return s
 
@@ -89,13 +92,24 @@ class TestReview:
         assert (item.step, item.title, item.problems) == ("run", "Review & Run",
                                                           [run_page.NO_BINARY])
 
-    def test_a_surface_file_that_cannot_be_read_is_a_warning(self, tmp_path):
+    def test_a_surface_file_that_does_not_exist_blocks_the_run(self, tmp_path):
+        """AERMOD would stop in setup (E500); the header says so too (code-G3)."""
         s = _ready_session()
         s.project.meteorology.surface_file = str(tmp_path / "MISSING.SFC")
         found = run_page.review(s)
+        assert not found.ready and found.warnings == []
+        [item] = found.blocking
+        assert item.problems == [f"surface file {tmp_path / 'MISSING.SFC'} does not exist"]
+
+    def test_a_surface_file_that_cannot_be_read_is_a_warning(self, tmp_path):
+        s = _ready_session()
+        bad = tmp_path / "BAD.SFC"
+        bad.write_text("not a surface file\n")
+        s.project.meteorology.surface_file = str(bad)
+        found = run_page.review(s)
         assert found.ready
         [warning] = found.warnings
-        assert warning.problems == [f"surface file {tmp_path / 'MISSING.SFC'} does not exist"]
+        assert warning.problems[0].startswith(f"surface file {bad} could not be read")
 
     def test_a_relative_surface_file_is_looked_for_in_the_working_directory(self):
         s = _ready_session(("1", "ANNUAL"))

@@ -216,6 +216,43 @@ def _keep_validated(session: Session, client: Client) -> None:
         {SessionEvent.PROJECT_REPLACED, SessionEvent.PROJECT_CHANGED}, schedule))
 
 
+#: Installs the browser's own "Leave site?" question, asked while the flag is set.
+_BEFORE_UNLOAD_JS = (
+    "if (!window.__pyaermodLeaveHook) { window.__pyaermodLeaveHook = true;"
+    " window.addEventListener('beforeunload', (event) => {"
+    " if (window.__pyaermodUnsaved) { event.preventDefault(); event.returnValue = ''; } }); }"
+)
+
+
+def must_warn_before_leaving(session: Session) -> bool:
+    """Whether closing or reloading the tab should ask first.
+
+    While the project has unsaved changes, or AERMOD is running: the
+    session lives in the server's memory only, so a closed tab (or a
+    server stopped after it) loses both.
+    """
+    return bool(session.dirty or session.run_in_progress is not None)
+
+
+def _warn_before_leaving(session: Session, client: Client) -> None:
+    """Have the browser ask before the tab is closed or reloaded while
+    :func:`must_warn_before_leaving` holds."""
+    shown: Dict[str, Optional[bool]] = {"flag": None}
+
+    def sync(_change: Any = None) -> None:
+        flag = must_warn_before_leaving(session)
+        if flag == shown["flag"] or _is_deleted(client):
+            return
+        shown["flag"] = flag
+        client.run_javascript(
+            f"{_BEFORE_UNLOAD_JS} window.__pyaermodUnsaved = {'true' if flag else 'false'};")
+
+    sync()
+    client.on_delete(session.subscribe(
+        {SessionEvent.DIRTY_CHANGED, SessionEvent.PROJECT_REPLACED, SessionEvent.RUN_STARTED,
+         SessionEvent.RUN_FINISHED}, sync))
+
+
 def _call_render(render: Any, session: Session, **kwargs: Any) -> None:
     """Call a page's ``render`` with the keyword arguments it accepts.
 
@@ -329,6 +366,8 @@ def build_app() -> None:
                     _call_render(_PAGES[step.id], session, dialogs=page_dialogs, goto=goto,
                                  actions=actions)
 
+        _warn_before_leaving(session, client)
+
         # ----- footer / status bar (built last: tests wait for it) ----
         # Not fixed: a fixed footer covers the middle of full-page screenshots.
         with ui.footer(fixed=False).classes("bg-grey-3 text-grey-9 q-py-xs"):
@@ -400,19 +439,29 @@ def _stop_runs_on_shutdown() -> None:
     signal handler; the desktop app serves from a thread of its own and
     stops runs through ``atexit`` when its window closes.
     """
+    import atexit
     import signal
     import threading
 
     from nicegui import app
 
-    from ..runner import stop_active_runs
-
-    app.on_shutdown(stop_active_runs)
+    app.on_shutdown(_stop_runs_and_clean_up)
+    atexit.register(_stop_runs_and_clean_up)        # the desktop app's window closing
     hup = getattr(signal, "SIGHUP", None)
     if (hup is not None and threading.current_thread() is threading.main_thread()
             and signal.getsignal(hup) is signal.SIG_DFL):
         signal.signal(hup, lambda _sig, _frame: signal.raise_signal(signal.SIGTERM))
 # --- end WP-G4
+
+
+def _stop_runs_and_clean_up() -> None:
+    """Stop every AERMOD run, then remove the temporary folders runs went to
+    (a blank working directory): nothing else would ever remove them."""
+    from ..runner import stop_active_runs
+    from .session import remove_temp_run_dirs
+
+    stop_active_runs()
+    remove_temp_run_dirs()
 
 
 def build_and_run(

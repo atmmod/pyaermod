@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from playwright.sync_api import expect
 
 from .reference import E480_AVERAGING_PERIODS, enter_reference_scenario
 
@@ -55,14 +56,17 @@ def test_j02_run_anyway_reports_failure(gui, step, known_gap, run_dir):
 
 
 @pytest.mark.aermod_recording("missing_met")
-def test_j02_setup_error_reports_failure(gui, step, run_dir, tmp_path):
+def test_j02_a_missing_surface_file_blocks_the_run(gui, step, run_dir, tmp_path):
+    """AERMOD would stop in setup with E500 (recording ``missing_met``): the
+    GUI says so before the run, in the header, the badge and the checklist
+    alike (code-G3), and does not start it."""
+    missing = tmp_path / "met" / "MISSING.SFC"
     gui.open()
-    enter_reference_scenario(gui, surface_file=tmp_path / "met" / "MISSING.SFC")
+    enter_reference_scenario(gui, surface_file=missing)
     gui.project.set_averaging_periods(*E480_AVERAGING_PERIODS)
     gui.run.set_working_directory(run_dir)
-    gui.run.start()
-    gui.run.wait_until_finished()
-    step("run_finished")
-
-    gui.run.reports_failure()
-    gui.run.expect_message("E500", "SURFFILE")
+    step("blocked")
+    expect(gui.header).to_contain_text("Not ready to run: 1 problem in Meteorology")
+    gui.expect_step_status("Meteorology", "error")
+    gui.run.expect_checklist_names(f"Surface file {missing} does not exist")
+    gui.run.expect_run_blocked()

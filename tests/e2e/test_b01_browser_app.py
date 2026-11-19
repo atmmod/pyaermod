@@ -92,10 +92,14 @@ def test_b01_import_a_deck_run_it_and_read_aermods_maxima(app):
         app.get_by_role("button", name=re.compile(r"\.out$")).click()
     assert b"AERMOD Finishes Successfully" in Path(download.value.path()).read_bytes()
     assert app.get_by_role("heading", name="Run 1 succeeded").count() == 1
-    # SO2 is compared with a design value, so the caption explains no lower bound.
+    # Four days of SO2 are no design value, and the verdict says so in the
+    # Result column itself, with no background added (live-G6, code-G10);
+    # no row is a screen or a lower bound, so no caption explains either.
     naaqs = app.locator("section.card", has=app.get_by_role("heading", name="Comparison with the NAAQS"))
-    intro = naaqs.locator("p.intro").inner_text()
-    assert intro.startswith("A screening comparison") and "lower bound" not in intro.lower()
+    assert naaqs.locator("p.intro").count() == 0
+    verdict = naaqs.locator("tbody tr td").nth(1).inner_text()
+    assert verdict.startswith("Not a design value: 4 days of hourly values")
+    assert "no background concentration" in verdict
 
     # A second run is Run 2, and the runner's own files stay off the file list.
     step(app, "Review & Run")

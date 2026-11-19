@@ -5,6 +5,7 @@
 // make every call here a no-op, and the page still works.
 
 const DOC_KEY = 'pyaermod-app/document';
+const META_KEY = 'pyaermod-app/meta';
 const DB_NAME = 'pyaermod-app';
 const STORE = 'files';
 
@@ -18,6 +19,23 @@ export function loadDocument() {
     return text ? JSON.parse(text) : null;
   } catch (err) {
     return null;
+  }
+}
+
+// Whether the project has unsaved changes, and the file it was opened from
+// or saved as: a reload must not forget either, or New and Open would
+// discard unsaved work without asking.
+export function saveMeta(meta) {
+  try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (err) { /* not kept */ }
+}
+
+export function loadMeta() {
+  try {
+    const text = localStorage.getItem(META_KEY);
+    const meta = text ? JSON.parse(text) : null;
+    return meta && typeof meta === 'object' ? meta : {};
+  } catch (err) {
+    return {};
   }
 }
 
