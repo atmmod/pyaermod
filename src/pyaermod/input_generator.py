@@ -24,6 +24,10 @@ and 24142; see :mod:`pyaermod.versions`).
 
 from __future__ import annotations
 
+import contextlib
+import os
+import shutil
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Union
@@ -151,6 +155,27 @@ def _with_preserved(code: str, text: str, kept: List[UnparsedLine]) -> str:
     return "\n".join(lines)
 
 
+def _write_atomically(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` through a temporary file in the same
+    directory, so a write that fails part-way never leaves a truncated
+    deck behind. An existing file keeps its permissions; a symbolic link
+    keeps pointing where it did (its target is replaced)."""
+    if path.is_symlink():
+        path = path.resolve()
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        # Mode "x" creates the file with the usual umask-based mode.
+        with open(tmp, "x") as f:
+            f.write(text)
+        if path.exists():
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 @dataclass
 class AERMODProject:
     """
@@ -229,6 +254,9 @@ class AERMODProject:
             ("SO", self.sources.to_aermod_input(
                 chemistry=chemistry,
                 psd_credit=getattr(self.control, "psd_credit", False),
+                # ELEVUNIT is an SO (and RE) keyword, never a CO one.
+                elevation_units=self.control.elevation_units,
+                multi_urban=len(self.control.urban_areas) > 1,
             )),
         ]
         if not event:
@@ -274,19 +302,19 @@ class AERMODProject:
             Forwarded to :meth:`to_aermod_input`.
         """
         output_path = Path(filename)
+
+        # Build every text first: a project the validator refuses must
+        # leave an existing deck at ``filename`` untouched and create no
+        # file (or directory) at all.
+        text = self.to_aermod_input(validate=validate, check_files=check_files)
+        event_path = Path(event_filename) if self.events and event_filename else None
+        event_text = (self.to_aermod_input(validate=False, event_processing=True)
+                      if event_path is not None else None)
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # write() called without specifying `validate` is the most
-        # common path; pass through so the deprecation warning surfaces
-        # at the user's call site rather than inside our writer.
-        with open(output_path, 'w') as f:
-            f.write(self.to_aermod_input(validate=validate,
-                                         check_files=check_files))
-
-        if self.events and event_filename:
-            event_path = Path(event_filename)
-            with open(event_path, 'w') as f:
-                f.write(self.to_aermod_input(validate=False, event_processing=True))
+        _write_atomically(output_path, text)
+        if event_path is not None and event_text is not None:
+            _write_atomically(event_path, event_text)
 
         return output_path
 

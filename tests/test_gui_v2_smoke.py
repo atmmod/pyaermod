@@ -626,7 +626,7 @@ class TestProjectOptions:
         await _badge_reads(gui, "Project", "complete")
         roughness().value = 1.0
         await _value_becomes(lambda: gui.session.project.control.urban_roughness, 1.0)
-        assert "URBANOPT  50000.0  ALB  1.00" in gui.session.project.to_aermod_input(validate=False)
+        assert "URBANOPT  50000.0  ALB  1" in gui.session.project.to_aermod_input(validate=False)
         _interact(gui, _one(gui, kind=ui.input, content="Urban area name")).clear()
         await _badge_reads(gui, "Project", "error")          # the roughness needs the name
         assert roughness().enabled                           # still there to be cleared

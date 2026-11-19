@@ -22,7 +22,7 @@ from typing import Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, 
 
 from ._fields import described
 from .hourly_emissions import write_hourly_emissions
-from .pathways import ChemistryOptions, continued_value_lines, one_decimal_or_exact
+from .pathways import ChemistryOptions, continued_value_lines, exact_num, one_decimal_or_exact, quote_path
 
 # ============================================================================
 # DEPOSITION PARAMETERS
@@ -255,11 +255,11 @@ def _deposition_to_aermod_lines(
         )
     if particle_deposition:
         pd = particle_deposition
-        d_vals = "  ".join(f"{d:.4g}" for d in pd.diameters)
+        d_vals = "  ".join(exact_num(d) for d in pd.diameters)
         lines.append(f"   PARTDIAM  {source_id:<8} {d_vals}")
         f_vals = "  ".join(f"{f:.6f}" for f in pd.mass_fractions)
         lines.append(f"   MASSFRAX  {source_id:<8} {f_vals}")
-        r_vals = "  ".join(f"{r:.4g}" for r in pd.densities)
+        r_vals = "  ".join(exact_num(r) for r in pd.densities)
         lines.append(f"   PARTDENS  {source_id:<8} {r_vals}")
     if method_2 is not None:
         lines.append(
@@ -489,7 +489,7 @@ class PointSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -571,7 +571,7 @@ class SidewashPointSource:
             f"{_f8_2(self.building_height)} {_f8_2(self.building_angle)}",
         ]
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
         if self.is_urban:
             lines.append(f"   URBANSRC  {self.source_id}")
         return "\n".join(lines)
@@ -683,7 +683,7 @@ class AreaSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -740,6 +740,10 @@ class AreaCircSource:
     deposition_method: Optional[Tuple[DepositionMethod, float]] = None
     method_2: Optional[Method2Params] = None
 
+    # SRCPARAM field 5 (soset.f ACPARM: emis relhgt radius [nverts
+    # [szinit]]). Declared last so positional construction is unchanged.
+    initial_sigma_z: float = field(default=0.0, metadata=described("m", "Szinit: initial vertical dispersion σz0"))
+
     def to_aermod_input(self) -> str:
         """Generate AERMOD SO pathway text for this source"""
         lines = []
@@ -755,11 +759,12 @@ class AreaCircSource:
             f"   SRCPARAM  {self.source_id:<8} "
             f"{_f10_6(self.emission_rate)} {_f8_2(self.release_height)} "
             f"{_f8_2(self.radius)} {self.num_vertices:3d}"
+            + (f" {_f8_2(self.initial_sigma_z)}" if self.initial_sigma_z != 0.0 else "")
         )
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -850,7 +855,7 @@ class AreaPolySource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -940,7 +945,7 @@ class VolumeSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1024,7 +1029,7 @@ class LineSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1173,7 +1178,7 @@ class RLineSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1315,7 +1320,7 @@ class RLineExtSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1442,13 +1447,16 @@ class BuoyLineSource:
         # Per-source NO2/NOx ratio (NO2RATIO names sources, not groups)
         if self.no2_ratio is not None:
             for seg in self.line_segments:
-                lines.append(f"   NO2RATIO  {seg.source_id:<8} {self.no2_ratio:.4f}")
+                lines.append(f"   NO2RATIO  {seg.source_id:<8} {exact_num(self.no2_ratio)}")
 
-        # Deposition parameters
-        lines.extend(_deposition_to_aermod_lines(
-            self.source_id, self.gas_deposition,
-            self.particle_deposition, self.deposition_method, self.method_2,
-        ))
+        # Deposition parameters, also keyed by source: the segments, not
+        # the BLPGROUP ID (soset.f looks the ID up among the sources; a
+        # group ID indexes its arrays with 0 and AERMOD aborts).
+        for seg in self.line_segments:
+            lines.extend(_deposition_to_aermod_lines(
+                seg.source_id, self.gas_deposition,
+                self.particle_deposition, self.deposition_method, self.method_2,
+            ))
 
         # Urban source
         if self.is_urban:
@@ -1626,7 +1634,7 @@ class OpenPitSource:
 
         # Per-source NO2/NOx ratio
         if self.no2_ratio is not None:
-            lines.append(f"   NO2RATIO  {self.source_id:<8} {self.no2_ratio:.4f}")
+            lines.append(f"   NO2RATIO  {self.source_id:<8} {exact_num(self.no2_ratio)}")
 
         # Deposition parameters
         lines.extend(_deposition_to_aermod_lines(
@@ -1854,7 +1862,7 @@ class HourlyEmissionFile:
         if not self.source_ids:
             # HREMIS needs a file name and at least one source (E201).
             raise ValueError(f"HOUREMIS {self.filename} names no source")
-        return f"   HOUREMIS  {self.filename}  {' '.join(self.source_ids)}"
+        return f"   HOUREMIS  {quote_path(self.filename)}  {' '.join(self.source_ids)}"
 
 
 #: Source classes whose HOUREMIS record may carry the rate alone: aermod.f
@@ -1863,6 +1871,19 @@ class HourlyEmissionFile:
 #: optional extra fields). POINT needs ten fields and BUOYLINE nine.
 _RATE_ONLY_HOURLY_SOURCES = (AreaSource, AreaCircSource, AreaPolySource, OpenPitSource,
                              VolumeSource, LineSource, RLineSource, RLineExtSource)
+
+
+def _name_urban_area(text: str, area: str) -> str:
+    """A source's cards with ``area`` put before the source IDs of its
+    URBANSRC cards: the form AERMOD reads when the deck has several
+    URBANOPT areas (soset.f URBANS, L_MULTURB: field 3 is the urban ID)."""
+    out = []
+    for line in text.split("\n"):
+        toks = line.split()
+        if toks and toks[0] == "URBANSRC":
+            line = f"   URBANSRC  {area}  {' '.join(toks[1:])}"
+        out.append(line)
+    return "\n".join(out)
 
 
 @dataclass
@@ -2021,7 +2042,9 @@ class SourcePathway:
         return card
 
     def to_aermod_input(self, chemistry: Optional[ChemistryOptions] = None,
-                        psd_credit: bool = False) -> str:
+                        psd_credit: bool = False,
+                        elevation_units: Optional[str] = None,
+                        multi_urban: bool = False) -> str:
         """Generate AERMOD SO pathway text.
 
         Parameters
@@ -2032,8 +2055,19 @@ class SourcePathway:
             The PSDCREDIT option is on (``ControlPathway.psd_credit``):
             write :attr:`psd_groups` and no SRCGROUP lines, as AERMOD
             requires (E105).
+        elevation_units : str, optional
+            ``ControlPathway.elevation_units``: anything but METERS (the
+            default) is written as ``ELEVUNIT``, the first SO card
+            (soset.f SOELUN: it must precede every source, E152).
+        multi_urban : bool
+            The project has more than one urban area: URBANSRC then
+            names the area before the sources (soset.f URBANS with
+            L_MULTURB), from each source's ``urban_area_name``.
         """
         lines = ["SO STARTING"]
+
+        if elevation_units and elevation_units.upper() != "METERS":
+            lines.append(f"   ELEVUNIT  {elevation_units.upper()}")
 
         # RLEMCONV precedes the source cards it applies to; like every
         # other SO keyword it must come before SRCGROUP (E140).
@@ -2041,7 +2075,11 @@ class SourcePathway:
             lines.append("   RLEMCONV")
 
         for source in self.sources:
-            lines.append(source.to_aermod_input())
+            text = source.to_aermod_input()
+            area = getattr(source, "urban_area_name", None)
+            if multi_urban and area and getattr(source, "is_urban", False):
+                text = _name_urban_area(text, area)
+            lines.append(text)
 
         # HOUREMIS flags only sources already defined (soset.f HREMIS
         # loops over the sources read so far), and ARCFTSRC needs the

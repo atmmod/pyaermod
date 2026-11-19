@@ -407,13 +407,14 @@ class TestMethod1ParticleArrays:
         assert bool(_findings(result, "E335")) is bad
 
     @pytest.mark.parametrize("diameter, written, bad", [
-        (1000.4, "1000", False),   # recorded method1: 1000 accepted
-        (1000.5, "1000", False),
-        (0.0010004, "0.001", True),  # recorded method1: 0.001 is E335
+        (1000.0, "1000", False),   # recorded method1: 1000 accepted
+        (1000.4, "1000.4", True),
+        (0.001, "0.001", True),    # recorded method1: 0.001 is E335
+        (0.0010004, "0.0010004", False),
     ])
     def test_e335_checks_the_diameter_as_written(self, tmp_path, diameter, written, bad):
-        # The writer puts PARTDIAM to 4 significant figures, and INPPDM tests
-        # the number in the deck, not the one in Python.
+        # The writer puts PARTDIAM as the shortest text that reads back
+        # exactly, and INPPDM tests the number in the deck.
         project = _project([_pit(particle_deposition=_pm([diameter, 5.0]))])
         assert f"PARTDIAM  PIT      {written}  5\n" in project.to_aermod_input(validate=False)
         assert bool(_findings(Validator.validate(project), "E335")) is bad
@@ -450,9 +451,8 @@ class TestMethod1ParticleArrays:
         assert e.severity == "error"
 
     @pytest.mark.parametrize("density, warns", [(0.1, True), (0.05, True), (0.11, False),
-                                                # written as 0.1 (4 significant
-                                                # figures), which W334 flags
-                                                (0.10004, True)])
+                                                # written as 0.10004, above 0.1
+                                                (0.10004, False)])
     def test_w334_density_at_or_below_0_1(self, density, warns):
         # soset.f 5171-5173: ELSE IF (DNUM .LE. 0.1D0) -> W334
         result = self._result(_pm([1.0, 2.0], densities=[density, 2.65]))

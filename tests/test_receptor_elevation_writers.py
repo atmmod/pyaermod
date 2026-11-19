@@ -262,7 +262,7 @@ class TestReaderFlagpole:
         receptor = project.receptors.discrete_receptors[0]
         assert (receptor.z_elev, receptor.z_flag) == (0.0, 3.4)
         rewritten = project.to_aermod_input(validate=False)
-        assert _lines(rewritten, "FLAGPOLE") == ["0.00"]
+        assert _lines(rewritten, "FLAGPOLE") == ["0"]
         assert _lines(rewritten, "DISCCART") == ["300.0000       0.0000     3.40"]
 
     def test_flat_without_flagpole_third_field_is_elevation(self):

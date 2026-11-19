@@ -59,7 +59,17 @@ def unquote_path(raw: str) -> str:
 
 
 def quote_path(name: str) -> str:
-    """``name`` as a runstream field: double-quoted when it holds a blank."""
+    """``name`` as a runstream field: double-quoted when it holds a blank.
+
+    A name that already starts with a double quote is a field as written
+    (setup.f DEFINE) and is returned unchanged, so quoting twice is
+    harmless.
+
+    >>> quote_path("My Met/a.sfc"), quote_path('"My Met/a.sfc"'), quote_path("a.sfc")
+    ('"My Met/a.sfc"', '"My Met/a.sfc"', 'a.sfc')
+    """
+    if name.startswith('"'):
+        return name
     return f'"{name}"' if any(c.isspace() for c in name) else name
 
 
@@ -176,9 +186,18 @@ def exact_num(value: float) -> str:
     that does (``repr``: ``12.3456789012345``), so a profile written to a
     deck reads back the same numbers. The test is against ``float(value)``,
     as the deck is read: a numpy float32 would compare at its own
-    precision, and ``0.1000000015`` reads back as another double."""
+    precision, and ``0.1000000015`` reads back as another double. An
+    exponent always follows a decimal point (``1.0e-05``), the only form
+    AERMOD's STODBL reads."""
     text = _num(value)
-    return text if float(text) == float(value) else repr(float(value))
+    if float(text) != float(value):
+        text = repr(float(value))
+    # STODBL reads an exponent only after a decimal point (setup.f: the
+    # E or D is taken only with DMARK set), so ``1e-05`` would be E208.
+    mantissa, sep, exponent = text.partition("e")
+    if sep and "." not in mantissa:
+        mantissa += ".0"
+    return mantissa + sep + exponent
 
 
 def one_decimal_or_exact(value: float) -> str:
@@ -433,7 +452,7 @@ def _background_lines(spec: BackgroundSpec, keywords: Tuple[str, str, str],
             line += f"  {spec.value_units}"
         lines.append(line)
     if spec.hourly_file:
-        line = f"   {file_kw}  {tag}{spec.hourly_file}"
+        line = f"   {file_kw}  {tag}{quote_path(spec.hourly_file)}"
         if spec.file_units or spec.file_format:
             line += f"  {spec.file_units or 'UG/M3'}"
         if spec.file_format:
@@ -490,8 +509,11 @@ class ChemistryOptions:
         Chemistry algorithm (OLM, PVMRM, ARM2, GRSM).
     ozone_data : OzoneData, optional
         Ozone data for OLM/PVMRM/GRSM methods.
-    default_no2_ratio : float
-        Default in-stack NO2/NOx ratio (0-1). Default 0.5.
+    default_no2_ratio : float, optional
+        Default in-stack NO2/NOx ratio (0-1), written as NO2STACK. Default
+        0.5. None writes no NO2STACK: every source then needs its own
+        ``no2_ratio`` (AERMOD has no default, E336). A deck read without
+        NO2STACK gives None.
     olm_groups : list of SourceGroupDefinition
         Source groups for OLM method.
     nox_file : str, optional
@@ -503,7 +525,7 @@ class ChemistryOptions:
     """
     method: ChemistryMethod = ChemistryMethod.ARM2
     ozone_data: Optional[OzoneData] = None
-    default_no2_ratio: float = 0.5
+    default_no2_ratio: Optional[float] = 0.5
     olm_groups: List[SourceGroupDefinition] = field(default_factory=list)
     nox_file: Optional[str] = None
     nox_background: Optional[NOxBackground] = None
@@ -652,9 +674,13 @@ class ControlPathway:
     calculate_wet_deposition: bool = False
 
     # Optional settings
-    elevation_units: str = "METERS"  # or "FEET"
+    # METERS or FEET: the units of the source base elevations, written
+    # as the first SO card (``SO ELEVUNIT``; soset.f SOELUN). ELEVUNIT is
+    # not a CO keyword (coset.f COCARD, E110). Receptor elevations have
+    # their own ``ReceptorPathway.elevation_units`` (RE ELEVUNIT).
+    elevation_units: str = "METERS"
     flag_pole_height: Optional[float] = None
-    half_life: Optional[float] = None  # hours, for decay
+    half_life: Optional[float] = None  # seconds (coset.f: DECOEF = 0.693/HAFLIF, 1/s)
     decay_coefficient: Optional[float] = None  # 1/seconds
 
     # Regulatory default mode
@@ -674,7 +700,11 @@ class ControlPathway:
     urban_areas: List[UrbanArea] = field(default_factory=list)
 
     # Low wind options
-    low_wind_option: Optional[str] = None  # e.g., "LOWWIND3"
+    # The fields of CO LOW_WIND, written as given: SVMIN [WSMIN [FRANMAX
+    # [SWMIN [BIGT [FRANMIN [PBAL]]]]]], numbers but the last (coset.f
+    # LOW_WND, v24142 and v26135), e.g. "0.3 0.5". Needs ALPHA (E133).
+    # A name such as "LOWWIND3" is not one: AERMOD gives E208.
+    low_wind_option: Optional[str] = None
 
     # Non-regulatory model options. AERMOD gates some source types and
     # features behind these: RLINEXT is rejected outright with
@@ -887,16 +917,15 @@ class ControlPathway:
 
         # Optional parameters
         if self.half_life is not None:
-            lines.append(f"   HALFLIFE  {self.half_life:.4f}")
+            lines.append(f"   HALFLIFE  {exact_num(self.half_life)}")
 
         if self.decay_coefficient is not None:
             lines.append(f"   DCAYCOEF  {self.decay_coefficient:.6e}")
 
-        if self.elevation_units != "METERS":
-            lines.append(f"   ELEVUNIT  {self.elevation_units}")
+        # elevation_units is written on SO (SourcePathway.to_aermod_input).
 
         if self.flag_pole_height is not None:
-            lines.append(f"   FLAGPOLE  {self.flag_pole_height:.2f}")
+            lines.append(f"   FLAGPOLE  {exact_num(self.flag_pole_height)}")
 
         if self.urban_areas:
             # coset.f URBOPT: with one URBANOPT card the fields are
@@ -904,11 +933,11 @@ class ControlPathway:
             multi = len(self.urban_areas) > 1
             for area in self.urban_areas:
                 fields = [area.urban_id] if multi and area.urban_id else []
-                fields.append(f"{area.population:.1f}")
+                fields.append(one_decimal_or_exact(area.population))
                 if area.name or area.roughness is not None:
                     fields.append(area.name or "URBAN")
                 if area.roughness is not None:
-                    fields.append(f"{area.roughness:.2f}")
+                    fields.append(exact_num(area.roughness))
                 lines.append("   URBANOPT  " + "  ".join(fields))
         elif self.urban_option or self.urban_population is not None:
             # Single-area URBANOPT: population [name] [roughness]. The
@@ -916,7 +945,7 @@ class ControlPathway:
             # which AERMOD reads as an illegal numeric field (E208) when
             # the deck has only one URBANOPT card.
             pop = self.urban_population if self.urban_population is not None else 1000000.0
-            line = f"   URBANOPT  {pop:.1f}"
+            line = f"   URBANOPT  {one_decimal_or_exact(pop)}"
             if self.urban_option:
                 line += f"  {self.urban_option}"
             if self.urban_roughness is not None:
@@ -924,7 +953,7 @@ class ControlPathway:
                     raise ValueError(
                         "urban_roughness needs urban_option: AERMOD reads the "
                         "roughness from the third URBANOPT field")
-                line += f"  {self.urban_roughness:.2f}"
+                line += f"  {exact_num(self.urban_roughness)}"
             lines.append(line)
 
         if self.low_wind_option:
@@ -964,8 +993,9 @@ class ControlPathway:
 
             # NO2STACK (default in-stack ratio); ARM2 has no in-stack
             # ratio and rejects the keyword (E600).
-            if chem.method.value in NO2STACK_METHODS:
-                lines.append(f"   NO2STACK  {chem.default_no2_ratio:.4f}")
+            if (chem.method.value in NO2STACK_METHODS
+                    and chem.default_no2_ratio is not None):
+                lines.append(f"   NO2STACK  {exact_num(chem.default_no2_ratio)}")
 
             # NOx background (GRSM)
             nox = chem.effective_nox_background()
@@ -981,31 +1011,31 @@ class ControlPathway:
             pass
         elif self.multiyear is not None:
             my = self.multiyear
-            line = "   MULTYEAR  " + ("H6H  " if my.h6h else "") + my.save_file
+            line = "   MULTYEAR  " + ("H6H  " if my.h6h else "") + quote_path(my.save_file)
             if my.init_file:
-                line += f"  {my.init_file}"
+                line += f"  {quote_path(my.init_file)}"
             lines.append(line)
         if self.save_file is not None and not event_processing:
             sf = self.save_file
             line = "   SAVEFILE"
             if sf.filename:
-                line += f"  {sf.filename}"
+                line += f"  {quote_path(sf.filename)}"
                 if sf.day_increment is not None or sf.alternate_filename:
                     # An alternate file sits in field 5, so field 4 must
                     # hold the increment; 1 is AERMOD's own default.
                     line += f"  {sf.day_increment if sf.day_increment is not None else 1}"
                 if sf.alternate_filename:
-                    line += f"  {sf.alternate_filename}"
+                    line += f"  {quote_path(sf.alternate_filename)}"
             lines.append(line)
         if self.init_file is not None and not event_processing:
             line = "   INITFILE"
             if self.init_file.filename:
-                line += f"  {self.init_file.filename}"
+                line += f"  {quote_path(self.init_file.filename)}"
             lines.append(line)
 
         # Event file reference (the event deck itself never carries it)
         if self.eventfil and not event_processing:
-            line = f"   EVENTFIL  {self.eventfil}"
+            line = f"   EVENTFIL  {quote_path(self.eventfil)}"
             if self.eventfil_option:
                 line += f"  {self.eventfil_option}"
             lines.append(line)
@@ -1013,7 +1043,8 @@ class ControlPathway:
         # Debug output. After MODELOPT, which DEBOPT checks DEPOS against
         # (E194 otherwise); AERMOD reads the fields as written.
         for card in self.debug_cards():
-            lines.append("   DEBUGOPT  " + "  ".join(card))
+            lines.append("   DEBUGOPT  " + "  ".join(
+                tok if tok.upper() in DEBUG_OPTIONS else quote_path(tok) for tok in card))
 
         # Run command
         lines.append(f"   RUNORNOT  {'RUN' if self.run_model else 'NOT'}")
@@ -1084,8 +1115,8 @@ class ScimOptions:
         if self.wet_start_hour is not None or self.wet_interval is not None:
             fields += [str(int(self.wet_start_hour or 0)), str(int(self.wet_interval or 0))]
         if self.surface_summary_file or self.profile_summary_file:
-            fields += [self.surface_summary_file or "SCIM_SFC.DAT",
-                       self.profile_summary_file or "SCIM_PFL.DAT"]
+            fields += [quote_path(self.surface_summary_file or "SCIM_SFC.DAT"),
+                       quote_path(self.profile_summary_file or "SCIM_PFL.DAT")]
         return fields
 
 
@@ -1145,6 +1176,14 @@ class MeteorologyPathway:
     # One of TURBULENCE_OPTIONS, written as a bare keyword; the nine share
     # a status switch in meset.f so a deck carries at most one.
     turbulence_option: Optional[str] = field(default=None, metadata=described(None, "One of AERMOD's turbulence options (e.g. NOTURB)"))
+    # UAIRDATA's year when it differs from SURFDATA's (meset.f UADATA keeps
+    # its own); None writes data_start_year on both cards.
+    upper_air_start_year: Optional[int] = field(default=None, metadata=described("", "UAIRDATA: first year of the upper-air data, if not the SURFDATA year"))
+    # The optional station name and x y coordinates after the year on
+    # SURFDATA and UAIRDATA (meset.f SFDATA / UADATA fields 5-7), as
+    # written; AERMOD only echoes them.
+    surface_data_extra: List[str] = field(default_factory=list, metadata=described(None, "SURFDATA: station name and coordinates after the year (optional)"))
+    upper_air_data_extra: List[str] = field(default_factory=list, metadata=described(None, "UAIRDATA: station name and coordinates after the year (optional)"))
 
     def to_aermod_input(self, event_processing: bool = False) -> str:
         """Generate AERMOD ME pathway text.
@@ -1156,12 +1195,16 @@ class MeteorologyPathway:
         lines = ["ME STARTING"]
 
         # Surface and profile files
-        lines.append(f"   SURFFILE  {self.surface_file}")
-        lines.append(f"   PROFFILE  {self.profile_file}")
+        lines.append(f"   SURFFILE  {quote_path(self.surface_file)}")
+        lines.append(f"   PROFFILE  {quote_path(self.profile_file)}")
 
         # Station data (mandatory)
-        lines.append(f"   SURFDATA  {self.surface_station_id}  {self.data_start_year}")
-        lines.append(f"   UAIRDATA  {self.upper_air_station_id}  {self.data_start_year}")
+        ua_year = (self.upper_air_start_year if self.upper_air_start_year is not None
+                   else self.data_start_year)
+        lines.append("   " + "  ".join(["SURFDATA", str(self.surface_station_id),
+                                        str(self.data_start_year), *self.surface_data_extra]))
+        lines.append("   " + "  ".join(["UAIRDATA", str(self.upper_air_station_id),
+                                        str(ua_year), *self.upper_air_data_extra]))
         # One decimal, matching EPA's own decks, unless the value needs
         # more (a base read in FEET and converted): then the shortest
         # text that reads back to exactly the same float, so a rewrite
@@ -1194,7 +1237,7 @@ class MeteorologyPathway:
 
         # Wind rotation
         if self.wind_rotation is not None:
-            lines.append(f"   WDROTATE  {self.wind_rotation:.2f}")
+            lines.append(f"   WDROTATE  {exact_num(self.wind_rotation)}")
 
         if self.wind_speed_categories:
             lines.append("   WINDCATS  " + "  ".join(_num(v) for v in self.wind_speed_categories))
@@ -1291,8 +1334,8 @@ def _plotfile_fields(averaging: str, source_group: str, filename: str,
     token is fatal rather than ignored.
     """
     if _is_period_average(averaging):
-        return f"{averaging}  {source_group}  {filename}"
-    return f"{averaging}  {source_group}  {plot_rank_token(rank)}  {filename}"
+        return f"{averaging}  {source_group}  {quote_path(filename)}"
+    return f"{averaging}  {source_group}  {plot_rank_token(rank)}  {quote_path(filename)}"
 
 
 def plot_file_group_fields(entry: Sequence) -> Tuple[str, str, str, Union[int, str]]:
@@ -1417,8 +1460,35 @@ NOHEADER_FILE_TYPES = (
 )
 
 
+#: Ordinal words AERMOD accepts for a RECTABLE rank, mapped to the rank.
+RANK_ORDINAL_WORDS = {
+    "FIRST": 1, "SECOND": 2, "THIRD": 3, "FOURTH": 4, "FIFTH": 5,
+    "SIXTH": 6, "SEVENTH": 7, "EIGHTH": 8, "NINTH": 9, "TENTH": 10,
+}
+
+
+def rectable_rank(token: str) -> Optional[int]:
+    """The highest rank a RECTABLE (or MAXTABLE) rank field names, or None
+    if it names none.
+
+    A range ("1-10", "FIRST-THIRD") counts by its upper end; "8TH" and
+    "8" both mean rank 8.
+    """
+    rank_tok = token.upper().rsplit("-", 1)[-1]
+    if rank_tok in RANK_ORDINAL_WORDS:
+        return RANK_ORDINAL_WORDS[rank_tok]
+    digits = re.match(r"\d+", rank_tok)
+    return int(digits.group()) if digits else None
+
+
+def _cards_rank(cards: List[List[str]]) -> Optional[int]:
+    """The highest rank the rank fields of ``cards`` name (None for none)."""
+    ranks = [r for card in cards for r in (rectable_rank(tok) for tok in card[1:]) if r is not None]
+    return max(ranks) if ranks else None
+
+
 def _resolve(filename: str, base_dir: Optional[Union[str, Path]]) -> Path:
-    path = Path(filename)
+    path = Path(unquote_path(filename))
     return path if path.is_absolute() or base_dir is None else Path(base_dir) / path
 
 
@@ -1440,7 +1510,7 @@ class RankFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = f"   RANKFILE  {self.averaging_period}  {int(self.rank)}  {self.filename}"
+        line = f"   RANKFILE  {self.averaging_period}  {int(self.rank)}  {quote_path(self.filename)}"
         if self.file_unit is not None:
             line += f"  {self.file_unit}"
         return line
@@ -1465,7 +1535,7 @@ class SeasonHourFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = f"   SEASONHR  {self.source_group}  {self.filename}"
+        line = f"   SEASONHR  {self.source_group}  {quote_path(self.filename)}"
         if self.file_unit is not None:
             line += f"  {self.file_unit}"
         return line
@@ -1491,7 +1561,7 @@ class EvalFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = f"   EVALFILE  {self.source_id}  {self.filename}"
+        line = f"   EVALFILE  {self.source_id}  {quote_path(self.filename)}"
         if self.file_unit is not None:
             line += f"  {self.file_unit}"
         return line
@@ -1515,7 +1585,7 @@ class ToxxFile:
 
     def to_aermod_line(self) -> str:
         line = (f"   TOXXFILE  {self.averaging_period}  {_num(self.threshold)}  "
-                f"{self.filename}")
+                f"{quote_path(self.filename)}")
         if self.file_unit is not None:
             line += f"  {self.file_unit}"
         return line
@@ -1615,6 +1685,20 @@ class OutputPathway:
     max_daily_contributions: List[MaxDailyContribution] = field(
         default_factory=list)
 
+    # The RECTABLE / MAXTABLE / DAYTABLE cards of a deck read by
+    # pyaermod.input_reader that the fields above cannot express: a period
+    # other than ALLAVE, several cards, or ranks other than 1-N. Each is a
+    # card's fields as written (``["24", "1-3"]``). The tables are per
+    # averaging period (ouset.f RECTAB / MAXTAB / DAYTAB), so the ALLAVE
+    # form the fields write would add tables. While the fields above still
+    # describe these cards (the table is on and its rank is the highest
+    # these cards ask for), the writer writes the cards instead; change the
+    # rank or switch the table off and the fields win. A project built in
+    # Python has none.
+    receptor_table_cards: List[List[str]] = field(default_factory=list)
+    max_table_cards: List[List[str]] = field(default_factory=list)
+    day_table_cards: List[List[str]] = field(default_factory=list)
+
     def period_plot_file_names(self, averaging_periods: Iterable[str]) -> Dict[str, str]:
         """``{period: file name}`` of the plot files :attr:`period_plot_files` writes."""
         if not self.period_plot_files:
@@ -1669,27 +1753,33 @@ class OutputPathway:
         # rank -- "ALLAVE 10" is the tenth-highest alone, not the top ten
         # -- and a PLOTFILE asking for FIRST against it is then rejected
         # as an invalid HIVALU. The range form is what "top N" means.
-        if self.receptor_table:
+        if self.receptor_table and _cards_rank(self.receptor_table_cards) == self.receptor_table_rank:
+            lines.extend("   RECTABLE  " + "  ".join(card) for card in self.receptor_table_cards)
+        elif self.receptor_table:
             rank = self.receptor_table_rank
             spec = "FIRST" if rank <= 1 else f"1-{rank}"
             lines.append(f"   RECTABLE  ALLAVE  {spec}")
 
         # Max table
-        if self.max_table:
+        if self.max_table and _cards_rank(self.max_table_cards) == self.max_table_rank:
+            lines.extend("   MAXTABLE  " + "  ".join(card) for card in self.max_table_cards)
+        elif self.max_table:
             lines.append(f"   MAXTABLE  ALLAVE  {self.max_table_rank}")
 
         # Day table
-        if self.day_table:
+        if self.day_table and self.day_table_cards:
+            lines.extend("   DAYTABLE  " + "  ".join(card) for card in self.day_table_cards)
+        elif self.day_table:
             lines.append("   DAYTABLE  ALLAVE")
 
         # Summary file
         if self.summary_file:
-            lines.append(f"   SUMMFILE  {self.summary_file}")
+            lines.append(f"   SUMMFILE  {quote_path(self.summary_file)}")
 
         # Threshold files: MAXIFILE aveper grpid thresh filnam [funit]
         for mf in self.maxi_files:
             line = (f"   MAXIFILE  {mf.averaging_period}  {mf.source_group}  "
-                    f"{_num(mf.threshold)}  {mf.filename}")
+                    f"{_num(mf.threshold)}  {quote_path(mf.filename)}")
             if mf.file_unit is not None:
                 line += f"  {mf.file_unit}"
             lines.append(line)
@@ -1721,14 +1811,14 @@ class OutputPathway:
             ave = self.postfile_averaging or "ANNUAL"
             lines.append(
                 f"   POSTFILE  {ave}  {self.postfile_source_group}  "
-                f"{self.postfile_format}  {self.postfile}"
+                f"{self.postfile_format}  {quote_path(self.postfile)}"
             )
 
         # One plot file and one POSTFILE per averaging period, group ALL.
         for ave, name in self.period_plot_file_names(periods).items():
             lines.append(f"   PLOTFILE  {_plotfile_fields(ave, 'ALL', name, self.plot_file_rank)}")
         for ave, name in self.period_postfile_names(periods).items():
-            lines.append(f"   POSTFILE  {ave}  ALL  {self.postfile_format}  {name}")
+            lines.append(f"   POSTFILE  {ave}  ALL  {self.postfile_format}  {quote_path(name)}")
 
         lines.extend(rf.to_aermod_line() for rf in self.rank_files)
         lines.extend(sh.to_aermod_line() for sh in self.season_hour_files)
@@ -1741,7 +1831,7 @@ class OutputPathway:
         for keyword, entries in (("MAXDAILY", self.max_daily_files),
                                  ("MXDYBYYR", self.max_daily_by_year_files)):
             for entry in entries:
-                line = f"   {keyword}  {entry.source_group}  {entry.filename}"
+                line = f"   {keyword}  {entry.source_group}  {quote_path(entry.filename)}"
                 if entry.file_unit is not None:
                     line += f"  {entry.file_unit}"
                 lines.append(line)
@@ -1749,7 +1839,7 @@ class OutputPathway:
             bound = (f"THRESH  {_num(mdc.threshold)}" if mdc.threshold is not None
                      else str(mdc.lower_rank))
             line = (f"   MAXDCONT  {mdc.source_group}  {mdc.upper_rank}  {bound}"
-                    f"  {mdc.filename}")
+                    f"  {quote_path(mdc.filename)}")
             if mdc.file_unit is not None:
                 line += f"  {mdc.file_unit}"
             lines.append(line)
