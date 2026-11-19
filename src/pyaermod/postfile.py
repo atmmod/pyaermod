@@ -144,6 +144,41 @@ def _normalize_output_types(output_types: OutputTypesArg) -> Optional[Tuple[str,
     return tuple(t for t in OUTPUT_TYPES if t in names)
 
 
+HOURLY_MEAN_LIMITATION = (
+    "an hourly POSTFILE has a row for every hour but no calm or missing flag, so "
+    "a 24-hour or PERIOD/ANNUAL mean computed from it divides by the number of "
+    "rows; AERMOD divides by the hours that were neither calm nor missing (with "
+    "a 75% floor for a short-term average), so the two differ for any period "
+    "with calm or missing hours. For AERMOD's own value, have AERMOD write it "
+    "(POSTFILE 24 or PERIOD, or the summary tables)."
+)
+
+
+def warn_hourly_mean_limitation(what: str, stacklevel: int = 3) -> None:
+    """Warn that ``what`` is a mean computed from an hourly POSTFILE.
+
+    For the functions that average hourly POSTFILE rows (24-hour,
+    PERIOD or ANNUAL means): the file cannot say which hours were calm or
+    missing (``HOURLY_MEAN_LIMITATION``), so the mean can differ from the
+    one AERMOD prints. No number is changed. ``stacklevel`` counts from
+    the function that calls this one (3 names that function's caller).
+    """
+    warnings.warn(f"{what}: {HOURLY_MEAN_LIMITATION}", UserWarning, stacklevel=stacklevel)
+
+
+def _number_or_nan(token: str, parser: "PostfileParser") -> float:
+    """``token`` as a float; an overflowed field (``*****``) as NaN.
+
+    Fortran prints a field of asterisks when the value does not fit its
+    width (F13.5 holds up to 9,999,999.99999). The row is kept with NaN
+    in that field, and the parser warns once, rather than dropping it.
+    """
+    if token and set(token) == {"*"}:
+        parser._overflowed += 1
+        return float("nan")
+    return fortran_float(token)
+
+
 def _value_columns(output_types: Optional[Tuple[str, ...]], numtyp: int = 1) -> List[str]:
     """DataFrame columns for the per-type values of a row."""
     if numtyp == 1:
@@ -192,6 +227,10 @@ class PostfileResult:
     """
     header: PostfileHeader
     data: pd.DataFrame
+
+    # Limitation: an hourly POSTFILE carries no calm/missing flag, so a mean
+    # of its rows (24-hour, PERIOD, ANNUAL) can differ from AERMOD's own;
+    # see HOURLY_MEAN_LIMITATION.
 
     @property
     def output_types(self) -> Optional[Tuple[str, ...]]:
@@ -420,6 +459,10 @@ class PostfileParser:
         # Row layout, fixed once the header has been read
         self._value_cols: Optional[List[str]] = None
         self._saw_header = False
+        # Rows with an overflowed (all-asterisk) field, and the number of
+        # years of a "MAX DAILY ... AVERAGED OVER n YEARS" PLOTFILE
+        self._overflowed = 0
+        self._years: Optional[int] = None
 
     def parse(self) -> PostfileResult:
         """
@@ -460,6 +503,14 @@ class PostfileParser:
             self._resolve_layout(header)
         assert self._value_cols is not None
 
+        if self._overflowed:
+            warnings.warn(
+                f"{self.filepath.name}: {self._overflowed} numeric field(s) were "
+                "printed as asterisks (the value did not fit its field); those "
+                "values are NaN",
+                stacklevel=2,
+            )
+
         if data_rows:
             df = pd.DataFrame(data_rows)
         else:
@@ -469,6 +520,8 @@ class PostfileParser:
             if self._is_plotfile:
                 cols.append("rank")
             cols.append("date")
+            for year in range(1, (self._years or 0) + 1):
+                cols += [f"yr{year}_value", f"yr{year}_date"]
             df = pd.DataFrame(columns=cols)
 
         return PostfileResult(header=header, data=df)
@@ -615,17 +668,27 @@ class PostfileParser:
         epa_pst_match = re.match(
             r"(?:POST/?PLOT|POST|PLOT)\s+FILE\s+OF\s+.*?"
             r"\b(\d+-HR|PERIOD|ANNUAL|MONTH)\b\s+VALUES"
+            r"(?:\s+AVERAGED\s+OVER\s+(\d+)\s+YEARS)?"
             r"(?:\s+FOR\s+SOURCE\s+GROUP:\s*(\S+))?",
             text, re.IGNORECASE,
         )
         if epa_pst_match:
             if header.averaging_period is None:
                 header.averaging_period = epa_pst_match.group(1).strip()
-            if epa_pst_match.group(2) and header.source_group is None:
-                header.source_group = epa_pst_match.group(2).strip()
-            # Detect plotfile vs postfile
+            if epa_pst_match.group(3) and header.source_group is None:
+                header.source_group = epa_pst_match.group(3).strip()
+            # Detect plotfile vs postfile. A "1ST-HIGHEST MAX DAILY ... AVERAGED
+            # OVER n YEARS" PLOTFILE (PM25AVE, NO2AVE, SO2AVE; output.f FORMAT
+            # 9009) has the PLOTFILE columns and n (value, date) pairs after them.
             if re.match(r"PLOT\s+FILE\s+OF\s+HIGH", text, re.IGNORECASE):
                 self._is_plotfile = True
+            elif re.match(
+                r"PLOT\s+FILE\s+OF\s+\d+(?:ST|ND|RD|TH)-HIGHEST\s+MAX\s+DAILY",
+                text, re.IGNORECASE,
+            ):
+                self._is_plotfile = True
+                if epa_pst_match.group(2):
+                    self._years = int(epa_pst_match.group(2))
             return
 
         # Pollutant ID — pyaermod synthetic format
@@ -699,22 +762,40 @@ class PostfileParser:
         value_cols = self._value_cols
         k = len(value_cols)
         parts = line.split()
+        years = self._years or 0
         needed = 9 + k if self._is_plotfile else 8 + k
+        if years:
+            needed = 8 + k + 2 * years  # NET ID, before the pairs, may be blank
         if len(parts) < max(needed, 9):
             return None
 
         try:
-            row: dict = {"x": float(parts[0]), "y": float(parts[1])}
+            row: dict = {
+                "x": _number_or_nan(parts[0], self),
+                "y": _number_or_nan(parts[1], self),
+            }
             for i, column in enumerate(value_cols):
-                row[column] = fortran_float(parts[2 + i])
+                row[column] = _number_or_nan(parts[2 + i], self)
             row.update({
-                "zelev": float(parts[2 + k]),
-                "zhill": float(parts[3 + k]),
-                "zflag": float(parts[4 + k]),
+                "zelev": _number_or_nan(parts[2 + k], self),
+                "zhill": _number_or_nan(parts[3 + k], self),
+                "zflag": _number_or_nan(parts[4 + k], self),
                 "ave": parts[5 + k],
                 "grp": parts[6 + k],
             })
-            if self._is_plotfile:
+            if years:
+                # PLOTFL writes the n ranked yearly values and their dates
+                # last (FORMAT 10(F13.5,2X,I8.8,2X:)); a blank NET ID before
+                # them is absent from the split, so count from the end.
+                row["rank"] = parts[7 + k]
+                tail = parts[-2 * years:]
+                # The averaged value is in the value column; the date column
+                # carries the number of years, as an ANNUAL POSTFILE's does.
+                row["date"] = f"{years:08d}"
+                for year in range(1, years + 1):
+                    row[f"yr{year}_value"] = _number_or_nan(tail[2 * year - 2], self)
+                    row[f"yr{year}_date"] = tail[2 * year - 1]
+            elif self._is_plotfile:
                 row["rank"] = parts[7 + k]
                 # PLOTFL writes the date as I8, not I8.8 as a POSTFILE
                 # does, so a year below 10 loses its leading zero.
@@ -966,6 +1047,11 @@ class UnformattedPostfileParser:
         # Records per source group, and the labels read from IANHRS
         records: Dict[str, int] = {}
         inferred: Set[Tuple[str, int]] = set()
+        # IANHRS values seen per group, the IANHRS of each row's record, and
+        # the groups found to be multi-year ANNUAL (see below)
+        seen_ianhrs: Dict[str, Set[int]] = {}
+        row_ianhrs: List[int] = []
+        annual_groups: Set[str] = set()
 
         with open(self.filepath, "rb") as f:
             while True:
@@ -978,7 +1064,18 @@ class UnformattedPostfileParser:
                 grpid = record["grpid"]
                 values = record["values"]
 
-                ave, date_str = self._label(kurdat_int, ianhrs)
+                if self.averaging_period is None:
+                    # KAVE is the same in every record of a short-term file,
+                    # but PSTANN writes the running NUMYRS, so an ANNUAL
+                    # file over several years holds IANHRS = 1, 2, ..., N.
+                    # More than one IANHRS in a group can only be that.
+                    seen_ianhrs.setdefault(grpid, set()).add(ianhrs)
+                    if len(seen_ianhrs[grpid]) > 1:
+                        annual_groups.add(grpid)
+                if grpid in annual_groups:
+                    ave, date_str = "ANNUAL", f"{ianhrs:08d}"
+                else:
+                    ave, date_str = self._label(kurdat_int, ianhrs)
                 records[grpid] = records.get(grpid, 0) + 1
                 if self.averaging_period is None:
                     inferred.add((ave, ianhrs))
@@ -1022,6 +1119,15 @@ class UnformattedPostfileParser:
                         "date": date_str,
                     })
                     data_rows.append(row)
+                    row_ianhrs.append(ianhrs)
+
+        if annual_groups:
+            # The records read before a second IANHRS showed up were labelled
+            # as short-term ones: relabel them, keeping each year's values.
+            for row, ianhrs in zip(data_rows, row_ianhrs):
+                if row["grp"] in annual_groups:
+                    row["ave"], row["date"] = "ANNUAL", f"{ianhrs:08d}"
+            header.averaging_period = data_rows[0]["ave"]
 
         if records and all(n == 1 for n in records.values()):
             self._warn_one_record(inferred, stacklevel + 2)
@@ -1261,6 +1367,16 @@ def read_postfile(
         the same field, so an ANNUAL or PERIOD file needs it to be labelled
         as its text POSTFILE is (see :class:`UnformattedPostfileParser`).
         Ignored for text files, which name the period in every row.
+
+    Notes
+    -----
+    An hourly POSTFILE has a row for every hour, calm and missing hours
+    included, and nothing in a row says which hours those were. A 24-hour
+    or PERIOD/ANNUAL mean computed from its rows therefore divides by the
+    number of rows, where AERMOD divides by the hours that were neither calm
+    nor missing; the two differ for any period that has such hours. Have
+    AERMOD write the averaged value (``POSTFILE 24``, ``PERIOD``) when it is
+    the number that matters.
 
     Returns
     -------

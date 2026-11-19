@@ -127,21 +127,36 @@ class TestReadRankfile:
 # ---------------------------------------------------------------------------
 
 class TestReadSeasonhr:
-    def test_infers_96_columns(self, tmp_path):
-        # 2 coords + 96 seasonal-hour slots
-        vals = " ".join(f"{i * 0.001:.3f}" for i in range(96))
-        body = f"    100.00     200.00   {vals}\n"
+    def test_reads_the_real_layout(self, tmp_path):
+        # output.f SHOUT: one row per receptor, season and hour (FORMAT 1009)
+        fmt = "(2(1X,F13.5),1(1X,F13.8),3(1X,F7.2),2X,A8,2X,3(I4,2X),A8)"
+        row = " %13.5f %13.5f %13.8f %7.2f %7.2f %7.2f  %-8s  %4d  %4d  %4d  %-8s" % (  # noqa: UP031
+            100.0, 200.0, 0.125, 0, 0, 0, "ALL", 12, 1, 7, "")
         path = tmp_path / "x.shr"
-        path.write_text(f"""\
-* AERMOD:  SEASONHR
-* Source Group: ALL
-{body}""")
+        path.write_text(
+            "* AERMOD ( 26135):  test                                                      10/19/26\n"
+            "* AERMET ( 26135):                                                           14:10:38\n"
+            "* MODELING OPTIONS USED:   RegDFAULT  CONC  ELEV  RURAL\n"
+            "*         FILE OF SEASON/HOUR VALUES FOR SOURCE GROUP: ALL     \n"
+            "*         FOR A TOTAL OF     1 RECEPTORS.\n"
+            "*         FORMAT: " + fmt + "\n"
+            "*        X             Y      AVERAGE CONC    ZELEV   ZHILL   ZFLAG     GRP     NHRS  SEAS  HOUR   NET ID\n"
+            "* ____________  ____________  ____________   ______  ______  ______  ________  ____  ____  ____  ________\n"
+            + row.rstrip() + "\n")
         res = read_seasonhr(path)
         assert res.header.file_type == "SEASONHR"
         assert res.n_records == 1
-        cols = res.column_names
-        assert "WIN_01" in cols and "FAL_24" in cols
-        assert len(cols) == 98
+        rec = res.records[0]
+        assert rec["AVERAGE_CONC"] == pytest.approx(0.125)
+        assert (rec["NHRS"], rec["SEAS"], rec["HOUR"]) == (12, 1, 7)
+        assert rec["GRP"] == "ALL"
+
+    def test_headerless_rows_get_the_real_column_names(self, tmp_path):
+        path = tmp_path / "x.shr"
+        path.write_text("* AERMOD:  SEASONHR\n"
+                        "    100.00 200.00 0.125 0.00 0.00 0.00 ALL 12 1 7\n")
+        cols = read_seasonhr(path).column_names
+        assert cols[:3] == ["X", "Y", "VALUE"] and cols[-3:] == ["NHRS", "SEAS", "HOUR"]
 
 
 # ---------------------------------------------------------------------------
