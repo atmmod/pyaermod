@@ -34,6 +34,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, List
@@ -62,7 +63,7 @@ from pyaermod.gui_v2 import app as app_module  # noqa: E402
 from pyaermod.gui_v2 import session as session_module  # noqa: E402
 from pyaermod.gui_v2.pages import results as results_page  # noqa: E402
 from pyaermod.gui_v2.project_io import load_project, save_project  # noqa: E402
-from pyaermod.gui_v2.session import Session  # noqa: E402
+from pyaermod.gui_v2.session import Session, run_deck_name  # noqa: E402
 from pyaermod.input_generator import (  # noqa: E402
     AreaPolySource,
     OpenPitSource,
@@ -326,7 +327,7 @@ def _editor_save(gui: GuiSession) -> None:
 
 
 def _editor_close(gui: GuiSession) -> None:
-    _in_dialog(gui, "editor-dialog", ui.button, "Close").click()
+    _in_dialog(gui, "editor-dialog", ui.button, "Cancel").click()
 
 
 async def _discard_changes(gui: GuiSession) -> None:
@@ -411,6 +412,41 @@ async def _add_point_source(gui: GuiSession, sid: str, **numbers: float) -> None
         _in_dialog(gui, "editor-dialog", ui.number, label.replace("_", " ").capitalize()).clear().type(str(value))
     _editor_save(gui)
     await gui.user.should_see(kind=ui.table, marker="sources-table")
+
+
+#: The met files the tests' projects name.
+MET_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "epa_official"
+
+
+def with_met_files(work_dir: Path) -> Path:
+    """``work_dir``, made, holding the met files the tests' projects name by a
+    relative path (AERMET2.SFC and .PFL, and as met.sfc and met.pfl): a run
+    is blocked until its met files are where AERMOD will open them."""
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    for fixture, names in (("AERMET2.SFC", ("AERMET2.SFC", "met.sfc")),
+                           ("AERMET2.PFL", ("AERMET2.PFL", "met.pfl"))):
+        for name in names:
+            if not (work_dir / name).exists():
+                shutil.copy(MET_FIXTURES / fixture, work_dir / name)
+    return work_dir
+
+
+async def _results_read(gui: GuiSession, number: int, timeout: float = 30.0) -> None:
+    """Wait until Results has read run ``number``'s files and drawn its map."""
+    from pyaermod.gui_v2.run_results import build_error, cached_view
+
+    record = next(r for r in gui.session.runs if r.number == number)
+    await _value_becomes(lambda: cached_view(record) is not None or build_error(record) is not None,
+                         True, timeout)
+    await gui.user.should_see(f"Run {number} succeeded", retries=int(timeout * 10))
+
+    def drawn() -> bool:
+        with gui.user:
+            images = list(ElementFilter(kind=ui.image, marker="results-map", local_scope=False))
+        return bool(images) and all(i.source for i in images)
+
+    await _value_becomes(drawn, True, timeout)
 
 
 async def _fill_minimal_project(gui: GuiSession) -> Session:
@@ -925,7 +961,7 @@ class TestSessionPerTab:
     async def test_reload_restores_last_run_status(self, gui, fake_aermod_on_path, tmp_path):
         gui.expect_error_log("AERMOD run failed: AERMOD exited with code 0 but wrote no")
         await _fill_minimal_project(gui)
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Failed: ")
         await gui.open()                                   # reload
@@ -1342,10 +1378,11 @@ class TestProjectFiles:
         await gui.user.should_see("PyAERMOD — pit_project")
 
     @pytest.mark.asyncio
-    async def test_an_emptied_number_box_keeps_the_value_and_says_required(self, gui):
+    async def test_an_emptied_number_box_says_so_and_refuses_the_save(self, gui):
         """An emptied number box that is not Optional once stored None, which
-        no project file could hold (Save refused it, late). The box now says
-        "Required" and the source keeps its value, so the project saves."""
+        no project file could hold; then it kept the old value without a word
+        (live-G9). Now it says "Enter a number" and Save is refused until it
+        holds one; the source never holds None."""
         await gui.open()
         _add_source(gui)
         await gui.user.should_see("Edit PointSource")
@@ -1354,13 +1391,17 @@ class TestProjectFiles:
         assert rate.value is None
         with gui.user:
             assert rate.validate() is False
-        assert rate.error == "Required"
+        assert rate.error == "Enter a number"
         _editor_save(gui)
-        await _rows_become(gui, _sources_table, "Q (g/s)", [1.0])
-        assert gui.session.project.sources.sources[0].emission_rate == 1.0
+        await gui.user.should_see("Not saved: correct these first.")
+        await gui.user.should_see("Emission rate (g/s): Enter a number")
+        assert _sources_table(gui).rows == []
+        _in_dialog(gui, "editor-dialog", ui.number, "Emission rate").type("2.5")
+        _editor_save(gui)
+        await _rows_become(gui, _sources_table, "Q (g/s)", [2.5])
         data = await _save_as_download(gui, "kept.json")
         from pyaermod.gui_v2.project_io import project_from_json
-        assert project_from_json(data).sources.sources[0].emission_rate == 1.0
+        assert project_from_json(data).sources.sources[0].emission_rate == 2.5
 
     @pytest.mark.asyncio
     async def test_save_failure_is_reported(self, gui, tmp_path):
@@ -1538,10 +1579,12 @@ class TestSourcesPage:
     async def test_polygon_and_buoyant_line_summaries(self, gui):
         """Sources without x_coord summarise from vertices / segments."""
         await gui.open()
-        for type_name in ("AreaPolySource", "BuoyLineSource"):
+        for type_name, sid in (("AreaPolySource", "POLY"), ("BuoyLineSource", "BUOY")):
             _choose(gui, _sources_type_select(gui), type_name)
             _add_source(gui)
             await gui.user.should_see(f"Edit {type_name}")
+            # Each needs its own ID: a second NEW_SRC is refused as a duplicate.
+            _in_dialog(gui, "editor-dialog", ui.input, "Source ID").clear().type(sid)
             _editor_save(gui)
             await _settle(gui)
         rows = _sources_table(gui).rows
@@ -1557,7 +1600,16 @@ class TestSourcesPage:
         await gui.user.should_see("Edit AreaPolySource")
         ta = _by_id(_in_dialog(gui, "editor-dialog", ui.textarea, "Vertices").elements)
         with gui.user:
-            ta.value = "10, 20\n50; 0\n\n50, 50\nnot a pair\n0, 50"
+            ta.value = "10, 20\n50; 0\n\n50, 50\nnot a pair\n0 50"
+        UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
+        # A line that cannot be read is named, and the source is not saved
+        # without it (code-G5: it used to be dropped without a word).
+        _editor_save(gui)
+        await gui.user.should_see("Not saved: correct these first.")
+        await gui.user.should_see("Line 5 could not be read", kind=ui.textarea)
+        assert _sources_table(gui).rows == []
+        with gui.user:
+            ta.value = "10, 20\n50; 0\n\n50, 50\n0 50"     # AERMOD's own "x y" too
         UserInteraction(gui.user, {ta}, None).trigger("update:modelValue")
         _editor_save(gui)
         await _rows_become(gui, _sources_table, "x", [10.0])
@@ -1933,20 +1985,20 @@ class TestEndToEnd:
         await _fill_minimal_project(gui)
         await gui.user.should_not_see("No 'aermod' binary on PATH")
         workdir = tmp_path / "run"
-        gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(workdir)))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("AERMOD started")
         await _run_ends(gui, "Failed: ")
         # The deck is written under its own name; the runner points the
         # fixed aermod.inp symlink at it (a deck *named* aermod.inp would
         # be unlinked and replaced by a self-referencing symlink).
-        deck = workdir / "pyaermod_gui.inp"
+        deck = workdir / "pyaermod_gui_run1.inp"
         assert deck.exists() and "STK1" in deck.read_text()
         # Results follows the run by itself (defect D2).
         gui.user.find(kind=ui.tab, content="Results").click()
         await gui.user.should_see("Run 1 failed")
         await gui.user.should_see(f"Working directory: {workdir}")
-        await gui.user.should_see("AERMOD exited with code 0 but wrote no pyaermod_gui.out")
+        await gui.user.should_see("AERMOD exited with code 0 but wrote no pyaermod_gui_run1.out")
         await gui.user.should_see("No results are shown for a failed run")
         await gui.user.should_not_see("No run yet")
 
@@ -1959,14 +2011,14 @@ class TestEndToEnd:
         session.open_json(path)
         await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
         workdir = tmp_path / "run"
-        gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(workdir)))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         # A deck the recording does not match makes the fake exit 2: it
         # would show here as a failure.
         await _run_ends(gui, "Succeeded in")
         # Results reads the run's files in a thread and is rebuilt a moment
         # after the run's status (as test_gui_v2_results' _run_in waits).
-        await gui.user.should_see("Output file: pyaermod_gui.out", retries=100)
+        await gui.user.should_see("Output file: pyaermod_gui_run1.out", retries=100)
         await gui.user.should_see("Maximum for each averaging period")
         tables = gui.user.find(kind=ui.table).elements
         maxima = next(t for t in tables if any(c["label"] == "Max" for c in t.columns))
@@ -1997,7 +2049,7 @@ class TestEndToEnd:
             self, gui, fake_aermod_on_path, monkeypatch, tmp_path):
         await _fill_minimal_project(gui)
         # met.sfc is a relative path: it needs a working directory.
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         # The binary was on PATH when the checklist was built, and the
         # button checks again when it is clicked.
         monkeypatch.setenv("PATH", str(tmp_path / "empty"))
@@ -2032,10 +2084,10 @@ class TestWholeNumbersReachTheDeck:
         end_day = session.project.meteorology.end_day
         assert end_day == 31 and type(end_day) is int
         workdir = tmp_path / "run"
-        gui.user.find(kind=ui.input, content="Working directory").type(str(workdir))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(workdir)))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Failed: ")
-        deck = (workdir / "pyaermod_gui.inp").read_text(encoding="utf-8")
+        deck = (workdir / "pyaermod_gui_run1.inp").read_text(encoding="utf-8")
         assert re.search(r"^\s*STARTEND\s+2020\s+1\s+1\s+2020\s+12\s+31\s*$", deck, re.M), deck
         saved = json.loads(await _save_as_download(gui, "dates.json"))
         met = saved["project"]["meteorology"]
@@ -2061,7 +2113,7 @@ class TestRunPageFailurePaths:
     async def test_deck_generation_failure_is_reported(self, gui, fake_aermod_on_path, monkeypatch,
                                                        tmp_path):
         session = await _fill_minimal_project(gui)
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         assert _run_button(gui).enabled is True
 
         def _boom(self, **kwargs):
@@ -2077,8 +2129,9 @@ class TestRunPageFailurePaths:
     @pytest.mark.asyncio
     async def test_deck_write_failure_is_reported(self, gui, fake_aermod_on_path, tmp_path):
         await _fill_minimal_project(gui)
-        blocker = tmp_path / "file"
-        blocker.write_text("not a directory")
+        # The run's deck cannot be written: a folder has its name.
+        blocker = with_met_files(tmp_path / "run")
+        (blocker / run_deck_name(1)).mkdir()
         gui.user.find(kind=ui.input, content="Working directory").type(str(blocker))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("Could not write the deck:")
@@ -2094,7 +2147,7 @@ class TestRunPageFailurePaths:
 
         monkeypatch.setattr(AERMODRunner, "start", _broken)
         await _fill_minimal_project(gui)
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Failed: the runner broke")
         await gui.user.should_see("Run failed; see log")
@@ -2120,10 +2173,10 @@ class TestResultsPageMore:
         session = await gui.open()
         session.open_json(path)
         await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Succeeded in")
-        await gui.user.should_see("Could not parse pyaermod_gui.out: boom")
+        await gui.user.should_see("Could not parse pyaermod_gui_run1.out: boom")
 
 
 # ---------------------------------------------------------------------
@@ -2139,7 +2192,7 @@ async def _open_albany(gui: GuiSession, tmp_path: Path, periods: List[str]) -> S
     session.open_json(path)
     await _value_becomes(lambda: _title_input(gui).value, "Albany stack reference scenario")
     await _settle(gui)
-    gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+    gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
     return session
 
 
@@ -2168,7 +2221,7 @@ class TestReviewAndRun:
         await gui.user.should_see("Surface file met.sfc is a relative path")
         await gui.user.should_see("Profile file met.pfl is a relative path")
         assert _run_button(gui).enabled is False
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         assert _run_button(gui).enabled is True          # at once, for a click that follows
         await gui.user.should_see("Nothing blocks the run.")
         await gui.user.should_not_see("Surface file met.sfc is a relative path")
@@ -2180,7 +2233,7 @@ class TestReviewAndRun:
     async def test_the_deck_preview_shows_and_downloads_the_deck(self, gui, fake_aermod_on_path,
                                                                  tmp_path):
         session = await _fill_minimal_project(gui)
-        gui.user.find(kind=ui.input, content="Working directory").type(str(tmp_path / "run"))
+        gui.user.find(kind=ui.input, content="Working directory").type(str(with_met_files(tmp_path / "run")))
         await gui.user.should_see("Nothing blocks the run.")
         preview = _one(gui, kind=ui.textarea, content="Deck preview")
         assert preview.value == session.deck_text() and "STK1" in preview.value
@@ -2249,14 +2302,19 @@ class TestReviewAndRun:
         await _open_albany(gui, tmp_path, ["1", "3", "24", "PERIOD"])
         work_dir = _one(gui, kind=ui.input, content="Working directory")
         with gui.user:
-            work_dir.value = str(tmp_path / "first")
+            work_dir.value = str(with_met_files(tmp_path / "first"))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await _run_ends(gui, "Succeeded in")
         await _badge_reads(gui, "Review & Run", "complete")
         await _badge_reads(gui, "Results", "complete")
+        # Let Results finish reading run 1 (its files, its map) before run 2
+        # starts: that work runs in threads, and on a slow runner it can
+        # starve the event loop for longer than the 0.3 s that day 61 is on
+        # screen, which the progress label then skips.
+        await _results_read(gui, 1)
         monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
         with gui.user:
-            work_dir.value = str(tmp_path / "second")
+            work_dir.value = str(with_met_files(tmp_path / "second"))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("Day 61 of 1988 (1 of 4 days)", retries=50)
         _click(gui, _one(gui, kind=ui.button, content="Cancel"))
@@ -2369,5 +2427,5 @@ class TestReviewAndRun:
         await gui.user.should_see("AERMOD reported 0 fatal errors, 4 warnings and 0 "
                                   "informational messages.")
         await gui.user.should_see("AERMOD finished")
-        await gui.user.should_see("Output file: pyaermod_gui.out",    # Results followed
+        await gui.user.should_see("Output file: pyaermod_gui_run1.out",    # Results followed
                                   retries=100)

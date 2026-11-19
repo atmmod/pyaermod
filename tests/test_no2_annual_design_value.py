@@ -429,10 +429,15 @@ def test_pm25_multi_year_annual_table_is_still_the_design_value():
 def test_the_caption_explains_a_lower_bound_only_when_one_is_shown():
     design = _annual_check(50.0, 1)
     lower = _annual_check(90.0, 5)
-    caption = rr.naaqs_caption([design])
+    # A design value needs no explaining, and no row is a screen (live-G6:
+    # the screening sentence only when a row uses that basis).
+    assert rr.naaqs_caption([design]) == ""
+    assert rr.naaqs_caption([design, lower]).startswith("A lower bound is AERMOD's average")
+    screen = rr.NaaqsCheck(design.standard, design.period, design.level_ugm3, 1.0, (0.0, 0.0),
+                           "screening", "the highest value", "Below the NAAQS")
+    caption = rr.naaqs_caption([screen])
     assert caption.startswith("A screening comparison uses the highest value")
     assert "lower bound" not in caption.lower()
-    assert "A lower bound is AERMOD's average" in rr.naaqs_caption([design, lower])
 
 
 # ----------------------------------------------------------------------

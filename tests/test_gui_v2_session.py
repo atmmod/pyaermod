@@ -33,6 +33,7 @@ from pyaermod.gui_v2.session import (
     Session,
     SessionEvent,
     clean_file_name,
+    run_deck_name,
 )
 from pyaermod.gui_v2.state import _empty_project
 from pyaermod.input_generator import (
@@ -513,7 +514,7 @@ def test_start_run_replays_a_recording(tmp_path, monkeypatch):
     assert started.run is not None and started.run.in_progress
     assert finished.run is record and not record.in_progress
     assert record.number == 1 and record.work_dir == work_dir
-    assert record.deck_path == work_dir / DECK_NAME and record.deck_path.exists()
+    assert record.deck_path == work_dir / run_deck_name(1) and record.deck_path.exists()
     assert "STACK1" in record.deck_path.read_text()
     assert record.error is None and record.result is not None
     assert record.success is False and record.result.success is False
@@ -544,7 +545,7 @@ def test_a_synchronous_run_is_in_progress_during_the_run_and_cannot_be_cancelled
     s = Session()
     runner = _StubRunner(s, result=AERMODRunResult(success=True, input_file="x"))
     record = s.start_run(working_dir=tmp_path, timeout=5, runner=runner)
-    assert runner.calls == [{"input_file": tmp_path / DECK_NAME, "working_dir": tmp_path,
+    assert runner.calls == [{"input_file": tmp_path / run_deck_name(1), "working_dir": tmp_path,
                              "timeout": 5}]
     assert record.success and s.run_in_progress is None
     assert s.cancel_run() is False
@@ -584,7 +585,7 @@ def test_start_run_without_a_binary_records_the_runner_construction_error(tmp_pa
     s = Session()
     record = s.start_run(working_dir=tmp_path / "run")
     assert record.error and record.result is None
-    assert (tmp_path / "run" / DECK_NAME).exists()
+    assert (tmp_path / "run" / run_deck_name(1)).exists()
 
 
 def test_deck_failure_raises_deck_error_without_record_or_events(tmp_path, monkeypatch):

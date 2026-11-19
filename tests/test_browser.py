@@ -223,13 +223,28 @@ def test_a_surface_file_nobody_uploaded_is_said_once(replay, work):
 def test_a_surface_file_that_cannot_be_read_is_named_without_its_folder(replay, work):
     replay("albany_success")
     put(MET / "AERMET2.PFL")
-    (work / "AERMET2.SFC").mkdir(parents=True)
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "AERMET2.SFC").write_text("not a surface file\n")
     found = ok("check", document=json.loads(project_to_json(_albany_project())))
     problems = [p for i in found["warnings"] for p in i["problems"]]
-    assert problems == ["surface file AERMET2.SFC is a directory, not a surface file"]
+    assert len(problems) == 1
+    assert problems[0].startswith("surface file AERMET2.SFC could not be read")
+    assert found["ready"]
 
 
-def test_without_aermod_the_checklist_says_the_build_did_not_load(work):
+def test_a_surface_file_that_is_a_folder_blocks_the_run_once(replay, work):
+    """Said once, as not uploaded, and not also as a file AERMOD would not find."""
+    replay("albany_success")
+    put(MET / "AERMET2.PFL")
+    (work / "AERMET2.SFC").mkdir(parents=True)
+    found = ok("check", document=json.loads(project_to_json(_albany_project())))
+    assert [p for i in found["blocking"] for p in i["problems"]] == [
+        "AERMET2.SFC (ME SURFFILE) has not been uploaded: add it on the Meteorology step's "
+        "file list, or pick a sample"]
+
+
+def test_without_aermod_the_checklist_says_the_build_did_not_load(work, tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "no-aermod-here"))   # hermetic (arch A3)
     document = json.loads(project_to_json(_albany_project()))
     found = ok("check", document=document)
     run_items = [i for i in found["blocking"] if i["step"] == "run"]
@@ -429,11 +444,13 @@ def test_a_run_returns_aermods_maxima(replay):
         assert (got["x"], got["y"]) == (want["x"], want["y"])
     assert results["maps"] and results["maps"][0]["src"].startswith("data:image/png;base64,")
     assert results["tables"] and len(results["tables"][0]["rows"]) <= browser.MAX_TABLE_ROWS
-    # SO2 is compared with a design value only, so the caption under the
-    # NAAQS table does not explain a lower bound.
-    assert {r["basis"] for r in results["naaqs"]} == {"design value"}
-    assert results["naaqs_caption"].startswith("A screening comparison")
-    assert "lower bound" not in results["naaqs_caption"].lower()
+    # Four days of SO2 are no design value: the verdict says so, and that no
+    # background was added; no row is a screen or a lower bound, so there
+    # is no caption to explain them.
+    assert {r["basis"] for r in results["naaqs"]} == {"short record"}
+    assert all(r["verdict"].startswith("Not a design value") and "no background" in r["verdict"]
+               for r in results["naaqs"])
+    assert results["naaqs_caption"] == ""
     out = next(f["name"] for f in results["files"] if f["name"].endswith(".out"))
     assert b"AERMOD Finishes Successfully" in base64.b64decode(
         ok("get_file", name=out)["data_b64"])

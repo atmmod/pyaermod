@@ -361,7 +361,10 @@ def _have_aermod() -> bool:
         except FileNotFoundError:
             return False
         return True
-    return shutil.which("aermod") is not None
+    from .gui_v2.readiness import aermod_available
+
+    # The search AERMODRunner() makes (aermod, AERMOD, aermod.exe ...).
+    return aermod_available()
 
 
 NO_WASM = ("AERMOD's WebAssembly build did not load. Reload the page; if it still "
@@ -523,6 +526,20 @@ def _met_warnings(session: Any, warnings: List[Dict[str, Any]],
     return kept, blocking
 
 
+def _without_missing_met(project: Any, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """``items`` without the met files AERMOD would not find in the working
+    directory: :func:`_not_uploaded` says that, by the file's name alone."""
+    from .gui_v2.readiness import _problem_text, met_file_findings
+
+    said = {_problem_text(f) for f in met_file_findings(project.meteorology, str(work_dir()))}
+    kept = []
+    for item in items:
+        problems = [p for p in item["problems"] if p not in said]
+        if problems:
+            kept.append({**item, "problems": problems})
+    return kept
+
+
 def _review(project: Any) -> Dict[str, Any]:
     """The checklist of ``project``, after quoting its file names with blanks (in place)."""
     from .gui_v2.readiness import review
@@ -531,8 +548,8 @@ def _review(project: Any) -> Dict[str, Any]:
     session = _session(project)
     found = review(session, have_binary=_have_aermod())
     warnings, annual = _met_warnings(session, _items(found.warnings))
-    blocking = _merge(_merge(_merge(_items(found.blocking), _not_uploaded(project)),
-                             _outside(project)), annual)
+    blocking = _merge(_merge(_merge(_without_missing_met(project, _items(found.blocking)),
+                                    _not_uploaded(project)), _outside(project)), annual)
     return {"ready": not blocking, "blocking": blocking,
             "warnings": warnings, "deck": found.deck,
             "met_summary": found.met_summary}
@@ -545,6 +562,32 @@ def check(document: Any) -> Dict[str, Any]:
     plus every input file the deck names that has not been uploaded.
     """
     return _review(_project(document))
+
+
+def check_item(document: Any, kind: str, index: int, list_name: str = "sources") -> Dict[str, Any]:
+    """What an editor shows about one source or receptor of ``document``.
+
+    ``kind`` is ``"source"`` or ``"receptor"``; the item is
+    ``project.sources.sources[index]`` or ``project.receptors.<list_name>[index]``.
+    ``findings`` are the validator's problems with it, which the editor
+    lists; ``refused`` the reasons it may not be saved (another source has
+    its ID).
+    """
+    from .gui_v2.readiness import item_findings
+
+    project = _project(document)
+    items = (project.sources.sources if kind == "source"
+             else getattr(project.receptors, list_name, None))
+    if not isinstance(items, list) or not isinstance(index, int) \
+            or not 0 <= index < len(items):
+        raise BrowserError(f"no {kind} at {list_name}[{index}]", kind="internal")
+    item = items[index]
+    refused = []
+    if kind == "source" and any(other.source_id == item.source_id
+                                for i, other in enumerate(items) if i != index):
+        refused.append(f"Source ID: another source is called {item.source_id}; AERMOD needs "
+                       "a different ID for each")
+    return {"findings": item_findings(project, item), "refused": refused}
 
 
 def deck(document: Any) -> Dict[str, Any]:
@@ -876,6 +919,7 @@ _OPERATIONS: Dict[str, Callable[..., Dict[str, Any]]] = {
     "load": load,
     "new_item": new_item,
     "check": check,
+    "check_item": check_item,
     "deck": deck,
     "plan_view": plan_view,
     "import_deck": import_deck,
@@ -925,6 +969,6 @@ def call(operation: str, arguments: str = "{}") -> str:
 
 
 __all__ = ["BANNER", "MAX_MAPS", "MAX_TABLE_ROWS", "BrowserError", "apply_terrain", "call",
-           "check", "class_schema", "clean_name", "deck", "get_file", "import_deck",
+           "check", "check_item", "class_schema", "clean_name", "deck", "get_file", "import_deck",
            "list_files", "load", "new_item", "new_project", "plan_view", "put_file",
            "remove_file", "run", "schema", "work_dir"]

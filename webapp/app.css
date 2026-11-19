@@ -83,6 +83,7 @@ pre.deck { max-height: 420px; overflow: auto; background: var(--code-bg); paddin
 img.map { max-width: 100%; height: auto; background: #fff; border-radius: 4px; }
 .notice { padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; }
 .notice p { margin: 2px 0; }
+.notice:empty { display: none; }
 .notice.info { background: var(--info-bg); }
 .notice.warn { background: var(--warn-bg); color: var(--warn-text); }
 .checklist { margin: 6px 0; padding-left: 20px; }

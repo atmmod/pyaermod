@@ -70,6 +70,11 @@ READING = "Reading the results of run {number} ..."
 #: Shown when a finished run's files could not be read.
 COULD_NOT_READ = "Could not read the results of run {number}: {error}"
 
+#: Shown above a run's results once the project no longer writes that run's deck.
+CHANGED_SINCE = ("The project has changed since run {number} started. These results are "
+                 "for the project as it was then; run AERMOD again for results of the "
+                 "project as it is now.")
+
 _UNITS = {"ug/m^3": "µg/m³", "g/m^2": "g/m²", "g/m^2/yr": "g/m²/yr"}
 
 _OUTPUT_TYPES = {"CONC": "Concentration", "DEPOS": "Total deposition",
@@ -96,6 +101,12 @@ def render(session: Session, *, dialogs: Any = None,
     awaited: set = set()
     client = ui.context.client
 
+    def _shown(runs: List[Any]) -> Any:
+        """The run the step shows: the one picked from the history, or the newest."""
+        if picked["runs"] != len(session.runs):
+            picked["number"], picked["runs"] = None, len(session.runs)
+        return next((r for r in runs if r.number == picked["number"]), runs[0])
+
     def _await_view(record: Any) -> None:
         """Rebuild the section once ``record``'s view has been read."""
         if record.number in awaited:
@@ -116,9 +127,22 @@ def render(session: Session, *, dialogs: Any = None,
 
         background_tasks.create(wait(), name=f"read the results of run {record.number}")
 
+    ui.label("Results").classes("text-h6")
+
+    # Its own section, rebuilt on every edit: the results below are not.
+    @live(session, SessionEvent.PROJECT_CHANGED, SessionEvent.RUN_STARTED,
+          SessionEvent.RUN_FINISHED)
+    def _changed() -> None:
+        runs = completed_runs(session)
+        if runs and session.changed_since(_shown(runs)):
+            with ui.row().classes("items-start no-wrap q-gutter-sm q-mt-sm").props(
+                    'role="status"').mark("results-changed"):
+                ui.icon("info", color="warning").props('aria-hidden="true"')
+                ui.label(CHANGED_SINCE.format(number=_shown(runs).number)).classes(
+                    "text-body1")
+
     @live(session, SessionEvent.RUN_STARTED, SessionEvent.RUN_FINISHED)
     def _body() -> None:
-        ui.label("Results").classes("text-h6")
         if session.run_in_progress is not None:
             ui.label(f"Run {session.run_in_progress.number} is in progress; "
                      "its results appear here when it finishes.").classes(
@@ -129,13 +153,12 @@ def render(session: Session, *, dialogs: Any = None,
             ui.button("Go to Review & Run", on_click=lambda: goto("run")).props("flat")
             return
 
-        if picked["runs"] != len(session.runs):
-            picked["number"], picked["runs"] = None, len(session.runs)
-        record = next((r for r in runs if r.number == picked["number"]), runs[0])
+        record = _shown(runs)
         if len(runs) > 1:
             def _pick(e: Any) -> None:
                 picked["number"], picked["runs"] = e.value, len(session.runs)
                 _body.refresh()
+                _changed.refresh()
 
             ui.select(
                 {r.number: _history_label(r, cached_view(r)) for r in runs},
@@ -469,8 +492,18 @@ def _map(ui: Any, view: RunView, map_choice: Dict[int, int],
 # NAAQS
 # ----------------------------------------------------------------------
 
+#: A table column whose text wraps instead of widening the table.
+_WRAP = "white-space: normal; min-width: 14rem"
+
+
 def _naaqs(ui: Any, view: RunView) -> None:
     ui.label("Comparison with the NAAQS").classes("text-subtitle1 q-mt-md")
+    # Each verdict first as a sentence, which wraps at any width: in the
+    # table the Result column could be scrolled out of sight.
+    with ui.element("ul").classes("q-my-xs q-pl-md").mark("naaqs-verdicts"):
+        for check in view.naaqs:
+            with ui.element("li"):
+                ui.label(f"{check.label}: {check.verdict}.").classes("text-body2")
     rows = []
     for i, check in enumerate(view.naaqs):
         rows.append({
@@ -487,17 +520,21 @@ def _naaqs(ui: Any, view: RunView) -> None:
     ui.table(
         columns=[
             {"name": "standard", "label": "Standard", "field": "standard", "align": "left"},
-            {"name": "level", "label": "NAAQS", "field": "level", "align": "left"},
+            {"name": "verdict", "label": "Result", "field": "verdict", "align": "left",
+             "style": _WRAP},
             {"name": "value", "label": "This run", "field": "value"},
-            {"name": "at", "label": "At (x, y)", "field": "at"},
+            {"name": "level", "label": "NAAQS", "field": "level", "align": "left"},
             {"name": "basis", "label": "Compared", "field": "basis", "align": "left"},
-            {"name": "verdict", "label": "Result", "field": "verdict", "align": "left"},
-            {"name": "how", "label": "Value from", "field": "how", "align": "left"},
+            {"name": "at", "label": "At (x, y)", "field": "at"},
+            {"name": "how", "label": "Value from", "field": "how", "align": "left",
+             "style": _WRAP},
         ],
         rows=rows, row_key="key",
     ).classes("w-full").props('aria-label="Comparison with the NAAQS" flat bordered').mark(
         "results-naaqs")
-    ui.label(naaqs_caption(view.naaqs)).classes("text-caption text-grey-8")
+    caption = naaqs_caption(view.naaqs)
+    if caption:
+        ui.label(caption).classes("text-caption text-grey-8")
 
 
 # ----------------------------------------------------------------------
@@ -586,13 +623,17 @@ def _downloads(ui: Any, view: RunView, *, stale: bool,
         return
     ui.label("Downloads").classes("text-subtitle1 q-mt-md")
 
-    def fetch(file: RunFile) -> None:
+    async def fetch(file: RunFile) -> None:
+        from nicegui import run
+
+        # Checked in a worker thread and sent from disk: a multi-GB POSTFILE
+        # must not hold the loop that serves every tab, nor fill the memory.
         try:
-            data = file.read()
+            path = await run.io_bound(file.verify)
         except StaleFileError as exc:
             ui.notify(str(exc), color="negative")
             return
-        ui.download(data, file.name, "text/plain")
+        ui.download(path, file.name, "text/plain")
 
     with ui.row().classes("q-gutter-sm items-center"):
         for file in files:
@@ -616,7 +657,9 @@ def _kmz(ui: Any, view: RunView, map_choice: Dict[int, int], *, stale: bool) -> 
                          precision=0).classes("w-64")
         south = ui.checkbox("Southern hemisphere")
 
-        def make() -> None:
+        async def make() -> None:
+            from nicegui import run
+
             if zone.value is None:
                 ui.notify("Enter the UTM zone of the model's x and y (a KMZ is in "
                           "latitude and longitude).", color="warning")
@@ -627,7 +670,9 @@ def _kmz(ui: Any, view: RunView, map_choice: Dict[int, int], *, stale: bool) -> 
                           "concentration plot file on the map first.", color="warning")
                 return
             try:
-                data = _kmz_bytes(view, plot, int(zone.value), not south.value)
+                # Off the loop: projecting every receptor takes a while.
+                data = await run.io_bound(_kmz_bytes, view, plot, int(zone.value),
+                                          not south.value)
             except ImportError as exc:
                 ui.notify(f"KMZ export needs pyproj: {exc}", color="negative")
                 return
@@ -666,4 +711,4 @@ class _Point:
         self.source_id, self.x_coord, self.y_coord = source_id, x, y
 
 
-__all__ = ["NO_RUN", "render"]
+__all__ = ["CHANGED_SINCE", "NO_RUN", "render"]

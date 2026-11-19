@@ -28,6 +28,7 @@ _cheap_garbage_collection = smoke._cheap_garbage_collection
 GuiSession = smoke.GuiSession
 _agrees, _by_id = smoke._agrees, smoke._by_id
 _title_input, _value_becomes = smoke._title_input, smoke._value_becomes
+with_met_files = smoke.with_met_files
 
 ui = pytest.importorskip("nicegui").ui
 
@@ -56,7 +57,7 @@ async def _run_in(gui: GuiSession, work_dir, *, outcome: str, shows: str = "") -
     box = _by_id(gui.user.find(kind=ui.input, content="Working directory").elements,
                  newest=True)
     with gui.user:
-        box.value = str(work_dir)
+        box.value = str(with_met_files(work_dir))
     gui.user.find(kind=ui.button, content="Run AERMOD").click()
     await gui.user.should_see(outcome, retries=100)
     if shows:
@@ -94,7 +95,7 @@ class TestSuccessfulRun:
         await gui.user.should_see(
             "AERMOD finished successfully with 0 fatal errors and 4 warnings.")
         await gui.user.should_see(f"Working directory: {work_dir}")
-        await gui.user.should_see("Output file: pyaermod_gui.out")
+        await gui.user.should_see("Output file: pyaermod_gui_run1.out")
         await gui.user.should_see("Maximum for each averaging period")
         rows = _maxima(gui)
         assert list(rows) == ["1-HR", "3-HR", "24-HR", "PERIOD"]
@@ -168,12 +169,19 @@ class TestSuccessfulRun:
         # is the highest daily maximum, which is AERMOD's 1-hour maximum
         # (the 2nd-highest daily maximum there is 54.30861).
         assert row["value"] == "76.07952 µg/m³" and row["at"] == "(519.62, -300.00)"
-        assert row["basis"] == "design value"
         assert row["how"] == ("design value computed by pyaermod from pyaermod_01H.pst "
                               "(4 days of hourly values; the NAAQS form needs 3 years)")
-        assert row["verdict"] == "Below the NAAQS"
-        # No row is a lower bound, so the caption does not explain one.
-        await gui.user.should_see("A screening comparison uses the highest value")
+        # Four days are no design value, and the verdict says so in its own
+        # words, with no background added (live-G6, code-G10).
+        assert row["basis"] == "short record"
+        assert row["verdict"] == (
+            "Not a design value: 4 days of hourly values, and the NAAQS form needs 3 years. "
+            "This value is below the NAAQS level (modelled value only: the run added no background concentration)")
+        # The verdict is also a sentence above the table, which wraps.
+        await gui.user.should_see("SO2 1-hour (99th percentile of daily max): Not a design "
+                                  "value: 4 days of hourly values")
+        # No row is a screen or a lower bound: no caption explains either.
+        await gui.user.should_not_see("A screening comparison uses the highest value")
         await gui.user.should_not_see("A lower bound")
 
     @pytest.mark.asyncio
@@ -183,9 +191,9 @@ class TestSuccessfulRun:
         work_dir = tmp_path / "run"
         await _run_in(gui, work_dir, outcome="Succeeded in", shows="Run 1 succeeded")
         await gui.user.should_see("Downloads")
-        assert await _download(gui, "Download deck") == (work_dir / "pyaermod_gui.inp").read_bytes()
+        assert await _download(gui, "Download deck") == (work_dir / "pyaermod_gui_run1.inp").read_bytes()
         out = await _download(gui, "Download AERMOD output (.out)")
-        assert out == (work_dir / "pyaermod_gui.out").read_bytes()
+        assert out == (work_dir / "pyaermod_gui_run1.out").read_bytes()
         assert b"AERMOD Finishes Successfully" in out
         plot = await _download(gui, "Download plot file pyaermod_24H.plt")
         assert plot == (work_dir / "pyaermod_24H.plt").read_bytes()
@@ -230,7 +238,7 @@ class TestFailedRun:
         await gui.user.should_not_see("Download plot file")
         await gui.user.should_not_see("Download KMZ")
         # The deck and AERMOD's own report, to find out why.
-        assert await _download(gui, "Download deck") == (work_dir / "pyaermod_gui.inp").read_bytes()
+        assert await _download(gui, "Download deck") == (work_dir / "pyaermod_gui_run1.inp").read_bytes()
         out = await _download(gui, "Download AERMOD output (.out)")
         assert b"AERMOD Finishes UN-successfully" in out
 
@@ -279,7 +287,7 @@ class TestRunHistory:
         box = _by_id(gui.user.find(kind=ui.input, content="Working directory").elements,
                      newest=True)
         with gui.user:
-            box.value = str(tmp_path / "second")
+            box.value = str(with_met_files(tmp_path / "second"))
         gui.user.find(kind=ui.button, content="Run AERMOD").click()
         await gui.user.should_see("Run 2 failed", retries=100)
         await gui.user.should_see("AERMOD could not be run: AERMOD executable not found in PATH")
@@ -291,7 +299,7 @@ class TestRunHistory:
             "Run 2, finished hh:mm:ss: failed", "Run 1, finished hh:mm:ss: succeeded"]
         # Only the deck the GUI wrote can be downloaded.
         assert await _download(gui, "Download deck") == (
-            tmp_path / "second" / "pyaermod_gui.inp").read_bytes()
+            tmp_path / "second" / "pyaermod_gui_run2.inp").read_bytes()
         await gui.user.should_not_see("Download AERMOD output (.out)")
 
     @pytest.mark.asyncio
@@ -432,11 +440,12 @@ class TestImportedAertest:
             "753.65603", "303.11", "-175.00")
         assert rows["PERIOD"]["value"] == "24.85173"
         [check] = _one(gui, kind=ui.table, marker="results-naaqs").rows
-        assert check["basis"] == "design value"
+        assert check["basis"] == "short record"
         assert check["how"].startswith("design value computed by pyaermod from AERTEST_01H.PST")
         # Four days: the 99th percentile of four daily maxima is the highest.
         assert check["value"] == "753.65603 µg/m³"
-        assert check["verdict"] == "Above the NAAQS"
+        assert check["verdict"].startswith("Not a design value: 4 days of hourly values")
+        assert "This value is above the NAAQS level" in check["verdict"]
         data = await _download(gui, "Download POSTFILE AERTEST_01H.PST")
         assert data == (work_dir / "AERTEST_01H.PST").read_bytes()
         alt = _one(gui, kind=ui.image, marker="results-map").props["alt"]

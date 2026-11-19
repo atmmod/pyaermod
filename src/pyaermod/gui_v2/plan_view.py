@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import textwrap
 from html import escape
-from typing import Any, Iterable, List, Sequence, Tuple
+from typing import Any, Callable, Iterable, List, Sequence, Tuple
 
 from ..footprints import LINES, POINT, POLYGON, receptor_points, source_footprint
 
@@ -143,21 +143,85 @@ class _Frame:
                 _fmt(self.bottom - (y - self.y0) * self.scale))
 
 
-def _receptor_items(project: Any) -> List[Tuple[str, str, List[Point]]]:
-    """(name, description, points) for each receptor network and the discrete set."""
+def _axis(explicit: Any, init: Any, delta: Any, num: Any) -> Tuple[int, Callable[[int], float]]:
+    """How many values one axis of a network has, and the value at an index."""
+    if explicit is not None:
+        values = list(explicit)
+        return len(values), values.__getitem__
+    try:
+        n = max(int(num), 0)
+    except (TypeError, ValueError, OverflowError):
+        n = 0
+    return n, lambda i: init + i * delta
+
+
+def _indices(n: int, budget: int) -> List[int]:
+    """Every index below ``n``, or at most about ``budget`` of them by stride (the last kept)."""
+    if n <= budget:
+        return list(range(n))
+    step = math.ceil(n / max(budget, 1))
+    picked = list(range(0, n, step))
+    if picked[-1] != n - 1:
+        picked.append(n - 1)
+    return picked
+
+
+def _budgets(n_outer: int, n_inner: int) -> Tuple[int, int]:
+    """Indices to keep on each axis so that about MAX_POINTS points are drawn."""
+    if n_outer * n_inner <= MAX_POINTS:
+        return n_outer, n_inner
+    inner = max(1, min(n_inner, round(math.sqrt(MAX_POINTS * n_inner / max(n_outer, 1)))))
+    return max(1, MAX_POINTS // inner), inner
+
+
+def _network(grid: Any, sources: Sequence[Any]) -> Tuple[int, List[Point]]:
+    """A grid's receptor count, counted, and its points, sampled by stride.
+
+    A network is never expanded point by point: a grid of millions of
+    receptors (one extra zero in a count) costs no more to draw than one
+    of :data:`MAX_POINTS`.
+    """
+    from ..footprints import _source_location
+    from ..receptors import CartesianGrid
+
+    if isinstance(grid, CartesianGrid):
+        nx, fx = _axis(grid.x_points, grid.x_init, grid.x_delta, grid.x_num)
+        ny, fy = _axis(grid.y_points, grid.y_init, grid.y_delta, grid.y_num)
+        by, bx = _budgets(ny, nx)
+        xs = [fx(i) for i in _indices(nx, bx)]
+        return nx * ny, [(x, fy(j)) for j in _indices(ny, by) for x in xs]
+    x0, y0 = grid.x_origin, grid.y_origin
+    if grid.origin_source_id:
+        found = _source_location(grid.origin_source_id, sources)
+        if found is not None:
+            x0, y0 = found
+    nr, fr = _axis(grid.distances, grid.dist_init, grid.dist_delta, grid.dist_num)
+    na, fa = _axis(grid.directions, grid.dir_init, grid.dir_delta, grid.dir_num)
+    ba, br = _budgets(na, nr)
+    rings = [fr(k) for k in _indices(nr, br)]
+    points: List[Point] = []
+    for m in _indices(na, ba):
+        theta = math.radians(fa(m))
+        s, c = math.sin(theta), math.cos(theta)
+        points.extend((x0 + r * s, y0 + r * c) for r in rings)
+    return nr * na, points
+
+
+def _receptor_items(project: Any) -> List[Tuple[str, str, int, List[Point]]]:
+    """(name, description, receptor count, points drawn) for each receptor
+    network and the discrete set."""
     rp = project.receptors
     sources = project.sources.sources
-    items: List[Tuple[str, str, List[Point]]] = []
-    for grid in rp.cartesian_grids:
-        pts = receptor_points(grid, sources=sources)
-        items.append((grid.grid_name, f"Cartesian grid {grid.grid_name}: {len(pts)} receptors", pts))
-    for grid in rp.polar_grids:
-        pts = receptor_points(grid, sources=sources)
-        items.append((grid.grid_name, f"Polar grid {grid.grid_name}: {len(pts)} receptors", pts))
+    items: List[Tuple[str, str, int, List[Point]]] = []
+    for kind, grids in (("Cartesian", rp.cartesian_grids), ("Polar", rp.polar_grids)):
+        for grid in grids:
+            count, pts = _network(grid, sources)
+            items.append((grid.grid_name, f"{kind} grid {grid.grid_name}: {count} receptors",
+                          count, pts))
     if rp.discrete_receptors:
         pts = [p for rec in rp.discrete_receptors for p in receptor_points(rec)]
         noun = "receptor" if len(pts) == 1 else "receptors"
-        items.append(("", f"{len(pts)} discrete {noun}", pts))
+        items.append(("", f"{len(pts)} discrete {noun}", len(pts), pts))
     return items
 
 
@@ -224,12 +288,12 @@ def plan_view_svg(project: Any) -> str:
     far = [f"source {fp.source_id}" for fp in footprints
            if not all(_drawable(p) for p in fp.points())]
     far += [f"receptor grid {name}" if name else "discrete receptors"
-            for name, _, pts in receptors if not all(_drawable(p) for p in pts)]
+            for name, _, _, pts in receptors if not all(_drawable(p) for p in pts)]
     if far:
         return _undrawable_svg(far)
-    receptor_count = sum(len(pts) for _, _, pts in receptors)
+    receptor_count = sum(count for _, _, count, _ in receptors)
     every_point: List[Point] = [p for fp in footprints for p in fp.points()]
-    for _, _, pts in receptors:
+    for _, _, _, pts in receptors:
         every_point.extend(pts)
     frame = _Frame(every_point)
     # Widen the left margin for long y labels (UTM northings have 7 digits).
@@ -258,10 +322,10 @@ def plan_view_svg(project: Any) -> str:
     # Receptors first, so sources draw over them.
     budget = MAX_POINTS
     label_grids = len(receptors) <= MAX_LABELS
-    for name, description, pts in receptors:
+    for name, description, count, pts in receptors:
         shown = _thin(pts, max(budget, 1))
         budget = max(budget - len(shown), 0)
-        size = 2.2 if len(pts) < 2000 else 1.4
+        size = 2.2 if count < 2000 else 1.4
         d = "".join(f"M{x} {y}h0" for x, y in (frame.px(*p) for p in shown))
         out.append(f'<g class="receptors"><title>{escape(description)}</title>'
                    f'<path d="{d}" stroke="{RECEPTOR_COLOUR}" stroke-width="{size}" '

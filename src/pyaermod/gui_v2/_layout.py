@@ -87,6 +87,78 @@ def confirm(dialogs: Any, *, question: str, detail: str, yes: str,
     dialog.open()
 
 
+def editor_dialog(dialogs: Any, *, title: str, build: Callable[[Callable[[], None]], None],
+                  findings: Callable[[], List[str]], refused: Callable[[], List[str]],
+                  save: Callable[[], bool], gone: str) -> Any:
+    """Open the editor of one source or receptor; return the dialog.
+
+    ``build(on_change)`` builds the fields of the draft and calls
+    ``on_change()`` after each edit. The dialog is persistent: a click
+    outside it or Esc does not close it, so a draft is discarded only by
+    Cancel.
+
+    ``findings()`` are the validator's problems with the draft; they are
+    listed in the editor as it opens and again after every edit, so the
+    user sees them where the item is edited (Review & Run lists them too).
+    Save is refused, with the reasons listed, while a field fails its own
+    check (:func:`~pyaermod.gui_v2._form.field_errors`: an emptied number,
+    a line of numbers that could not be read, a source ID AERMOD could not
+    read) or ``refused()`` names a problem (a duplicate ID). ``save()``
+    hands the draft to the session and returns False when the item it
+    replaces has gone (``gone`` is then the notice).
+    """
+    from nicegui import ui
+
+    from ._form import field_errors
+
+    def listing(heading: str, problems: List[str], colour: str) -> None:
+        ui.label(heading).classes(f"text-subtitle2 {colour}")
+        with ui.element("ul").classes("q-my-none q-pl-md"):
+            for problem in problems:
+                with ui.element("li"):
+                    ui.label(problem[:1].upper() + problem[1:]).classes(f"text-body2 {colour}")
+
+    @ui.refreshable
+    def _findings() -> None:
+        found = findings()
+        if found:
+            listing("The checks find these problems (Review & Run lists them until they "
+                    "are fixed):", found, "text-negative")
+
+    def on_save() -> None:
+        problems = field_errors(fields) + refused()
+        if problems:
+            refusal.clear()
+            with refusal:
+                listing("Not saved: correct these first.", problems, "text-negative")
+            ui.notify(f"Not saved: {problems[0]}", color="negative")
+            return
+        if not save():
+            ui.notify(gone, color="warning")
+        dialog.close()
+
+    with dialogs, ui.dialog().props("persistent").mark("editor-dialog") as dialog, \
+            ui.card().classes("w-full max-w-4xl"):
+        dialog.props["aria-label"] = title
+        ui.label(title).classes("text-h6")
+        with ui.column().classes("w-full gap-2") as fields:
+            def changed() -> None:
+                _findings.refresh()
+
+            build(changed)
+        with ui.column().classes("w-full gap-1").props('role="status"').mark("editor-findings"):
+            _findings()
+        refusal = ui.column().classes("w-full gap-1").props('role="alert"').mark(
+            "editor-problems")
+        with ui.row().classes("justify-end w-full q-gutter-sm q-mt-md"):
+            ui.button("Cancel", on_click=dialog.close).props("flat")
+            ui.button("Save", on_click=on_save).props("color=primary")
+    # A closed editor is gone for good; the next one is built afresh.
+    dialog.on_value_change(lambda e: None if e.value else dialog.delete())
+    dialog.open()
+    return dialog
+
+
 class Pager:
     """The page of a long table that is on screen.
 
@@ -167,6 +239,7 @@ __all__ = [
     "Goto",
     "Pager",
     "confirm",
+    "editor_dialog",
     "no_goto",
     "plan_view",
     "required_goto",
