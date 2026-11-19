@@ -254,6 +254,9 @@ class AERMODProject:
             ("SO", self.sources.to_aermod_input(
                 chemistry=chemistry,
                 psd_credit=getattr(self.control, "psd_credit", False),
+                # ELEVUNIT is an SO (and RE) keyword, never a CO one.
+                elevation_units=self.control.elevation_units,
+                multi_urban=len(self.control.urban_areas) > 1,
             )),
         ]
         if not event:
@@ -304,14 +307,14 @@ class AERMODProject:
         # leave an existing deck at ``filename`` untouched and create no
         # file (or directory) at all.
         text = self.to_aermod_input(validate=validate, check_files=check_files)
-        event_text = None
-        if self.events and event_filename:
-            event_text = self.to_aermod_input(validate=False, event_processing=True)
+        event_path = Path(event_filename) if self.events and event_filename else None
+        event_text = (self.to_aermod_input(validate=False, event_processing=True)
+                      if event_path is not None else None)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_atomically(output_path, text)
-        if event_text is not None:
-            _write_atomically(Path(event_filename), event_text)
+        if event_path is not None and event_text is not None:
+            _write_atomically(event_path, event_text)
 
         return output_path
 

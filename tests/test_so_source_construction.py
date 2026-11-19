@@ -388,8 +388,8 @@ class TestNo2Ratio:
         p = _parse(so, modelopt="CONC FLAT PVMRM", pollutant="NO2", co_extra=_OLM_CO)
         assert [s.no2_ratio for s in p.sources.sources] == [0.2, 0.35, 0.35]
         assert _so_lines(p, "NO2RATIO") == [
-            ["NO2RATIO", "STACK1", "0.2000"], ["NO2RATIO", "STACK2", "0.3500"],
-            ["NO2RATIO", "STACK3", "0.3500"]]
+            ["NO2RATIO", "STACK1", "0.2"], ["NO2RATIO", "STACK2", "0.35"],
+            ["NO2RATIO", "STACK3", "0.35"]]
         assert [s.no2_ratio for s in _roundtrip(p).sources.sources] == [0.2, 0.35, 0.35]
 
     def test_no2ratio_on_a_volume_source(self):

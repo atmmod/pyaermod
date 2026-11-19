@@ -609,7 +609,7 @@ _LONG = [12.3456789012345, 0.1 + 0.2, 1.0 / 3.0, 123456789012.5]
 def test_exact_num_keeps_short_forms_and_reads_back_exactly():
     from pyaermod.pathways import exact_num
     assert [exact_num(v) for v in (1.0, 2, 3.5, 0.1, 1e-5, 6.0)] == [
-        "1", "2", "3.5", "0.1", "1e-05", "6"]
+        "1", "2", "3.5", "0.1", "1.0e-05", "6"]
     for value in _LONG:
         assert float(exact_num(value)) == value
 

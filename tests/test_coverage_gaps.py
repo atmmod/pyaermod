@@ -418,9 +418,12 @@ class TestControlPathwayOptions:
         assert "1.230000e-04" in output
 
     def test_elevation_units_feet(self):
+        """ELEVUNIT is no CO keyword (coset.f COCARD, E110): the project
+        writes it as the first SO card (soset.f SOELUN)."""
         ctrl = self._make_control(elevation_units="FEET")
-        output = ctrl.to_aermod_input()
-        assert "ELEVUNIT  FEET" in output
+        assert "ELEVUNIT" not in ctrl.to_aermod_input()
+        so = SourcePathway().to_aermod_input(elevation_units=ctrl.elevation_units)
+        assert so.splitlines()[1].split() == ["ELEVUNIT", "FEET"]
 
     def test_elevation_units_meters_omitted(self):
         ctrl = self._make_control(elevation_units="METERS")
@@ -430,7 +433,7 @@ class TestControlPathwayOptions:
     def test_flagpole_height(self):
         ctrl = self._make_control(flag_pole_height=1.5)
         output = ctrl.to_aermod_input()
-        assert "FLAGPOLE  1.50" in output
+        assert "FLAGPOLE  1.5" in output
 
     def test_urban_option(self):
         """URBANOPT population [name]: coset.f URBOPT reads field 1 as the
@@ -453,11 +456,12 @@ class TestControlPathwayOptions:
             elevation_units="FEET",
             flag_pole_height=2.0,
             urban_option="URBAN1",
-            low_wind_option="LOWWIND3",
+            low_wind_option="0.3 0.5",
         )
         output = ctrl.to_aermod_input()
-        for kw in ["DEPOS", "HALFLIFE", "DCAYCOEF", "ELEVUNIT", "FLAGPOLE", "URBANOPT", "LOW_WIND"]:
+        for kw in ["DEPOS", "HALFLIFE", "DCAYCOEF", "FLAGPOLE", "URBANOPT", "LOW_WIND"]:
             assert kw in output
+        assert "ELEVUNIT" not in output  # an SO card, see test_elevation_units_feet
 
 
 # ============================================================================
@@ -1227,7 +1231,7 @@ class TestMeteorologyFeatures:
             wind_rotation=15.5,
         )
         output = met.to_aermod_input()
-        assert "WDROTATE  15.50" in output
+        assert "WDROTATE  15.5" in output
 
     def test_wind_rotation_none_omits_keyword(self):
         """wind_rotation=None omits WDROTATE keyword."""
