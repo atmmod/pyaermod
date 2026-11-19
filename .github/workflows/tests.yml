@@ -9,6 +9,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The suite takes about 5 minutes. Without a limit, a hung test holds
+    # the job for GitHub's 6 hours (two did, in tests/test_gui_v2_smoke.py,
+    # on 2026-11-19).
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
