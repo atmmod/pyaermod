@@ -1,5 +1,5 @@
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   1
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -71,8 +71,8 @@
 
  **Detailed Error/Message File:   AERTEST_ERRORS.OUT                                                                              
  **File for Summary of Results:   AERTEST.SUM                                                                                     
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   2
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -96,8 +96,8 @@
                                                             (METERS/SEC)
 
                                                  1.54,   3.09,   5.14,   8.23,  10.80,
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   3
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -108,7 +108,7 @@
    Surface format: FREE                                                                                                     
    Profile format: FREE                                                                                                     
    Surface station no.:    14735                  Upper air station no.:    14735
-                  Name: UNKNOWN                                    Name: UNKNOWN                                 
+                  Name: ALBANY,NY                                  Name: ALBANY,NY                               
                   Year:   1988                                     Year:   1988
 
  First 24 hours of scalar data
@@ -147,8 +147,8 @@
  ** 03 01 01  100.0 1  320.    3.70   274.8    9.1    0.41    0.58
 
  F indicates top of profile (=1) or below (=0)
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   4
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -177,8 +177,8 @@ ALL       1ST HIGHEST VALUE IS      24.85173 AT (     433.01,     -250.00,     0
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   5
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -200,8 +200,8 @@ ALL      HIGH   1ST HIGH VALUE IS     753.65603  ON 88030111: AT (     303.11,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   6
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -223,8 +223,8 @@ ALL      HIGH   1ST HIGH VALUE IS     329.96015  ON 88030112: AT (     433.01,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   7
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -246,8 +246,8 @@ ALL      HIGH   1ST HIGH VALUE IS     264.11481  ON 88030116: AT (     433.01,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   8
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 
@@ -269,8 +269,8 @@ ALL      HIGH   1ST HIGH VALUE IS      88.89517  ON 88030124: AT (     433.01,  
                       GP = GRIDPOLR
                       DC = DISCCART
                       DP = DISCPOLR
- *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        09/28/26
- *** AERMET - VERSION  26135 ***   ***                                                                      ***        17:13:03
+ *** AERMOD - VERSION 26135  ***   ***  A Simple Example Problem for the AERMOD Model with PRIME            ***        11/19/26
+ *** AERMET - VERSION  26135 ***   ***                                                                      ***        08:44:38
                                                                                                                        PAGE   9
  *** MODELOPTs:    NonDFAULT  CONC  FLAT  RURAL  SigA&SigW
 

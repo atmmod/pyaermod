@@ -632,8 +632,15 @@ OU FINISHED
         assert p.output.postfile_format == "PLOT"
 
     def test_daytable_toggle(self):
-        p = self._with_output("   DAYTABLE")
+        p = self._with_output("   DAYTABLE  ALLAVE")
         assert p.output.day_table is True
+        assert p.output.day_table_cards == []
+
+    def test_bare_daytable_is_kept_verbatim(self):
+        """ouset.f OUDALY: a DAYTABLE without fields is E200."""
+        p = self._with_output("   DAYTABLE")
+        assert p.output.day_table is False
+        assert [u.keyword for u in p.unparsed_lines] == ["DAYTABLE"]
 
 
 class TestErrors:
@@ -965,8 +972,23 @@ class TestCOKeywordsV26135:
     def test_halflife(self):
         assert _wrap(co_kw="   HALFLIFE 3600").control.half_life == pytest.approx(3600.0)
 
-    def test_elevunit_in_co(self):
-        assert _wrap(co_kw="   ELEVUNIT FEET").control.elevation_units == "FEET"
+    def test_elevunit_in_co_is_kept_verbatim(self):
+        """ELEVUNIT is no CO keyword (coset.f COCARD, E110): kept on CO as
+        written, where AERMOD reports it, and not taken as the units."""
+        p = _wrap(co_kw="   ELEVUNIT FEET")
+        assert p.control.elevation_units == "METERS"
+        assert [(u.pathway, u.keyword) for u in p.unparsed_lines] == [("CO", "ELEVUNIT")]
+
+    def test_so_elevunit_feet_is_the_control_units(self):
+        """SO ELEVUNIT FEET (soset.f SOELUN) is read into
+        ControlPathway.elevation_units and written back once, first."""
+        p = _wrap(so_body="   ELEVUNIT FEET\n" + _DEFAULT_SO)
+        assert p.control.elevation_units == "FEET"
+        assert not p.unparsed_lines
+        text = p.to_aermod_input(validate=False)
+        assert text.count("ELEVUNIT") == 1
+        so = text.split("SO STARTING\n", 1)[1]
+        assert so.splitlines()[0].split() == ["ELEVUNIT", "FEET"]
 
     def test_o3values_filename_form(self):
         chem = _wrap(co_kw="   O3VALUES o3hourly.dat").control.chemistry

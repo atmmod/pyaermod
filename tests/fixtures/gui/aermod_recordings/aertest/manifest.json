@@ -8,8 +8,8 @@
   "finishes_successfully": true,
   "exit_code": 0,
   "build": "EPA AERMOD v26135 source compiled with gfortran -O2 by scripts/build_aermod.sh (FFLAGS -O2 -fbounds-check -Wuninitialized)",
-  "aermod_sha256": "4d7d4829b2fca38e1488fa0722397846f6b6efefaa02002f433eefc898d33435",
-  "recorded": "2026-09-28",
+  "aermod_sha256": "be9f48f976f68605a8519be9ef9bedcb240fc1b0679e9ba6b151ba18549cda78",
+  "recorded": "2026-11-19",
   "command": "aermod",
   "working_directory": "a fresh temporary directory holding aermod.inp and the met files it names",
   "recorder": "python scripts/record_aermod_fixtures.py",
@@ -34,20 +34,8 @@
     "AERTEST_01H.PST"
   ],
   "maxima": {
-    "24HR": {
-      "value": 88.89517,
-      "x": 433.01,
-      "y": -250.0,
-      "units": "ug/m^3"
-    },
-    "8HR": {
-      "value": 264.11481,
-      "x": 433.01,
-      "y": -250.0,
-      "units": "ug/m^3"
-    },
-    "3HR": {
-      "value": 329.96015,
+    "PERIOD": {
+      "value": 24.85173,
       "x": 433.01,
       "y": -250.0,
       "units": "ug/m^3"
@@ -58,8 +46,20 @@
       "y": -175.0,
       "units": "ug/m^3"
     },
-    "PERIOD": {
-      "value": 24.85173,
+    "3HR": {
+      "value": 329.96015,
+      "x": 433.01,
+      "y": -250.0,
+      "units": "ug/m^3"
+    },
+    "8HR": {
+      "value": 264.11481,
+      "x": 433.01,
+      "y": -250.0,
+      "units": "ug/m^3"
+    },
+    "24HR": {
+      "value": 88.89517,
       "x": 433.01,
       "y": -250.0,
       "units": "ug/m^3"
