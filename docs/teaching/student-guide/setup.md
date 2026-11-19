@@ -1,4 +1,4 @@
-# 3. Setting Up PyAERMOD
+# 3. Setting Up pyaermod
 
 > **Want to see AERMOD run before you install anything?** Go to
 > **https://atmmod.github.io/pyaermod/browser/** and click **Open the
@@ -15,27 +15,18 @@
 Open a terminal (Command Prompt on Windows, Terminal on Mac/Linux) and run:
 
 ```bash
-pip install "pyaermod[gui]"
+pip install "pyaermod[gui]"    # keep the quotes: zsh, the macOS shell, needs them
+pyaermod info                  # lists the pyaermod version and what can run here
 ```
 
-This installs the core package plus everything needed for the graphical
-interface (NiceGUI and the matplotlib plots the Results step draws).
-
-To verify the install worked:
-
-```bash
-pyaermod info
-```
-
-You should see the PyAERMOD version and a list of the features that can run
-on this computer. (Keep the quotes in the `pip install` command: without them
-the default macOS shell, zsh, reads the square brackets as a file pattern.)
+[Install](../../install.md) has the other ways to install and what to do
+when an install fails.
 
 ## 3.2 Install the AERMOD and AERMET Executables
 
-PyAERMOD is a *wrapper* — it generates input files, launches the model, and
-visualizes results, but it does **not** include the AERMOD or AERMET programs
-themselves. Those are separate Fortran executables maintained by the U.S. EPA.
+pyaermod writes input files, launches the model and plots results, but it does
+**not** include AERMOD or AERMET. Those are separate Fortran programs from the
+U.S. Environmental Protection Agency (EPA).
 
 **Which executables do you need?**
 
@@ -53,9 +44,9 @@ example), the [browser notebooks](https://atmmod.github.io/pyaermod/lite/lab/ind
 
 ### Option A: Compile from source (macOS and Linux)
 
-PyAERMOD's build script downloads EPA's public-domain Fortran source and
+pyaermod's build script downloads EPA's public-domain Fortran source and
 compiles **all three executables** (AERMOD, AERMAP and AERMET). EPA does not
-publish macOS or Linux executables, and PyAERMOD releases do not include any.
+publish macOS or Linux executables, and pyaermod releases do not include any.
 
 **Prerequisites:** You need `gfortran` (the GNU Fortran compiler).
 
@@ -92,7 +83,7 @@ and AERMET the same way:
 cp bin/aermet ~/bin/
 ```
 
-Then add `~/bin` to your PATH so PyAERMOD can find them. Add this line to
+Then add `~/bin` to your PATH so pyaermod can find them. Add this line to
 your `~/.zshrc` (or `~/.bashrc` on Linux):
 
 ```bash
@@ -118,17 +109,8 @@ To build straight into another directory instead of `bin/`, set `BIN_DIR`
 BIN_DIR=~/bin ./scripts/build_aermod.sh all
 ```
 
-After each executable the script prints a short build record: its path,
-its SHA-256 checksum, the compiler version and the compile and link
-flags, and for AERMOD the version number in its banner (26135 for the
-current EPA source; "unknown (banner not found)" means the check could
-not read it). Keep it with your results if you need to say exactly which
-executable produced them.
-
-A build replaces an executable of the same name in that directory (the
-script tells you when it does). To keep a second AERMOD, for example one
-built from source you have changed, give it another name with
-`AERMOD_EXE_NAME=aermod_test` or build it into its own `BIN_DIR`.
+The script prints a build record for each executable (checksum, compiler,
+flags); `scripts/build_aermod.sh` has the other options.
 
 ### Option B: Windows
 
@@ -150,20 +132,8 @@ The EPA provides official Windows executables:
 aermod
 ```
 
-### Verifying your installation
-
-After installing by any method, you can verify everything is set up with:
-
-```bash
-pyaermod info       # Should show the PyAERMOD version and feature list
-which aermod        # Should print the path to the aermod executable
-aermod              # Should print AERMOD version (error about input is OK)
-```
-
-> **The GUI's Review & Run step looks for the `aermod` executable on your
-> PATH.** If it can't find it, its readiness checklist says "No 'aermod'
-> binary on PATH. Install AERMOD and re-launch." and the **Run AERMOD**
-> button stays disabled. The GUI has no field for the executable's path:
+> **The GUI finds the `aermod` executable on your PATH.** It has no field for
+> the path: if "No 'aermod' binary on PATH" appears on the Review & Run step,
 > put `aermod` on your PATH and start the GUI again.
 
 ## 3.3 Launch the GUI
@@ -173,7 +143,7 @@ pyaermod-app
 ```
 
 Your web browser will open automatically to `http://127.0.0.1:8080`. You'll see
-the PyAERMOD interface with a list of steps on the left and the **Project**
+the pyaermod interface with a list of steps on the left and the **Project**
 step in the main area. (If port 8080 is already in use on your computer, run
 `pyaermod-app --port 8081` instead.)
 
@@ -182,13 +152,9 @@ step in the main area. (If port 8080 is already in use on your computer, run
 
 ## 3.4 GUI Layout
 
-- **Header (top):** The project's name, a "(modified)" marker while there are
-  unsaved changes, a one-line readiness summary ("Ready to run" or "Not ready
-  to run: ...") and a **Save** button.
-- **Step list (left):** Navigation between the 7 workflow steps. Each step
-  carries a badge: not started, complete, warning or error. In a narrow
-  window the list is hidden behind the menu button in the header.
-- **Main area (center):** The current step — forms, tables, and plots.
+The [GUI user guide](../../gui-guide.md#layout) describes the layout: a
+header with the project's name and a readiness summary, a step list with a
+badge per step, and the current step.
 
 The 7 steps, in workflow order:
 
@@ -205,7 +171,7 @@ You can visit the steps in any order. The GUI calls an AERMOD input file a
 **deck**, the modelers' word for it.
 
 All coordinates in the GUI are AERMOD's model coordinates: easting and
-northing in UTM meters. There is no map to click and no latitude/longitude
-setting.
+northing in UTM (Universal Transverse Mercator) meters. There is no map to
+click and no latitude/longitude setting.
 
 ![The GUI when it opens: the header with the readiness line and Save, the step list on the left with a badge per step, and the Project step](../../images/gui/layout.png)

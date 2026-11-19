@@ -117,28 +117,5 @@ deletes them, so pyaermod deletes them after each run.
 
 ## Build the site yourself
 
-The documentation workflow builds the notebooks into `/lite/` and the app into `/app/`. To
-build both locally from a WebAssembly AERMOD build (`aermod.js`, `aermod.wasm`,
-`BUILD.txt`), run:
-
-```bash
-pip install -r docs/lite/requirements.txt
-bash scripts/wasm/build_lite_site.sh <wasm build dir> _site/lite
-python -m http.server --directory _site 8000
-```
-
-Then open `http://127.0.0.1:8000/app/` or `http://127.0.0.1:8000/lite/`.
-
-To work on the app without a WebAssembly build, serve it against pyaermod in your own
-Python, with the `aermod` on your PATH or a replay of a recorded run:
-
-```bash
-python scripts/wasm/app_dev_server.py --replay albany_success
-```
-
-The app's page is in `webapp/`, and everything it asks of Python goes through one module,
-`pyaermod.browser`.
-
-The `WebAssembly AERMOD` workflow uploads that build as an artifact. To make one
-yourself, run `scripts/build_aermod_wasm.sh` inside the `ghcr.io/r-wasm/flang-wasm`
-container (amd64 only). The notebooks are written by `scripts/wasm/make_lite_notebooks.py`.
+The steps are in
+[CONTRIBUTING.md](https://github.com/atmmod/pyaermod/blob/main/CONTRIBUTING.md#building-the-browser-app-and-notebooks).

@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
-PAGES = ["quickstart.md", *sorted(
+PAGES = ["quickstart.md", "../README.md", *sorted(
     str(p.relative_to(DOCS)) for p in (DOCS / "teaching" / "student-guide").glob("*.md"))]
 BLOCK = re.compile(r"(<!-- docs-example: skip \(([^)]*)\) -->\n)?```python\n(.*?)```", re.S)
 

@@ -1,7 +1,4 @@
-# Contributing to PyAERMOD
-
-Thank you for your interest in contributing to PyAERMOD! This guide covers
-the development workflow, coding standards, and submission process.
+# Contributing to pyaermod
 
 ## Development Setup
 
@@ -13,7 +10,8 @@ cd pyaermod
 # Install in editable mode with all dev dependencies
 pip install -e ".[dev,all]"
 
-# Install pre-commit hooks
+# Install the pre-commit hooks (pre-commit is not in the dev extra)
+pip install pre-commit
 pre-commit install
 ```
 
@@ -49,33 +47,23 @@ make typecheck   # mypy ratchet gate: fails only if the error count grows
                  # `python scripts/mypy_gate.py --update`)
 ```
 
-`make test-full` is what to run before opening a pull request: tests for
-optional features (geospatial, visualization, NiceGUI) are skipped when
-their extra is missing, so a green `make test` on a bare install proves
-less than it looks. CI's `min-deps` job additionally runs the suite against
-the oldest supported dependency versions (`min-constraints.txt`); keep that
-file and the `>=` floors in `pyproject.toml` in sync.
+`make test-full` is what to run before opening a pull request: a green
+`make test` on a bare install proves less than it looks, because tests for
+optional features (geospatial, visualization, NiceGUI) are skipped when their
+extra is missing. It also runs `tests/e2e` when Playwright is installed.
+CI's `min-deps` job runs the suite against the oldest supported dependency
+versions (`min-constraints.txt`); keep that file and the `>=` floors in
+`pyproject.toml` in sync.
 
 Or call pytest directly:
 
 ```bash
-# Run the default suite with coverage (pytest.ini leaves out the
-# slow tests and the browser journeys)
-pytest
-
-# Run a specific test file
-pytest tests/test_input_generator.py
-
-# Run tests matching a keyword
-pytest -k "test_point_source"
-
-# Include the slow tests (-m replaces pytest.ini's marker filter, so
-# keep "not e2e" unless Playwright and its Chromium are installed)
-pytest -m "not e2e"
-
-# The browser journeys (tests/e2e; needs `pip install -e ".[e2e]"` and
-# `python -m playwright install chromium`)
-pytest -o addopts="" -m e2e tests/e2e
+pytest                                  # default suite (no slow tests, no browser journeys)
+pytest tests/test_input_generator.py    # one file
+pytest -k "test_point_source"           # tests matching a keyword
+pytest -m "not e2e"                     # adds the slow tests (-m replaces pytest.ini's filter)
+pytest -o addopts="" -m e2e tests/e2e   # browser journeys: pip install -e ".[e2e]" and
+                                        # python -m playwright install chromium
 ```
 
 CI gates coverage at **95%** (`--cov-fail-under=95` in
@@ -89,7 +77,7 @@ browser journeys under `tests/e2e/` (`make test-gui-e2e`, requires the
 
 ## Code Style
 
-PyAERMOD uses [ruff](https://docs.astral.sh/ruff/) for linting and import
+pyaermod uses [ruff](https://docs.astral.sh/ruff/) for linting and import
 sorting. Configuration is in `pyproject.toml`.
 
 ```bash
@@ -108,27 +96,6 @@ Key style rules:
 - **Docstrings**: NumPy style
 - **Dataclasses**: used throughout for configuration objects
 
-## Project Layout
-
-```
-src/pyaermod/          # Package source (src layout)
-tests/                 # Test files (test_*.py)
-docs/                  # MkDocs documentation
-examples/              # Example scripts and notebooks
-benchmarks/            # Performance benchmarks
-```
-
-### Key Patterns
-
-- **Source types** are dataclasses with a `to_aermod_input() -> str` method
-- **Validation** uses `isinstance` dispatch in `validator.py`
-- **Optional dependencies** use `try/except ImportError` with `HAS_*` flags
-  and `_require_*()` guard functions
-- **GUI** (`src/pyaermod/gui_v2/`) is a NiceGUI app: one
-  `Session` per browser tab owns the project, its runs and change events
-  (`session.py`, no UI), and the step pages under `gui_v2/pages/` rebuild
-  from it. Editors are generated from the dataclasses by `_form.py`.
-
 ## Adding a New Source Type
 
 1. Define the dataclass in `src/pyaermod/sources.py` following existing
@@ -145,30 +112,35 @@ benchmarks/            # Performance benchmarks
 5. Update `__init__.py` exports and `__all__`
 6. Add tests in `tests/test_input_generator.py` and
    `tests/test_gui_v2_sources.py`
-7. Add it to the source-type lists in `README.md` and `docs/index.md`
+7. Add it to the source-type list in `docs/index.md`
 
-### How the GUI's editors are built
+## Building the browser app and notebooks
 
-Every editor is generated from the source's dataclass by a shared form
-helper (`pyaermod.gui_v2._form`). The widget follows the field's type:
+The documentation workflow builds the notebooks into `/lite/` and the app into `/app/`. To
+build both locally from a WebAssembly AERMOD build (`aermod.js`, `aermod.wasm`,
+`BUILD.txt`), run:
 
-| Field annotation | Widget |
-|---|---|
-| `str` / `Optional[str]` | text input; full width when the field names a file |
-| `float` / `Optional[float]` | numeric input (clearable when Optional) |
-| `int` / `Optional[int]` | integer input that stores an `int` |
-| `bool` | checkbox |
-| `List[Tuple[float, float]]` | text area, one `x, y` pair per line |
-| `List[str]`, `List[float]` | text area, one entry per line |
-| `Optional[Union[float, List[float]]]` (building dimensions) | numeric input while the value is a scalar; text area once it holds 36 sector values |
-| anything else | read-only summary |
+```bash
+pip install -r docs/lite/requirements.txt
+bash scripts/wasm/build_lite_site.sh <wasm build dir> _site/lite
+python -m http.server --directory _site 8000
+```
 
-Fields the helper does not model (lists of dataclasses, enums, nested
-deposition objects) are shown read-only in `pyaermod-app`; the browser
-app's editor (`pyaermod.browser.schema`, `webapp/forms.js`) takes them
-as JSON text. A number box never
-writes an empty value into a required field: emptying it shows
-"Required" and keeps the value.
+Then open `http://127.0.0.1:8000/app/` or `http://127.0.0.1:8000/lite/`.
+
+To work on the app without a WebAssembly build, serve it against pyaermod in your own
+Python, with the `aermod` on your PATH or a replay of a recorded run:
+
+```bash
+python scripts/wasm/app_dev_server.py --replay albany_success
+```
+
+The app's page is in `webapp/`, and everything it asks of Python goes through
+`pyaermod.browser`.
+
+The `WebAssembly AERMOD` workflow uploads that build as an artifact. To make one
+yourself, run `scripts/build_aermod_wasm.sh` inside the `ghcr.io/r-wasm/flang-wasm`
+container (amd64 only). The notebooks are written by `scripts/wasm/make_lite_notebooks.py`.
 
 ## Submitting Changes
 
@@ -200,8 +172,7 @@ Use clear, descriptive commit messages:
 Please include:
 
 - Python version and OS
-- PyAERMOD version (`python -c "import pyaermod; print(pyaermod.__version__)"`)
-- Minimal reproducible example
+- pyaermod version- Minimal reproducible example
 - Full error traceback
 
 ## License
