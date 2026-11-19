@@ -2,8 +2,6 @@
 
 import pytest
 
-from pyaermod.chemistry_presets import apply_deposition_defaults
-from pyaermod.gui_v2.project_io import check_project
 from pyaermod import (
     AERMODProject,
     AreaSource,
@@ -14,6 +12,8 @@ from pyaermod import (
     ReceptorPathway,
     SourcePathway,
 )
+from pyaermod.chemistry_presets import apply_deposition_defaults
+from pyaermod.gui_v2.project_io import check_project
 
 
 def _project(pollutant):

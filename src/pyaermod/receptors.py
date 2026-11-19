@@ -152,8 +152,8 @@ class CartesianGrid:
             raise ValueError(
                 f"bounds are reversed: x {x_min}..{x_max}, y {y_min}..{y_max}")
         # The tolerance keeps (0.3 - 0) / 0.1 = 2.9999999999999996 at 3 steps.
-        x_num = int(math.floor((x_max - x_min) / spacing + 1e-9)) + 1
-        y_num = int(math.floor((y_max - y_min) / spacing + 1e-9)) + 1
+        x_num = math.floor((x_max - x_min) / spacing + 1e-9) + 1
+        y_num = math.floor((y_max - y_min) / spacing + 1e-9) + 1
 
         return cls(
             grid_name=grid_name,

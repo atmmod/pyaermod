@@ -479,7 +479,7 @@ def _safe_construct(cls: Type, kwargs: dict) -> Any:
     return cls(**kwargs)
 
 
-def _polyline_vertices(ent) -> Iterable:
+def _polyline_vertices(ent) -> List[tuple]:
     """Robust vertex extraction across LWPOLYLINE / POLYLINE."""
     if ent.dxftype() == "LWPOLYLINE":
         return [(p[0], p[1]) for p in ent.get_points()]
@@ -522,7 +522,6 @@ def _circle_to_polygon(cx: float, cy: float, r: float, n: int = 16,
     the circle has only 97% of it for n = 16, and an area source's
     emission is per unit area.
     """
-    import math
     if equal_area:
         r = r * math.sqrt(2 * math.pi / (n * math.sin(2 * math.pi / n)))
     return [
