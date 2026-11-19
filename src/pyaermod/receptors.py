@@ -11,6 +11,7 @@ or :mod:`pyaermod.api`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List, Optional
@@ -137,9 +138,22 @@ class CartesianGrid:
     @classmethod
     def from_bounds(cls, x_min: float, x_max: float, y_min: float, y_max: float,
                    spacing: float = 100.0, grid_name: str = "GRID1") -> CartesianGrid:
-        """Create grid from bounding box and spacing"""
-        x_num = int((x_max - x_min) / spacing) + 1
-        y_num = int((y_max - y_min) / spacing) + 1
+        """Create grid from bounding box and spacing.
+
+        The grid starts at ``(x_min, y_min)`` and runs in whole steps of
+        ``spacing`` up to, and including, the bound when it is a multiple of
+        the spacing; otherwise it ends at the last step at or before the
+        bound. Raises :class:`ValueError` for a spacing that is not positive
+        or a maximum below its minimum.
+        """
+        if not spacing > 0:
+            raise ValueError(f"spacing must be positive, got {spacing}")
+        if x_max < x_min or y_max < y_min:
+            raise ValueError(
+                f"bounds are reversed: x {x_min}..{x_max}, y {y_min}..{y_max}")
+        # The tolerance keeps (0.3 - 0) / 0.1 = 2.9999999999999996 at 3 steps.
+        x_num = int(math.floor((x_max - x_min) / spacing + 1e-9)) + 1
+        y_num = int(math.floor((y_max - y_min) / spacing + 1e-9)) + 1
 
         return cls(
             grid_name=grid_name,
