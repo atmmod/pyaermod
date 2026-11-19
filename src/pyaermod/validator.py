@@ -2124,8 +2124,9 @@ class Validator:
                 f"chemistry options require pollutant_id=NO2, got '{pollutant}'"
             ))
 
-        # Default NO2 ratio in [0, 1]
-        if not (0 <= chemistry.default_no2_ratio <= 1):
+        # Default NO2 ratio in [0, 1]. None means the deck has no NO2STACK
+        # card (each source then needs its own NO2RATIO).
+        if chemistry.default_no2_ratio is not None and not (0 <= chemistry.default_no2_ratio <= 1):
             result.errors.append(ValidationError(
                 pathway, "default_no2_ratio",
                 f"must be between 0 and 1, got {chemistry.default_no2_ratio}"

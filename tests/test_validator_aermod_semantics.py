@@ -421,3 +421,24 @@ def test_card_longer_than_512_characters_is_an_error():
 
 def test_short_cards_are_fine():
     assert _errors(_project(), "deck") == []
+
+
+def test_no_default_no2_ratio_does_not_crash_the_chemistry_check():
+    """A deck with no NO2STACK card has no default ratio; None is not a number to range-check."""
+    from types import SimpleNamespace
+
+    from pyaermod.validator import ValidationResult, Validator
+
+    chemistry = SimpleNamespace(
+        default_no2_ratio=None, ozone_data=None, method=SimpleNamespace(value="ARM2"),
+        nox_file=None, olm_groups=[], psd_groups=[],
+    )
+    control = SimpleNamespace(pollutant_id="NO2", alpha=False)
+    result = ValidationResult()
+    try:
+        Validator._validate_chemistry(chemistry, control, result)
+    except TypeError as exc:  # the old range check compared None with 0
+        raise AssertionError(f"range check ran on None: {exc}") from exc
+    except AttributeError:
+        pass  # a later check wanting a fuller object is not what this test is about
+    assert not any(e.field == "default_no2_ratio" for e in result.errors)
