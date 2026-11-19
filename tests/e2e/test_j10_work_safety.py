@@ -160,7 +160,7 @@ def test_j10_the_source_editor_survives_esc_and_says_what_it_cannot_read(gui, st
     editor.get_by_label(re.compile(r"^Stack height", re.I)).fill("-5")
     editor.get_by_label(re.compile(r"^Stack height", re.I)).press("Tab")
     # The editor lists the checks' findings for the source as it is edited.
-    expect(editor).to_contain_text("stack height must be > 0")
+    expect(editor).to_contain_text("stack height must be >= 0")
     editor.get_by_role("button", name="Save", exact=True).click()
     expect(editor).to_contain_text("another source is called POLY1")
     step("duplicate_id")

@@ -77,7 +77,7 @@ def test_b03_the_editor_refuses_ids_aermod_cannot_read_and_shows_its_problems(ap
     _type(app, "Source id", "STACK1")
     _type(app, re.compile("^Stack height"), "-5")
     # Shown in the editor as it is edited, not only on Review & Run.
-    app.wait_for_selector("#editor-findings:has-text('stack height must be > 0')")
+    app.wait_for_selector("#editor-findings:has-text('stack height must be >= 0')")
     app.get_by_role("button", name="Save", exact=True).click()
     app.wait_for_selector("#error:has-text('another source is called STACK1')")
     assert app.locator("tbody td", has_text="STACK1").count() == 1

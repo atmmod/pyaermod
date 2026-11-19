@@ -341,7 +341,7 @@ def test_a_source_id_aermod_cannot_read_is_flagged(value, problem):
 def test_an_items_own_problems_are_found_for_its_editor():
     s = _session()
     assert item_findings(s.project, _point(stack_height=-5.0)) == [
-        "PointSource S stack height must be > 0, got -5.0"]
+        "PointSource S stack height must be >= 0, got -5.0 (AERMOD E209)"]
     assert item_findings(s.project, _point()) == []
     grid = CartesianGrid(grid_name="G", x_init=0, x_num=0, x_delta=10, y_init=0, y_num=3,
                          y_delta=10)
