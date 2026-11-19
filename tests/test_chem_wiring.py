@@ -102,7 +102,8 @@ class TestApplyDepositionDefaults:
         changes = apply_deposition_defaults(project)
         for src in project.sources.sources:
             assert src.gas_deposition is not None
-            assert src.deposition_method == DepositionMethod.GASDEPVD
+            # the field's (method, value) form, so a saved project reads back
+            assert src.deposition_method == (DepositionMethod.GASDEPVD, 1.0)
         assert len(changes) == len(project.sources.sources)
 
     def test_sets_particle_deposition_for_pm25(self):

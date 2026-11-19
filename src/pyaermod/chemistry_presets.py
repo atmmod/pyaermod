@@ -400,12 +400,14 @@ def apply_deposition_defaults(
 
         if defaults.gas is not None:
             src.gas_deposition = defaults.gas
-            src.deposition_method = defaults.method
+            # The field holds (method, value), the form a saved project reads
+            # back; it writes nothing to the deck (sources.py).
+            src.deposition_method = (defaults.method, 1.0)
             changes.append(f"{sid}: gas_deposition defaults applied ({pollutant})")
         if defaults.particle is not None:
             src.particle_deposition = defaults.particle
             # For particle sources DRYDPLT is the usual method
-            src.deposition_method = defaults.method
+            src.deposition_method = (DepositionMethod.DRYDPLT, 1.0)
             changes.append(
                 f"{sid}: particle_deposition defaults applied ({pollutant})"
             )

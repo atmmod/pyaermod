@@ -129,7 +129,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     print(f"AERMOD failed (return_code={run_result.return_code})")
     print(summarize_failure(str(inp), str(work_dir)))
-    return run_result.return_code or 1
+    # A shell keeps only the low 8 bits of an exit status, so a code that is
+    # negative (killed by a signal) or above 255 would read as success or noise.
+    code = run_result.return_code
+    return code if code and 0 < code <= 255 else 1
 
 
 def _cmd_parse(args: argparse.Namespace) -> int:
@@ -185,7 +188,7 @@ def _cmd_profile(args: argparse.Namespace) -> int:
     try:
         profile = get_profile(args.profile)
     except KeyError as e:
-        print(f"Unknown profile: {e}", file=sys.stderr)
+        print(f"Unknown profile: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2
 
     if args.apply:
@@ -271,7 +274,14 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (OSError, ValueError, KeyError, RuntimeError) as e:
+        # The commonest mistakes (a file that is not there, no aermod on PATH,
+        # an unreadable deck) get a message, not a traceback.
+        message = e.args[0] if isinstance(e, KeyError) and e.args else e
+        print(f"pyaermod: error: {message}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation

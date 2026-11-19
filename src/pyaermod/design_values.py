@@ -255,11 +255,22 @@ def _daily_series(df: pd.DataFrame, how: str) -> pd.DataFrame:
     work = _dedupe_receptors(_one_source_group(df))
     agg = how if _is_hourly(work) else "max"
     g = work.assign(_d=_parse_yymmddhh_to_date(work["date"]))
-    return (
+    daily = (
         g.groupby(["x", "y", "_d"], as_index=False, sort=False)["concentration"]
         .agg(agg)
         .rename(columns={"_d": "date"})
     )
+    # A day with no value (a blank, or every hour NaN) is not a day of data:
+    # it neither ranks nor counts toward the year's day count.
+    missing = daily["concentration"].isna()
+    if missing.any():
+        warnings.warn(
+            f"{int(missing.sum())} receptor-day(s) have no concentration "
+            "(NaN) and were left out of the ranking and the day counts.",
+            stacklevel=4,
+        )
+        daily = daily[~missing]
+    return daily
 
 
 def _agg_daily_max(df: pd.DataFrame) -> pd.DataFrame:
@@ -269,6 +280,7 @@ def _agg_daily_max(df: pd.DataFrame) -> pd.DataFrame:
 
 def _nth_highest(values: np.ndarray, rank: int) -> float:
     """``rank``-th highest of ``values`` (1 = highest)."""
+    values = values[~np.isnan(values)]
     n = len(values)
     if n == 0:
         return float("nan")
@@ -296,8 +308,36 @@ def _annual_rank_per_receptor(
     )
 
 
+#: A calendar year whose data span (first day to last day) is shorter than
+#: this many days is called partial.
+_FULL_YEAR_DAYS = 350
+
+
+def _partial_year_note(daily: pd.DataFrame) -> str:
+    """Words naming calendar years spanning under ~350 days, or ``""``.
+
+    AERMOD's year is the met-data year (it ends on the anniversary of the
+    first met hour: ``CHK_ENDYR`` in ``aermod.f``), while these functions
+    group by calendar year. A met year that does not run January to
+    December therefore reads as two partial calendar years.
+    """
+    by_year = daily["date"].dt.normalize().groupby(daily["date"].dt.year)
+    days = (by_year.max() - by_year.min()).dt.days + 1
+    short = {int(y): int(n) for y, n in days.items() if n < _FULL_YEAR_DAYS}
+    if not short:
+        return ""
+    listed = ", ".join(f"{y} (data span {n} days)" for y, n in sorted(short.items()))
+    return (
+        f"Calendar year(s) {listed} are partial: a met year that does not "
+        "run January to December is split into calendar years here, but "
+        "AERMOD counts the met year as one year, so the ranks and the year "
+        "count can differ from AERMOD's"
+    )
+
+
 def _average_across_years(
     per_year: pd.DataFrame, *, expected_years: Optional[int], label: str,
+    partial_note: str = "",
 ) -> pd.DataFrame:
     """Mean of the annual values, with the year count carried through.
 
@@ -306,13 +346,17 @@ def _average_across_years(
     values, do not re-rank the pooled record.
     """
     n_years = int(per_year["_year"].nunique())
-    if expected_years is not None and n_years != expected_years:
-        warnings.warn(
+    mismatch = expected_years is not None and n_years != expected_years
+    if mismatch or partial_note:
+        text = (
             f"{label} is defined over {expected_years} years but the input "
             f"covers {n_years}; the returned value averages the "
-            f"{n_years} year(s) present.",
-            stacklevel=3,
+            f"{n_years} year(s) present."
+            if mismatch else f"{label} input covers {n_years} calendar year(s)."
         )
+        if partial_note:
+            text += " " + partial_note + "."
+        warnings.warn(text, stacklevel=3)
     out = (
         per_year.groupby(["x", "y"], as_index=False, sort=False)
         ["concentration"].mean()
@@ -492,13 +536,15 @@ def nth_highest_daily_max_design_value(
     if rank < 1:
         raise ValueError(f"rank must be >= 1, got {rank}")
     per_day = _daily_series(df, daily)
+    partial_note = _partial_year_note(per_day)
     per_day["_year"] = per_day["date"].dt.year
     per_year = (
         per_day.groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"].agg(lambda s: _nth_highest(s.to_numpy(), rank))
     )
     label = f"{pollutant or 'design value'} H{rank}H"
-    out = _average_across_years(per_year, expected_years=n_years, label=label)
+    out = _average_across_years(per_year, expected_years=n_years, label=label,
+                                partial_note=partial_note)
     return out.assign(
         form=f"annual {rank}-highest daily {daily}",
         averaging_period=averaging_period,
@@ -521,11 +567,11 @@ def pm25_24hr_design_value(
     full year -- and the design value is the mean of those annual
     values.
     """
-    per_year = _annual_rank_per_receptor(
-        _daily_series(df, "mean"), percentile=98.0,
-    )
+    daily = _daily_series(df, "mean")
+    per_year = _annual_rank_per_receptor(daily, percentile=98.0)
     out = _average_across_years(
         per_year, expected_years=n_years, label="The 24-hour PM2.5 NAAQS",
+        partial_note=_partial_year_note(daily),
     )
     return out.assign(form="98th percentile", averaging_period="24-hour",
                       pollutant="PM2.5")
@@ -541,11 +587,11 @@ def no2_1hr_design_value(
     percentile is the rank Appendix S Table 1 assigns to that year's day
     count -- the 8th highest daily maximum for a full year.
     """
-    per_year = _annual_rank_per_receptor(
-        _daily_series(df, "max"), percentile=98.0,
-    )
+    daily = _daily_series(df, "max")
+    per_year = _annual_rank_per_receptor(daily, percentile=98.0)
     out = _average_across_years(
         per_year, expected_years=n_years, label="The 1-hour NO2 NAAQS",
+        partial_note=_partial_year_note(daily),
     )
     return out.assign(form="98th percentile of daily max",
                       averaging_period="1-hour", pollutant="NO2")
@@ -561,11 +607,11 @@ def so2_1hr_design_value(
     percentile is the rank Appendix T Table 1 assigns to that year's day
     count -- the 4th highest daily maximum for a full year.
     """
-    per_year = _annual_rank_per_receptor(
-        _daily_series(df, "max"), percentile=99.0,
-    )
+    daily = _daily_series(df, "max")
+    per_year = _annual_rank_per_receptor(daily, percentile=99.0)
     out = _average_across_years(
         per_year, expected_years=n_years, label="The 1-hour SO2 NAAQS",
+        partial_note=_partial_year_note(daily),
     )
     return out.assign(form="99th percentile of daily max",
                       averaging_period="1-hour", pollutant="SO2")
@@ -590,6 +636,13 @@ def pm10_24hr_design_value(
     """
     daily = _daily_series(df, "mean")
     n_years = int(daily["date"].dt.year.nunique())
+    partial_note = _partial_year_note(daily)
+    if partial_note:
+        warnings.warn(
+            f"PM10 input covers {n_years} calendar year(s), which sets the "
+            f"rank. {partial_note}.",
+            stacklevel=2,
+        )
     if rank is None:
         rank = 6 if n_years >= 5 else 2
     out = (
@@ -611,10 +664,27 @@ def o3_8hr_design_value(
 
     Per 40 CFR 50.19. Standard: 70 ppb.
 
-    Note: this expects the 8-hour rolling-average concentrations as
-    input (AERMOD AVE='8-HR' column). Each (receptor, day) max is
-    taken to obtain the daily 8-hr max series.
+    Note: this expects AERMOD's 8-hour averages as input (``AVE='8-HR'``).
+    AERMOD forms an N-HR average only at the hours that are multiples of
+    N (``MOD(IHOUR, KAVE) == 0`` in ``aermod.f``), so an 8-HR POSTFILE
+    holds three fixed, non-overlapping blocks per day (ending at hours 8,
+    16 and 24), not running 8-hour means. Each (receptor, day) max is
+    taken to obtain the daily 8-hr max series. The maximum of three
+    blocks is never above the maximum of the 24 running means, so the
+    value can be lower than one built from running means.
+
+    Raises
+    ------
+    ValueError
+        If the frame holds ``AVE='1-HR'`` rows, which are hourly values
+        and not 8-hour averages.
     """
+    if _is_hourly(df_8hr):
+        raise ValueError(
+            "o3_8hr_design_value needs AERMOD's 8-HR averages (AVE='8-HR'), "
+            "but the frame holds 1-HR rows; request AVERTIME 8 and read that "
+            "POSTFILE instead of passing 1-hour values as 8-hour averages."
+        )
     return nth_highest_daily_max_design_value(
         df_8hr, rank=4, daily="max", n_years=n_years,
         pollutant="O3", averaging_period="8-hour",
@@ -745,7 +815,7 @@ def naaqs_output_pathway(
     from .pathways import MaxDailyContribution, MaxDailyFile, OutputPathway
 
     key = pollutant.strip().upper()
-    period = "24-hour" if key in ("PM2.5", "PM25") else "1-hour"
+    period = "24-hour" if key in ("PM2.5", "PM25", "PM-2.5") else "1-hour"
     standard = get_naaqs(pollutant, period)
     rank = standard.design_rank()
     if receptor_table_rank is None:
