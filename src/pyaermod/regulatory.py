@@ -45,6 +45,60 @@ def _terrain_matches(current: str, expected: str) -> bool:
     return current.upper() in _TERRAIN_ALIASES.get(expected.upper(), {expected.upper()})
 
 
+#: Names ``forbid_nondefault_flags`` used before it named real switches:
+#: none was a ControlPathway attribute, so they never matched anything.
+_LEGACY_FLAG_NAMES = {
+    "flat_terrain": "FLAT",
+    "no_stack_tip_downwash": "NOSTD",
+    "use_lowwind1": "LOWWIND1",
+    "use_lowwind2": "LOWWIND2",
+    "use_lowwind3": "LOWWIND3",
+    "beta_options": "beta",
+}
+
+_FLAT_TERRAINS = {"FLAT", "FLATSRCS"}
+
+
+def _terrain_name(ctrl: Any) -> str:
+    return str(getattr(ctrl.terrain_type, "value", ctrl.terrain_type)).upper()
+
+
+class _NondefaultOption:
+    """One ``forbid_nondefault_flags`` entry, resolved to the switch that
+    puts it on MODELOPT: a boolean ControlPathway field, or a token in
+    ``extra_model_options`` (FLAT also via ``terrain_type``)."""
+
+    def __init__(self, entry: str):
+        self.name = _LEGACY_FLAG_NAMES.get(entry, entry)
+
+    def _field(self, ctrl: Any) -> bool:
+        return isinstance(getattr(ctrl, self.name, None), bool)
+
+    @property
+    def label(self) -> str:
+        return f"MODELOPT {self.name.upper().replace('_', '')}"
+
+    def is_set(self, ctrl: Any) -> bool:
+        if self._field(ctrl):
+            return bool(getattr(ctrl, self.name))
+        token = self.name.upper()
+        extra = {str(o).upper() for o in getattr(ctrl, "extra_model_options", None) or []}
+        if token == "FLAT":
+            return bool(extra & _FLAT_TERRAINS) or _terrain_name(ctrl) in _FLAT_TERRAINS
+        return token in extra
+
+    def clear(self, ctrl: Any, terrain: str) -> None:
+        if self._field(ctrl):
+            setattr(ctrl, self.name, False)
+            return
+        token = self.name.upper()
+        drop = _FLAT_TERRAINS if token == "FLAT" else {token}
+        ctrl.extra_model_options = [o for o in getattr(ctrl, "extra_model_options", None) or []
+                                    if str(o).upper() not in drop]
+        if token == "FLAT" and _terrain_name(ctrl) in _FLAT_TERRAINS:
+            ctrl.terrain_type = terrain if terrain.upper() not in _FLAT_TERRAINS else "ELEV"
+
+
 @dataclass
 class RegulatoryProfile:
     """A named bundle of AERMOD regulatory settings.
@@ -68,7 +122,14 @@ class RegulatoryProfile:
         Names of ChemistryMethod enum values that are acceptable for
         regulatory NO2 modeling (typically OLM, PVMRM, GRSM).
     forbid_nondefault_flags : tuple of str
-        Attribute names on ControlPathway that must NOT be truthy.
+        Non-default options the profile forbids. Each entry is a boolean
+        ControlPathway field (``alpha``, ``beta``, ``psd_credit``) or a
+        MODELOPT token looked for in ``extra_model_options`` (``NOSTD``,
+        ``FASTAREA``, ...; ``FLAT`` also matches a FLAT/FLATSRCS
+        ``terrain_type``). The older names ``flat_terrain``,
+        ``no_stack_tip_downwash``, ``use_lowwind1``/``2``/``3`` and
+        ``beta_options`` are read as ``FLAT``, ``NOSTD``,
+        ``LOWWIND1``/``2``/``3`` and ``beta``.
     notes : list of str
         Free-form explanatory text.
     """
@@ -84,6 +145,7 @@ class RegulatoryProfile:
         "use_lowwind1",
         "use_lowwind2",
         "beta_options",
+        "alpha",  # AERMOD refuses ALPHA beside DFAULT (E204)
     )
     notes: List[str] = field(default_factory=list)
 
@@ -113,10 +175,11 @@ class RegulatoryProfile:
             changes.append(f"terrain_type {current_terrain} -> {self.terrain_type}")
 
         # Forbid non-default flags
-        for attr in self.forbid_nondefault_flags:
-            if getattr(ctrl, attr, None):
-                setattr(ctrl, attr, False)
-                changes.append(f"disabled non-default {attr}")
+        for entry in self.forbid_nondefault_flags:
+            option = _NondefaultOption(entry)
+            if option.is_set(ctrl):
+                option.clear(ctrl, self.terrain_type)
+                changes.append(f"disabled non-default {entry} ({option.label})")
 
         return changes
 
@@ -148,11 +211,12 @@ class RegulatoryProfile:
                 f"expects '{self.terrain_type}'"
             )
 
-        for attr in self.forbid_nondefault_flags:
-            if getattr(ctrl, attr, None):
+        for entry in self.forbid_nondefault_flags:
+            option = _NondefaultOption(entry)
+            if option.is_set(ctrl):
                 warnings.append(
-                    f"{self.name}: non-default option '{attr}' is set — "
-                    "regulatory profile forbids it"
+                    f"{self.name}: non-default option '{entry}' ({option.label}) is "
+                    "set — regulatory profile forbids it"
                 )
 
         lwo = getattr(ctrl, "low_wind_option", None)
