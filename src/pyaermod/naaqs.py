@@ -12,10 +12,13 @@ For each pollutant the entry encodes:
 - ``form`` — statistical form ("annual", "98th percentile", etc.)
 - ``level`` — numeric standard
 - ``units`` — "ug/m3" or "ppb"
-- ``cfr_reference`` — 40 CFR Part 50 subpart citation
+- ``cfr_reference`` — the 40 CFR Part 50 section and appendix
 
 This is a *reference* table only. Per-pollutant design-value math
-lives in :mod:`pyaermod.design_values`.
+lives in :mod:`pyaermod.design_values`. The levels are compared with
+unrounded modelled values, as Appendix W (40 CFR 51) 9.2.2(b) says
+modelled concentrations should not be rounded; the rounding conventions
+of the Part 50 appendices apply to monitored design values.
 """
 
 from __future__ import annotations
@@ -74,26 +77,27 @@ class NAAQSStandard:
         return naaqs_percentile_rank(n_days, self.percentile)
 
 
-# Note: PM2.5 24-hr was 35 µg/m³ before 2024; PM2.5 annual was lowered
-# from 12 to 9 in 2024. PM10 annual was revoked in 2006. Reflecting
-# current standards as of the most recent review.
+# The primary PM2.5 standards are in 50.20 (89 FR 16202, 2024): the
+# annual level went from 12.0 (50.18) to 9.0 and the 24-hour level stayed
+# at 35. The annual PM10 standard was revoked in 2006.
 
 NAAQS_TABLE: dict[str, list[NAAQSStandard]] = {
     "PM2.5": [
         NAAQSStandard("PM2.5", "annual", "annual mean", 9.0, "ug/m3",
-                      "40 CFR 50.18"),
+                      "40 CFR 50.20(a), (b); App. N"),
         NAAQSStandard("PM2.5", "24-hour", "98th percentile", 35.0, "ug/m3",
-                      "40 CFR 50.18", percentile=98.0),
+                      "40 CFR 50.20(a), (c); App. N", percentile=98.0),
     ],
     "PM10": [
-        NAAQSStandard("PM10", "24-hour", "not exceeded > 1/yr (5-yr avg)",
-                      150.0, "ug/m3", "40 CFR 50.6"),
+        NAAQSStandard("PM10", "24-hour",
+                      "expected exceedances <= 1 per year (3-yr avg)",
+                      150.0, "ug/m3", "40 CFR 50.6(a); App. K"),
     ],
     "NO2": [
         NAAQSStandard("NO2", "annual", "annual mean", 53.0, "ppb",
-                      "40 CFR 50.11"),
+                      "40 CFR 50.11(a), (e); App. S"),
         NAAQSStandard("NO2", "1-hour", "98th percentile of daily max",
-                      100.0, "ppb", "40 CFR 50.11", percentile=98.0),
+                      100.0, "ppb", "40 CFR 50.11(b), (f); App. S", percentile=98.0),
     ],
     "SO2": [
         NAAQSStandard("SO2", "1-hour", "99th percentile of daily max",

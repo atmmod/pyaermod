@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Regulatory text and design values by met year
+
+Corrections established by reading 40 CFR Part 50, Appendix W to Part 51
+(the 2017 and 2024 revisions) and AERMOD's source (v23132, v24142,
+v26135).
+
+#### Added
+
+- `EPA_APPENDIX_W_2024` (`EPA-AppendixW-2024`): the revision in force
+  (89 FR 95034, effective March 21, 2025). It is the 2017 content plus
+  GRSM as a Tier 3 NO2 technique.
+- `RegulatoryProfile.advisories(project)`: notes that are not conflicts.
+  OLM, PVMRM and GRSM give the Tier 3 note of Appendix W 4.2.3.4(e)
+  (consultation with the EPA Regional Office and the reviewing
+  authority). `pyaermod profile` prints them.
+- Every design-value function and `naaqs_compliance_report` take
+  `year_start`: `None` (the default) follows the met year, `"calendar"`
+  forces calendar years, and a `(month, day)` pair names the boundary.
+- `Validator` checks `CO LOW_WIND`: it needs ALPHA (E133), cannot run
+  with DFAULT, and its fields are checked against AERMOD's ranges (E208,
+  E380, E426).
+- `Validator` reports a source with no in-stack NO2/NOx ratio under OLM,
+  PVMRM, GRSM, TTRM or TTRM2 when the project has no default (E336), and
+  an urban source without `urban_area_name` in a project with several
+  urban areas.
+
+#### Changed
+
+- **Design values follow the met year.** Years were calendar years, so a
+  July-to-June record was ranked as two partial years. A year now starts
+  on the anniversary of the first date in the data, as AERMOD's does.
+  Results for data that start on 1 January are unchanged.
+- **Every Appendix W profile accepts ARM2**, the Tier 2 method in both
+  revisions. The profiles used to flag it.
+- **No profile accepts a low-wind option.** `allowed_low_wind` is empty,
+  `check` flags a set `low_wind_option` and `apply` removes it. The 2017
+  rule declined LOWWIND3, and AERMOD v18081 removed LOWWIND1, 2 and 3.
+- `EPA_APPENDIX_W_2023` is documented as what it is: the 2017 rule as
+  applied with AERMOD v23132. Appendix W had no 2023 revision.
+  `EPA_APPENDIX_W_2023_BETA_METHODS` is `("GRSM",)`; PVMRM2 has not been
+  an AERMOD option since v16216.
+- A negative stack exit velocity is a validator warning, not an error:
+  AERMOD warns (W325), sets 1.0E-5 m/s and runs.
+- A function that averages hourly rows into 24-hour or annual means
+  warns once, at the caller's line, that AERMOD omits calm and missing
+  hours from the divisor.
+
+#### Fixed
+
+- NAAQS citations and labels; no level and no computed number changes.
+  PM2.5 cites 40 CFR 50.20 and Appendix N (50.18 holds the superseded
+  12.0 annual level). The PM10 form reads "expected exceedances <= 1 per
+  year (3-yr avg)" and cites 50.6(a) and Appendix K. NO2 cites 50.11(a),
+  (e) and (b), (f), and Appendix S.
+- The PM10 H6H and H2H ranks are attributed to the AERMOD User's Guide
+  (3.2.16.2), not to Appendix W Table 8-2, which is an emissions table.
+- The profile notes: ADJ_U* is a regulatory AERMET option since the 2017
+  rule; GRSM did not exist in 2017, was BETA in v22112 and v23132, and is
+  regulatory from v24142.
+- `arm2_preset` and `suggest_chemistry_for` no longer say ARM2 is not
+  accepted by Appendix W, and `grsm_preset` no longer claims a
+  preference for GRSM.
+
 ## [2.3.0] - 2026-11-18
 
 ### Added

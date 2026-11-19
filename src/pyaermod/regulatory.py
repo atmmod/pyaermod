@@ -5,19 +5,29 @@ Codifies the "AERMOD as-used by regulators" configurations so users
 don't have to remember the set of ControlPathway flags that make a
 run compliant with a given agency's guidance.
 
-Each `RegulatoryProfile` is a bundle of settings + a validator list.
-Applying a profile to a project:
+Each `RegulatoryProfile` is a bundle of settings and lints. Applying a
+profile to a project:
 
-    from pyaermod import EPAReg2024Profile
-    EPAReg2024Profile.apply(project)
+    from pyaermod import EPA_APPENDIX_W_2024
+    changes = EPA_APPENDIX_W_2024.apply(project)   # what it changed
+    findings = EPA_APPENDIX_W_2024.check(project)  # what still conflicts
+    notes = EPA_APPENDIX_W_2024.advisories(project)
 
-leaves the project in a compliant state or raises if the pre-existing
-configuration conflicts with the profile.
+`apply` never raises; `check` lists what remains.
 
-Profiles here are informed by:
-- 40 CFR 51 Appendix W ("Guideline on Air Quality Models"), 2017 update
-  and subsequent EPA memoranda on LOWWIND3 and ADJ_U*.
-- AERMOD v22112 / v23132 User Guide MODELOPT defaults.
+Sources:
+- 40 CFR 51 Appendix W ("Guideline on Air Quality Models"): the 2017
+  revision (82 FR 5182, effective 2017-05-22) and the 2024 revision
+  (89 FR 95034, effective 2025-03-21). There was no 2023 revision.
+- The AERMOD User's Guide (EPA-454/B-26-001, v26135), sections 3.2.2,
+  3.2.3 and 3.2.5, and the MODELOPT checks in AERMOD's ``coset.f``
+  (v23132, v24142, v26135).
+
+What the profiles cannot see: ADJ_U* is chosen in AERMET and read by
+AERMOD from the surface file's header. It has been a regulatory option
+since the 2017 rule, except with site-specific turbulence data, where
+it needs approval as an alternative model (Appendix W, Addendum A,
+A.1(b)(2)(ii); AERMOD stops with E401 under DFAULT).
 
 NOTE: This module encodes *defaults and lints* — final regulatory
 acceptance is always the agency's call. Consider the output advisory.
@@ -106,7 +116,7 @@ class RegulatoryProfile:
     Attributes
     ----------
     name : str
-        Short identifier (e.g. "EPA-2017-AppendixW", "CARB-2024").
+        Short identifier (e.g. "EPA-AppendixW-2024").
     description : str
         One-paragraph summary.
     regulatory_default : bool
@@ -116,11 +126,19 @@ class RegulatoryProfile:
         mandate "ELEVATED" since it subsumes flat cases (AERMOD also
         accepts the short form "ELEV").
     allowed_low_wind : tuple of str
-        Which LOWWIND options are acceptable.  Appendix W (2017) allows
-        LOWWIND3 for specific documented cases.
+        ``low_wind_option`` values the profile accepts. Empty in every
+        profile here: ``CO LOW_WIND`` is an ALPHA option, which AERMOD
+        refuses beside DFAULT (E133, E204), and no revision of Appendix W
+        names a low-wind option. LOWWIND1, 2 and 3 were BETA options
+        removed in AERMOD v18081; the 2017 rule declined to adopt
+        LOWWIND3.
     allow_chemistry_methods : tuple of str
-        Names of ChemistryMethod enum values that are acceptable for
-        regulatory NO2 modeling (typically OLM, PVMRM, GRSM).
+        Names of ChemistryMethod enum values the profile accepts for NO2
+        (Appendix W 4.2.3.4): ARM2 is Tier 2; OLM, PVMRM and, from the
+        2024 revision, GRSM are Tier 3. No chemistry is Tier 1.
+    tier3_chemistry_methods : tuple of str
+        Methods for which :meth:`advisories` recalls the Tier 3
+        consultation of Appendix W 4.2.3.4(e).
     forbid_nondefault_flags : tuple of str
         Non-default options the profile forbids. Each entry is a boolean
         ControlPathway field (``alpha``, ``beta``, ``psd_credit``) or a
@@ -137,8 +155,9 @@ class RegulatoryProfile:
     description: str
     regulatory_default: bool = True
     terrain_type: str = "ELEVATED"
-    allowed_low_wind: tuple = ("LOWWIND3",)
-    allow_chemistry_methods: tuple = ("OLM", "PVMRM", "GRSM")
+    allowed_low_wind: tuple = ()
+    allow_chemistry_methods: tuple = ("ARM2", "OLM", "PVMRM", "GRSM")
+    tier3_chemistry_methods: tuple = ("OLM", "PVMRM", "GRSM")
     forbid_nondefault_flags: tuple = (
         "flat_terrain",  # FLAT is a non-default in DFAULT mode
         "no_stack_tip_downwash",
@@ -181,6 +200,11 @@ class RegulatoryProfile:
                 option.clear(ctrl, self.terrain_type)
                 changes.append(f"disabled non-default {entry} ({option.label})")
 
+        lwo = getattr(ctrl, "low_wind_option", None)
+        if lwo and lwo not in self.allowed_low_wind:
+            ctrl.low_wind_option = None
+            changes.append(f"removed low_wind_option '{lwo}' (CO LOW_WIND)")
+
         return changes
 
     # --- lint ---------------------------------------------------------
@@ -222,46 +246,84 @@ class RegulatoryProfile:
         lwo = getattr(ctrl, "low_wind_option", None)
         if lwo and lwo not in self.allowed_low_wind:
             warnings.append(
-                f"{self.name}: low_wind_option='{lwo}' is not in allowed "
-                f"set {self.allowed_low_wind}"
+                f"{self.name}: low_wind_option='{lwo}' is set, and the "
+                "profile accepts "
+                + (f"only {self.allowed_low_wind}" if self.allowed_low_wind
+                   else "none: CO LOW_WIND is an ALPHA option, which AERMOD "
+                        "refuses with DFAULT")
             )
 
         # Chemistry method
-        chem = getattr(ctrl, "chemistry", None)
-        if chem is not None:
-            method_name = (
-                chem.method.value if hasattr(chem.method, "value") else chem.method
+        method_name = self._chemistry_method(project)
+        if method_name is not None and method_name not in self.allow_chemistry_methods:
+            warnings.append(
+                f"{self.name}: chemistry method '{method_name}' is not in "
+                f"allowed set {self.allow_chemistry_methods}"
             )
-            if method_name not in self.allow_chemistry_methods:
-                warnings.append(
-                    f"{self.name}: chemistry method '{method_name}' is not in "
-                    f"allowed set {self.allow_chemistry_methods}"
-                )
 
         return warnings
+
+    def _chemistry_method(self, project: Any) -> str | None:
+        chem = getattr(project.control, "chemistry", None)
+        if chem is None:
+            return None
+        return str(getattr(chem.method, "value", chem.method))
+
+    def advisories(self, project: Any) -> List[str]:
+        """Notes on what the project's options ask of the applicant.
+
+        These are not conflicts and are not in :meth:`check`. A Tier 3
+        NO2 method (``tier3_chemistry_methods``) that the profile accepts
+        gives one note: Appendix W 4.2.3.4(e) says its use "shall occur in
+        consultation with the EPA Regional Office in addition to the
+        appropriate reviewing authority".
+        """
+        method = self._chemistry_method(project)
+        if (method in self.tier3_chemistry_methods
+                and method in self.allow_chemistry_methods):
+            return [
+                f"{self.name}: {method} is a Tier 3 NO2 screening technique; "
+                "its use needs consultation with the EPA Regional Office and "
+                "the appropriate reviewing authority (Appendix W 4.2.3.4(e))"
+            ]
+        return []
 
 
 # ---------------------------------------------------------------------------
 # Predefined profiles
 # ---------------------------------------------------------------------------
 
+_TIER_NOTE = (
+    "NO2 (Appendix W 4.2.3.4): no chemistry is Tier 1, ARM2 is Tier 2 "
+    "(national default ratios 0.5 to 0.9) and {tier3} are Tier 3. All three "
+    "tiers are screening techniques used in agreement with the reviewing "
+    "authority; Tier 3 also needs consultation with the EPA Regional Office."
+)
+
+_ADJ_U_NOTE = (
+    "ADJ_U* is an AERMET option, regulatory since the 2017 rule except with "
+    "site-specific turbulence data (Addendum A, A.1(b)(2)(ii)). A profile "
+    "cannot see it: AERMOD reads it from the surface file."
+)
+
 EPA_APPENDIX_W_2017 = RegulatoryProfile(
     name="EPA-AppendixW-2017",
     description=(
-        "EPA 40 CFR 51 Appendix W (Guideline on Air Quality Models), "
-        "January 17, 2017 revision. Requires DFAULT + ELEVATED terrain, "
-        "permits LOWWIND3 and ADJ_U* only for documented cases. The "
-        "only DFAULT-compatible NO2 chemistry methods are OLM and "
-        "PVMRM; GRSM was still BETA in 2017."
+        "40 CFR 51 Appendix W (Guideline on Air Quality Models), the 2017 "
+        "revision: 82 FR 5182, January 17, 2017, effective May 22, 2017. "
+        "DFAULT and elevated terrain, no ALPHA or BETA option, no low-wind "
+        "option. NO2: ARM2 (Tier 2), OLM and PVMRM (Tier 3)."
     ),
     regulatory_default=True,
     terrain_type="ELEV",
-    allowed_low_wind=("LOWWIND3",),
-    allow_chemistry_methods=("OLM", "PVMRM"),
+    allow_chemistry_methods=("ARM2", "OLM", "PVMRM"),
     notes=[
-        "See 82 FR 5182 (2017). Use of BETA options (GRSM, PVMRM2, "
-        "ADJ_U*) requires agency concurrence and is not permitted "
-        "under DFAULT.",
+        _TIER_NOTE.format(tier3="OLM and PVMRM"),
+        "GRSM is not in this revision: AERMOD first carried it in v21112, "
+        "as an ALPHA option.",
+        "The 2017 rule did not adopt LOWWIND3 (a BETA option, removed from "
+        "AERMOD in v18081).",
+        _ADJ_U_NOTE,
     ],
 )
 
@@ -269,34 +331,48 @@ EPA_APPENDIX_W_2017 = RegulatoryProfile(
 EPA_APPENDIX_W_2023 = RegulatoryProfile(
     name="EPA-AppendixW-2023",
     description=(
-        "EPA Appendix W as-of 2023: DFAULT + ELEVATED terrain, OLM and "
-        "PVMRM still the only formally regulatory-default NO2 chemistry "
-        "methods. PVMRM2 and GRSM remain BETA options and require "
-        "case-by-case EPA concurrence before use in a regulatory "
-        "submittal."
+        "The 2017 revision of Appendix W as applied with AERMOD v23132. "
+        "Appendix W had no 2023 revision: the rule in force in 2023 was the "
+        "2017 one, and the revision proposed that year (88 FR 72826) became "
+        "the 2024 rule. Same content as EPA-AppendixW-2017. GRSM was a BETA "
+        "option in v22112 and v23132, which AERMOD refuses with DFAULT "
+        "(E199, E204), so it is not accepted here. For the rule now in "
+        "force use EPA-AppendixW-2024."
     ),
     regulatory_default=True,
     terrain_type="ELEV",
-    allowed_low_wind=("LOWWIND3",),
-    # Regulatory-default NO2 chemistry: OLM and PVMRM only. PVMRM2 and
-    # GRSM are listed separately in `beta_chemistry_methods` below —
-    # users who have agency concurrence can opt in explicitly.
-    allow_chemistry_methods=("OLM", "PVMRM"),
+    allow_chemistry_methods=("ARM2", "OLM", "PVMRM"),
     notes=[
-        "Profile reflects EPA memoranda through late 2023. PVMRM2 / "
-        "GRSM are BETA in AERMOD v23132/v24142 per the 2022/2023 "
-        "transmittal memos (v26135 drops the BETA flag for GRSM but it "
-        "remains a non-DFAULT option) — neither is DFAULT-compatible. Always "
-        "confirm against current Appendix W + the relevant EPA "
-        "memorandum before submittal.",
+        _TIER_NOTE.format(tier3="OLM and PVMRM"),
+        "GRSM: ALPHA in v21112, BETA in v22112 and v23132, regulatory from "
+        "v24142 under the 2024 rule.",
+        _ADJ_U_NOTE,
     ],
 )
 
-# NO2 chemistry methods that are BETA under EPA Appendix W 2023.
-# Use requires explicit agency concurrence; keep these separate from
-# the profile's `allow_chemistry_methods` tuple so a project using
-# them triggers a lint warning unless the user overrides.
-EPA_APPENDIX_W_2023_BETA_METHODS: tuple = ("PVMRM2", "GRSM")
+#: NO2 methods that were BETA options in AERMOD v23132, the model version
+#: :data:`EPA_APPENDIX_W_2023` describes. They are regulatory from v24142.
+EPA_APPENDIX_W_2023_BETA_METHODS: tuple = ("GRSM",)
+
+
+EPA_APPENDIX_W_2024 = RegulatoryProfile(
+    name="EPA-AppendixW-2024",
+    description=(
+        "40 CFR 51 Appendix W, the 2024 revision: 89 FR 95034, November 29, "
+        "2024, effective March 21, 2025 (90 FR 8254), with AERMOD v24142 or "
+        "later. The 2017 content plus GRSM as a Tier 3 NO2 technique. DFAULT "
+        "and elevated terrain, no ALPHA or BETA option, no low-wind option."
+    ),
+    regulatory_default=True,
+    terrain_type="ELEV",
+    allow_chemistry_methods=("ARM2", "OLM", "PVMRM", "GRSM"),
+    notes=[
+        _TIER_NOTE.format(tier3="OLM, PVMRM and GRSM"),
+        "GRSM, the RLINE source type and COARE in AERMET are regulatory "
+        "from v24142. RLINEXT, LOW_WIND, TTRM and TTRM2 remain ALPHA options.",
+        _ADJ_U_NOTE,
+    ],
+)
 
 
 SCREENING_PROFILE = RegulatoryProfile(
@@ -308,14 +384,14 @@ SCREENING_PROFILE = RegulatoryProfile(
     ),
     regulatory_default=True,
     terrain_type="ELEV",
-    allowed_low_wind=(),  # no low-wind tweaks for screening
-    allow_chemistry_methods=("OLM", "PVMRM", "GRSM"),
+    allow_chemistry_methods=("ARM2", "OLM", "PVMRM", "GRSM"),
 )
 
 
 ALL_PROFILES = {
     EPA_APPENDIX_W_2017.name: EPA_APPENDIX_W_2017,
     EPA_APPENDIX_W_2023.name: EPA_APPENDIX_W_2023,
+    EPA_APPENDIX_W_2024.name: EPA_APPENDIX_W_2024,
     SCREENING_PROFILE.name: SCREENING_PROFILE,
 }
 
@@ -334,6 +410,8 @@ __all__ = [
     "ALL_PROFILES",
     "EPA_APPENDIX_W_2017",
     "EPA_APPENDIX_W_2023",
+    "EPA_APPENDIX_W_2023_BETA_METHODS",
+    "EPA_APPENDIX_W_2024",
     "SCREENING_PROFILE",
     "RegulatoryProfile",
     "get_profile",

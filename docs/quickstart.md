@@ -186,7 +186,7 @@ project.write("epa_deck_copy.inp")   # the EMISFACT lines are in the SO pathway
 | `pyaermod run DECK [--executable PATH] [--working-dir DIR] [--timeout SECS] [--force]` | Validates and runs AERMOD; the timeout defaults to 3600 s; `--force` runs despite validation errors |
 | `pyaermod parse OUT` | Summarizes an AERMOD `.out` file |
 | `pyaermod plotfile FILE` | Summarizes a PLOTFILE, MAXIFILE, RANKFILE or deposition file |
-| `pyaermod profile DECK --profile NAME [--apply]` | Checks a deck against a regulatory profile (`EPA-AppendixW-2017`, `EPA-AppendixW-2023`, `Screening`); `--apply` rewrites the deck |
+| `pyaermod profile DECK --profile NAME [--apply]` | Checks a deck against a regulatory profile (`EPA-AppendixW-2024`, `EPA-AppendixW-2017`, `EPA-AppendixW-2023`, `Screening`); `--apply` rewrites the deck |
 
 ## Background concentrations
 

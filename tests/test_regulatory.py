@@ -7,6 +7,8 @@ import pytest
 from pyaermod import (
     AERMODProject,
     CartesianGrid,
+    ChemistryMethod,
+    ChemistryOptions,
     ControlPathway,
     MeteorologyPathway,
     OutputPathway,
@@ -20,6 +22,7 @@ from pyaermod.regulatory import (
     ALL_PROFILES,
     EPA_APPENDIX_W_2017,
     EPA_APPENDIX_W_2023,
+    EPA_APPENDIX_W_2024,
     SCREENING_PROFILE,
     RegulatoryProfile,
     get_profile,
@@ -113,15 +116,22 @@ class TestCheck:
         assert project.control.extra_model_options == []
         assert project.control.psd_credit is False
 
-    def test_disallowed_low_wind_warns(self):
-        project = _make_project(low_wind_option="LOWWIND1")
-        warnings = EPA_APPENDIX_W_2017.check(project)
-        assert any("low_wind_option" in w for w in warnings)
+    @pytest.mark.parametrize("name", sorted(ALL_PROFILES))
+    @pytest.mark.parametrize("option", ["LOWWIND3", "0.3 0.5"])
+    def test_no_profile_accepts_a_low_wind_option(self, name, option):
+        """CO LOW_WIND needs ALPHA, which AERMOD refuses beside DFAULT; the
+        2017 rule declined LOWWIND3 and v18081 removed LOWWIND1/2/3."""
+        profile = ALL_PROFILES[name]
+        assert profile.allowed_low_wind == ()
+        project = _make_project(low_wind_option=option)
+        assert any("low_wind_option" in w for w in profile.check(project))
 
-    def test_screening_forbids_any_low_wind(self):
-        project = _make_project(low_wind_option="LOWWIND3")
-        warnings = SCREENING_PROFILE.check(project)
-        assert any("low_wind_option" in w for w in warnings)
+    def test_apply_clears_a_low_wind_option(self):
+        project = _make_project(low_wind_option="0.3 0.5")
+        changes = EPA_APPENDIX_W_2024.apply(project)
+        assert project.control.low_wind_option is None
+        assert any("low_wind_option" in c for c in changes)
+        assert EPA_APPENDIX_W_2024.check(project) == []
 
 
 class TestProfileRegistry:
@@ -143,31 +153,71 @@ class TestProfileRegistry:
             assert warnings == [], f"{name} post-apply warnings: {warnings}"
 
 
-class TestProfile2023BetaChemistry:
-    """PVMRM2 and GRSM are BETA in AERMOD v23132/v24142 per EPA
-    Appendix W 2023 memos. Neither is DFAULT-compatible; they require
-    case-by-case agency concurrence. The profile's primary
-    allow_chemistry_methods tuple therefore keeps only OLM and PVMRM;
-    BETA methods live in a separate tuple."""
+def _chem(method: str) -> ChemistryOptions:
+    return ChemistryOptions(method=ChemistryMethod[method])
 
-    def test_beta_methods_constant_exported(self):
+
+class TestNO2Tiers:
+    """Appendix W 4.2.3.4: ARM2 is Tier 2 in the 2017 and 2024 revisions;
+    OLM and PVMRM are Tier 3 in both, GRSM from the 2024 revision
+    (89 FR 95034; regulatory in AERMOD from v24142, BETA in v23132)."""
+
+    @pytest.mark.parametrize("name", sorted(ALL_PROFILES))
+    @pytest.mark.parametrize("method", ["ARM2", "OLM", "PVMRM"])
+    def test_every_profile_accepts_arm2_olm_and_pvmrm(self, name, method):
+        project = _make_project(chemistry=_chem(method), terrain_type="ELEV")
+        assert ALL_PROFILES[name].check(project) == []
+
+    @pytest.mark.parametrize("profile,accepted", [
+        (EPA_APPENDIX_W_2017, False),
+        (EPA_APPENDIX_W_2023, False),
+        (EPA_APPENDIX_W_2024, True),
+    ], ids=["2017", "2023", "2024"])
+    def test_grsm_is_accepted_from_the_2024_revision(self, profile, accepted):
+        project = _make_project(chemistry=_chem("GRSM"), terrain_type="ELEV")
+        flagged = any("GRSM" in w for w in profile.check(project))
+        assert flagged is not accepted
+
+    @pytest.mark.parametrize("name", sorted(ALL_PROFILES))
+    @pytest.mark.parametrize("method", ["TTRM", "TTRM2"])
+    def test_alpha_methods_are_flagged(self, name, method):
+        project = _make_project(chemistry=_chem(method), terrain_type="ELEV")
+        assert any(method in w for w in ALL_PROFILES[name].check(project))
+
+    @pytest.mark.parametrize("method", ["OLM", "PVMRM", "GRSM"])
+    def test_tier3_gives_the_consultation_note_and_no_finding(self, method):
+        project = _make_project(chemistry=_chem(method), terrain_type="ELEV")
+        assert EPA_APPENDIX_W_2024.check(project) == []
+        notes = EPA_APPENDIX_W_2024.advisories(project)
+        assert len(notes) == 1
+        assert "Regional Office" in notes[0] and "4.2.3.4(e)" in notes[0]
+
+    @pytest.mark.parametrize("chemistry", [None, "ARM2"])
+    def test_tiers_1_and_2_give_no_note(self, chemistry):
+        kw = {"chemistry": _chem(chemistry)} if chemistry else {}
+        assert EPA_APPENDIX_W_2024.advisories(_make_project(**kw)) == []
+
+    def test_a_refused_method_gives_a_finding_not_a_note(self):
+        project = _make_project(chemistry=_chem("GRSM"))
+        assert EPA_APPENDIX_W_2017.advisories(project) == []
+
+    def test_no_profile_mentions_pvmrm2(self):
+        """The 2017 rule made the PVMRM2 method the regulatory PVMRM
+        (v16216); the keyword no longer exists."""
         from pyaermod.regulatory import EPA_APPENDIX_W_2023_BETA_METHODS
-        assert "PVMRM2" in EPA_APPENDIX_W_2023_BETA_METHODS
-        assert "GRSM" in EPA_APPENDIX_W_2023_BETA_METHODS
+        assert EPA_APPENDIX_W_2023_BETA_METHODS == ("GRSM",)
+        for profile in ALL_PROFILES.values():
+            text = profile.description + " ".join(profile.notes)
+            assert "PVMRM2" not in text
+            assert "PVMRM2" not in profile.allow_chemistry_methods
 
-    def test_pvmrm2_not_in_2023_default_allow(self):
-        """PVMRM2 remains BETA — must NOT be silently in allow list."""
-        assert "PVMRM2" not in EPA_APPENDIX_W_2023.allow_chemistry_methods
+    def test_the_2024_profile_is_registered_and_exported(self):
+        import pyaermod
+        assert get_profile("EPA-AppendixW-2024") is EPA_APPENDIX_W_2024
+        assert pyaermod.EPA_APPENDIX_W_2024 is EPA_APPENDIX_W_2024
+        assert "89 FR 95034" in EPA_APPENDIX_W_2024.description
 
-    def test_grsm_not_in_2023_default_allow(self):
-        """GRSM remains BETA — same rule."""
-        assert "GRSM" not in EPA_APPENDIX_W_2023.allow_chemistry_methods
-
-    def test_olm_and_pvmrm_still_in_2023(self):
-        """OLM + PVMRM remain the two DFAULT-compatible methods."""
-        assert "OLM" in EPA_APPENDIX_W_2023.allow_chemistry_methods
-        assert "PVMRM" in EPA_APPENDIX_W_2023.allow_chemistry_methods
-
-    def test_2017_unchanged(self):
-        assert "PVMRM2" not in EPA_APPENDIX_W_2017.allow_chemistry_methods
-        assert "GRSM" not in EPA_APPENDIX_W_2017.allow_chemistry_methods
+    def test_the_2023_profile_says_what_it_is(self):
+        assert "no 2023 revision" in EPA_APPENDIX_W_2023.description
+        assert (EPA_APPENDIX_W_2023.allow_chemistry_methods
+                == EPA_APPENDIX_W_2017.allow_chemistry_methods)
