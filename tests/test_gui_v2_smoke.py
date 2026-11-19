@@ -432,6 +432,23 @@ def with_met_files(work_dir: Path) -> Path:
     return work_dir
 
 
+async def _results_read(gui: GuiSession, number: int, timeout: float = 30.0) -> None:
+    """Wait until Results has read run ``number``'s files and drawn its map."""
+    from pyaermod.gui_v2.run_results import build_error, cached_view
+
+    record = next(r for r in gui.session.runs if r.number == number)
+    await _value_becomes(lambda: cached_view(record) is not None or build_error(record) is not None,
+                         True, timeout)
+    await gui.user.should_see(f"Run {number} succeeded", retries=int(timeout * 10))
+
+    def drawn() -> bool:
+        with gui.user:
+            images = list(ElementFilter(kind=ui.image, marker="results-map", local_scope=False))
+        return bool(images) and all(i.source for i in images)
+
+    await _value_becomes(drawn, True, timeout)
+
+
 async def _fill_minimal_project(gui: GuiSession) -> Session:
     """Title + one point source + one receptor grid + met file names, via the UI."""
     session = await gui.open()
@@ -2290,6 +2307,11 @@ class TestReviewAndRun:
         await _run_ends(gui, "Succeeded in")
         await _badge_reads(gui, "Review & Run", "complete")
         await _badge_reads(gui, "Results", "complete")
+        # Let Results finish reading run 1 (its files, its map) before run 2
+        # starts: that work runs in threads, and on a slow runner it can
+        # starve the event loop for longer than the 0.3 s that day 61 is on
+        # screen, which the progress label then skips.
+        await _results_read(gui, 1)
         monkeypatch.setenv("PYAERMOD_E2E_DELAY", "0.3")
         with gui.user:
             work_dir.value = str(with_met_files(tmp_path / "second"))
