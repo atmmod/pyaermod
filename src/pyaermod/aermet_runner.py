@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Union
 
 from .aermet import _MAX_FILENAME, AERMETStage1, AERMETStage2, AERMETStage3
-from .runner import _dir_state, _files_written, _read_capped
+from .runner import _dir_state, _files_written, _read_capped, _run_tree
 
 _FINISHED_SUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED SUCCESSFULLY[ \t]*$", re.MULTILINE)
 _FINISHED_UNSUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED UN-SUCCESSFULLY[ \t]*$", re.MULTILINE)
@@ -287,13 +287,12 @@ class AERMETRunner:
         stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
         try:
             try:
-                proc = subprocess.run(
+                proc = _run_tree(
                     [str(self.executable), deck_arg],
                     cwd=str(work),
                     text=True,
                     stdout=stdout_fh, stderr=stderr_fh,
                     timeout=timeout,
-                    check=False,
                 )
             except subprocess.TimeoutExpired as e:
                 end = datetime.now()

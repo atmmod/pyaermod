@@ -152,7 +152,8 @@ class TestPropertyBased:
             output=OutputPathway(),
         )
         result = Validator.validate(project)
-        if stack_height <= 0:
+        # soset.f PPARM: only a negative height is E209; 0 is ground level
+        if stack_height < 0:
             assert not result.is_valid
 
     @given(

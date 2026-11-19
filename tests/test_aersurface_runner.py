@@ -24,11 +24,16 @@ def cfg(tmp_path):
     )
 
 
-def _fake_aersurface(tmp_path, *, exit_code=0, stdout="OK\n", stderr=""):
-    """Create a fake aersurface binary on disk that emits the given streams."""
+def _fake_aersurface(tmp_path, *, exit_code=0, stdout="OK\n", stderr="", sfc="aersurface_sfc.txt"):
+    """Create a fake aersurface binary on disk that emits the given streams.
+
+    Like the real program it writes the surface-characteristics file named
+    by the deck (``sfc``, in its working directory) unless ``sfc`` is None.
+    """
     fake = tmp_path / "fake_aersurface"
+    write = f"echo 'surface table' > {sfc}\n" if sfc else ""
     fake.write_text(
-        f'#!/bin/bash\necho -n {stdout!r}\necho -n {stderr!r} >&2\nexit {exit_code}\n'
+        f'#!/bin/bash\n{write}echo -n {stdout!r}\necho -n {stderr!r} >&2\nexit {exit_code}\n'
     )
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return fake
@@ -62,6 +67,27 @@ class TestRun:
         assert (work / "aersurface.inp").exists()
         deck_text = (work / "aersurface.inp").read_text()
         assert "TITLEONE  UnitTest" in deck_text
+
+    def test_exit_zero_without_the_sfcchar_file_is_not_success(self, tmp_path, cfg):
+        fake = _fake_aersurface(tmp_path, sfc=None)
+        result = AERSURFACERunner(executable_path=fake).run(
+            cfg, working_dir=tmp_path / "wd", timeout=10)
+        assert not result.success
+        assert "wrote no aersurface_sfc.txt" in result.error_message
+
+    def test_an_earlier_runs_sfcchar_file_does_not_count(self, tmp_path, cfg):
+        work = tmp_path / "wd"
+        work.mkdir()
+        (work / "aersurface_sfc.txt").write_text("from an earlier run\n")
+        fake = _fake_aersurface(tmp_path, sfc=None)
+        result = AERSURFACERunner(executable_path=fake).run(cfg, working_dir=work, timeout=10)
+        assert not result.success
+
+    def test_fatal_on_stderr_marks_failure(self, tmp_path, cfg):
+        fake = _fake_aersurface(tmp_path, stderr="FATAL: no raster\n")
+        result = AERSURFACERunner(executable_path=fake).run(
+            cfg, working_dir=tmp_path / "wd", timeout=10)
+        assert not result.success
 
     def test_nonzero_exit_marks_failure(self, tmp_path, cfg):
         fake = _fake_aersurface(tmp_path, exit_code=1, stdout="bad\n")
@@ -100,6 +126,7 @@ class TestRun:
         fake.write_text(
             "#!/bin/bash\n"
             "touch UTEST.SFC\n"
+            "echo 'surface table' > aersurface_sfc.txt\n"
             "echo done\n"
             "exit 0\n"
         )

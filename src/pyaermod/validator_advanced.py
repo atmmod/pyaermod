@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
-from .validator import ValidationError
+from .validator import ValidationError, ValidationResult, Validator
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .aermet import SurfaceFilePeriod
@@ -42,7 +42,11 @@ MIN_PLAUSIBLE_STACK_DIAM_M = 0.01   # 1 cm — anything smaller is data error
 MAX_PLAUSIBLE_STACK_DIAM_M = 30.0   # cooling-tower scale cap
 MAX_PLAUSIBLE_EXIT_V_MS = 150.0     # ~Mach 0.4; real stacks are <100 m/s
 AMBIENT_TEMP_K = 293.15             # nominal near-surface temperature
-RECEPTOR_GRID_HARD_LIMIT = 100_000  # AERMOD RECOPT memory limit
+#: Receptor count above which the grid-extent check is skipped and a
+#: memory warning given. AERMOD has no fixed receptor limit: aermod.f
+#: RECSIZ counts the deck's receptors and allocates the arrays to that
+#: count, so the only limit is memory.
+RECEPTOR_GRID_HARD_LIMIT = 100_000
 RECEPTOR_GRID_WARN_LIMIT = 10_000
 
 
@@ -205,17 +209,15 @@ def _check_receptors(receptors: Any, sources: Any) -> List[ValidationError]:
     errors: List[ValidationError] = []
     n = _count_receptors(receptors)
 
-    # Fast-path: if we're over the hard limit, record it and return
-    # before any further work (bbox, source comparison). Previously
-    # the bbox helper materialized all x_num*y_num coords into memory
-    # first, which was O(100k+) for the exact projects this check
-    # exists to flag.
+    # Fast-path: over RECEPTOR_GRID_HARD_LIMIT, warn and return before
+    # any further work (bbox, source comparison).
     if n > RECEPTOR_GRID_HARD_LIMIT:
         errors.append(ValidationError(
             "ReceptorPathway", "total_receptors",
-            f"total receptors {n} exceeds AERMOD hard limit "
-            f"{RECEPTOR_GRID_HARD_LIMIT}; recompile AERMOD or reduce grid",
-            severity="error",
+            f"total receptors {n} > {RECEPTOR_GRID_HARD_LIMIT}; AERMOD sizes its "
+            "receptor arrays to the deck, so a grid this large needs a lot of memory "
+            "and a long run",
+            severity="warning",
         ))
         return errors
     elif n > RECEPTOR_GRID_WARN_LIMIT:
@@ -248,40 +250,23 @@ def _check_receptors(receptors: Any, sources: Any) -> List[ValidationError]:
 # DFAULT / NONDFAULT consistency
 # ---------------------------------------------------------------------------
 
-# Options that change AERMOD from regulatory-default behavior. If any of
-# these are set *and* regulatory_default is True, the model will warn
-# (AERMOD itself will in fact abort); we flag it earlier.
+#: MODELOPT tokens AERMOD does not take beside DFAULT: the first group
+#: stops the run (E204), the second is dropped with a warning (W206).
+#: These are tokens the writer puts on MODELOPT (from ``alpha``,
+#: ``beta``, ``psd_credit``, the chemistry method and
+#: ``extra_model_options``), not ControlPathway attributes.
 NONDEFAULT_OPTION_FLAGS = (
-    "use_nondefault",    # explicit override toggle
-    "flat_terrain",      # FLAT option is non-default
-    "no_stack_tip_downwash",  # NOSTD option
-    "use_lowwind1",
-    "use_lowwind2",
-    "use_lowwind3",
-    "use_area_rural",    # ARM mode (regulatory is urban/rural per-source)
-    "beta_options",      # BETA experimental options
+    *Validator.DFAULT_FATAL_OPTIONS,
+    *Validator.DFAULT_OVERRIDDEN_OPTIONS,
 )
 
 
 def _check_dfault_consistency(control: Any) -> List[ValidationError]:
-    errors: List[ValidationError] = []
-    reg = getattr(control, "regulatory_default", True)
-    if not reg:
-        return errors  # User explicitly chose NONDFAULT — nothing to check
-
-    triggered = []
-    for opt in NONDEFAULT_OPTION_FLAGS:
-        val = getattr(control, opt, None)
-        if val:  # truthy (True, non-empty string, non-empty list)
-            triggered.append(opt)
-    if triggered:
-        errors.append(ValidationError(
-            "ControlPathway", "regulatory_default",
-            f"regulatory_default=True but non-default options set: "
-            f"{triggered}; set regulatory_default=False or remove these",
-            severity="error",
-        ))
-    return errors
+    """Non-DFAULT MODELOPT options written beside DFAULT (coset.f MODOPT):
+    E204 errors and W206 warnings, as the base validator reports them."""
+    result = ValidationResult()
+    Validator._validate_dfault_options(control, result)
+    return result.errors
 
 
 # ---------------------------------------------------------------------------

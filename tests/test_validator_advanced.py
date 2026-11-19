@@ -153,16 +153,21 @@ class TestDFAULTConsistency:
         assert findings == []
 
     def test_nondefault_flag_with_regulatory_default_errors(self):
-        control = _good_control(regulatory_default=True)
-        # Fake a non-default option
-        control.flat_terrain = True
+        # A real non-DFAULT option (this test once set a phantom
+        # ``flat_terrain`` attribute): AERMOD stops with E204.
+        control = _good_control(regulatory_default=True, beta=True)
         findings = _check_dfault_consistency(control)
         assert len(findings) == 1
         assert "regulatory_default" in findings[0].field
+        assert findings[0].severity == "error"
+
+    def test_overridden_option_with_regulatory_default_warns(self):
+        control = _good_control(regulatory_default=True, extra_model_options=["NOSTD"])
+        findings = _check_dfault_consistency(control)
+        assert [f.severity for f in findings] == ["warning"]
 
     def test_nondefault_flag_without_regulatory_default_ok(self):
-        control = _good_control(regulatory_default=False)
-        control.flat_terrain = True
+        control = _good_control(regulatory_default=False, beta=True)
         findings = _check_dfault_consistency(control)
         assert findings == []
 

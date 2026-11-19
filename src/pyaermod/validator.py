@@ -54,6 +54,18 @@ def _is_finite_number(value) -> bool:
     return _is_number(value) and math.isfinite(value)
 
 
+#: RE keywords that define receptors (aermod.f RECSIZ counts them, and
+#: PREINCLUD those in an INCLUDED file).
+_RECEPTOR_KEYWORDS = ("INCLUDED", "EVALCART", "DISCCART", "DISCPOLR", "GRIDCART", "GRIDPOLR")
+
+
+def _kept_lines(unparsed_lines, pathway: str, keywords) -> list:
+    """The verbatim lines of ``pathway`` whose keyword is one of ``keywords``."""
+    return [ln for ln in unparsed_lines or []
+            if str(ln.pathway).upper() == pathway
+            and str(ln.keyword).upper() in keywords]
+
+
 @dataclass
 class ValidationError:
     """A single validation error with context."""
@@ -142,13 +154,15 @@ class Validator:
         result = ValidationResult()
         event_run = bool(getattr(project, "event_processing", False))
         cls._validate_control(project.control, result)
-        cls._validate_sources(project.sources, project.control, result)
+        kept = list(getattr(project, "unparsed_lines", None) or []) if preserve_unparsed else []
+        cls._validate_sources(project.sources, project.control, result,
+                              unparsed_lines=kept)
         if preserve_unparsed:
             cls._validate_background_verbatim(project, result)
         if not event_run:
             # An EVENT deck has no RE pathway; its receptors are the
             # EVENTLOC cards.
-            cls._validate_receptors(project.receptors, result)
+            cls._validate_receptors(project.receptors, result, unparsed_lines=kept)
             cls._validate_openpit_receptors(project.sources, project.receptors, result)
         cls._validate_meteorology(project.meteorology, result, check_files,
                                   project.control)
@@ -163,12 +177,54 @@ class Validator:
             cls._validate_events(events, project.control, project.sources,
                                  project.output, result, event_run)
 
+        cls._validate_card_length(project, result, preserve_unparsed)
+
         if advanced:
             # Lazy import to avoid circulars: validator_advanced uses
             # ValidationError from this module.
             from .validator_advanced import advanced_validate
-            result.errors.extend(advanced_validate(project))
+            # The advanced DFAULT check repeats the base one; keep one copy.
+            seen = {(e.pathway, e.field, e.message, e.severity) for e in result.errors}
+            result.errors.extend(
+                e for e in advanced_validate(project)
+                if (e.pathway, e.field, e.message, e.severity) not in seen)
         return result
+
+    #: Longest runstream card AERMOD reads (modules.f ISTRG; setup.f reads
+    #: each record as A512 and drops the rest of the line).
+    MAX_CARD_LENGTH = 512
+
+    @classmethod
+    def _validate_card_length(cls, project, result: ValidationResult,
+                              preserve_unparsed: bool = True):
+        """Cards the writer would make longer than AERMOD reads.
+
+        A card past 512 characters is cut without a message: a cut at a
+        blank silently loses the fields after it (a SRCGROUP loses
+        members), a cut inside a field gives an unrelated error. The
+        deck is written once, unvalidated, to measure its lines; a
+        project the writer cannot write is left to the other checks.
+        """
+        write = getattr(project, "to_aermod_input", None)
+        if not callable(write):
+            return
+        try:
+            deck = write(validate=False, preserve_unparsed=preserve_unparsed)
+        except Exception:  # the writer's own errors are reported elsewhere
+            return
+        if not isinstance(deck, str):
+            return
+        for lineno, line in enumerate(deck.splitlines(), start=1):
+            if len(line) > cls.MAX_CARD_LENGTH:
+                card = " ".join(line.split()[:2])
+                result.errors.append(ValidationError(
+                    "AERMODProject", "deck",
+                    f"line {lineno} ({card} ...) is {len(line)} characters; AERMOD reads "
+                    f"only the first {cls.MAX_CARD_LENGTH} of a card (ISTRG) and drops the "
+                    "rest without a message. Shorten it: for a source group, name the "
+                    "members with an ID range (e.g. STK1-STK99) or put them in the "
+                    "sources' own source_groups, which are written ten to a card"
+                ))
 
     # ------------------------------------------------------------------
     # Control pathway
@@ -185,6 +241,7 @@ class Validator:
             ))
 
         cls._validate_dfault_terrain(control, result)
+        cls._validate_dfault_options(control, result)
         cls._validate_restart_options(control, result)
         cls._validate_gas_deposition_defaults(control, result)
         cls._validate_downwash_and_arm2_options(control, result)
@@ -213,11 +270,22 @@ class Validator:
             if hasattr(control.pollutant_id, "value")
             else control.pollutant_id
         )
-        if pollutant not in VALID_POLLUTANT_IDS:
+        # coset.f POLLID takes any name (only NO2, SO2 and the PM2.5
+        # spellings get special processing); POLLUT is CHARACTER*8.
+        pollutant = "" if pollutant is None else str(pollutant)
+        if not pollutant.strip() or any(c.isspace() for c in pollutant):
             result.errors.append(ValidationError(
                 pathway, "pollutant_id",
-                f"invalid pollutant '{pollutant}'; "
-                f"valid values: {sorted(VALID_POLLUTANT_IDS)}"
+                f"must be one word with no blanks, got {pollutant!r}: AERMOD reads "
+                "POLLUTID from one field"
+            ))
+        elif len(pollutant) > 8:
+            result.errors.append(ValidationError(
+                pathway, "pollutant_id",
+                f"'{pollutant}' is longer than 8 characters; AERMOD keeps only "
+                f"'{pollutant[:8]}' (POLLUT is CHARACTER*8), so the output files and "
+                "any pollutant-specific processing see the shortened name",
+                severity="warning",
             ))
 
         # Elevation units
@@ -255,10 +323,22 @@ class Validator:
         name or a roughness without one would be written with a made-up
         population, and the roughness is the third field, so it needs the
         name before it. ``urban_areas``, when set, is what the deck gets.
+        A population below 100 is E203 (URBOPT 4851-4854, 4917-4920).
         """
-        if getattr(control, "urban_areas", None):
-            return
         pathway = "ControlPathway"
+        areas = getattr(control, "urban_areas", None)
+        populations = ([(f"urban_areas[{i}].population", a.population)
+                        for i, a in enumerate(areas)] if areas
+                       else [("urban_population", control.urban_population)])
+        for field_name, population in populations:
+            if _is_number(population) and population < 100:
+                result.errors.append(ValidationError(
+                    pathway, field_name,
+                    f"must be >= 100, got {population}: AERMOD refuses a smaller "
+                    "urban population (E203)"
+                ))
+        if areas:
+            return
         if control.urban_roughness is not None and not control.urban_option:
             result.errors.append(ValidationError(
                 pathway, "urban_roughness",
@@ -272,6 +352,47 @@ class Validator:
                 "must be set when urban_option or urban_roughness is: URBANOPT "
                 "starts with the urban population"
             ))
+
+    #: MODELOPT tokens AERMOD refuses beside DFAULT (coset.f MODOPT,
+    #: v24142: "Non-DEFAULT Option Conflict", E204).
+    DFAULT_FATAL_OPTIONS = ("ALPHA", "BETA", "PSDCREDIT", "FASTAREA", "FASTALL", "SCIM",
+                            "NOURBTRAN", "AREADPLT", "HBP", "TTRM2")
+    #: MODELOPT tokens DFAULT overrides: AERMOD warns (W206), drops the
+    #: option and runs the regulatory default. FLAT is reported by
+    #: :meth:`_validate_dfault_terrain`.
+    DFAULT_OVERRIDDEN_OPTIONS = ("NOSTD", "NOCHKD", "SCREEN")
+
+    @classmethod
+    def _validate_dfault_options(cls, control, result: ValidationResult):
+        """Non-DFAULT MODELOPT options written beside DFAULT.
+
+        coset.f MODOPT stops with E204 for ALPHA (1868-1872), BETA
+        (1880-1885), PSDCREDIT (1852-1861), FASTAREA, FASTALL, SCIM,
+        NOURBTRAN, AREADPLT, HBP and TTRM2, and drops NOSTD, NOCHKD and
+        SCREEN with W206. The tokens are the ones the writer puts on
+        MODELOPT (``ControlPathway._model_options``).
+        """
+        if not getattr(control, "regulatory_default", False):
+            return
+        model_options = getattr(control, "_model_options", None)
+        tokens = [str(t).upper() for t in model_options()] if callable(model_options) else []
+        for token in cls.DFAULT_FATAL_OPTIONS:
+            if token in tokens:
+                result.errors.append(ValidationError(
+                    "ControlPathway", "regulatory_default",
+                    f"MODELOPT {token} is a non-DFAULT option and AERMOD stops when it is "
+                    "written beside DFAULT (E204); set regulatory_default=False for a "
+                    f"non-regulatory run, or remove {token}"
+                ))
+        for token in cls.DFAULT_OVERRIDDEN_OPTIONS:
+            if token in tokens:
+                result.errors.append(ValidationError(
+                    "ControlPathway", "regulatory_default",
+                    f"MODELOPT {token} is ignored under DFAULT: AERMOD drops it (W206) "
+                    "and runs the regulatory default; set regulatory_default=False "
+                    f"to use {token}",
+                    severity="warning",
+                ))
 
     @classmethod
     def _validate_dfault_terrain(cls, control, result: ValidationResult):
@@ -304,23 +425,19 @@ class Validator:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _validate_sources(cls, sources, control, result: ValidationResult):
+    def _validate_sources(cls, sources, control, result: ValidationResult,
+                          *, unparsed_lines=()):
         if not sources.sources:
-            result.errors.append(ValidationError(
-                "SourcePathway", "sources", "must contain at least one source"
-            ))
+            # Sources defined in an SO INCLUDED file are read by AERMOD
+            # (aermod.f PREINCLUD); the validator cannot see them.
+            if not _kept_lines(unparsed_lines, "SO", ("INCLUDED",)):
+                result.errors.append(ValidationError(
+                    "SourcePathway", "sources", "must contain at least one source"
+                ))
+            cls._validate_background_in_groups(sources, unparsed_lines, result)
             return
 
-        # Check for duplicate source IDs
-        ids = [s.source_id for s in sources.sources]
-        seen = set()
-        for sid in ids:
-            if sid in seen:
-                result.errors.append(ValidationError(
-                    "SourcePathway", "source_id",
-                    f"duplicate source ID '{sid}'"
-                ))
-            seen.add(sid)
+        cls._validate_source_ids(sources, result)
 
         has_urban_source = False
         for source in sources.sources:
@@ -333,11 +450,17 @@ class Validator:
                 has_urban_source = True
         cls._validate_source_flags(sources, control, result)
 
-        # Cross-field: urban sources need URBANOPT in control
-        if has_urban_source and not control.urban_option:
+        # Cross-field: urban sources need a URBANOPT card, which the writer
+        # emits for urban_areas, urban_option or urban_population (coset.f
+        # URBOPT takes a population alone).
+        has_urbanopt = bool(getattr(control, "urban_areas", None)
+                            or control.urban_option
+                            or control.urban_population is not None)
+        if has_urban_source and not has_urbanopt:
             result.errors.append(ValidationError(
                 "SourcePathway/ControlPathway", "urban_option",
-                "one or more sources have is_urban=True but ControlPathway.urban_option is not set"
+                "one or more sources have is_urban=True but the project has no URBANOPT: "
+                "set ControlPathway.urban_population (or urban_areas)"
             ))
 
         # Validate background concentration if present
@@ -346,12 +469,79 @@ class Validator:
 
         # Validate centralized source group definitions
         if sources.group_definitions:
-            cls._validate_source_groups(sources, result)
+            cls._validate_source_groups(sources, result, unparsed_lines=unparsed_lines)
+        cls._validate_background_in_groups(sources, unparsed_lines, result)
 
         cls._validate_psd_groups(sources, control, result)
         cls._validate_unit_conversions(sources, control, result)
         cls._validate_solid_barriers(sources, control, result)
         cls._validate_line_deposition(sources, control, result)
+
+    #: Source IDs AERMOD keeps for the background pseudo-source (soset.f
+    #: SOLOCA E285; SRCGRP accepts them as a group member).
+    RESERVED_SOURCE_IDS = frozenset({"BACKGROUND", "BACKGRND"})
+
+    #: Longest source ID AERMOD takes on LOCATION (soset.f SOLOCA E230).
+    SOURCE_ID_LENGTH = 12
+
+    @classmethod
+    def _validate_source_ids(cls, sources, result: ValidationResult):
+        """Source IDs as soset.f SOLOCA reads them (v24142, 2063-2076).
+
+        An ID is one field of at most 12 characters (E230) and not
+        BACKGROUND or BACKGRND (E285). AERMOD upper-cases the runstream,
+        so ``s1`` and ``S1`` are the same source (E310 duplicate
+        LOCATION). Each BUOYLINE segment is a source of its own on
+        LOCATION; the BuoyLineSource ID names its BLPGROUP.
+        """
+        from pyaermod.input_generator import BuoyLineSource
+
+        located: List[tuple] = []  # (pathway, source ID as written on LOCATION)
+        blp_groups: List[str] = []
+        for src in sources.sources:
+            name = f"{type(src).__name__}({src.source_id})"
+            if isinstance(src, BuoyLineSource):
+                blp_groups.append(src.source_id)
+                located.extend((name, seg.source_id) for seg in src.line_segments)
+            else:
+                located.append((name, src.source_id))
+
+        seen = set()
+        for name, sid in located:
+            text = "" if sid is None else str(sid)
+            if not text.strip():
+                result.errors.append(ValidationError(
+                    name, "source_id", "must not be blank"))
+                continue
+            if any(c.isspace() for c in text):
+                result.errors.append(ValidationError(
+                    name, "source_id",
+                    f"'{text}' contains a blank: AERMOD reads the source ID from one "
+                    "field, so the rest of the ID shifts every later field"))
+            if len(text) > cls.SOURCE_ID_LENGTH:
+                result.errors.append(ValidationError(
+                    name, "source_id",
+                    f"'{text}' is {len(text)} characters; AERMOD takes at most "
+                    f"{cls.SOURCE_ID_LENGTH} (E230)"))
+            if text.upper() in cls.RESERVED_SOURCE_IDS:
+                result.errors.append(ValidationError(
+                    name, "source_id",
+                    f"'{text}' is reserved for the background concentration (AERMOD E285)"))
+            if text.upper() in seen:
+                result.errors.append(ValidationError(
+                    "SourcePathway", "source_id",
+                    f"duplicate source ID '{text}' (AERMOD reads IDs in upper case, "
+                    "so IDs differing only in case collide: E310)"))
+            seen.add(text.upper())
+
+        seen_groups = set()
+        for gid in blp_groups:
+            key = str(gid).upper()
+            if key in seen_groups:
+                result.errors.append(ValidationError(
+                    "SourcePathway", "source_id",
+                    f"duplicate buoyant line group ID '{gid}'"))
+            seen_groups.add(key)
 
     @classmethod
     def _validate_line_deposition(cls, sources, control, result: ValidationResult):
@@ -753,7 +943,18 @@ class Validator:
         dep_enabled = (control.calculate_deposition or
                        control.calculate_dry_deposition or
                        control.calculate_wet_deposition)
+        # METHOD_2 gives the source its particle category (soset.f METH_2
+        # sets INPD = 1), which satisfies SRCQA's E242 test.
         has_dep = gas_dep is not None or particle_dep is not None
+        has_category = has_dep or getattr(source, "method_2", None) is not None
+
+        if gas_dep is not None and particle_dep is not None:
+            # soset.f SRCQA 1187-1191: particle categories on a gas source
+            result.errors.append(ValidationError(
+                name, "deposition",
+                "a source takes either gas_deposition (GASDEPOS) or "
+                "particle_deposition (PARTDIAM/MASSFRAX/PARTDENS), not both (AERMOD E289)",
+            ))
 
         if has_dep and not dep_enabled:
             result.errors.append(ValidationError(
@@ -761,7 +962,7 @@ class Validator:
                 "deposition parameters specified but DEPOS/DDEP/WDEP not enabled in MODELOPT",
                 severity="warning",
             ))
-        elif (dep_enabled and not has_dep
+        elif (dep_enabled and not has_category
               and getattr(control, "gas_deposition_velocity", None) is None):
             # soset.f SRCQA: a source with no particle categories and no gas
             # deposition parameters under DEPOS/DDEP/WDEP is E242 (GASDEPVD
@@ -916,22 +1117,30 @@ class Validator:
     def _validate_point_source(cls, src, result: ValidationResult):
         name = f"PointSource({src.source_id})"
 
-        if src.stack_height <= 0:
+        # soset.f PPARM (v24142, 2713-2818): a negative height or diameter
+        # is E209; a zero diameter is reset to 1e-5 m and a zero height
+        # is a ground-level release, both accepted.
+        if src.stack_height < 0:
             result.errors.append(ValidationError(
                 name, "stack_height",
-                f"must be > 0, got {src.stack_height}"
+                f"must be >= 0, got {src.stack_height} (AERMOD E209)"
             ))
 
-        if src.stack_diameter <= 0:
+        if src.stack_diameter < 0:
             result.errors.append(ValidationError(
                 name, "stack_diameter",
-                f"must be > 0, got {src.stack_diameter}"
+                f"must be >= 0, got {src.stack_diameter} (AERMOD E209)"
             ))
 
-        if src.stack_temp <= 0:
+        # PPARM 2770-2781: Ts == 0 is a release at ambient temperature and
+        # Ts < 0 a fixed Ts - Ta offset of |Ts| (calc1.f FLUXES); only
+        # 0 < Ts < 200 K is refused (E320).
+        if 0 < src.stack_temp < 200:
             result.errors.append(ValidationError(
                 name, "stack_temp",
-                f"must be > 0 K, got {src.stack_temp}"
+                f"{src.stack_temp} K is out of range: AERMOD refuses a stack "
+                "temperature between 0 and 200 K (E320). Use 0 for a release at "
+                "ambient temperature, or a negative value -dT for Ts = Ta + dT"
             ))
 
         if src.exit_velocity < 0:
@@ -1630,17 +1839,30 @@ class Validator:
                         ))
 
     @classmethod
-    def _validate_source_groups(cls, sources, result: ValidationResult):
-        """Validate centralized source group definitions."""
-        all_source_ids = set()
-        from pyaermod.input_generator import BuoyLineSource
+    def _validate_source_groups(cls, sources, result: ValidationResult,
+                                *, unparsed_lines=()):
+        """Validate centralized source group definitions.
 
+        Members as soset.f SRCGRP (v24142, 5905-5960) reads them:
+        BACKGROUND/BACKGRND names the background concentration (E323
+        when the project has none), a field with ``-`` is a range of
+        source IDs (E203 when its upper end is below its lower), and any
+        other field must be a defined source ID (E224). Sources from an
+        SO INCLUDED file are invisible here, so an unknown member is then
+        only a warning.
+        """
+        from pyaermod.input_generator import BuoyLineSource
+        from pyaermod.input_reader import _id_parts
+
+        all_source_ids = set()
         for source in sources.sources:
             if isinstance(source, BuoyLineSource):
                 for seg in source.line_segments:
-                    all_source_ids.add(seg.source_id)
+                    all_source_ids.add(str(seg.source_id).upper())
             else:
-                all_source_ids.add(source.source_id)
+                all_source_ids.add(str(source.source_id).upper())
+        has_background = cls._has_background(sources, unparsed_lines)
+        included = bool(_kept_lines(unparsed_lines, "SO", ("INCLUDED",)))
 
         seen_names = set()
         for group in sources.group_definitions:
@@ -1660,13 +1882,70 @@ class Validator:
             seen_names.add(group.group_name)
 
             # Member IDs reference existing sources
+            where = f"SourceGroupDefinition({group.group_name})"
             for member_id in group.member_source_ids:
-                if member_id not in all_source_ids:
+                member = str(member_id).upper()
+                if member in cls.RESERVED_SOURCE_IDS:
+                    if not has_background:
+                        result.errors.append(ValidationError(
+                            where, "member_source_ids",
+                            f"'{member_id}' adds the background concentration to the "
+                            "group, but the project has none (AERMOD E323)"
+                        ))
+                    continue
+                if "-" in member:
+                    low, _, high = member.partition("-")
+                    lo, hi = _id_parts(low), _id_parts(high)
+                    if hi[0] < lo[0] or hi[1] < lo[1] or hi[2] < lo[2]:
+                        result.errors.append(ValidationError(
+                            where, "member_source_ids",
+                            f"source ID range '{member_id}' ends below its start "
+                            "(AERMOD E203 SRCRANGE)"
+                        ))
+                    continue
+                if member not in all_source_ids:
                     result.errors.append(ValidationError(
-                        f"SourceGroupDefinition({group.group_name})",
-                        "member_source_ids",
+                        where, "member_source_ids",
                         f"source ID '{member_id}' not found in project sources"
+                        + (" (it may be defined in the SO INCLUDED file)" if included
+                           else " (AERMOD E224)"),
+                        severity="warning" if included else "error",
                     ))
+
+    @staticmethod
+    def _has_background(sources, unparsed_lines) -> bool:
+        """Background concentrations: modelled, or SO BACKGRND lines kept
+        verbatim (AERMOD's L_BACKGRND)."""
+        return (getattr(sources, "background", None) is not None
+                or bool(_kept_lines(unparsed_lines, "SO", ("BACKGRND",))))
+
+    @classmethod
+    def _validate_background_in_groups(cls, sources, unparsed_lines,
+                                       result: ValidationResult):
+        """Background concentrations that no source group includes.
+
+        AERMOD adds BACKGRND values only to the groups that name
+        BACKGROUND (soset.f SRCGRP 5866-5867: "BACKGRND is NOT
+        automatically included in source group ALL"), so with none the
+        background is read and left out of every result.
+        """
+        if not cls._has_background(sources, unparsed_lines):
+            return
+        named = [m for g in getattr(sources, "group_definitions", None) or []
+                 for m in g.member_source_ids]
+        named += [f for ln in _kept_lines(unparsed_lines, "SO", ("SRCGROUP",))
+                  for f in ln.fields[1:]]
+        if any(str(m).upper() in cls.RESERVED_SOURCE_IDS for m in named):
+            return
+        result.errors.append(ValidationError(
+            "SourcePathway", "background",
+            "the project has background concentrations, but no source group "
+            "includes them: AERMOD adds BACKGRND only to groups that name BACKGROUND "
+            "(it is not part of ALL unless the ALL card says so), so every result "
+            "leaves the background out. Add 'BACKGROUND' to a group's "
+            "member_source_ids, e.g. SourceGroupDefinition('ALL', ['BACKGROUND'])",
+            severity="warning",
+        ))
 
     # ------------------------------------------------------------------
     # Chemistry options
@@ -1845,19 +2124,37 @@ class Validator:
                 f"chemistry options require pollutant_id=NO2, got '{pollutant}'"
             ))
 
-        # Default NO2 ratio in [0, 1]
-        if not (0 <= chemistry.default_no2_ratio <= 1):
+        # Default NO2 ratio in [0, 1]. None means the deck has no NO2STACK
+        # card (each source then needs its own NO2RATIO).
+        if chemistry.default_no2_ratio is not None and not (0 <= chemistry.default_no2_ratio <= 1):
             result.errors.append(ValidationError(
                 pathway, "default_no2_ratio",
                 f"must be between 0 and 1, got {chemistry.default_no2_ratio}"
             ))
 
-        # Ozone data required for OLM, PVMRM, GRSM
-        if (chemistry.method in (ChemistryMethod.OLM, ChemistryMethod.PVMRM,
-                                 ChemistryMethod.GRSM) and chemistry.ozone_data is None):
+        # coset.f 554-570: OLM, PVMRM, GRSM, TTRM and TTRM2 need an
+        # OZONEVAL, OZONEFIL or O3VALUES card (E283). An OzoneData with
+        # nothing set writes none.
+        oz = chemistry.ozone_data
+        writes_ozone = oz is not None and (
+            not oz.spec().is_empty()
+            or any(not spec.is_empty() for spec in oz.by_sector.values())
+            or bool(oz.sector_values))
+        if chemistry.method.value in NO2STACK_METHODS and not writes_ozone:
             result.errors.append(ValidationError(
                 pathway, "ozone_data",
-                f"ozone data required for {chemistry.method.value} method"
+                f"ozone data required for {chemistry.method.value} method: AERMOD "
+                "needs OZONEVAL, OZONEFIL or O3VALUES (E283); set "
+                "ozone_data.uniform_value, ozone_file or varying"
+            ))
+
+        # coset.f MODOPT 1810-1824: TTRM and TTRM2 need ALPHA (E198)
+        if (chemistry.method in (ChemistryMethod.TTRM, ChemistryMethod.TTRM2)
+                and not getattr(control, "alpha", False)):
+            result.errors.append(ValidationError(
+                pathway, "method",
+                f"{chemistry.method.value} needs the ALPHA option "
+                "(ControlPathway.alpha=True; AERMOD E198)"
             ))
 
         # The ozone keywords (OZONEVAL, OZONEFIL, O3VALUES, ...) are read
@@ -1957,13 +2254,16 @@ class Validator:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _validate_receptors(cls, receptors, result: ValidationResult):
+    def _validate_receptors(cls, receptors, result: ValidationResult,
+                            *, unparsed_lines=()):
         pathway = "ReceptorPathway"
 
         total = (len(receptors.cartesian_grids)
                  + len(receptors.polar_grids)
                  + len(receptors.discrete_receptors))
-        if total == 0:
+        # aermod.f RECSIZ also counts receptors on RE lines the project
+        # keeps verbatim (EVALCART, DISCPOLR, ...) and in an INCLUDED file.
+        if total == 0 and not _kept_lines(unparsed_lines, "RE", _RECEPTOR_KEYWORDS):
             result.errors.append(ValidationError(
                 pathway, "grids/receptors",
                 "must have at least one receptor grid or discrete receptor"

@@ -138,9 +138,10 @@ class TestValidate:
         assert "0 error" in out
 
     def test_missing_file(self, capsys):
-        """Validating a non-existent file raises FileNotFoundError."""
-        with pytest.raises(FileNotFoundError):
-            run_cli(["validate", "/no/such/path/missing_89234.inp"], capsys)
+        """Validating a non-existent file is an error message and exit 2, not a traceback."""
+        code, _out, err = run_cli(["validate", "/no/such/path/missing_89234.inp"], capsys)
+        assert code == 2
+        assert "pyaermod: error:" in err
 
 
 # ---------------------------------------------------------------------------

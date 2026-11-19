@@ -336,6 +336,9 @@ class TestNaaqsComplianceReport:
         # AERMOD reports ug/m3; comparing with the ppb level flagged
         # 1324 of 1681 receptors on a real SO2 run instead of 7
         df = _hourly_postfile(concentration_value=ugm3)
+        if pollutant == "O3":
+            # the O3 form reads AERMOD's 8-HR averages and refuses 1-HR rows
+            df = df.assign(ave="8-HR")
         rpt = naaqs_compliance_report(pollutant, df)
         assert (~rpt["exceeds"]).all()
         assert (rpt["naaqs_level_ugm3"] > rpt["naaqs_level"]).all()

@@ -32,14 +32,15 @@ on the dataclass.
 
 from __future__ import annotations
 
+import math
+import warnings
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Type, Union
+from typing import Any, Dict, Iterable, List, Optional, Type, Union
 
 from .input_generator import (
     AreaPolySource,
     LineSource,
     PointSource,
-    RLineSource,
     VolumeSource,
 )
 
@@ -57,6 +58,47 @@ _GEOM_TO_SRC = {
 }
 
 
+#: Esri shapefiles keep at most this many characters of a column name.
+_DBF_NAME_LIMIT = 10
+
+
+def _is_null(v: Any) -> bool:
+    """True for None and for pandas/numpy nulls (NaN, NA, NaT)."""
+    if v is None:
+        return True
+    try:
+        import pandas as pd
+        return bool(pd.isna(v))
+    except (TypeError, ValueError, ImportError):
+        return False
+
+
+def _fields_of(classes: Iterable[Type]) -> set:
+    out: set = set()
+    for c in classes:
+        out |= set(getattr(c, "__dataclass_fields__", {}))
+    return out
+
+
+def _truncated_name_map(columns: Iterable[str], fields: set,
+                        explicit: dict) -> Dict[str, str]:
+    """Map shapefile columns that are 10-character truncations to the field.
+
+    ``emission_r`` -> ``emission_rate``, ``stack_heig`` -> ``stack_height``.
+    Only a column that is not already a field name or in ``explicit``, and
+    that is the 10-character prefix of exactly one field, is mapped.
+    """
+    out: Dict[str, str] = {}
+    for col in columns:
+        if col in fields or col in explicit or len(col) != _DBF_NAME_LIMIT:
+            continue
+        hits = {f for f in fields
+                if len(f) > _DBF_NAME_LIMIT and f[:_DBF_NAME_LIMIT].lower() == col.lower()}
+        if len(hits) == 1:
+            out[col] = hits.pop()
+    return out
+
+
 def _kwargs_from_record(
     record: dict, src_class: Type, *, attribute_map: Optional[dict] = None,
 ) -> dict:
@@ -67,7 +109,7 @@ def _kwargs_from_record(
     for k, v in record.items():
         # Allow caller-supplied attribute renames (e.g. {"H": "stack_height"}).
         target = attribute_map.get(k, k)
-        if target in valid_fields and v is not None:
+        if target in valid_fields and not _is_null(v):
             out[target] = v
     return out
 
@@ -108,18 +150,19 @@ def _make_line(record, geom, src_id_field: str,
     # a single segment; for multi-segment polylines we use the first
     # and last vertices. Callers needing per-segment fidelity should
     # split the polyline upstream.
+    if len(coords) > 2:
+        warnings.warn(
+            f"source {sid}: a line with {len(coords)} vertices is imported as "
+            "one straight segment from its first to its last vertex; split "
+            "the polyline into one feature per segment to keep its shape.",
+            stacklevel=2,
+        )
     x0, y0 = coords[0][0], coords[0][1]
     xn, yn = coords[-1][0], coords[-1][1]
-    if isinstance(source_type, type) and issubclass(source_type, RLineSource):
-        kw.setdefault("x_start", float(x0))
-        kw.setdefault("y_start", float(y0))
-        kw.setdefault("x_end", float(xn))
-        kw.setdefault("y_end", float(yn))
-    else:
-        kw.setdefault("x_start", float(x0))
-        kw.setdefault("y_start", float(y0))
-        kw.setdefault("x_end", float(xn))
-        kw.setdefault("y_end", float(yn))
+    kw.setdefault("x_start", float(x0))
+    kw.setdefault("y_start", float(y0))
+    kw.setdefault("x_end", float(xn))
+    kw.setdefault("y_end", float(yn))
     return source_type(**kw)
 
 
@@ -184,10 +227,22 @@ def from_shapefile(
     -------
     list of source dataclass instances ready for SourcePathway(sources=[...]).
 
+    Esri shapefiles keep only the first 10 characters of a column name, so
+    ``emission_rate`` comes back as ``emission_r``; such a column is matched
+    to the field it is the 10-character start of. A warning lists the
+    columns that matched no source field (and so were ignored), and any
+    ``attribute_map`` column or ``src_id_field`` the layer does not have. A
+    null in a field's column leaves that field at the source default, with a
+    warning.
+
     Raises
     ------
     ImportError
         If geopandas is not installed (pip install pyaermod[geo]).
+    ValueError
+        If the layer is in a geographic (longitude/latitude) coordinate
+        system: AERMOD needs metres, so reproject it to a projected CRS
+        (UTM, say) first.
     """
     try:
         import geopandas as gpd
@@ -198,9 +253,49 @@ def from_shapefile(
         ) from e
 
     gdf = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
+    if gdf.crs is not None and gdf.crs.is_geographic:
+        raise ValueError(
+            f"{path} is in a geographic coordinate system ({gdf.crs}): its "
+            "coordinates are degrees of longitude and latitude, but AERMOD "
+            "needs metres. Reproject the layer to a projected CRS (for "
+            "example UTM) before importing, e.g. gdf.to_crs(epsg=...)."
+        )
+    columns = [c for c in gdf.columns if c != gdf.geometry.name]
+    classes = [source_type] if source_type else sorted(
+        {_GEOM_TO_SRC[g] for g in gdf.geom_type if g in _GEOM_TO_SRC},
+        key=lambda c: c.__name__)
+    fields = _fields_of(classes)
+    explicit = dict(attribute_map or {})
+    attribute_map = {**_truncated_name_map(columns, fields, explicit), **explicit}
+
+    missing_mapped = sorted(c for c in explicit if c not in columns)
+    if missing_mapped:
+        warnings.warn(
+            f"attribute_map names column(s) {missing_mapped} that the layer "
+            f"does not have (it has {columns}).", stacklevel=2)
+    if src_id_field not in columns:
+        warnings.warn(
+            f"the layer has no {src_id_field!r} column, so source IDs are "
+            "made up (SRC0000, SRC0001, ...); pass src_id_field= to use a "
+            "column of the layer.", stacklevel=2)
+    ignored = [c for c in columns
+               if c != src_id_field and attribute_map.get(c, c) not in fields]
+    if ignored:
+        warnings.warn(
+            f"column(s) {ignored} match no field of "
+            f"{', '.join(c.__name__ for c in classes)} and were ignored; "
+            "use attribute_map= to map them (shapefile column names are cut "
+            "to 10 characters).", stacklevel=2)
+    nulls = {c: int(gdf[c].isna().sum()) for c in columns
+             if attribute_map.get(c, c) in fields and gdf[c].isna().any()}
+    if nulls:
+        warnings.warn(
+            "null value(s) in " + ", ".join(f"{c} ({n})" for c, n in nulls.items())
+            + "; those sources keep the field's default value.", stacklevel=2)
+
     sources = []
     for i, row in gdf.iterrows():
-        record = {k: row[k] for k in gdf.columns if k != "geometry"}
+        record = {k: row[k] for k in columns}
         record["_index"] = i
         s = _dispatch(
             row.geometry, record,
@@ -233,7 +328,7 @@ def from_dxf(
         LWPOLYLINE -> AreaPolySource (closed) or LineSource (open)
         POLYLINE   -> same as LWPOLYLINE
         LINE       -> LineSource
-        CIRCLE     -> AreaPolySource (16-vertex approximation)
+        CIRCLE     -> AreaPolySource (16-vertex polygon of the circle's area)
 
     Parameters
     ----------
@@ -289,8 +384,7 @@ def from_dxf(
                 "x_coord": float(ent.dxf.location.x),
                 "y_coord": float(ent.dxf.location.y),
             }
-            if z_as_height and "stack_height" in cls.__dataclass_fields__:
-                kw["stack_height"] = float(ent.dxf.location.z)
+            _with_height(cls, kw, z_as_height, ent.dxf.location.z)
             sources.append(_safe_construct(cls, kw))
         elif kind == "LINE":
             cls = source_type or LineSource
@@ -301,6 +395,7 @@ def from_dxf(
                 "x_end":   float(ent.dxf.end.x),
                 "y_end":   float(ent.dxf.end.y),
             }
+            _with_height(cls, kw, z_as_height, ent.dxf.start.z)
             sources.append(_safe_construct(cls, kw))
         elif kind in ("LWPOLYLINE", "POLYLINE"):
             verts = _polyline_vertices(ent)
@@ -314,9 +409,16 @@ def from_dxf(
                     verts = verts[:-1]
                 kw = {"source_id": _next_sid(),
                       "vertices": [(float(x), float(y)) for x, y in verts]}
+                _with_height(cls, kw, z_as_height, _polyline_z(ent))
                 sources.append(_safe_construct(cls, kw))
             else:
                 cls = source_type or LineSource
+                if len(verts) > 2:
+                    warnings.warn(
+                        f"a polyline with {len(verts)} vertices is imported "
+                        "as one straight segment from its first to its last "
+                        "vertex; split it into one LINE per segment to keep "
+                        "its shape.", stacklevel=2)
                 kw = {
                     "source_id": _next_sid(),
                     "x_start": float(verts[0][0]),
@@ -324,6 +426,7 @@ def from_dxf(
                     "x_end":   float(verts[-1][0]),
                     "y_end":   float(verts[-1][1]),
                 }
+                _with_height(cls, kw, z_as_height, _polyline_z(ent))
                 sources.append(_safe_construct(cls, kw))
         elif kind == "CIRCLE":
             cls = source_type or AreaPolySource
@@ -332,11 +435,23 @@ def from_dxf(
                 cy=float(ent.dxf.center.y),
                 r=float(ent.dxf.radius),
                 n=16,
+                equal_area=True,
             )
             kw = {"source_id": _next_sid(), "vertices": verts}
+            _with_height(cls, kw, z_as_height, ent.dxf.center.z)
             sources.append(_safe_construct(cls, kw))
         # Other DXF types (TEXT, INSERT, etc.) ignored.
     return sources
+
+
+def _with_height(cls: Type, kw: dict, z_as_height: bool, z: Any) -> dict:
+    """Set the release height from a CAD z value when asked to."""
+    if z_as_height and z is not None:
+        for name in ("stack_height", "release_height"):
+            if name in cls.__dataclass_fields__:
+                kw[name] = float(z)
+                break
+    return kw
 
 
 def _safe_construct(cls: Type, kwargs: dict) -> Any:
@@ -364,7 +479,7 @@ def _safe_construct(cls: Type, kwargs: dict) -> Any:
     return cls(**kwargs)
 
 
-def _polyline_vertices(ent) -> Iterable:
+def _polyline_vertices(ent) -> List[tuple]:
     """Robust vertex extraction across LWPOLYLINE / POLYLINE."""
     if ent.dxftype() == "LWPOLYLINE":
         return [(p[0], p[1]) for p in ent.get_points()]
@@ -383,9 +498,32 @@ def _polyline_is_closed(ent) -> bool:
     return bool(getattr(ent, "is_closed", False))
 
 
-def _circle_to_polygon(cx: float, cy: float, r: float, n: int = 16) -> list:
-    """Discretize a circle into an n-vertex polygon (counter-clockwise)."""
-    import math
+def _polyline_z(ent) -> Optional[float]:
+    """The z of a polyline: its elevation, or its first vertex's z."""
+    try:
+        elevation = ent.dxf.elevation
+        # LWPOLYLINE stores a float, POLYLINE a (0, 0, z) vector.
+        return float(elevation if isinstance(elevation, (int, float)) else elevation[2])
+    except (AttributeError, IndexError, TypeError):
+        pass
+    try:
+        return float(ent.vertices[0].dxf.location.z)
+    except (AttributeError, IndexError, TypeError):
+        return None
+
+
+def _circle_to_polygon(cx: float, cy: float, r: float, n: int = 16,
+                       equal_area: bool = False) -> list:
+    """Discretize a circle into an n-vertex polygon (counter-clockwise).
+
+    With ``equal_area`` the vertices sit on the circle of radius
+    ``r * sqrt(2 pi / (n sin(2 pi / n)))``, so the polygon has the circle's
+    area (as AERMOD's own AREACIRC polygon does); a polygon inscribed in
+    the circle has only 97% of it for n = 16, and an area source's
+    emission is per unit area.
+    """
+    if equal_area:
+        r = r * math.sqrt(2 * math.pi / (n * math.sin(2 * math.pi / n)))
     return [
         (cx + r * math.cos(2 * math.pi * i / n),
          cy + r * math.sin(2 * math.pi * i / n))
