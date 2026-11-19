@@ -31,8 +31,11 @@ import io
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
+
+from .footprints import POINT, POLYGON, Footprint, source_footprint
 
 # Optional: pyproj is in the `geo` / `viz` extras; only needed if the
 # caller asks for UTM -> lon/lat reprojection.
@@ -64,6 +67,7 @@ _DEFAULT_PALETTE = [
 ]
 
 
+@lru_cache(maxsize=8)
 def _build_transformer(utm_zone: int, northern: bool):
     """Return a pyproj Transformer from UTM(zone) -> WGS84 lon/lat."""
     if not HAS_PYPROJ:
@@ -179,10 +183,13 @@ def to_kmz(
         Path to the .kmz file to create. Parent directories are created
         automatically.
     sources
-        Iterable of AERMOD source dataclass instances. Each source must
-        expose ``source_id`` and either ``(x_coord, y_coord)`` (point /
-        volume) or ``vertices`` (area-poly) attributes. Source types
-        that don't expose recognized geometry attributes are skipped.
+        Iterable of AERMOD source dataclass instances, drawn with the
+        outline AERMOD builds for them (:mod:`pyaermod.footprints`): a
+        point for POINT and VOLUME sources, a polygon for AREA, AREACIRC,
+        AREAPOLY and OPENPIT, a line for LINE, RLINE, RLINEXT and each
+        BUOYLINE segment. Any object with ``source_id`` and
+        ``(x_coord, y_coord)`` is a point and one with ``vertices`` a polygon;
+        anything else is skipped.
     receptors
         Iterable of ``(x, y, concentration)`` tuples. The concentration
         is rendered as a popup description in Google Earth.
@@ -216,11 +223,9 @@ def to_kmz(
     doc = ET.SubElement(root, "Document")
     ET.SubElement(doc, "name").text = title
 
-    # Pre-define styles for source/receptor folders
-    _add_style(doc, "source-point", "ff00ffff", line_width=2.0, fill=False)
+    # Pre-define styles for the source polygons, lines and contours
     _add_style(doc, "source-poly",  "5500ffff", line_width=2.0, fill=True)
     _add_style(doc, "source-line",  "ff00ffff", line_width=3.0, fill=False)
-    _add_style(doc, "receptor",     "ff00ff00", line_width=1.0, fill=False)
     for i, color in enumerate(palette):
         _add_style(doc, f"contour-{i}", color, line_width=1.5, fill=True)
 
@@ -228,30 +233,38 @@ def to_kmz(
     if sources:
         src_folder = ET.SubElement(doc, "Folder")
         ET.SubElement(src_folder, "name").text = "Sources"
+        # The outlines AERMOD builds (footprints.py): points, polygons for
+        # areas and pits, lines for roadways and buoyant lines. The
+        # transformer is cached, so it is built once for all of them.
         for src in sources:
-            sid = getattr(src, "source_id", "src")
-            # Try point geometry first
-            x = getattr(src, "x_coord", None)
-            y = getattr(src, "y_coord", None)
-            verts = getattr(src, "vertices", None)
-            if verts:
+            try:
+                fp = source_footprint(src)
+            except TypeError:
+                # Not one of pyaermod's source classes: a bare object with
+                # ``vertices`` is still drawn as the polygon it names.
+                verts = getattr(src, "vertices", None)
+                if not verts:
+                    continue
+                fp = Footprint(str(getattr(src, "source_id", "")), POLYGON,
+                               (tuple((float(v[0]), float(v[1])) for v in verts),))
+            except ValueError:
+                continue  # a polygon or buoyant line with no vertices
+            sid = fp.source_id or "src"
+            desc = type(src).__name__
+            for part in fp.parts:
                 lonlat = _to_lonlat(
-                    [v[0] for v in verts], [v[1] for v in verts],
+                    [p[0] for p in part], [p[1] for p in part],
                     utm_zone=utm_zone,
                     northern_hemisphere=northern_hemisphere,
                 )
-                _placemark_polygon(
-                    src_folder, sid, lonlat, "source-poly",
-                    description=type(src).__name__,
-                )
-            elif x is not None and y is not None:
-                lonlat = _to_lonlat([x], [y],
-                                    utm_zone=utm_zone,
-                                    northern_hemisphere=northern_hemisphere)
-                _placemark_point(
-                    src_folder, sid, lonlat[0][0], lonlat[0][1],
-                    description=type(src).__name__,
-                )
+                if fp.kind == POINT:
+                    _placemark_point(src_folder, sid, lonlat[0][0], lonlat[0][1],
+                                     description=desc)
+                elif fp.kind == POLYGON:
+                    _placemark_polygon(src_folder, sid, lonlat, "source-poly",
+                                       description=desc)
+                else:
+                    _placemark_line(src_folder, sid, lonlat, "source-line")
 
     # --- Receptors folder ---
     if receptors:

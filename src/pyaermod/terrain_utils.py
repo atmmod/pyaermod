@@ -103,7 +103,7 @@ def utm_zone_for_lon(lon: float) -> int:
     """Return the UTM zone number (1-60) containing a given longitude."""
     if not (-180 <= lon <= 180):
         raise ValueError(f"lon must be in [-180, 180], got {lon}")
-    return math.floor((lon + 180) / 6) + 1
+    return min(math.floor((lon + 180) / 6) + 1, 60)  # 180 E is the edge of zone 60
 
 
 def utm_epsg(lon: float, lat: float) -> int:

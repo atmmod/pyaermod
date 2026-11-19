@@ -2,7 +2,8 @@
 
 A field that starts with a double quote runs to the next double quote and
 may hold blanks; AERMOD drops the quotes when it opens the file. The reader
-keeps such a field whole, quotes included, so the deck writes back as it
+keeps such a field whole and stores the name AERMOD opens (no quotes); the
+writer quotes any file name with a blank, so the deck writes back as it
 was read, and the sandbox judges the path AERMOD would open.
 """
 
@@ -65,7 +66,8 @@ def test_unquote_path_follows_aermod():
 
 def test_a_quoted_file_name_with_blanks_is_one_field_and_writes_back_unchanged():
     project = parse_aermod_input(_deck(surf='"My Met/a.sfc"', summ='"out dir/a.sum"'))
-    assert project.meteorology.surface_file == '"My Met/a.sfc"'
+    assert project.meteorology.surface_file == "My Met/a.sfc"
+    assert project.output.summary_file == "out dir/a.sum"
     deck = project.to_aermod_input(validate=False)
     assert 'SURFFILE  "My Met/a.sfc"' in deck
     assert 'SUMMFILE  "out dir/a.sum"' in deck
@@ -94,7 +96,7 @@ def test_a_quoted_name_inside_the_root_passes_the_sandbox(tmp_path: Path):
     inp = tmp_path / "deck.inp"
     inp.write_text(_deck(surf='"My Met/a.sfc"'))
     project = read_aermod_input(inp, sandbox=True)
-    assert project.meteorology.surface_file == '"My Met/a.sfc"'
+    assert project.meteorology.surface_file == "My Met/a.sfc"
 
 
 def test_anchoring_a_met_file_in_a_folder_with_blanks_quotes_it(tmp_path: Path):
@@ -106,7 +108,7 @@ def test_anchoring_a_met_file_in_a_folder_with_blanks_quotes_it(tmp_path: Path):
     (folder / "a.sfc").write_text("x")
     project = read_aermod_input(folder / "deck.inp")
     anchor_input_files(project, folder)
-    assert project.meteorology.surface_file == f'"{folder / "a.sfc"}"'
+    assert project.meteorology.surface_file == str(folder / "a.sfc")
     assert f'SURFFILE  "{folder / "a.sfc"}"' in project.to_aermod_input(validate=False)
     # Listed as the file AERMOD opens, without the quotes.
     assert str(folder / "a.sfc") in [ref.path for ref in input_files(project)]

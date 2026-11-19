@@ -8,6 +8,7 @@ Based on AERMOD version 26135 output format specifications (validated against
 
 import contextlib
 import logging
+import math
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -360,6 +361,8 @@ class AERMODOutputParser:
             # Parse periods like "1-HR", "24-HR", "ANNUAL"
             run_info.averaging_periods = [p.strip() for p in periods_str.split()]
 
+        self._parse_banner_and_setup(run_info)
+
         # The page banner's MODELOPTs line (" *** MODELOPTs:  NonDFAULT  CONC
         # FLAT  RURAL"), which every AERMOD .out carries
         modelopt_match = re.search(r'\*\*\*\s*MODELOPTs:\s*(.+)', self.content)
@@ -386,6 +389,12 @@ class AERMODOutputParser:
             run_info.start_date = period_match.group(1)
             run_info.end_date = period_match.group(2)
 
+        if not run_info.urban_option:
+            for word in ('URBAN', 'RURAL'):
+                if word in run_info.model_options:
+                    run_info.urban_option = word
+                    break
+
         # EPA SUM format: source/receptor counts from summary line
         # "This Run Includes: 1 Source(s); 1 Source Group(s); and 144 Receptor(s)"
         counts_match = re.search(
@@ -398,6 +407,51 @@ class AERMODOutputParser:
             run_info.num_receptors = int(counts_match.group(2))
 
         self.run_info = run_info
+
+    def _parse_banner_and_setup(self, run_info: "ModelRunInfo") -> None:
+        """Fill the run date, run time, averaging periods and met-data dates
+        from what a real AERMOD ``.out`` prints.
+
+        * The page banner (FORMAT 9028 of output.f HEADER) ends with the run
+          date, ``MM/DD/YY``; the AERMET banner line ends with the run time.
+        * inpsum.f FORMAT 9042/9043/9045/9143: ``**Model Calculates  3 Short
+          Term Average(s) of:   1-HR   3-HR  24-HR`` and ``and Calculates
+          PERIOD Averages`` (or ANNUAL, or ``PERIOD Averages Only``).
+        * inpsum.f FORMAT 9038: ``METEOROLOGICAL DATA PROCESSED BETWEEN START
+          DATE: 1993   5 21 20`` / ``AND END DATE: ...`` (year, month, day,
+          hour). The dates are reported as ``YYYY/MM/DD``; the hour is
+          not kept.
+
+        AERMOD prints no job name, so ``jobname`` stays ``"Unknown"``.
+        """
+        date_match = re.search(
+            r'\*\*\*\s*AERMOD\s*-\s*VERSION\s*\S+\s*\*\*\*.*?\*\*\*\s*(\d{2}/\d{2}/\d{2,4})\s*$',
+            self.content, re.MULTILINE)
+        if date_match and not run_info.run_date:
+            run_info.run_date = date_match.group(1)
+        time_match = re.search(
+            r'\*\*\*\s*AERMET\s*-\s*VERSION\s*\S+\s*\*\*\*.*?\*\*\*\s*(\d{2}:\d{2}:\d{2})\s*$',
+            self.content, re.MULTILINE)
+        if time_match and not run_info.run_time:
+            run_info.run_time = time_match.group(1)
+
+        short = re.search(
+            r'\*\*Model Calculates\s+\d+\s+Short Term Average\(s\)\s+of:(.*)', self.content)
+        periods = short.group(1).split() if short else []
+        long_term = re.search(
+            r'(?:and\s+)?Calculates\s+(PERIOD|ANNUAL)\s+Averages', self.content)
+        if long_term:
+            periods.append(long_term.group(1))
+        if periods and not run_info.averaging_periods:
+            run_info.averaging_periods = periods
+
+        dates = re.search(
+            r'START DATE:\s*(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s*\n\s*AND END DATE:\s*'
+            r'(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)', self.content)
+        if dates and not run_info.start_date:
+            y1, m1, d1, _, y2, m2, d2, _ = (int(v) for v in dates.groups())
+            run_info.start_date = f"{y1:04d}/{m1:02d}/{d1:02d}"
+            run_info.end_date = f"{y2:04d}/{m2:02d}/{d2:02d}"
 
     def _parse_sources(self):
         """Extract source information from both pyaermod and EPA .out formats.
@@ -423,7 +477,9 @@ class AERMODOutputParser:
             self._parse_sources_epa()
 
         if self.run_info and self.sources:
-            self.run_info.num_sources = len(self.sources)
+            # Keep the larger count: a row that did not parse must not shrink
+            # the "This Run Includes" figure.
+            self.run_info.num_sources = max(len(self.sources), self.run_info.num_sources)
 
     def _parse_sources_pyaermod(self, section_text: str):
         """Parse sources from pyaermod ``*** SOURCE LOCATIONS ***`` section."""
@@ -520,7 +576,9 @@ class AERMODOutputParser:
                 emission_str = parts[2]
                 x = float(parts[3])
                 y = float(parts[4])
-                base_elev = float(parts[5])
+                # inpsum.f writes "FLAT" for a source flagged FLAT in a
+                # mixed FLAT/ELEV run.
+                base_elev = 0.0 if parts[5].upper() == 'FLAT' else float(parts[5])
 
                 source = SourceSummary(
                     source_id=source_id,
@@ -610,11 +668,14 @@ class AERMODOutputParser:
         """
         # Match all discrete receptor sections
         for match in re.finditer(
-            r'\*\*\*\s*DISCRETE\s+(?:CARTESIAN|POLAR)\s+RECEPTORS\s*\*\*\*'
+            r'\*\*\*\s*DISCRETE\s+(CARTESIAN|POLAR)\s+RECEPTORS\s*\*\*\*'
             r'(.*?)(?:\*\*\*|\Z)',
             self.content, re.DOTALL
         ):
-            section = match.group(1)
+            section = match.group(2)
+            if match.group(1).upper() == 'POLAR':
+                self._parse_polar_receptors(section)
+                continue
             # Extract parenthesized tuples: ( x, y, zelev, zhill, zflag )
             for tmatch in re.finditer(
                 r'\(\s*([^)]+)\)', section
@@ -632,6 +693,42 @@ class AERMODOutputParser:
                         self.receptors.append(receptor)
                     except (ValueError, IndexError):
                         continue
+
+    def _parse_polar_receptors(self, section: str) -> None:
+        """Discrete polar receptors, as absolute coordinates.
+
+        inpsum.f (FORMAT 9047) prints each as ``SRCID: (range, radial,
+        ZELEV, ZHILL, ZFLAG)`` relative to the origin source SRCID, the
+        radial in degrees clockwise from north (DATAN2(XRMS, YRMS)). They
+        are converted with that source's coordinates; one whose origin is
+        not among the parsed sources cannot be, and is skipped with a
+        warning.
+        """
+        origins = {s.source_id: s for s in self.sources}
+        skipped = 0
+        for tmatch in re.finditer(r'(\S+?)\s*:\s*\(\s*([^)]+)\)', section):
+            values = tmatch.group(2).split(',')
+            try:
+                rng, radial = float(values[0]), float(values[1])
+                rest = [float(v) for v in values[2:5]]
+            except ValueError:
+                continue  # the column-heading lines also look like this
+            origin = origins.get(tmatch.group(1))
+            if origin is None:
+                skipped += 1
+                continue
+            angle = math.radians(radial)
+            z_elev, z_hill, z_flag = [*rest, 0.0, 0.0, 0.0][:3]
+            self.receptors.append(ReceptorInfo(
+                x_coord=origin.x_coord + rng * math.sin(angle),
+                y_coord=origin.y_coord + rng * math.cos(angle),
+                z_elev=z_elev, z_hill=z_hill, z_flag=z_flag,
+            ))
+        if skipped:
+            logger.warning(
+                "%d discrete polar receptor(s) in %s name an origin source that "
+                "was not parsed from the output; they are not listed.",
+                skipped, self.output_file)
 
     def _parse_concentration_results(self):
         """Parse the results for every averaging period.

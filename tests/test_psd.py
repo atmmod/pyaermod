@@ -546,8 +546,7 @@ class TestSizeDistribution:
             unconverted = cards(dist.to_deposition_params(density=2.65, convert=False))
         assert converted["MASSFRAX"] == unconverted["MASSFRAX"]
         assert converted["PARTDENS"] == unconverted["PARTDENS"] == ["2.65"] * 16
-        assert [float(x) for x in unconverted["PARTDIAM"]] == [
-            float(f"{d:.4g}") for d in dist.diameters()]
+        assert [float(x) for x in unconverted["PARTDIAM"]] == list(dist.diameters())
         assert all(float(a) < float(b)
                    for a, b in zip(converted["PARTDIAM"], unconverted["PARTDIAM"]))
         assert float(converted["PARTDIAM"][0]) == pytest.approx(

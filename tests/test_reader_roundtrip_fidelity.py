@@ -241,14 +241,15 @@ class TestPolarGridForms:
         assert grid.direction_angles()[:3] == [10.0, 20.0, 30.0]
 
     def test_gdir_with_wrong_field_count_is_kept_verbatim(self):
-        # GENPOL: fewer or more than three fields is E201/E202.
+        # GENPOL: fewer or more than three fields is E201/E202, and the
+        # network then has no directions (E221): no grid with pyaermod's
+        # default 36 directions is invented, every line is kept.
         project = parse(re_body=self._HEAD + "   GRIDPOLR  P  DIST 100\n"
                         "   GRIDPOLR  P  GDIR 0 45 90 135\n" + self._TAIL)
-        grid = project.receptors.polar_grids[0]
-        assert grid.dir_num == 36  # untouched default
-        assert [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines] == [
-            ("RE", "GRIDPOLR", ["P", "GDIR", "0", "45", "90", "135"]),
-        ]
+        assert project.receptors.polar_grids == []
+        kept = [(u.pathway, u.keyword, u.fields) for u in project.unparsed_lines]
+        assert ("RE", "GRIDPOLR", ["P", "GDIR", "0", "45", "90", "135"]) in kept
+        assert ("RE", "GRIDPOLR", ["P", "DIST", "100"]) in kept
 
     def test_ddir_is_the_explicit_direction_list(self):
         grid = self._grid("DIST 100", "DDIR 0. 90. 180. 270.")
@@ -364,7 +365,10 @@ class TestCartesianGridForms:
     def test_short_or_unknown_grid_lines_are_kept_verbatim(self):
         project = parse(re_body="   GRIDCART  G1\n   GRIDCART  G1  STA\n"
                         "   GRIDCART  G1  XYINC  0  2\n   GRIDCART  G1  END\n   DISCCART  0  0  0\n")
-        assert [u.fields for u in project.unparsed_lines] == [["G1"], ["G1", "XYINC", "0", "2"]]
+        # The network has no points (E221 in AERMOD), so all of it is kept.
+        assert [u.fields for u in project.unparsed_lines] == [
+            ["G1"], ["G1", "STA"], ["G1", "XYINC", "0", "2"], ["G1", "END"]]
+        assert project.receptors.cartesian_grids == []
 
 
 # ---------------------------------------------------------------------------
@@ -838,7 +842,7 @@ class TestControlPathwayFidelity:
         assert "NO2STACK" not in text
         text = ControlPathway(title_one="t", chemistry=ChemistryOptions(
             method=ChemistryMethod.OLM, default_no2_ratio=0.2)).to_aermod_input()
-        assert ["0.2000"] in keyword_lines(text, "NO2STACK")
+        assert ["0.2"] in keyword_lines(text, "NO2STACK")
 
     def test_runornot_not_round_trips(self):
         control = parse().control
@@ -886,7 +890,7 @@ class TestControlPathwayFidelity:
         control = parse(co_extra="   URBANOPT  2000000  Denver  1.0").control
         assert control.urban_areas == [UrbanArea(2000000.0, None, "Denver", 1.0)]
         assert (control.urban_option, control.urban_population) == ("Denver", 2000000.0)
-        assert keyword_lines(control.to_aermod_input(), "URBANOPT") == [["2000000.0", "Denver", "1.00"]]
+        assert keyword_lines(control.to_aermod_input(), "URBANOPT") == [["2000000.0", "Denver", "1"]]
 
     def test_several_urbanopt_lines_are_id_first(self):
         # EPA's multurb.inp; coset.f PREURB switches the layout when
@@ -897,7 +901,7 @@ class TestControlPathwayFidelity:
         assert [a.urban_id for a in control.urban_areas] == ["URBAREA1", "URBAREA2"]
         assert control.urban_areas[1] == UrbanArea(1500000.0, "URBAREA2")
         assert keyword_lines(control.to_aermod_input(), "URBANOPT") == [
-            ["URBAREA1", "2500000.0", "Somewhere", "1.00"], ["URBAREA2", "1500000.0"],
+            ["URBAREA1", "2500000.0", "Somewhere", "1"], ["URBAREA2", "1500000.0"],
         ]
         assert rewrite(parse(co_extra=co)).control.urban_areas == control.urban_areas
 

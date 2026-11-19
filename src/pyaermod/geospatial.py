@@ -8,7 +8,6 @@ Requires optional dependencies: pyproj, geopandas, rasterio, shapely.
 Install with: pip install pyaermod[geo]
 """
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -26,7 +25,6 @@ try:
     import geopandas as gpd
     from shapely.geometry import (
         LineString,
-        MultiPolygon,
         Point,
         Polygon,
     )
@@ -140,7 +138,7 @@ class CoordinateTransformer:
         cls, latitude: float, longitude: float, datum: str = "WGS84",
     ) -> "CoordinateTransformer":
         """Auto-detect UTM zone from a lat/lon point."""
-        zone = int((longitude + 180) / 6) + 1
+        zone = min(int((longitude + 180) // 6) + 1, 60)  # 180 E is the edge of zone 60
         hemisphere = "N" if latitude >= 0 else "S"
         return cls(utm_zone=zone, hemisphere=hemisphere, datum=datum)
 
@@ -234,10 +232,17 @@ class GeoDataFrameFactory:
     def sources_to_geodataframe(self, sources: list) -> "gpd.GeoDataFrame":
         """Convert a list of source objects to a GeoDataFrame.
 
-        Returns Point geometries for point/area/volume/circular sources,
-        LineString geometries for line/rline sources, and Polygon
-        geometries for polygonal area sources.
+        Returns Point geometries for point and volume sources, Polygon
+        geometries for AREA, AREACIRC, AREAPOLY and OPENPIT sources,
+        LineString geometries for line and roadway sources and
+        MultiLineString for buoyant lines of several segments. The
+        outlines are the ones AERMOD builds (:mod:`pyaermod.footprints`):
+        an AREA or OPENPIT ``LOCATION`` is its south-west corner and the
+        rectangle is rotated clockwise about it.
         """
+        from shapely.geometry import MultiLineString
+
+        from pyaermod.footprints import LINES, POINT, POLYGON, source_footprint
         from pyaermod.input_generator import (
             AreaCircSource,
             AreaPolySource,
@@ -251,118 +256,48 @@ class GeoDataFrameFactory:
             VolumeSource,
         )
 
+        # What each source type carries beside its outline.
+        attributes = (
+            (RLineExtSource, "RLINEXT", ("emission_rate", "road_width")),
+            (BuoyLineSource, "BUOYLINE", ("emission_rate",)),
+            (OpenPitSource, "OPENPIT", ("emission_rate", "pit_volume")),
+            (LineSource, "LINE", ("emission_rate", "release_height")),
+            (RLineSource, "RLINE", ("emission_rate", "release_height")),
+            (AreaPolySource, "AREAPOLY", ("emission_rate", "release_height")),
+            (AreaCircSource, "AREACIRC", ("emission_rate", "release_height")),
+            (AreaSource, "AREA", ("emission_rate", "release_height")),
+            (PointSource, "POINT", ("emission_rate", "stack_height")),
+            (VolumeSource, "VOLUME", ("emission_rate", "release_height")),
+        )
+
         records = []
         geometries = []
 
         for src in sources:
             rec: Dict = {"source_id": getattr(src, "source_id", "")}
-
-            if isinstance(src, RLineExtSource):
-                rec["source_type"] = "RLINEXT"
-                rec["emission_rate"] = src.emission_rate
-                rec["road_width"] = src.road_width
-                geometries.append(
-                    LineString([(src.x_start, src.y_start), (src.x_end, src.y_end)])
-                )
-            elif isinstance(src, BuoyLineSource):
-                rec["source_type"] = "BUOYLINE"
-                rec["emission_rate"] = src.emission_rate
-                if src.line_segments:
-                    from shapely.geometry import MultiLineString
-                    segment_lines = [
-                        ((seg.x_start, seg.y_start), (seg.x_end, seg.y_end))
-                        for seg in src.line_segments
-                    ]
-                    geometries.append(MultiLineString(segment_lines))
-                else:
-                    geometries.append(Point(0, 0))
-            elif isinstance(src, OpenPitSource):
-                rec["source_type"] = "OPENPIT"
-                rec["emission_rate"] = src.emission_rate
-                rec["pit_volume"] = src.pit_volume
-                # Build rotated rectangle from SW corner + dimensions
-                cx, cy = src.x_coord, src.y_coord
-                xd, yd = src.x_dimension, src.y_dimension
-                corners = [
-                    (cx, cy), (cx + xd, cy),
-                    (cx + xd, cy + yd), (cx, cy + yd),
-                ]
-                if src.angle != 0.0:
-                    rad = math.radians(src.angle)
-                    cos_a, sin_a = math.cos(rad), math.sin(rad)
-                    corners = [
-                        (
-                            cx + (x - cx) * cos_a - (y - cy) * sin_a,
-                            cy + (x - cx) * sin_a + (y - cy) * cos_a,
-                        )
-                        for x, y in corners
-                    ]
-                geometries.append(Polygon(corners))
-            elif isinstance(src, (LineSource, RLineSource)):
-                rec["source_type"] = "LINE" if isinstance(src, LineSource) else "RLINE"
-                rec["emission_rate"] = src.emission_rate
-                rec["release_height"] = src.release_height
-                geometries.append(
-                    LineString([(src.x_start, src.y_start), (src.x_end, src.y_end)])
-                )
-            elif isinstance(src, AreaPolySource):
-                rec["source_type"] = "AREAPOLY"
-                rec["emission_rate"] = src.emission_rate
-                rec["release_height"] = src.release_height
-                geometries.append(Polygon(src.vertices))
-            elif isinstance(src, AreaCircSource):
-                rec["source_type"] = "AREACIRC"
-                rec["emission_rate"] = src.emission_rate
-                rec["release_height"] = src.release_height
-                # Approximate circle as polygon
-                circle_pts = [
-                    (
-                        src.x_coord + src.radius * math.cos(math.radians(a)),
-                        src.y_coord + src.radius * math.sin(math.radians(a)),
-                    )
-                    for a in range(0, 360, max(1, 360 // max(src.num_vertices, 6)))
-                ]
-                geometries.append(Polygon(circle_pts))
-            elif isinstance(src, AreaSource):
-                rec["source_type"] = "AREA"
-                rec["emission_rate"] = src.emission_rate
-                rec["release_height"] = src.release_height
-                # Build rectangle from center + half-dimensions
-                hw = src.initial_lateral_dimension
-                hl = src.initial_vertical_dimension
-                cx, cy = src.x_coord, src.y_coord
-                corners = [
-                    (cx - hl, cy - hw), (cx + hl, cy - hw),
-                    (cx + hl, cy + hw), (cx - hl, cy + hw),
-                ]
-                if src.angle != 0.0:
-                    rad = math.radians(src.angle)
-                    cos_a, sin_a = math.cos(rad), math.sin(rad)
-                    corners = [
-                        (
-                            cx + (x - cx) * cos_a - (y - cy) * sin_a,
-                            cy + (x - cx) * sin_a + (y - cy) * cos_a,
-                        )
-                        for x, y in corners
-                    ]
-                geometries.append(Polygon(corners))
-            elif isinstance(src, PointSource):
-                rec["source_type"] = "POINT"
-                rec["emission_rate"] = src.emission_rate
-                rec["stack_height"] = src.stack_height
-                geometries.append(Point(src.x_coord, src.y_coord))
-            elif isinstance(src, VolumeSource):
-                rec["source_type"] = "VOLUME"
-                rec["emission_rate"] = src.emission_rate
-                rec["release_height"] = src.release_height
-                geometries.append(Point(src.x_coord, src.y_coord))
+            for cls, label, names in attributes:
+                if isinstance(src, cls):
+                    rec["source_type"] = label
+                    for name in names:
+                        rec[name] = getattr(src, name)
+                    break
             else:
-                # Fallback: try to get x_coord/y_coord
                 rec["source_type"] = type(src).__name__
-                x = getattr(src, "x_coord", 0.0)
-                y = getattr(src, "y_coord", 0.0)
-                geometries.append(Point(x, y))
 
+            # The outline is the one AERMOD builds (footprints.py), not a
+            # reading of the field names.
+            fp = source_footprint(src)
+            if fp.kind == POINT:
+                geometries.append(Point(fp.parts[0][0]))
+            elif fp.kind == POLYGON:
+                geometries.append(Polygon(fp.parts[0]))
+            elif fp.kind == LINES:
+                # A buoyant line is always a MultiLineString, so the column
+                # keeps one geometry type however many segments it has.
+                single = len(fp.parts) == 1 and not isinstance(src, BuoyLineSource)
+                geometries.append(
+                    LineString(fp.parts[0]) if single else MultiLineString(list(fp.parts))
+                )
             records.append(rec)
 
         gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=self.transformer.utm_crs)
@@ -377,38 +312,30 @@ class GeoDataFrameFactory:
 
     # -- receptors -----------------------------------------------------------
 
-    def receptors_to_geodataframe(self, receptors) -> "gpd.GeoDataFrame":
+    def receptors_to_geodataframe(self, receptors, sources=()) -> "gpd.GeoDataFrame":
         """Convert a ReceptorPathway to a GeoDataFrame of receptor points.
 
         Expands CartesianGrid and PolarGrid definitions into individual
-        receptor locations.
+        receptor locations. A polar grid is centred on its
+        ``origin_source_id`` source when that source is in ``sources``
+        (the ``LOCATION`` of ``GRIDPOLR ORIG srcid``), otherwise on
+        ``x_origin``/``y_origin``.
         """
+        from pyaermod.footprints import receptor_points
+
+        sources = list(sources)
         points = []
         attrs = []
 
-        # Expand Cartesian grids
-        for grid in receptors.cartesian_grids:
-            for x in grid.x_values():
-                for y in grid.y_values():
+        for grids, grid_type in ((receptors.cartesian_grids, "cartesian"),
+                                 (receptors.polar_grids, "polar")):
+            for grid in grids:
+                for x, y in receptor_points(grid, sources=sources):
                     points.append(Point(x, y))
                     attrs.append({
                         "grid_name": grid.grid_name,
-                        "grid_type": "cartesian",
+                        "grid_type": grid_type,
                         "z_elev": grid.z_elev,
-                    })
-
-        # Expand Polar grids
-        for grid in receptors.polar_grids:
-            for dist in grid.ring_distances():
-                for direction in grid.direction_angles():
-                    rad = math.radians(direction)
-                    x = grid.x_origin + dist * math.sin(rad)
-                    y = grid.y_origin + dist * math.cos(rad)
-                    points.append(Point(x, y))
-                    attrs.append({
-                        "grid_name": grid.grid_name,
-                        "grid_type": "polar",
-                        "z_elev": 0.0,
                     })
 
         # Discrete receptors
@@ -549,58 +476,44 @@ class ContourGenerator:
         ax = Figure().subplots()
         cs = ax.contourf(xi_grid, yi_grid, zi, levels=levels)
 
-        # Extract polygons from contour set.
-        # matplotlib 3.8+ deprecated cs.collections; get_paths() returns one
-        # flattened Path per level in modern versions.
+        # Extract the polygons of each band. matplotlib < 3.8 keeps one
+        # collection of paths per level; 3.8+ deprecated cs.collections and
+        # get_paths() returns one compound Path per level. Either way a
+        # Path holds every ring of its band, outer rings and holes alike,
+        # each starting at a MOVETO, so Path.to_polygons() gives the rings.
         records = []
         geoms = []
 
         if hasattr(cs, "collections") and cs.collections:
-            # matplotlib < 3.8 path
             level_paths = [col.get_paths() for col in cs.collections]
         else:
-            # matplotlib >= 3.8 – get_paths() returns one Path per level;
-            # each Path may contain multiple sub-polygons separated by
-            # MOVETO codes, so we split them below.
-            level_paths = []
-            from matplotlib.path import Path as MplPath
-            for joined_path in cs.get_paths():
-                # Split a single joined Path into individual sub-paths
-                sub_paths = []
-                verts = joined_path.vertices
-                codes = joined_path.codes
-                if codes is None:
-                    sub_paths.append(joined_path)
-                else:
-                    start = 0
-                    for j in range(1, len(codes)):
-                        if codes[j] == MplPath.MOVETO:
-                            sub_paths.append(MplPath(verts[start:j], codes[start:j]))
-                            start = j
-                    sub_paths.append(MplPath(verts[start:], codes[start:]))
-                level_paths.append(sub_paths)
+            level_paths = [[path] for path in cs.get_paths()]
 
         for i, paths in enumerate(level_paths):
-            if not paths:
-                continue
-            polys = []
+            # Even-odd fill: a ring inside another is a hole in it, a ring
+            # inside that hole an island again. Turning each ring into a
+            # solid polygon would cover the holes and overlap the bands.
+            band = None
             for path in paths:
-                try:
-                    coords = path.vertices if hasattr(path, 'vertices') else path
-                    if len(coords) >= 4:
-                        polys.append(Polygon(coords))
-                except Exception:
-                    continue
-            if polys:
-                merged = polys[0] if len(polys) == 1 else MultiPolygon(polys)
-                level_min = levels[i]
-                level_max = levels[i + 1] if i + 1 < len(levels) else levels[i]
-                records.append({
-                    "level_min": level_min,
-                    "level_max": level_max,
-                    "level_label": f"{level_min:.4g} - {level_max:.4g}",
-                })
-                geoms.append(merged)
+                for ring in path.to_polygons(closed_only=True):
+                    if len(ring) < 4:
+                        continue
+                    poly = Polygon(ring)
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                    if poly.is_empty:
+                        continue
+                    band = poly if band is None else band.symmetric_difference(poly)
+            if band is None or band.is_empty:
+                continue
+            level_min = levels[i]
+            level_max = levels[i + 1] if i + 1 < len(levels) else levels[i]
+            records.append({
+                "level_min": level_min,
+                "level_max": level_max,
+                "level_label": f"{level_min:.4g} - {level_max:.4g}",
+            })
+            geoms.append(band)
 
         gdf = gpd.GeoDataFrame(records, geometry=geoms, crs=self.transformer.utm_crs)
         return gdf
@@ -769,9 +682,14 @@ class VectorExporter:
         receptors,
         output_path: Union[str, Path],
         driver: str = "GPKG",
+        sources=(),
     ) -> Path:
-        """Export receptor locations as a point vector file."""
-        gdf = self.factory.receptors_to_geodataframe(receptors)
+        """Export receptor locations as a point vector file.
+
+        ``sources`` places a polar grid centred on a source (see
+        :meth:`GeoDataFrameFactory.receptors_to_geodataframe`).
+        """
+        gdf = self.factory.receptors_to_geodataframe(receptors, sources=sources)
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         gdf.to_file(output_path, driver=driver)
@@ -854,6 +772,7 @@ class VectorExporter:
         # Receptors
         paths["receptors"] = self.export_receptors(
             project.receptors, output_dir / f"receptors{ext}", driver,
+            sources=project.sources.sources,
         )
 
         # Concentrations (if results available)

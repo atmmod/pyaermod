@@ -375,7 +375,7 @@ class TestChemistryControlPathway:
                                        default_no2_ratio=0.75),
         )
         output = ctrl.to_aermod_input()
-        assert "NO2STACK  0.7500" in output
+        assert "NO2STACK  0.75" in output
 
     def test_no2stack_not_emitted_for_arm2(self):
         # coset.f: NO2STACK is E600 without PVMRM/OLM/GRSM/TTRM, and the
@@ -406,7 +406,7 @@ class TestPointSourceNO2Ratio:
             exit_velocity=10, no2_ratio=0.75,
         )
         output = src.to_aermod_input()
-        assert "NO2RATIO  STK1     0.7500" in output
+        assert "NO2RATIO  STK1     0.75" in output
 
     def test_no2_ratio_not_emitted_when_none(self, valid_point_source):
         output = valid_point_source.to_aermod_input()
@@ -591,8 +591,8 @@ class TestChemistryFullProject:
         output = proj.to_aermod_input()
         assert "MODELOPT  CONC FLAT DFAULT OLM" in output
         assert "OZONEFIL  ozone.dat" in output
-        assert "NO2STACK  0.5000" in output
-        assert "NO2RATIO  STK1     0.8000" in output
+        assert "NO2STACK  0.5" in output
+        assert "NO2RATIO  STK1     0.8" in output
         assert "OLMGROUP  OLMGRP   STK1" in output
 
 

@@ -25,6 +25,26 @@ except ImportError:
     HAS_ANIMATION = False
 
 
+def _grid_from_xy(df: pd.DataFrame, x_unique=None, y_unique=None):
+    """Lay ``CONC`` out on the grid of its X and Y values.
+
+    Each value goes to the cell of its own (X, Y), whatever order the rows
+    come in (x-major, y-major, shuffled); a receptor the table lacks leaves
+    NaN. ``x_unique``/``y_unique`` fix the axes (default: the table's own
+    sorted X and Y values). Returns ``(x_unique, y_unique, Z)`` with ``Z``
+    shaped ``(len(y_unique), len(x_unique))``.
+    """
+    x = df['X'].values
+    y = df['Y'].values
+    if x_unique is None:
+        x_unique = np.unique(x)
+    if y_unique is None:
+        y_unique = np.unique(y)
+    Z = np.full((len(y_unique), len(x_unique)), np.nan)
+    Z[np.searchsorted(y_unique, y), np.searchsorted(x_unique, x)] = df['CONC'].values
+    return x_unique, y_unique, Z
+
+
 class AdvancedVisualizer:
     """
     Advanced visualization tools for AERMOD results
@@ -57,16 +77,9 @@ class AdvancedVisualizer:
         if not HAS_MATPLOTLIB:
             raise ImportError("matplotlib required. Install with: pip install matplotlib")
 
-        # Extract data
-        x = df['X'].values
-        y = df['Y'].values
-        conc = df['CONC'].values
-
         # Create grid
-        x_unique = np.unique(x)
-        y_unique = np.unique(y)
+        x_unique, y_unique, Z = _grid_from_xy(df)
         X, Y = np.meshgrid(x_unique, y_unique)
-        Z = conc.reshape(len(y_unique), len(x_unique))
 
         # Create figure
         fig = plt.figure(figsize=figsize)
@@ -128,33 +141,34 @@ class AdvancedVisualizer:
         ax = fig.add_subplot(111, projection='polar')
 
         # Define speed bins
-        speed_bins = [0, 2, 4, 6, 8, 12, 100]  # m/s
+        speed_bins = [0, 2, 4, 6, 8, 12, np.inf]  # m/s
         speed_labels = ['0-2', '2-4', '4-6', '6-8', '8-12', '>12']
         colors = plt.cm.viridis(np.linspace(0, 0.9, len(speed_bins)-1))
 
-        # Direction bins
-        dir_bins = np.linspace(0, 360, bins+1)
-        dir_centers = (dir_bins[:-1] + dir_bins[1:]) / 2
+        # Direction bins, centred on the compass points (N is -11.25 to
+        # 11.25 degrees for 16 bins), so a wind due north is one bar.
+        wind_speeds = np.asarray(wind_speeds, dtype=float)
+        wind_directions = np.asarray(wind_directions, dtype=float)
+        valid = ~(np.isnan(wind_speeds) | np.isnan(wind_directions))
+        wind_speeds, wind_directions = wind_speeds[valid], wind_directions[valid]
+        half = 180.0 / bins
+        dir_bins = np.linspace(0, 360, bins + 1)
+        dir_centers = (dir_bins[:-1] + dir_bins[1:]) / 2 - half
         dir_width = 2 * np.pi / bins
+        shifted = (wind_directions + half) % 360
 
-        # Calculate frequencies
+        # Calculate frequencies (percent of all valid observations)
+        bottom = np.zeros(bins)
         for i, (speed_min, speed_max) in enumerate(zip(speed_bins[:-1], speed_bins[1:])):  # noqa: RUF007
-            # Filter by speed
             mask = (wind_speeds >= speed_min) & (wind_speeds < speed_max)
-            directions_subset = wind_directions[mask]
+            counts, _ = np.histogram(shifted[mask], bins=dir_bins)
+            frequencies = 100 * counts / max(len(wind_directions), 1)
 
-            # Count in each direction bin
-            counts, _ = np.histogram(directions_subset, bins=dir_bins)
-            frequencies = 100 * counts / len(wind_directions)
-
-            # Plot
             ax.bar(np.radians(dir_centers), frequencies, width=dir_width,
-                  bottom=np.sum([100 * np.histogram(wind_directions[(wind_speeds >= speed_bins[j]) &
-                                                                     (wind_speeds < speed_bins[j+1])],
-                                                    bins=dir_bins)[0] / len(wind_directions)
-                                for j in range(i)], axis=0) if i > 0 else 0,
+                  bottom=bottom,
                   color=colors[i], label=f'{speed_labels[i]} m/s',
                   edgecolor='white', linewidth=0.5)
+            bottom = bottom + frequencies
 
         # Formatting
         ax.set_theta_zero_location('N')
@@ -174,7 +188,8 @@ class AdvancedVisualizer:
                                    cross_coord: float = 0.0,
                                    title: Optional[str] = None,
                                    figsize: Tuple[int, int] = (12, 6),
-                                   save_path: Optional[str] = None):
+                                   save_path: Optional[str] = None,
+                                   source_xy: Tuple[float, float] = (0.0, 0.0)):
         """
         Plot concentration profile along a line
 
@@ -185,6 +200,10 @@ class AdvancedVisualizer:
             title: Plot title
             figsize: Figure size
             save_path: Optional save path
+            source_xy: (x, y) of the source, where the "Source" line is
+                drawn. The default (0, 0) assumes the coordinates are
+                relative to the source; give the source's UTM position
+                for absolute coordinates.
         """
         if not HAS_MATPLOTLIB:
             raise ImportError("matplotlib required")
@@ -216,7 +235,8 @@ class AdvancedVisualizer:
         ax.plot(max_x, max_conc, 'r*', markersize=20, label=f'Max: {max_conc:.3f}')
 
         # Source location
-        ax.axvline(0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Source')
+        ax.axvline(source_xy[0] if direction.lower() == 'x' else source_xy[1],
+                   color='red', linestyle='--', linewidth=2, alpha=0.7, label='Source')
 
         # Labels
         ax.set_xlabel(xlabel, fontsize=12, fontweight='bold')
@@ -237,7 +257,8 @@ class AdvancedVisualizer:
                               title: str = "Scenario Comparison",
                               colormap: str = 'YlOrRd',
                               figsize: Optional[Tuple[int, int]] = None,
-                              save_path: Optional[str] = None):
+                              save_path: Optional[str] = None,
+                              source_xy: Tuple[float, float] = (0.0, 0.0)):
         """
         Create grid comparison of multiple scenarios
 
@@ -247,6 +268,8 @@ class AdvancedVisualizer:
             colormap: Matplotlib colormap
             figsize: Figure size (auto if None)
             save_path: Optional save path
+            source_xy: (x, y) of the source marker. The default (0, 0)
+                assumes coordinates relative to the source.
         """
         if not HAS_MATPLOTLIB:
             raise ImportError("matplotlib required")
@@ -272,14 +295,8 @@ class AdvancedVisualizer:
             ax = axes[idx]
 
             # Extract and grid data
-            x = df['X'].values
-            y = df['Y'].values
-            conc = df['CONC'].values
-
-            x_unique = np.unique(x)
-            y_unique = np.unique(y)
+            x_unique, y_unique, Z = _grid_from_xy(df)
             X, Y = np.meshgrid(x_unique, y_unique)
-            Z = conc.reshape(len(y_unique), len(x_unique))
 
             # Plot
             im = ax.contourf(X, Y, Z, levels=15, cmap=colormap,
@@ -288,7 +305,7 @@ class AdvancedVisualizer:
                       linewidths=0.3, alpha=0.3)
 
             # Source marker
-            ax.plot(0, 0, 'k^', markersize=12, markeredgewidth=1.5,
+            ax.plot(*source_xy, 'k^', markersize=12, markeredgewidth=1.5,
                    markerfacecolor='white')
 
             # Labels
@@ -321,7 +338,8 @@ class AdvancedVisualizer:
                                    timestamps: List[str],
                                    title: str = "Concentration Animation",
                                    interval: int = 500,
-                                   save_path: Optional[str] = None):
+                                   save_path: Optional[str] = None,
+                                   source_xy: Tuple[float, float] = (0.0, 0.0)):
         """
         Create animated time series of concentrations
 
@@ -331,6 +349,8 @@ class AdvancedVisualizer:
             title: Animation title
             interval: Milliseconds between frames
             save_path: Path to save GIF (requires pillow)
+            source_xy: (x, y) of the source marker. The default (0, 0)
+                assumes coordinates relative to the source.
         """
         if not HAS_MATPLOTLIB:
             raise ImportError("matplotlib required")
@@ -351,10 +371,9 @@ class AdvancedVisualizer:
         else:
             vmin, vmax = np.min(positive), np.max(all_conc)
 
-        # Get first frame data
-        df = dataframes[0]
-        x_unique = np.unique(df['X'].values)
-        y_unique = np.unique(df['Y'].values)
+        # One grid for every frame: the X and Y values of all of them
+        x_unique = np.unique(np.concatenate([d['X'].values for d in dataframes]))
+        y_unique = np.unique(np.concatenate([d['Y'].values for d in dataframes]))
         X, Y = np.meshgrid(x_unique, y_unique)
 
         def update(frame):
@@ -362,7 +381,7 @@ class AdvancedVisualizer:
             df = dataframes[frame]
 
             # Grid data
-            Z = df['CONC'].values.reshape(len(y_unique), len(x_unique))
+            _, _, Z = _grid_from_xy(df, x_unique, y_unique)
 
             # Plot
             im = ax.contourf(X, Y, Z, levels=15, cmap='YlOrRd',
@@ -371,7 +390,7 @@ class AdvancedVisualizer:
                       linewidths=0.3, alpha=0.3)
 
             # Source
-            ax.plot(0, 0, 'k^', markersize=15, markeredgewidth=2,
+            ax.plot(*source_xy, 'k^', markersize=15, markeredgewidth=2,
                    markerfacecolor='white')
 
             # Labels
@@ -389,7 +408,7 @@ class AdvancedVisualizer:
                            interval=interval, blit=False)
 
         if save_path:
-            writer = PillowWriter(fps=1000//interval)
+            writer = PillowWriter(fps=max(1, round(1000 / interval)))
             anim.save(save_path, writer=writer)
 
         return anim

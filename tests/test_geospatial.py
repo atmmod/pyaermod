@@ -700,11 +700,9 @@ class TestRequireMissingDeps:
 
 
 class TestBuoylineEmptySegments:
-    """Test BuoyLineSource with empty line_segments (line 277)."""
+    """A BUOYLINE with no segments has no outline; it is refused, not put at (0, 0)."""
 
-    def test_empty_segments_produces_point(self, transformer):
-        from shapely.geometry import Point
-
+    def test_empty_segments_is_refused(self, transformer):
         buoy = BuoyLineSource(
             source_id="BL_EMPTY",
             base_elevation=0.0,
@@ -718,10 +716,8 @@ class TestBuoylineEmptySegments:
         )
 
         factory = GeoDataFrameFactory(transformer)
-        gdf = factory.sources_to_geodataframe([buoy])
-
-        assert len(gdf) == 1
-        assert gdf.iloc[0].geometry.equals(Point(0, 0))
+        with pytest.raises(ValueError, match="BL_EMPTY"):
+            factory.sources_to_geodataframe([buoy])
 
 
 class TestUnknownSourceTypeFallback:
