@@ -125,8 +125,10 @@ class TestBBoxPerformance:
 
 class TestHardLimitEarlyReturn:
     def test_over_hard_limit_returns_immediately(self):
-        """A project with more receptors than AERMOD's hard limit must
-        produce an error and NOT compute the bbox or source comparison."""
+        """A project over RECEPTOR_GRID_HARD_LIMIT gets one warning and
+        does NOT compute the bbox or source comparison. AERMOD has no
+        fixed receptor limit (it allocates to the deck's count), so this
+        is a warning, not an error."""
         # RECEPTOR_GRID_HARD_LIMIT is 100_000 by default; 400x400=160k
         grid = CartesianGrid(
             grid_name="HUGE", x_init=0, x_num=400, x_delta=100,
@@ -147,10 +149,10 @@ class TestHardLimitEarlyReturn:
         errors = _check_receptors(recs, sources)
         elapsed = time.perf_counter() - t0
 
-        # Exactly one error — the hard-limit one — and nothing else
+        # Exactly one finding — the size warning — and nothing else
         assert len(errors) == 1
-        assert errors[0].severity == "error"
-        assert "hard limit" in errors[0].message
+        assert errors[0].severity == "warning"
+        assert errors[0].field == "total_receptors"
         # Early return: must be fast
         assert elapsed < 0.1, f"check took {elapsed:.3f}s after early-return fix"
 

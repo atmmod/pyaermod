@@ -183,13 +183,29 @@ class TestControlValidation:
             errs = [e for e in result.errors if "averaging_periods" in e.field]
             assert len(errs) == 0, f"period '{period}' should be valid"
 
-    def test_invalid_pollutant(self):
+    def test_any_pollutant_name_is_accepted(self):
+        # coset.f POLLID takes any name (it used to be limited to seven)
         project = _make_valid_project(
             control=ControlPathway(title_one="T", pollutant_id="BADPOLL"),
         )
         result = Validator.validate(project)
+        assert not [e for e in result.errors if "pollutant" in e.field]
+
+    def test_pollutant_with_a_blank_is_an_error(self):
+        project = _make_valid_project(
+            control=ControlPathway(title_one="T", pollutant_id="PM 10"),
+        )
+        result = Validator.validate(project)
         assert not result.is_valid
         assert any("pollutant" in e.field for e in result.errors)
+
+    def test_pollutant_longer_than_8_characters_is_warned(self):
+        # POLLUT is CHARACTER*8: AERMOD truncates
+        project = _make_valid_project(
+            control=ControlPathway(title_one="T", pollutant_id="BENZENE123"),
+        )
+        found = [e for e in Validator.validate(project).errors if e.field == "pollutant_id"]
+        assert [e.severity for e in found] == ["warning"]
 
     def test_enum_pollutant_accepted(self):
         project = _make_valid_project(
@@ -247,21 +263,36 @@ class TestPointSourceValidation:
         sources.add_source(PointSource(**defaults))
         return _make_valid_project(sources=sources)
 
-    def test_zero_stack_height(self):
+    def test_zero_stack_height_is_valid(self):
+        # soset.f PPARM: only a negative height is E209
         result = Validator.validate(self._project_with_point(stack_height=0.0))
-        assert any("stack_height" in e.field for e in result.errors)
+        assert not any("stack_height" in e.field and e.severity == "error"
+                       for e in result.errors)
 
     def test_negative_stack_height(self):
         result = Validator.validate(self._project_with_point(stack_height=-5.0))
         assert any("stack_height" in e.field for e in result.errors)
 
-    def test_zero_stack_diameter(self):
+    def test_zero_stack_diameter_is_valid(self):
+        # soset.f PPARM resets a diameter below 1e-5 m to 1e-5 m
         result = Validator.validate(self._project_with_point(stack_diameter=0.0))
+        assert not any("stack_diameter" in e.field and e.severity == "error"
+                       for e in result.errors)
+
+    def test_negative_stack_diameter(self):
+        result = Validator.validate(self._project_with_point(stack_diameter=-1.0))
         assert any("stack_diameter" in e.field for e in result.errors)
 
-    def test_zero_stack_temp(self):
+    def test_zero_stack_temp_is_ambient(self):
+        # soset.f PPARM: Ts == 0 is a release at ambient temperature
         result = Validator.validate(self._project_with_point(stack_temp=0.0))
-        assert any("stack_temp" in e.field for e in result.errors)
+        assert not any("stack_temp" in e.field and e.severity == "error"
+                       for e in result.errors)
+
+    def test_stack_temp_below_200_k(self):
+        result = Validator.validate(self._project_with_point(stack_temp=150.0))
+        assert any("stack_temp" in e.field and e.severity == "error"
+                   for e in result.errors)
 
     def test_negative_exit_velocity(self):
         result = Validator.validate(self._project_with_point(exit_velocity=-1.0))
@@ -1739,13 +1770,15 @@ class TestParametrizedValidation:
         "field_name,value,should_error",
         [
             ("stack_height", -1.0, True),
-            ("stack_height", 0.0, True),
+            # soset.f PPARM: zero height and diameter are valid, Ts <= 0 is
+            # an ambient / fixed-offset release, only 0 < Ts < 200 K is E320
+            ("stack_height", 0.0, False),
             ("stack_height", 1.0, False),
             ("stack_diameter", -1.0, True),
-            ("stack_diameter", 0.0, True),
+            ("stack_diameter", 0.0, False),
             ("stack_diameter", 1.0, False),
-            ("stack_temp", -1.0, True),
-            ("stack_temp", 0.0, True),
+            ("stack_temp", -1.0, False),
+            ("stack_temp", 0.0, False),
             ("stack_temp", 300.0, False),
             ("exit_velocity", -1.0, True),
             ("exit_velocity", 0.0, False),
