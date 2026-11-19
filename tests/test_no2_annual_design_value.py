@@ -18,6 +18,16 @@ import pytest
 from pyaermod.design_values import naaqs_compliance_report
 from pyaermod.gui_v2 import run_results as rr
 
+#: The warning every mean built from hourly POSTFILE rows carries
+#: (postfile.warn_hourly_mean_limitation); the "no warning" tests below
+#: are about the coverage warnings, so they let this one through.
+_HOURLY_MEAN = r".*an hourly POSTFILE has a row for every hour"
+
+
+def _errors_but_the_hourly_mean_note(warnings_module) -> None:
+    warnings_module.simplefilter("error")
+    warnings_module.filterwarnings("ignore", message=_HOURLY_MEAN)
+
 
 def _hours(year: int, value: float, *, days: int | None = None,
            x: float = 0.0) -> pd.DataFrame:
@@ -106,7 +116,7 @@ def test_a_year_short_of_three_quarters_is_left_out_of_daily_input_too():
 def test_complete_years_raise_no_warning():
     import warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        _errors_but_the_hourly_mean_note(warnings)
         report = naaqs_compliance_report("NO2_annual", _two_years(40.0, 120.0))
     assert report["design_value"].tolist() == [pytest.approx(120.0)]
 
@@ -134,21 +144,55 @@ def test_the_whole_record_fallback_applies_only_to_receptors_without_a_complete_
         pytest.approx((30 * 30.0 + 10 * 90.0) / 40), pytest.approx(40.0)]
 
 
-def test_one_met_year_across_two_calendar_years_is_the_whole_record_mean():
-    # One met year, 2019-07-01 .. 2020-06-30: neither calendar year reaches
-    # 75 %, and the higher half-year mean (120) is not an annual mean.
+def _one_july_to_june_year() -> tuple[pd.DataFrame, float]:
+    """One met year, 2019-07-01 .. 2020-06-30, hourly; and its mean."""
     first = pd.date_range("2019-07-01", "2019-12-31", freq="D")
     second = pd.date_range("2020-01-01", "2020-06-30", freq="D")
     stamps = [f"{d:%y%m%d}{h:02d}" for d in first.append(second) for h in range(1, 25)]
     values = [40.0] * (24 * len(first)) + [120.0] * (24 * len(second))
     df = pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": values,
                        "date": stamps, "ave": "1-HR", "group": "ALL"})
-    with pytest.warns(UserWarning, match="whole record") as caught:
+    return df, (40.0 * len(first) + 120.0 * len(second)) / (len(first) + len(second))
+
+
+def test_one_met_year_across_two_calendar_years_is_one_complete_year():
+    # AERMOD's year runs from the first met hour (CHK_ENDYR): one complete
+    # met year, whose mean is the design value, with no coverage warning.
+    import warnings
+    df, expected = _one_july_to_june_year()
+    with warnings.catch_warnings():
+        _errors_but_the_hourly_mean_note(warnings)
         report = naaqs_compliance_report("NO2_annual", df)
-    expected = (40.0 * len(first) + 120.0 * len(second)) / (len(first) + len(second))
+    assert report["design_value"].tolist() == [pytest.approx(expected)]
+    assert report["exceeds"].tolist() == [False]
+
+
+def test_calendar_years_split_one_met_year_into_two_partial_years():
+    # year_start="calendar" keeps the old grouping: neither calendar year
+    # reaches 75 %, and the higher half-year mean (120) is not an annual mean.
+    df, expected = _one_july_to_june_year()
+    with pytest.warns(UserWarning, match="whole record") as caught:
+        report = naaqs_compliance_report("NO2_annual", df, year_start="calendar")
     assert report["design_value"].tolist() == [pytest.approx(expected)]
     assert report["exceeds"].tolist() == [False]
     assert any("not a calendar-year mean" in str(w.message) for w in caught)
+
+
+def test_a_july_start_record_leaves_out_its_short_last_met_year():
+    # Two met years from July 2019 and one week of a third: the week is
+    # named by the day its met year starts and left out.
+    def hours(start: str, end: str, value: float) -> pd.DataFrame:
+        days = pd.date_range(start, end, freq="D")
+        return pd.DataFrame({"x": 0.0, "y": 0.0, "concentration": value, "ave": "1-HR",
+                             "group": "ALL",
+                             "date": [f"{d:%y%m%d}{h:02d}" for d in days for h in range(1, 25)]})
+
+    df = pd.concat([hours("2019-07-01", "2020-06-30", 40.0),
+                    hours("2020-07-01", "2021-06-30", 60.0),
+                    hours("2021-07-01", "2021-07-07", 500.0)], ignore_index=True)
+    with pytest.warns(UserWarning, match="the year starting 2021-07-01"):
+        report = naaqs_compliance_report("NO2_annual", df)
+    assert report["design_value"].tolist() == [pytest.approx(60.0)]
 
 
 def test_coverage_is_judged_per_receptor():
@@ -325,7 +369,7 @@ def test_the_multi_year_mean_still_averages_every_year():
     import warnings
     df = pd.concat([_hours(2019, 40.0), _hours(2020, 150.0, days=1)], ignore_index=True)
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        _errors_but_the_hourly_mean_note(warnings)
         report = naaqs_compliance_report("NO2_annual", df, no2_annual="multi_year_mean")
     assert report["design_value"].tolist() == [pytest.approx(95.0)]
 
@@ -510,7 +554,7 @@ def test_a_year_short_of_three_quarters_of_its_hours_is_left_out():
     df = pd.concat([full, _hours_each_day(2020, 150.0, range(1, 19))], ignore_index=True)
     import warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        _errors_but_the_hourly_mean_note(warnings)
         report = naaqs_compliance_report("NO2_annual", df)
     assert report["design_value"].tolist() == [pytest.approx(150.0)]
 

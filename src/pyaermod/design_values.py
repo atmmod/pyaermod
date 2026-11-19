@@ -15,25 +15,40 @@ in YYMMDDHH form), ``ave``, ``grp``.
 Background concentrations (uniform or time-varying) can be added
 via :func:`add_background` before computing design values; per-
 pollutant pairing rules are in the function docstring.
+
+Years are meteorological years, as AERMOD counts them: a year ends on
+the anniversary of the first met hour (``CHK_ENDYR`` in ``aermod.f``,
+with the boundary set in ``meset.f``). Every design-value function takes
+``year_start``: ``None`` (the default) reads the boundary from the first
+date in the data, ``"calendar"`` groups by calendar year, and a
+``(month, day)`` pair names the boundary. For data that start on
+1 January the met year is the calendar year and nothing changes. Where
+40 CFR Part 50 speaks of a calendar year (the annual NO2 mean of 50.11(e)
+and Appendix S, the annual statistics of Appendices N, S and T), the
+modelled met year stands in for it. The boundary is taken at day level:
+a run whose first hour is not hour 01 starts its year at midnight of
+that day here, a few hours earlier than AERMOD does.
 """
 
 from __future__ import annotations
 
 import calendar
+import contextvars
+import datetime as _dt
 import math
 import numbers
 import warnings
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
 from ._fortran import fortran_float
 from .pathways import SHORT_TERM_HOURS
-from .postfile import label_hours
+from .postfile import label_hours, warn_hourly_mean_limitation
 
 if TYPE_CHECKING:
     from .pathways import OutputPathway
@@ -122,6 +137,122 @@ def _stamp_text_to_date(s: pd.Series) -> pd.Series:
     return pd.to_datetime(
         {"year": yyyy, "month": mm, "day": dd}, errors="coerce"
     )
+
+
+# ---------------------------------------------------------------------
+# Meteorological years
+# ---------------------------------------------------------------------
+
+#: What ``year_start`` accepts: None (detect from the data), "calendar",
+#: or a (month, day) pair naming the first day of each year.
+YearStart = Union[None, str, Tuple[int, int]]
+
+#: The (month, day) a calendar year starts on.
+_CALENDAR = (1, 1)
+
+
+def _year_start(
+    year_start: YearStart, dates: pd.Series, *, month_values: bool = False,
+) -> tuple[int, int]:
+    """``year_start`` resolved to the (month, day) each year begins on.
+
+    ``None`` takes the first date in ``dates`` (day timestamps), which is
+    where AERMOD's met year starts (``meset.f`` sets the year's end from
+    the first met hour; ``CHK_ENDYR`` closes the year there). With no
+    readable date it falls back to calendar years. ``month_values`` is for
+    MONTH values, stamped at the end of their month: the year then starts
+    on the first of the first value's month.
+    """
+    if year_start is None:
+        valid = dates.dropna()
+        if valid.empty:
+            return _CALENDAR
+        first = valid.min()
+        return (int(first.month), 1 if month_values else int(first.day))
+    if isinstance(year_start, str):
+        if year_start.strip().lower() == "calendar":
+            return _CALENDAR
+        raise ValueError(
+            f"year_start must be None, 'calendar' or a (month, day) pair; "
+            f"got {year_start!r}"
+        )
+    try:
+        month, day = year_start
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"year_start must be None, 'calendar' or a (month, day) pair; "
+            f"got {year_start!r}"
+        ) from None
+    ok = all(isinstance(v, numbers.Integral) and not isinstance(v, bool)
+             for v in (month, day))
+    # 2000 is a leap year, so 29 February is a valid start.
+    if not ok or not 1 <= month <= 12 or not 1 <= day <= calendar.monthrange(2000, month)[1]:
+        raise ValueError(f"year_start {year_start!r} is not a (month, day) date")
+    return (int(month), int(day))
+
+
+def _met_years(dates: pd.Series, start: tuple[int, int]) -> pd.Series:
+    """Each date's year label: the calendar year its met year starts in.
+
+    With ``start`` (month, day), a date before that day of its calendar
+    year belongs to the year that started the previous calendar year. A
+    29 February start begins on 1 March in a common year, as AERMOD's
+    ``CHK_ENDYR`` ends such a year on 28 February.
+    """
+    years = dates.dt.year
+    if start == _CALENDAR:
+        return years
+    month, day = start
+    before = (dates.dt.month < month) | ((dates.dt.month == month) & (dates.dt.day < day))
+    return years - before.astype(int)
+
+
+def _year_begin(year: int, start: tuple[int, int]) -> _dt.date:
+    """The first day of the year labelled ``year``."""
+    month, day = start
+    if (month, day) == (2, 29) and not calendar.isleap(year):
+        return _dt.date(year, 3, 1)
+    return _dt.date(year, month, day)
+
+
+def _year_days(year: int, start: tuple[int, int]) -> int:
+    """Number of days in the year labelled ``year`` (365 or 366)."""
+    return (_year_begin(year + 1, start) - _year_begin(year, start)).days
+
+
+def _year_name(year: int, start: tuple[int, int]) -> str:
+    """How a warning names a year: ``2019``, or the day a met year starts."""
+    if start == _CALENDAR:
+        return str(int(year))
+    return f"the year starting {_year_begin(int(year), start):%Y-%m-%d}"
+
+
+def _year_noun(start: tuple[int, int]) -> str:
+    """``calendar year`` or ``met year`` for a year starting at ``start``."""
+    return "calendar year" if start == _CALENDAR else "met year"
+
+
+# ---------------------------------------------------------------------
+# Hourly-mean warning
+# ---------------------------------------------------------------------
+
+#: Set while :func:`naaqs_compliance_report` runs a design-value function,
+#: after it has given the hourly-mean warning itself.
+_hourly_mean_warned: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_hourly_mean_warned", default=False)
+
+
+def _warn_hourly_mean(df: pd.DataFrame, what: str) -> None:
+    """:func:`~pyaermod.postfile.warn_hourly_mean_limitation` for 1-HR input.
+
+    Called from a public function that averages hourly rows into 24-hour
+    or annual means; the warning names the line that called it.
+    """
+    if _hourly_mean_warned.get() or not _is_hourly(df):
+        return
+    # 1 warn_hourly_mean_limitation, 2 this helper, 3 the public function,
+    # 4 its caller.
+    warn_hourly_mean_limitation(what, stacklevel=4)
 
 
 # ---------------------------------------------------------------------
@@ -288,17 +419,17 @@ def _nth_highest(values: np.ndarray, rank: int) -> float:
 
 
 def _annual_rank_per_receptor(
-    df_daily: pd.DataFrame, percentile: float,
+    df_daily: pd.DataFrame, percentile: float, years: pd.Series,
 ) -> pd.DataFrame:
     """Annual EPA-rank percentile of the daily series, per receptor.
 
     The rank is chosen per (receptor, year) from that year's own count
     of days with data, exactly as the appendices prescribe -- a short
     year moves the design value up the sorted list rather than
-    interpolating.
+    interpolating. ``years`` labels each daily row's (met) year.
     """
     df = df_daily.copy()
-    df["_year"] = df["date"].dt.year
+    df["_year"] = years
     return (
         df.groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"]
@@ -308,30 +439,57 @@ def _annual_rank_per_receptor(
     )
 
 
-#: A calendar year whose data span (first day to last day) is shorter than
-#: this many days is called partial.
+def _daily_years(
+    daily: pd.DataFrame, year_start: YearStart,
+) -> tuple[pd.Series, str]:
+    """Year labels of a daily series, and its partial-year note."""
+    start = _year_start(year_start, daily["date"])
+    years = _met_years(daily["date"], start)
+    return years, _partial_year_note(daily["date"], years, start,
+                                     calendar_asked=year_start is not None
+                                     and start == _CALENDAR)
+
+
+#: A year whose data span (first day to last day) is shorter than this
+#: many days is called partial.
 _FULL_YEAR_DAYS = 350
 
 
-def _partial_year_note(daily: pd.DataFrame) -> str:
-    """Words naming calendar years spanning under ~350 days, or ``""``.
+def _partial_year_note(
+    dates: pd.Series, years: pd.Series, start: tuple[int, int], *,
+    calendar_asked: bool = False,
+) -> str:
+    """Words naming years whose data span under ~350 days, or ``""``.
 
-    AERMOD's year is the met-data year (it ends on the anniversary of the
-    first met hour: ``CHK_ENDYR`` in ``aermod.f``), while these functions
-    group by calendar year. A met year that does not run January to
-    December therefore reads as two partial calendar years.
+    ``years`` labels each date's year (:func:`_met_years` with ``start``).
+    ``calendar_asked`` is True when the caller chose calendar years: a met
+    year that does not run January to December then reads as two partial
+    calendar years, while AERMOD counts it as one (``CHK_ENDYR`` in
+    ``aermod.f``).
     """
-    by_year = daily["date"].dt.normalize().groupby(daily["date"].dt.year)
+    by_year = dates.dt.normalize().groupby(years)
     days = (by_year.max() - by_year.min()).dt.days + 1
     short = {int(y): int(n) for y, n in days.items() if n < _FULL_YEAR_DAYS}
     if not short:
         return ""
-    listed = ", ".join(f"{y} (data span {n} days)" for y, n in sorted(short.items()))
+    if start == _CALENDAR:
+        noun = "Calendar year(s)"
+        listed = ", ".join(f"{y} (data span {n} days)" for y, n in sorted(short.items()))
+    else:
+        noun = "Met year(s) starting"
+        listed = ", ".join(f"{_year_begin(y, start):%Y-%m-%d} (data span {n} days)"
+                           for y, n in sorted(short.items()))
+    if calendar_asked:
+        return (
+            f"{noun} {listed} are partial: with year_start='calendar' a "
+            "met year that does not run January to December is split into "
+            "calendar years, but AERMOD counts the met year as one year, so "
+            "the ranks and the year count can differ from AERMOD's "
+            "(year_start=None follows the met year)"
+        )
     return (
-        f"Calendar year(s) {listed} are partial: a met year that does not "
-        "run January to December is split into calendar years here, but "
-        "AERMOD counts the met year as one year, so the ranks and the year "
-        "count can differ from AERMOD's"
+        f"{noun} {listed} are partial: a year with fewer days of data is "
+        "ranked on its own day count and still counts as a year"
     )
 
 
@@ -352,7 +510,7 @@ def _average_across_years(
             f"{label} is defined over {expected_years} years but the input "
             f"covers {n_years}; the returned value averages the "
             f"{n_years} year(s) present."
-            if mismatch else f"{label} input covers {n_years} calendar year(s)."
+            if mismatch else f"{label} input covers {n_years} year(s)."
         )
         if partial_note:
             text += " " + partial_note + "."
@@ -465,26 +623,55 @@ def _add_background(
 
 
 def annual_mean(
-    df: pd.DataFrame, *, pollutant: str = "",
+    df: pd.DataFrame, *, pollutant: str = "", year_start: YearStart = None,
 ) -> pd.DataFrame:
     """Annual-mean design-value calculation.
 
-    Used for the PM2.5 annual NAAQS (40 CFR 50.18), whose form is the
-    three-year average of annual means, and the NO2 annual NAAQS (40 CFR
-    50.11(e)), whose form is one calendar year's mean. This returns the
-    mean of each year at each receptor; :func:`naaqs_compliance_report`
-    combines the years in the form of each standard.
+    Used for the PM2.5 annual NAAQS (40 CFR 50.20(a)-(b), Appendix N),
+    whose form is the three-year average of annual means, and the NO2
+    annual NAAQS (40 CFR 50.11(a), (e); Appendix S), whose form is one
+    calendar year's mean. This returns the mean of each year at each
+    receptor; :func:`naaqs_compliance_report` combines the years in the
+    form of each standard. The year is the met year (see the module
+    docstring and ``year_start``); it stands in for the calendar year
+    of the rule, and ``year`` in the result is the calendar year the met
+    year starts in.
+
+    NOTE: Appendix N (4.4(a)-(b)) forms the annual PM2.5 mean as the mean
+    of the calendar quarters' means of the daily values; this function
+    averages every row of the year, which differs slightly for a complete
+    year (the quarters have different lengths) and can differ more with
+    gaps.
+
+    Hourly (``1-HR``) input warns once that the mean divides by the
+    number of rows (:func:`pyaermod.postfile.warn_hourly_mean_limitation`).
 
     Returns one row per (x, y, year) with column ``concentration``.
     """
+    _warn_hourly_mean(df, "the annual means")
     work = _dedupe_receptors(_one_source_group(df))
-    return _annual_means(work, _parse_yymmddhh_to_year(work["date"]))
+    return _annual_means(work, _row_years(work["date"], year_start))
+
+
+def _row_years(date_col: pd.Series, year_start: YearStart) -> pd.Series:
+    """The (met) year of each POSTFILE row, from its YYMMDDHH date.
+
+    Calendar years are read straight from the stamp, as they always were;
+    met years need the dates parsed.
+    """
+    if isinstance(year_start, str) and year_start.strip().lower() == "calendar":
+        return _parse_yymmddhh_to_year(date_col)
+    dates = _parse_yymmddhh_to_date(date_col)
+    start = _year_start(year_start, dates)
+    if start == _CALENDAR:
+        return _parse_yymmddhh_to_year(date_col)
+    return _met_years(dates, start)
 
 
 def _annual_means(work: pd.DataFrame, years: pd.Series) -> pd.DataFrame:
     """Mean per (x, y, year) of a frame already checked and deduplicated.
 
-    ``years`` gives each row's calendar year. The core of
+    ``years`` gives each row's (met) year. The core of
     :func:`annual_mean`, for callers that have checked the frame and
     parsed its dates themselves.
     """
@@ -504,6 +691,7 @@ def nth_highest_daily_max_design_value(
     n_years: Optional[int] = None,
     pollutant: str = "",
     averaging_period: str = "",
+    year_start: YearStart = None,
 ) -> pd.DataFrame:
     """Multi-year average of the annual ``rank``-th-highest daily value.
 
@@ -512,6 +700,7 @@ def nth_highest_daily_max_design_value(
     ``NO2AVE`` / ``SO2AVE`` / ``PM25AVE``: rank each year's daily series
     independently, then take the arithmetic mean of those annual values
     across the years modelled (``SUMHNH / NUMYRS`` in ``aermod.f``).
+    The years are met years, as AERMOD's are (see ``year_start``).
 
     Parameters
     ----------
@@ -527,6 +716,11 @@ def nth_highest_daily_max_design_value(
     n_years
         Number of years the standard is defined over; a mismatch with
         the data warns rather than fails.
+    year_start
+        Where each year begins: ``None`` (default) from the first date
+        in the data, as AERMOD's met year does (``CHK_ENDYR``);
+        ``"calendar"`` for calendar years; or a ``(month, day)`` pair.
+        Data that start on 1 January give calendar years either way.
 
     Returns
     -------
@@ -535,9 +729,10 @@ def nth_highest_daily_max_design_value(
     """
     if rank < 1:
         raise ValueError(f"rank must be >= 1, got {rank}")
+    if daily == "mean":
+        _warn_hourly_mean(df, "the 24-hour means")
     per_day = _daily_series(df, daily)
-    partial_note = _partial_year_note(per_day)
-    per_day["_year"] = per_day["date"].dt.year
+    per_day["_year"], partial_note = _daily_years(per_day, year_start)
     per_year = (
         per_day.groupby(["x", "y", "_year"], as_index=False, sort=False)
         ["concentration"].agg(lambda s: _nth_highest(s.to_numpy(), rank))
@@ -553,93 +748,125 @@ def nth_highest_daily_max_design_value(
 
 
 def pm25_24hr_design_value(
-    df: pd.DataFrame, *, n_years: int = 3,
+    df: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """PM2.5 24-hour design value: 3-year avg of annual 98th percentiles.
 
-    Per 40 CFR 50 Appendix N. Standard: 35 µg/m³.
+    Per 40 CFR 50.20(a), (c) and Appendix N. Standard: 35 µg/m³.
 
     The daily value is the **24-hour average**, so hourly input
-    (``AVE='1-HR'``) is averaged within each (receptor, day) group;
-    input that already carries AERMOD's ``AVE='24-HR'`` block averages
-    is used as-is. Each year's 98th percentile is the rank Appendix N
-    Table 1 assigns to that year's day count -- the 8th highest for a
-    full year -- and the design value is the mean of those annual
-    values.
+    (``AVE='1-HR'``) is averaged within each (receptor, day) group, with
+    a warning that such a mean divides by the number of rows
+    (:func:`pyaermod.postfile.warn_hourly_mean_limitation`); input that
+    already carries AERMOD's ``AVE='24-HR'`` block averages is used
+    as-is. Each year's 98th percentile is the rank Appendix N Table 1
+    assigns to that year's day count -- the 8th highest for a full year
+    -- and the design value is the mean of those annual values. The
+    years are met years (``year_start``, see
+    :func:`nth_highest_daily_max_design_value`), standing in for the
+    calendar years of Appendix N.
     """
+    _warn_hourly_mean(df, "the 24-hour PM2.5 means")
     daily = _daily_series(df, "mean")
-    per_year = _annual_rank_per_receptor(daily, percentile=98.0)
+    years, partial_note = _daily_years(daily, year_start)
+    per_year = _annual_rank_per_receptor(daily, 98.0, years)
     out = _average_across_years(
         per_year, expected_years=n_years, label="The 24-hour PM2.5 NAAQS",
-        partial_note=_partial_year_note(daily),
+        partial_note=partial_note,
     )
     return out.assign(form="98th percentile", averaging_period="24-hour",
                       pollutant="PM2.5")
 
 
 def no2_1hr_design_value(
-    df: pd.DataFrame, *, n_years: int = 3,
+    df: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """NO2 1-hour design value: 3-year avg of annual 98th percentile of
     daily max 1-hour concentrations.
 
-    Per 40 CFR 50 Appendix S. Standard: 100 ppb. The annual 98th
-    percentile is the rank Appendix S Table 1 assigns to that year's day
-    count -- the 8th highest daily maximum for a full year.
+    Per 40 CFR 50.11(b), (f) and Appendix S. Standard: 100 ppb. The
+    annual 98th percentile is the rank Appendix S Table 1 assigns to that
+    year's day count -- the 8th highest daily maximum for a full year.
+    The years are met years (``year_start``, see
+    :func:`nth_highest_daily_max_design_value`), standing in for the
+    calendar years of Appendix S.
     """
     daily = _daily_series(df, "max")
-    per_year = _annual_rank_per_receptor(daily, percentile=98.0)
+    years, partial_note = _daily_years(daily, year_start)
+    per_year = _annual_rank_per_receptor(daily, 98.0, years)
     out = _average_across_years(
         per_year, expected_years=n_years, label="The 1-hour NO2 NAAQS",
-        partial_note=_partial_year_note(daily),
+        partial_note=partial_note,
     )
     return out.assign(form="98th percentile of daily max",
                       averaging_period="1-hour", pollutant="NO2")
 
 
 def so2_1hr_design_value(
-    df: pd.DataFrame, *, n_years: int = 3,
+    df: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """SO2 1-hour design value: 3-year avg of annual 99th percentile of
     daily max 1-hour concentrations.
 
-    Per 40 CFR 50 Appendix T. Standard: 75 ppb. The annual 99th
-    percentile is the rank Appendix T Table 1 assigns to that year's day
-    count -- the 4th highest daily maximum for a full year.
+    Per 40 CFR 50.17(b) and Appendix T. Standard: 75 ppb. The annual
+    99th percentile is the rank Appendix T Table 1 assigns to that year's
+    day count -- the 4th highest daily maximum for a full year. The years
+    are met years (``year_start``, see
+    :func:`nth_highest_daily_max_design_value`), standing in for the
+    calendar years of Appendix T.
     """
     daily = _daily_series(df, "max")
-    per_year = _annual_rank_per_receptor(daily, percentile=99.0)
+    years, partial_note = _daily_years(daily, year_start)
+    per_year = _annual_rank_per_receptor(daily, 99.0, years)
     out = _average_across_years(
         per_year, expected_years=n_years, label="The 1-hour SO2 NAAQS",
-        partial_note=_partial_year_note(daily),
+        partial_note=partial_note,
     )
     return out.assign(form="99th percentile of daily max",
                       averaging_period="1-hour", pollutant="SO2")
 
 
 def pm10_24hr_design_value(
-    df: pd.DataFrame, *, rank: Optional[int] = None,
+    df: pd.DataFrame, *, rank: Optional[int] = None, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """PM10 24-hour design value: highest Nth-highest 24-hour value.
 
-    Per 40 CFR 50.6 the standard (150 µg/m³) may not be exceeded more
-    than once per year on average. Unlike the percentile standards this
-    one is **not** averaged across years: Appendix W Table 8-2 ranks the
-    pooled multi-year record and takes the *highest sixth-high* (H6H)
-    when five years of NWS meteorology are modelled -- five allowed
-    exceedances plus one -- or the *highest second-high* (H2H) with a
-    single year of site-specific data.
+    The standard (150 µg/m³, 40 CFR 50.6(a), Appendix K) is met when the
+    expected number of days per calendar year above 150 µg/m³ is at most
+    one, averaged over three years. Unlike the percentile standards this
+    value is **not** an average across years: it ranks the pooled
+    multi-year record and takes the *highest sixth-high* (H6H) when five
+    years of meteorology are modelled -- five allowed exceedances plus
+    one -- or the *highest second-high* (H2H) with one year. That
+    modelling rule is the High-N+1-High of the AERMOD User's Guide
+    (section 3.2.16.2), carried over from the pre-2017 Guideline on Air
+    Quality Models (Appendix W, 7.2.1.1(b)); it is not in Part 50 or in
+    the 2017 or current Appendix W.
 
-    ``rank`` defaults to that rule (6 for a five-year record, 2
-    otherwise) and can be set explicitly. The daily value is the
-    24-hour average, so hourly input is averaged within each day.
+    ``rank`` defaults to 6 for a record of five or more years and 2
+    otherwise, and can be set explicitly. The years counted are met
+    years (``year_start``, see :func:`nth_highest_daily_max_design_value`),
+    so four July-to-June years are four years, not five. The daily value
+    is the 24-hour average, so hourly input is averaged within each day
+    (with the warning of
+    :func:`pyaermod.postfile.warn_hourly_mean_limitation`).
+
+    NOTE: with N complete years the form of Appendix K corresponds to
+    the (N+1)-th highest value (User's Guide 3.2.16.2: H3H, H4H, H5H for
+    two, three, four years); the default here uses H2H for two to four
+    years, which is more stringent. Appendix K (1.0(b)) also rounds each
+    daily value to the nearest 10 µg/m³ before comparing it with 150, so
+    only values of 155 and above are exceedances there, while Appendix W
+    9.2.2(b) says modelled values are not rounded; this function and
+    :func:`naaqs_compliance_report` compare the unrounded value with 150.
     """
+    _warn_hourly_mean(df, "the 24-hour PM10 means")
     daily = _daily_series(df, "mean")
-    n_years = int(daily["date"].dt.year.nunique())
-    partial_note = _partial_year_note(daily)
+    years, partial_note = _daily_years(daily, year_start)
+    n_years = int(years.nunique())
     if partial_note:
         warnings.warn(
-            f"PM10 input covers {n_years} calendar year(s), which sets the "
+            f"PM10 input covers {n_years} year(s), which sets the "
             f"rank. {partial_note}.",
             stacklevel=2,
         )
@@ -657,12 +884,13 @@ def pm10_24hr_design_value(
 
 
 def o3_8hr_design_value(
-    df_8hr: pd.DataFrame, *, n_years: int = 3,
+    df_8hr: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """O3 8-hour design value: 3-year avg of annual 4th-highest daily
     max 8-hour average concentration.
 
-    Per 40 CFR 50.19. Standard: 70 ppb.
+    Per 40 CFR 50.19 and Appendix U. Standard: 70 ppb. The years are met
+    years (``year_start``, see :func:`nth_highest_daily_max_design_value`).
 
     Note: this expects AERMOD's 8-hour averages as input (``AVE='8-HR'``).
     AERMOD forms an N-HR average only at the hours that are multiples of
@@ -672,6 +900,11 @@ def o3_8hr_design_value(
     taken to obtain the daily 8-hr max series. The maximum of three
     blocks is never above the maximum of the 24 running means, so the
     value can be lower than one built from running means.
+
+    NOTE: Appendix U (3(b)-(d)) forms the daily maximum from running
+    8-hour averages stored at their first hour, over the 17 periods
+    starting 07:00 to 23:00, with validity rules (6 of 8 hours, 13 of 17
+    periods); this function uses AERMOD's block averages instead.
 
     Raises
     ------
@@ -687,7 +920,7 @@ def o3_8hr_design_value(
         )
     return nth_highest_daily_max_design_value(
         df_8hr, rank=4, daily="max", n_years=n_years,
-        pollutant="O3", averaging_period="8-hour",
+        pollutant="O3", averaging_period="8-hour", year_start=year_start,
     ).assign(form="annual 4th-highest daily max")
 
 
@@ -767,6 +1000,12 @@ def mxdybyyr_design_value(df: pd.DataFrame, rank: int) -> pd.DataFrame:
     same ``SUMHNH / NUMYRS`` form AERMOD prints, and the cross-check for
     :func:`no2_1hr_design_value` / :func:`so2_1hr_design_value` computed
     from the MAXDAILY series.
+
+    AERMOD writes one rank-``rank`` row per receptor for each of its met
+    years, so the year count is the number of those rows at a receptor,
+    not the number of calendar years their dates fall in (a July-to-June
+    year can put its ranked days in two calendar years). The function
+    needs no ``year_start``: AERMOD has already grouped the years.
     """
     work = _one_source_group(df)
     sel = work[work["rank"] == rank].copy()
@@ -775,7 +1014,9 @@ def mxdybyyr_design_value(df: pd.DataFrame, rank: int) -> pd.DataFrame:
             f"no rank-{rank} rows; the deck's RECTABLE range must reach "
             f"rank {rank} for MXDYBYYR to write it"
         )
-    sel["_year"] = _parse_yymmddhh_to_year(sel["date"])
+    # A receptor the deck declares twice repeats its rows byte for byte.
+    sel = sel.drop_duplicates(subset=["x", "y", "date", "concentration"])
+    sel["_year"] = sel.groupby(["x", "y"], sort=False).cumcount()
     out = _average_across_years(
         sel[["x", "y", "_year", "concentration"]], expected_years=None,
         label=f"rank {rank}",
@@ -994,7 +1235,7 @@ def _refuse_one_value_per_receptor(work: pd.DataFrame, aves: list[str]) -> None:
 
 def _no2_annual_design_value(
     df: pd.DataFrame, form: str, aves: list[str],
-    stamps: Optional[pd.Series] = None,
+    stamps: Optional[pd.Series] = None, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """Annual NO2 design value per receptor in ``form`` (see _NO2_ANNUAL_FORMS).
 
@@ -1013,8 +1254,9 @@ def _no2_annual_design_value(
     it as it is, with a warning. Neither has a date to parse: the date
     field holds a count.
 
-    Sub-annual values are combined by year: averaged across every year
-    present for ``"multi_year_mean"``, and for ``"highest_year"`` as
+    Sub-annual values are combined by (met) year, ``year_start`` deciding
+    where each year begins: averaged across every year present for
+    ``"multi_year_mean"``, and for ``"highest_year"`` as
     :func:`_no2_highest_complete_year` describes.
     """
     work, unit, per_value = _no2_annual_input(df, aves)
@@ -1055,7 +1297,8 @@ def _no2_annual_design_value(
                 ["concentration"].max())
     text, stamp = _no2_stamps(
         work["date"], work["_stamp"] if stamps is not None else None)
-    years = stamp.dt.year
+    start = _year_start(year_start, stamp, month_values=unit == "month")
+    years = _met_years(stamp, start)
     if form == "multi_year_mean":
         return (_annual_means(work, years)
                 .groupby(receptor, as_index=False, sort=False)
@@ -1067,27 +1310,31 @@ def _no2_annual_design_value(
     else:
         unit_of_row = stamp
     return _no2_highest_complete_year(
-        work.assign(_year=years, _unit=unit_of_row), unit, per_value)
+        work.assign(_year=years, _unit=unit_of_row), unit, per_value, start)
 
 
 def _no2_highest_complete_year(
     work: pd.DataFrame, unit: str, per_value: int,
+    start: tuple[int, int] = _CALENDAR,
 ) -> pd.DataFrame:
     """Highest annual mean per receptor, over the years at least 75 % covered.
 
     ``work`` holds sub-annual rows of one averaging period, already checked
     and deduplicated by :func:`_no2_annual_design_value`, with each row's
-    calendar year in ``_year`` and its coverage unit in ``_unit``. Coverage
-    is counted in ``unit``, as 40 CFR 50 Appendix S counts it for the
-    annual mean: the share of the calendar year's hours (8760 or 8784)
-    covered at that receptor for 1-HR to 12-HR values, ``per_value`` hours
-    for each distinct stamp; the share of its days (365 or 366) for 24-HR
-    values and frames without an ``ave`` column; and the share of its 12
-    months for MONTH values.
+    year in ``_year`` (the met year beginning on ``start``, which stands
+    in for the calendar year of Appendix S) and its coverage unit in
+    ``_unit``. Coverage is counted in ``unit``, as 40 CFR 50 Appendix S
+    (3.1(b)) counts it for the annual mean: the share of the year's hours
+    (8760 or 8784) covered at that receptor for 1-HR to 12-HR values,
+    ``per_value`` hours for each distinct stamp; the share of its days
+    (365 or 366) for 24-HR values and frames without an ``ave`` column;
+    and the share of its 12 months for MONTH values. The 75 % threshold
+    and the units are the same for a met year as for a calendar year;
+    only the year's first day moves.
 
     A year below 75 % is left out with a warning. A receptor with no
-    calendar year at 75 % gets the mean over its whole record instead,
-    also with a warning, rather than its highest partial year.
+    year at 75 % gets the mean over its whole record instead, also with
+    a warning, rather than its highest partial year.
     """
     receptor = ["x", "y"]
     keys = [*receptor, "_year"]
@@ -1096,19 +1343,20 @@ def _no2_highest_complete_year(
     if unit == "month":
         whole = pd.Series(12, index=means.index)
     else:
-        days = means["_year"].map(lambda y: 366 if calendar.isleap(y) else 365)
+        days = means["_year"].map(lambda y: _year_days(int(y), start))
         whole = days * 24 if unit == "hour" else days
     means["_ok"] = means["_n"] * per_value >= _NO2_ANNUAL_COMPLETENESS * whole
 
     any_ok = means.groupby(receptor, sort=False)["_ok"].transform("any")
     noun = {"hour": "hours", "month": "months"}.get(unit, "days")
+    year_noun = _year_noun(start)
     dropped = sorted({int(y) for y in means.loc[~means["_ok"] & any_ok, "_year"]})
     if dropped:
         warnings.warn(
             "the annual NO2 design value leaves out "
-            f"{', '.join(map(str, dropped))}: data on fewer than 75% of the "
-            f"year's {noun} at some receptor (40 CFR 50 Appendix S) is too "
-            "little for a valid annual mean.",
+            f"{', '.join(_year_name(y, start) for y in dropped)}: data on fewer "
+            f"than 75% of the year's {noun} at some receptor (40 CFR 50 "
+            "Appendix S) is too little for a valid annual mean.",
             stacklevel=4,
         )
     highest = (means[means["_ok"]]
@@ -1118,9 +1366,9 @@ def _no2_highest_complete_year(
         return highest
 
     warnings.warn(
-        f"no calendar year has data on at least 75% of its {noun} (40 CFR 50 "
+        f"no {year_noun} has data on at least 75% of its {noun} (40 CFR 50 "
         "Appendix S) at some receptor, so its annual NO2 design value is the "
-        "mean over the whole record, not a calendar-year mean.",
+        f"mean over the whole record, not a {year_noun.replace(' ', '-')} mean.",
         stacklevel=4,
     )
     incomplete = means.loc[~any_ok, receptor].drop_duplicates()
@@ -1132,6 +1380,16 @@ def _no2_highest_complete_year(
             .merge(pd.concat([highest, whole_record]), on=receptor))
 
 
+#: The pollutant keys :func:`naaqs_compliance_report` takes, each with the
+#: means it forms from hourly rows ("" for the forms built from maxima).
+_REPORT_FORMS = {
+    "PM2.5": "24-hour PM2.5", "PM25": "24-hour PM2.5",
+    "PM2.5_ANNUAL": "annual PM2.5", "PM25_ANNUAL": "annual PM2.5",
+    "PM10": "24-hour PM10", "NO2_ANNUAL": "annual NO2",
+    "NO2": "", "SO2": "", "O3": "",
+}
+
+
 def naaqs_compliance_report(
     pollutant: str,
     df: pd.DataFrame,
@@ -1139,6 +1397,7 @@ def naaqs_compliance_report(
     background: Optional[Union[float, dict, pd.Series]] = None,
     n_years: int = 3,
     no2_annual: str = "highest_year",
+    year_start: YearStart = None,
 ) -> pd.DataFrame:
     """One-stop compliance roll-up: design value + NAAQS comparison.
 
@@ -1157,18 +1416,35 @@ def naaqs_compliance_report(
 
     The design value is in AERMOD's µg/m³, so ``exceeds`` compares it
     with the level converted to µg/m³ (75 ppb of SO2 is 196.4 µg/m³),
-    never with a level in ppb.
+    never with a level in ppb. Modelled values are compared unrounded,
+    as Appendix W (40 CFR 51) 9.2.2(b) says modelled concentrations
+    should not be rounded; the rounding and truncation conventions of the
+    Part 50 appendices (N, S, T, U, K) apply to monitored design values.
 
     Supported pollutants: PM2.5 (24-hour), PM10, NO2 (1-hour), SO2,
     O3, plus annual forms via ``pollutant="PM2.5_annual"`` /
     ``"NO2_annual"``.
 
-    The annual PM2.5 form is the average of the annual means (40 CFR 50.18,
-    Appendix N). The annual NO2 standard is a single calendar year's mean
-    (40 CFR 50.11(e), Appendix S), so with several years of data
+    Years are met years: ``year_start`` (default ``None``, read from the
+    first date in the data; ``"calendar"``; or a ``(month, day)`` pair)
+    is passed to the design-value function, as described in
+    :func:`nth_highest_daily_max_design_value`. Where Part 50 speaks of a
+    calendar year the modelled met year stands in for it; data starting
+    on 1 January give calendar years either way.
+
+    Hourly (``1-HR``) input to a form built from means (PM2.5, PM10,
+    PM2.5_annual, NO2_annual) warns once that the means divide by the
+    number of rows (:func:`pyaermod.postfile.warn_hourly_mean_limitation`).
+
+    The annual PM2.5 form is the average of the annual means (40 CFR
+    50.20(a)-(b), Appendix N). NOTE: Appendix N 4.4 forms each year's
+    mean as the mean of its calendar quarters' means; this report averages
+    every row of the year (see :func:`annual_mean`). The annual NO2
+    standard is a single calendar year's mean (40 CFR 50.11(a), (e);
+    Appendix S), so with several years of data
     ``no2_annual="highest_year"`` (the default) takes the highest year's
     mean at each receptor. Only years with data on at least 75% of their
-    hours count (Appendix S treats an annual mean as valid from 75%
+    hours count (Appendix S 3.1(b) treats an annual mean as valid from 75%
     coverage), so a few days of a following year cannot set the design
     value; the years left out are named in a :class:`UserWarning`. The
     frame must hold one averaging period (one ``ave`` value). Coverage is
@@ -1181,8 +1457,8 @@ def naaqs_compliance_report(
     several years (AERMOD writes NUMYRS where the date would be) it is the
     average of the years' means, a lower bound on the design value, so it
     raises :class:`ValueError`, as does an ANNUAL value whose number of
-    years cannot be read. If no calendar year at a receptor reaches 75%
-    (one met year starting in July, say), the design value there is the
+    years cannot be read. If no year at a receptor reaches 75%
+    (a record of a few months, say), the design value there is the
     mean over its whole record and a warning says so.
     ``no2_annual="multi_year_mean"`` averages the years instead,
     which some reviewing agencies accept for five years of NWS met data;
@@ -1213,41 +1489,50 @@ def naaqs_compliance_report(
                 "is keyed on, so it would add nothing. Pass the background as "
                 "a single number, e.g. its annual mean."
             )
-    work, stamps = (_add_background(df, background) if background is not None
-                    else (df, None))
-
-    if pollutant == "PM2.5" or pollutant == "PM25":
-        dv = pm25_24hr_design_value(work, n_years=n_years)
-        std = get_naaqs("PM2.5", "24-hour")
-    elif pollutant == "PM2.5_ANNUAL" or pollutant == "PM25_ANNUAL":
-        dv = annual_mean(work).rename(columns={"concentration": "concentration"})
-        # Caller wants multi-year average -> mean of annual means
-        dv = (dv.groupby(["x", "y"], as_index=False, sort=False)
-              ["concentration"].mean())
-        std = get_naaqs("PM2.5", "annual")
-    elif pollutant == "PM10":
-        dv = pm10_24hr_design_value(work)
-        std = get_naaqs("PM10", "24-hour")
-    elif pollutant == "NO2":
-        dv = no2_1hr_design_value(work, n_years=n_years)
-        std = get_naaqs("NO2", "1-hour")
-    elif pollutant == "NO2_ANNUAL":
-        if no2_annual not in _NO2_ANNUAL_FORMS:
-            raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
-                             f"got {no2_annual!r}")
-        dv = _no2_annual_design_value(work, no2_annual, aves, stamps)
-        std = get_naaqs("NO2", "annual")
-    elif pollutant == "SO2":
-        dv = so2_1hr_design_value(work, n_years=n_years)
-        std = get_naaqs("SO2", "1-hour")
-    elif pollutant == "O3":
-        dv = o3_8hr_design_value(work, n_years=n_years)
-        std = get_naaqs("O3", "8-hour")
-    else:
+    if pollutant not in _REPORT_FORMS:
         raise ValueError(
             f"Unsupported pollutant {pollutant!r}; supported: PM2.5, "
             f"PM2.5_annual, PM10, NO2, NO2_annual, SO2, O3"
         )
+    if pollutant == "NO2_ANNUAL" and no2_annual not in _NO2_ANNUAL_FORMS:
+        raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
+                         f"got {no2_annual!r}")
+    if _REPORT_FORMS[pollutant] and _is_hourly(df) and not _hourly_mean_warned.get():
+        # Once, naming the caller's line; the function it runs stays quiet.
+        warn_hourly_mean_limitation(
+            f"the {_REPORT_FORMS[pollutant]} means", stacklevel=3)
+    # The dispatch stays in this frame: the warnings below it count their
+    # stack levels from here to name the caller's line.
+    token = _hourly_mean_warned.set(True)
+    try:
+        work, stamps = (_add_background(df, background) if background is not None
+                        else (df, None))
+        if pollutant in ("PM2.5", "PM25"):
+            dv = pm25_24hr_design_value(work, n_years=n_years, year_start=year_start)
+            std = get_naaqs("PM2.5", "24-hour")
+        elif pollutant in ("PM2.5_ANNUAL", "PM25_ANNUAL"):
+            # The multi-year average: the mean of the annual means.
+            dv = (annual_mean(work, year_start=year_start)
+                  .groupby(["x", "y"], as_index=False, sort=False)
+                  ["concentration"].mean())
+            std = get_naaqs("PM2.5", "annual")
+        elif pollutant == "PM10":
+            dv = pm10_24hr_design_value(work, year_start=year_start)
+            std = get_naaqs("PM10", "24-hour")
+        elif pollutant == "NO2":
+            dv = no2_1hr_design_value(work, n_years=n_years, year_start=year_start)
+            std = get_naaqs("NO2", "1-hour")
+        elif pollutant == "NO2_ANNUAL":
+            dv = _no2_annual_design_value(work, no2_annual, aves, stamps, year_start)
+            std = get_naaqs("NO2", "annual")
+        elif pollutant == "SO2":
+            dv = so2_1hr_design_value(work, n_years=n_years, year_start=year_start)
+            std = get_naaqs("SO2", "1-hour")
+        else:
+            dv = o3_8hr_design_value(work, n_years=n_years, year_start=year_start)
+            std = get_naaqs("O3", "8-hour")
+    finally:
+        _hourly_mean_warned.reset(token)
 
     out = dv.rename(columns={"concentration": "design_value"})
     out["naaqs_level"] = std.level
