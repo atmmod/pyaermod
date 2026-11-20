@@ -216,6 +216,18 @@ class TestParseIGRA:
         assert lvl["wind_dir"] == 170.0
         assert lvl["wind_speed_ms"] == 5.5
 
+    @pytest.mark.parametrize("token,key", [(5, "temp_c"), (8, "wind_dir"),
+                                           (9, "wind_speed_ms")])
+    def test_a_missing_value_is_none(self, token, key):
+        """IGRA writes -9999 for a missing value; most levels of a real
+        sounding lack wind or temperature."""
+        fields = _IGRA_SAMPLE.splitlines()[1].split()
+        fields[token] = "-9999"
+        text = _IGRA_SAMPLE.splitlines()[0] + "\n" + " ".join(fields) + "\n"
+        level = parse_igra_v2(text)[0].levels[0]
+        assert level[key] is None
+        assert level["pressure_pa"] == 100000
+
     def test_empty_text_returns_empty(self):
         assert parse_igra_v2("") == []
 
