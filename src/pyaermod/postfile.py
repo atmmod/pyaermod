@@ -73,6 +73,17 @@ _LABEL_TYPES = {
     "WET DEPO": "WDEP",
 }
 
+# Header lines that read "<KEY>: value", and the PostfileHeader field of each.
+_HEADER_FIELDS = tuple(
+    (re.compile(key + r":\s*(.*)", re.IGNORECASE), name)
+    for key, name in (
+        (r"MODELING\s+OPTIONS\s+USED", "model_options"),
+        ("AVERTIME", "averaging_period"),
+        ("POLLUTID", "pollutant_id"),
+        ("SRCGROUP", "source_group"),
+    )
+)
+
 OutputTypesArg = Union[str, Iterable[str], None]
 
 #: KAVE for a MONTH average (``AVETIM`` in coset.f), which a binary record
@@ -649,19 +660,13 @@ class PostfileParser:
                 header.title = title
             return
 
-        # Model options
-        options_match = re.match(
-            r"MODELING\s+OPTIONS\s+USED:\s*(.*)", text, re.IGNORECASE
-        )
-        if options_match:
-            header.model_options = options_match.group(1).strip()
-            return
-
-        # Averaging period — pyaermod synthetic format
-        ave_match = re.match(r"AVERTIME:\s*(.*)", text, re.IGNORECASE)
-        if ave_match:
-            header.averaging_period = ave_match.group(1).strip()
-            return
+        # "<KEY>: value" lines: the model options, and the averaging period,
+        # pollutant and source group of the pyaermod synthetic format
+        for pattern, name in _HEADER_FIELDS:
+            field_match = pattern.match(text)
+            if field_match:
+                setattr(header, name, field_match.group(1).strip())
+                return
 
         # EPA format: POST/PLOT FILE OF CONCURRENT <period> VALUES
         # Also: PLOT FILE OF  HIGH <rank> <period> VALUES
@@ -689,18 +694,6 @@ class PostfileParser:
                 self._is_plotfile = True
                 if epa_pst_match.group(2):
                     self._years = int(epa_pst_match.group(2))
-            return
-
-        # Pollutant ID — pyaermod synthetic format
-        poll_match = re.match(r"POLLUTID:\s*(.*)", text, re.IGNORECASE)
-        if poll_match:
-            header.pollutant_id = poll_match.group(1).strip()
-            return
-
-        # Source group — pyaermod synthetic format
-        src_match = re.match(r"SRCGROUP:\s*(.*)", text, re.IGNORECASE)
-        if src_match:
-            header.source_group = src_match.group(1).strip()
             return
 
         # Number of value columns from the FORMAT line. AERMOD writes the
