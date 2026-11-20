@@ -660,33 +660,74 @@ class VectorExporter:
     def __init__(self, factory: GeoDataFrameFactory):
         self.factory = factory
 
+    @staticmethod
+    def _geometry_kinds(gdf) -> "pd.Series":
+        """``point``, ``line`` or ``polygon`` for each row: the three types a
+        shapefile can hold, one per file. A Multi geometry is its single
+        counterpart's kind (a buoyant line is a MultiLineString)."""
+        names = {"Point": "point", "LineString": "line", "Polygon": "polygon"}
+        return gdf.geom_type.str.removeprefix("Multi").map(names)
+
     def export_sources(
         self,
         sources: list,
         output_path: Union[str, Path],
         driver: str = "GPKG",
     ) -> Path:
-        """Export source objects as a vector file.
+        """Export source objects as one vector file.
 
         A shapefile holds one geometry type, so ``driver='ESRI Shapefile'``
         raises ``ValueError`` for sources that mix points, lines and
-        polygons. GeoPackage and GeoJSON hold them together.
+        polygons: use :meth:`export_sources_by_kind` for one shapefile per
+        kind. GeoPackage and GeoJSON hold them together.
         """
         gdf = self.factory.sources_to_geodataframe(sources)
         if driver == "ESRI Shapefile":
-            # LineString and MultiLineString are one shapefile type.
-            kinds = sorted({t.removeprefix("Multi") for t in gdf.geom_type.dropna()})
+            kinds = sorted(self._geometry_kinds(gdf).dropna().unique())
             if len(kinds) > 1:
                 raise ValueError(
                     "a shapefile holds one geometry type, and these sources have "
                     f"{', '.join(kinds[:-1])} and {kinds[-1]} geometries; use "
-                    "driver='GPKG' or driver='GeoJSON', or export each kind of "
-                    "source to its own shapefile"
+                    "export_sources_by_kind for one shapefile per kind, or "
+                    "driver='GPKG' or driver='GeoJSON' for one file"
                 )
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         gdf.to_file(output_path, driver=driver)
         return output_path
+
+    def export_sources_by_kind(
+        self,
+        sources: list,
+        output_path: Union[str, Path],
+        driver: str = "ESRI Shapefile",
+    ) -> Dict[str, Path]:
+        """Export source objects as one vector file per geometry kind.
+
+        For formats that hold one geometry type per file, which is to say
+        shapefiles. ``output_path`` gives the folder, stem and extension:
+        ``out/sources.shp`` writes ``out/sources_point.shp`` (stacks, volume
+        sources), ``out/sources_line.shp`` (line and buoyant-line sources)
+        and ``out/sources_polygon.shp`` (area, circular-area, polygon-area
+        and open-pit sources), leaving out a kind that has no source. The
+        files share their columns and coordinate system.
+
+        Returns the paths written, keyed ``"point"``, ``"line"`` and
+        ``"polygon"``.
+        """
+        gdf = self.factory.sources_to_geodataframe(sources)
+        kinds = self._geometry_kinds(gdf)
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        written: Dict[str, Path] = {}
+        for kind in ("point", "line", "polygon"):
+            part = gdf[kinds == kind]
+            if part.empty:
+                continue
+            path = output_path.with_name(f"{output_path.stem}_{kind}{output_path.suffix}")
+            part.to_file(path, driver=driver)
+            written[kind] = path
+        return written
 
     def export_receptors(
         self,
@@ -759,14 +800,17 @@ class VectorExporter:
         output_dir : str or Path
             Output directory.
         driver : str
-            OGR driver. ``'ESRI Shapefile'`` raises ``ValueError`` when
-            the sources mix points, lines and polygons (see
-            :meth:`export_sources`).
+            OGR driver. With ``'ESRI Shapefile'``, sources that mix
+            points, lines and polygons are written as one shapefile per
+            kind (see :meth:`export_sources_by_kind`).
 
         Returns
         -------
         dict
-            Mapping of component name to output file path.
+            Mapping of component name to output file path: ``"sources"``,
+            ``"receptors"`` and ``"conc_<period>"``. Where the sources are
+            split by kind the keys are ``"sources_point"``,
+            ``"sources_line"`` and ``"sources_polygon"``.
         """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -778,9 +822,15 @@ class VectorExporter:
 
         # Sources
         if project.sources.sources:
-            paths["sources"] = self.export_sources(
-                project.sources.sources, output_dir / f"sources{ext}", driver,
-            )
+            sources = project.sources.sources
+            source_path = output_dir / f"sources{ext}"
+            kinds = self._geometry_kinds(self.factory.sources_to_geodataframe(sources))
+            if driver == "ESRI Shapefile" and kinds.nunique() > 1:
+                # A shapefile holds one geometry type: one file per kind.
+                by_kind = self.export_sources_by_kind(sources, source_path, driver)
+                paths.update({f"sources_{kind}": path for kind, path in by_kind.items()})
+            else:
+                paths["sources"] = self.export_sources(sources, source_path, driver)
 
         # Receptors
         paths["receptors"] = self.export_receptors(

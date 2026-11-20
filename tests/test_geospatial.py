@@ -610,24 +610,69 @@ class TestVectorExporter:
     def test_export_shapefile_refuses_mixed_geometry(self, factory, sample_sources, tmp_path):
         """Point, line and polygon sources cannot share one shapefile.
 
-        The refusal comes before anything is written and names the formats
-        that do hold them; pyogrio raised FeatureError part way through.
+        The refusal comes before anything is written and names the way to
+        get one shapefile per kind; pyogrio raised FeatureError part way
+        through.
         """
         exporter = VectorExporter(factory)
         outdir = tmp_path / "shp"
-        with pytest.raises(ValueError, match=r"one geometry type.*LineString, Point and Polygon.*GPKG.*GeoJSON"):
+        with pytest.raises(ValueError, match=r"one geometry type.*line, point and polygon"
+                                             r".*export_sources_by_kind.*GPKG.*GeoJSON"):
             exporter.export_sources(sample_sources, outdir / "sources.shp", driver="ESRI Shapefile")
         assert not outdir.exists()
 
-    def test_export_all_shapefile_refuses_mixed_geometry(self, factory, sample_sources, tmp_path):
+    def test_export_sources_by_kind_writes_one_shapefile_per_kind(
+            self, factory, sample_sources, tmp_path):
+        """Every source lands in exactly one file, of one geometry type."""
+        exporter = VectorExporter(factory)
+        written = exporter.export_sources_by_kind(sample_sources, tmp_path / "shp" / "sources.shp")
+
+        assert set(written) == {"point", "line", "polygon"}
+        whole = factory.sources_to_geodataframe(sample_sources)
+        seen = []
+        for kind, path in written.items():
+            assert path == tmp_path / "shp" / f"sources_{kind}.shp"
+            part = gpd.read_file(path)
+            types = {t.removeprefix("Multi") for t in part.geom_type}
+            assert types == {{"point": "Point", "line": "LineString",
+                              "polygon": "Polygon"}[kind]}
+            assert part.crs == whole.crs
+            seen += list(part["source_id"])
+        assert sorted(seen) == sorted(whole["source_id"])
+
+    def test_export_sources_by_kind_leaves_out_an_absent_kind(self, factory, tmp_path):
+        stacks = [PointSource(source_id="S1", x_coord=500000, y_coord=3800000,
+                              stack_height=30.0, stack_temp=400.0, exit_velocity=10.0,
+                              stack_diameter=2.0, emission_rate=1.0)]
+        written = VectorExporter(factory).export_sources_by_kind(stacks, tmp_path / "s.shp")
+        assert list(written) == ["point"]
+        assert sorted(p.name for p in tmp_path.glob("*.shp")) == ["s_point.shp"]
+
+    def test_export_all_shapefile_splits_mixed_sources(self, factory, sample_sources, tmp_path):
         from types import SimpleNamespace
         receptors = ReceptorPathway()
         receptors.add_discrete_receptor(DiscreteReceptor(x_coord=501000, y_coord=3801000))
         project = SimpleNamespace(sources=SimpleNamespace(sources=sample_sources), receptors=receptors)
         outdir = tmp_path / "all"
-        with pytest.raises(ValueError, match="one geometry type"):
-            VectorExporter(factory).export_all(project, output_dir=outdir, driver="ESRI Shapefile")
-        assert not list(outdir.glob("*"))
+        paths = VectorExporter(factory).export_all(project, output_dir=outdir, driver="ESRI Shapefile")
+        assert set(paths) == {"sources_point", "sources_line", "sources_polygon", "receptors"}
+        assert all(path.exists() for path in paths.values())
+        total = sum(len(gpd.read_file(paths[k])) for k in paths if k.startswith("sources_"))
+        assert total == len(sample_sources)
+
+    def test_export_all_keeps_one_sources_file_where_the_format_allows(
+            self, factory, sample_sources, tmp_path):
+        from types import SimpleNamespace
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(DiscreteReceptor(x_coord=501000, y_coord=3801000))
+        project = SimpleNamespace(sources=SimpleNamespace(sources=sample_sources), receptors=receptors)
+        paths = VectorExporter(factory).export_all(project, output_dir=tmp_path / "g")
+        assert set(paths) == {"sources", "receptors"}
+        one_kind = SimpleNamespace(sources=SimpleNamespace(sources=sample_sources[:1]),
+                                   receptors=receptors)
+        shp = VectorExporter(factory).export_all(one_kind, output_dir=tmp_path / "s",
+                                                 driver="ESRI Shapefile")
+        assert set(shp) == {"sources", "receptors"}
 
     def test_export_shapefile_single_and_multi_lines(self, factory, tmp_path):
         """A line and a buoyant line (a MultiLineString) are one shapefile type."""
