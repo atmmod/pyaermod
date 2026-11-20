@@ -275,7 +275,7 @@ class AERMODOutputParser:
         Returns:
             AERMODResults object with all parsed data
         """
-        self._parse_header()
+        run_info = self._parse_header()
         self._parse_sources()
         self._parse_receptors()
         self._parse_concentration_results()
@@ -284,7 +284,7 @@ class AERMODOutputParser:
                 or self.deposition or self.summaries):
             what = ("an AERMOD run that stopped before it wrote them, for example "
                     "on a setup error"
-                    if self.run_info.version != "Unknown" else
+                    if run_info.version != "Unknown" else
                     "not an AERMOD main output (.out) file, or not in the layout "
                     "AERMOD writes")
             warnings.warn(
@@ -294,7 +294,7 @@ class AERMODOutputParser:
             )
 
         return AERMODResults(
-            run_info=self.run_info,
+            run_info=run_info,
             sources=self.sources,
             receptors=self.receptors,
             concentrations=self.concentrations,
@@ -303,8 +303,8 @@ class AERMODOutputParser:
             summaries=self.summaries,
         )
 
-    def _parse_header(self):
-        """Extract run information from header"""
+    def _parse_header(self) -> ModelRunInfo:
+        """Extract run information from header, store it in ``run_info`` and return it"""
         run_info = ModelRunInfo(
             version="Unknown",
             jobname="Unknown"
@@ -373,6 +373,7 @@ class AERMODOutputParser:
             run_info.num_receptors = int(counts_match.group(2))
 
         self.run_info = run_info
+        return run_info
 
     def _parse_banner_and_setup(self, run_info: "ModelRunInfo") -> None:
         """Fill the run date, run time, averaging periods and met-data dates

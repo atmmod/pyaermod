@@ -446,8 +446,8 @@ class ReceptorPathway:
             lines.append(grid.to_aermod_input(elevated=elevated, flagpole=flagpole))
 
         # Polar grids
-        for grid in self.polar_grids:
-            lines.append(grid.to_aermod_input(elevated=elevated, flagpole=flagpole))
+        for polar_grid in self.polar_grids:
+            lines.append(polar_grid.to_aermod_input(elevated=elevated, flagpole=flagpole))
 
         # Discrete receptors
         for receptor in self.discrete_receptors:

@@ -1107,7 +1107,7 @@ class UnformattedPostfileParser:
 
                 for i in range(n):
                     x, y = coords[i]
-                    row = {"x": x, "y": y}
+                    row: Dict[str, Union[float, str]] = {"x": x, "y": y}
                     for j, column in enumerate(value_cols):
                         row[column] = values[j * n + i]
                     row.update({

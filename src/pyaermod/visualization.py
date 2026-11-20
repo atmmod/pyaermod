@@ -7,7 +7,7 @@ Create publication-ready plots and interactive maps for AERMOD results.
 import logging
 import warnings
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # stderr: a missing optional dependency is recorded at DEBUG level only,
 # and the user-facing signal is the ImportError (with an install hint)
 # raised by the first feature that actually needs the package.
+if TYPE_CHECKING:
+    import matplotlib.figure
+
 try:
     import matplotlib.pyplot as plt
     HAS_MATPLOTLIB = True
@@ -120,7 +123,7 @@ class AERMODVisualizer:
                      save_path: Optional[Union[str, Path]] = None,
                      dpi: int = 300,
                      plotfile: Any = None,
-                     zflag: Optional[float] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+                     zflag: Optional[float] = None) -> 'matplotlib.figure.Figure':
         """
         Create concentration contour plot
 
@@ -205,6 +208,7 @@ class AERMODVisualizer:
         Zi = griddata((x, y), conc, (Xi, Yi), method='cubic')
 
         # Generate contour levels if not provided
+        contour_levels: Union[List[float], np.ndarray]
         if levels is None:
             max_conc = conc.max()
             if max_conc <= 0:
@@ -212,13 +216,15 @@ class AERMODVisualizer:
                 ax.scatter(x, y, c=conc, cmap=colormap, s=20)
                 ax.set_title(title or f"{averaging_period} Concentration (all zero)")
                 return fig
-            levels = np.linspace(0, max_conc, 11)
+            contour_levels = np.linspace(0, max_conc, 11)
+        else:
+            contour_levels = levels
 
         # Create filled contour plot
-        contourf = ax.contourf(Xi, Yi, Zi, levels=levels, cmap=colormap, extend='max')
+        contourf = ax.contourf(Xi, Yi, Zi, levels=contour_levels, cmap=colormap, extend='max')
 
         # Add contour lines
-        contour = ax.contour(Xi, Yi, Zi, levels=levels, colors='black', linewidths=0.5, alpha=0.3)
+        contour = ax.contour(Xi, Yi, Zi, levels=contour_levels, colors='black', linewidths=0.5, alpha=0.3)
         ax.clabel(contour, inline=True, fontsize=8, fmt='%.1f')
 
         # Add colorbar
@@ -424,7 +430,7 @@ class AERMODVisualizer:
                         averaging_periods: Optional[List[str]] = None,
                         title: Optional[str] = None,
                         figsize: Tuple[int, int] = (12, 6),
-                        save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+                        save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':
         """
         Plot concentration time series at a specific receptor
 
@@ -485,7 +491,7 @@ class AERMODVisualizer:
                        metric: str = 'max',
                        title: Optional[str] = None,
                        figsize: Tuple[int, int] = (10, 6),
-                       save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+                       save_path: Optional[Union[str, Path]] = None) -> 'matplotlib.figure.Figure':
         """
         Compare multiple AERMOD runs
 
@@ -563,7 +569,7 @@ def quick_plot(results,
               averaging_period: str = 'ANNUAL',
               save_path: Optional[str] = None,
               plotfile: Any = None,
-              zflag: Optional[float] = None) -> 'matplotlib.figure.Figure':  # noqa: F821
+              zflag: Optional[float] = None) -> 'matplotlib.figure.Figure':
     """
     Quick contour plot with default settings
 
