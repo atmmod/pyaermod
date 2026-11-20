@@ -1,6 +1,6 @@
 {
   "scenario": "albany_success",
-  "description": "PLAN-gui.md reference scenario (Albany stack) with averaging periods 1, 3, 24 and PERIOD. Runs to completion.",
+  "description": ".10x/plans/PLAN-gui.md reference scenario (Albany stack) with averaging periods 1, 3, 24 and PERIOD. Runs to completion.",
   "aermod_version": "26135",
   "fatal_errors": 0,
   "warnings": 4,

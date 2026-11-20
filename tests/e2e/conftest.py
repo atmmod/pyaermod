@@ -1,4 +1,4 @@
-"""Fixtures for the GUI's end-to-end journeys (PLAN-gui.md, tiers T2 and T3).
+"""Fixtures for the GUI's end-to-end journeys (.10x/plans/PLAN-gui.md, tiers T2 and T3).
 
 Every journey gets a fresh GUI server on a free port, started from this
 checkout's ``src`` with its own home, temp and working directories, and a

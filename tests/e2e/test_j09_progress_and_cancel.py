@@ -1,9 +1,9 @@
 """J9: start a long run, watch its progress and cancel it.
 
-What the user must see (PLAN-gui.md): progress advances with AERMOD's day
+What the user must see (.10x/plans/PLAN-gui.md): progress advances with AERMOD's day
 count, and other steps stay usable during the run. Cancel stops the
 process without leaving an orphaned ``aermod``, and the status reads
-"Cancelled". WP-G2's review added two checks (PLAN-gui.md, "Notes from
+"Cancelled". WP-G2's review added two checks (.10x/plans/PLAN-gui.md, "Notes from
 WP-G2"): a double-click on Run starts exactly one AERMOD, and another
 browser tab stays usable while a run goes on. WP-G4's review added two
 more: New during a run stops AERMOD and leaves no progress or Cancel,

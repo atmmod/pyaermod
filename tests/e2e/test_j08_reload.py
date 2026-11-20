@@ -1,8 +1,8 @@
 """J8: reload the browser in the middle of a project, and again after a run.
 
-What the user must see (PLAN-gui.md): the project and the last run are
+What the user must see (.10x/plans/PLAN-gui.md): the project and the last run are
 restored, or, if WP-G2 chooses the fallback, an unsaved-changes warning
-appears before unload. WP-G2 chose the preferred behaviour (PLAN-gui.md,
+appears before unload. WP-G2 chose the preferred behaviour (.10x/plans/PLAN-gui.md,
 "Reload decision"): each browser tab keeps its session, which these
 tests pin. Before WP-G2 a reload created a fresh session and lost both
 the project and the run; the two losses are separate tests.

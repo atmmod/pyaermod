@@ -60,7 +60,7 @@ test-binaries: install-full
 	PATH="$(CURDIR)/bin:$$PATH" $(PYTHON) -m pytest -o addopts="" -q \
 	    -p no:cacheprovider --strict-markers --tb=short
 
-# The GUI's end-to-end journeys (tests/e2e, PLAN-gui.md). They need the
+# The GUI's end-to-end journeys (tests/e2e, .10x/plans/PLAN-gui.md). They need the
 # `e2e` extra and a Chromium: `pip install -e ".[dev,gui,e2e]"` and
 # `python -m playwright install --with-deps chromium`, or point
 # PYAERMOD_E2E_CHROMIUM at a Chromium you already have. Screenshots of

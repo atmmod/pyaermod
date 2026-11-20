@@ -1,6 +1,6 @@
 """J2: the reference scenario with averaging periods 1 and ANNUAL.
 
-What the user must see (PLAN-gui.md): before the run, a warning that
+What the user must see (.10x/plans/PLAN-gui.md): before the run, a warning that
 ANNUAL needs a full year of met data. If the user runs anyway, the status
 reads "Failed", the message table lists E480 with its text, and Results
 does not present concentrations as valid.

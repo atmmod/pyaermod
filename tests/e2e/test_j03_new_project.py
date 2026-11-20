@@ -1,6 +1,6 @@
 """J3: fill in a project, click New, then edit the new project and save it.
 
-What the user must see (PLAN-gui.md): every step shows the blank project
+What the user must see (.10x/plans/PLAN-gui.md): every step shows the blank project
 (title, source table, receptor table, met paths and an empty Results
 step), the unsaved-changes marker clears, and edits made after New appear
 in the saved file.

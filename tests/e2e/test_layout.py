@@ -1,6 +1,6 @@
 """Every step fits the window, on a desktop (1280 x 900) and on a phone (390 x 844).
 
-PLAN-gui.md, WP-G3 acceptance: no control is cut off at either size. For
+.10x/plans/PLAN-gui.md, WP-G3 acceptance: no control is cut off at either size. For
 every step, with a source and a receptor grid entered, the page must not
 scroll sideways, and every button, input, check box and tab on it must lie
 within the window (a wide table may scroll inside its own frame). Each

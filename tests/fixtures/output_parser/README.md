@@ -18,7 +18,7 @@ AERMOD's summary tables. None of the output files is hand-edited.
 Every case directory holds the deck (`aermod.inp`), the `aermod.out`
 AERMOD wrote and its stdout (`stdout.txt`), and `ddep_only/` its plot files. Each run exited with code 0,
 finished with `*** AERMOD Finishes Successfully ***` and wrote nothing to
-stderr. The source is the "Albany stack" of `PLAN-gui.md` (100 g/s from a
+stderr. The source is the "Albany stack" of `.10x/plans/PLAN-gui.md` (100 g/s from a
 65 m stack at the origin); the met data are the Albany files of
 `../epa_official/` (1 to 4 March 1988) unless a case says otherwise.
 

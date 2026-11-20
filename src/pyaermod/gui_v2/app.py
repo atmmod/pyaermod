@@ -32,7 +32,7 @@ new tab id) the session is adopted only if no page built on it is still
 alive; otherwise the new tab gets a fork, an independent copy. A page
 counts as alive from when it is built until NiceGUI deletes its client,
 which is some seconds after its socket closes. The decision is recorded
-in PLAN-gui.md ("Reload decision").
+in .10x/plans/PLAN-gui.md ("Reload decision").
 
 NiceGUI frees a tab's storage ``app.storage.max_tab_storage_age`` (30
 days) after the storage itself last changed. The session changes in
