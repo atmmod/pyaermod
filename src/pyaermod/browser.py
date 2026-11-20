@@ -355,15 +355,8 @@ def _session(project: Any) -> Any:
 def _have_aermod() -> bool:
     if RUNNER_FACTORY is not None:
         return True
-    if wasm_runner.IS_EMSCRIPTEN:
-        try:
-            wasm_runner.find_wasm_aermod()
-        except FileNotFoundError:
-            return False
-        return True
     from .gui_v2.readiness import aermod_available
 
-    # The search AERMODRunner() makes (aermod, AERMOD, aermod.exe ...).
     return aermod_available()
 
 
@@ -446,37 +439,6 @@ def _outside(project: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _quote_blanks(project: Any) -> None:
-    """Quote every file name with a blank, so AERMOD reads it whole.
-
-    Input files through the reader's setters (which quote); output and
-    other file fields of the control and output pathways, one level of
-    lists deep, by name (``*file*``).
-    """
-    from .input_reader import _input_file_slots
-    from .pathways import quote_path, unquote_path
-
-    for ref, set_path in _input_file_slots(project):
-        name = unquote_path(ref.path)
-        if any(c.isspace() for c in name):
-            set_path(name)
-
-    def fix(obj: Any) -> None:
-        if not dataclasses.is_dataclass(obj):
-            return
-        for f in dataclasses.fields(obj):
-            value = getattr(obj, f.name)
-            if isinstance(value, str) and "file" in f.name and not value.startswith('"') \
-                    and any(c.isspace() for c in value.strip()):
-                setattr(obj, f.name, quote_path(value.strip()))
-            elif isinstance(value, list) and "file" in f.name:
-                for entry in value:
-                    fix(entry)
-
-    fix(project.control)
-    fix(project.output)
-
-
 def _merge(found: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     from .gui_v2.readiness import STEP_IDS
 
@@ -541,10 +503,9 @@ def _without_missing_met(project: Any, items: List[Dict[str, Any]]) -> List[Dict
 
 
 def _review(project: Any) -> Dict[str, Any]:
-    """The checklist of ``project``, after quoting its file names with blanks (in place)."""
+    """The checklist of ``project``."""
     from .gui_v2.readiness import review
 
-    _quote_blanks(project)
     session = _session(project)
     found = review(session, have_binary=_have_aermod())
     warnings, annual = _met_warnings(session, _items(found.warnings))
@@ -595,7 +556,6 @@ def deck(document: Any) -> Dict[str, Any]:
     from .gui_v2.session import DeckError
 
     project = _project(document)
-    _quote_blanks(project)
     try:
         return {"deck": _session(project).deck_text()}
     except DeckError as exc:

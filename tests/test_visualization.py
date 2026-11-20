@@ -115,6 +115,19 @@ class TestPlotContours:
         assert fig is not None
         plt.close(fig)
 
+    def test_default_title_is_the_run_title_not_a_job_name(self, sample_results):
+        """AERMOD prints no job name; a real .out leaves jobname "Unknown"."""
+        import matplotlib.pyplot as plt
+        sample_results.run_info.jobname = "Unknown"
+        sample_results.run_info.title = "Albany stack"
+        fig = AERMODVisualizer(sample_results).plot_contours(averaging_period="ANNUAL")
+        text = fig.axes[0].get_title()
+        assert "Albany stack" in text and "Unknown" not in text
+        sample_results.run_info.title = None
+        fig2 = AERMODVisualizer(sample_results).plot_contours(averaging_period="ANNUAL")
+        assert fig2.axes[0].get_title() == "ANNUAL Average Concentration"
+        plt.close("all")
+
     def test_plot_contours_custom_params(self, sample_results):
         import matplotlib.pyplot as plt
         viz = AERMODVisualizer(sample_results)

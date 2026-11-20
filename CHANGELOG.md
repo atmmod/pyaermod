@@ -191,6 +191,9 @@ reader parses now write with `validate=True`; 72 did not.
   keeps a circle's area.
 - `CartesianGrid.from_bounds` no longer loses a point to float
   truncation; `run_design` passes `build_fn` its own copy of the factors.
+- `AERMODVisualizer.plot_contours` titles a plot with the run's title.
+  It used a job name, which AERMOD never prints, so the second title
+  line of every real run read "Unknown".
 
 ### Removed
 
