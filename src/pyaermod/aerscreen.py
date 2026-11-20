@@ -62,13 +62,14 @@ notion of were renamed or dropped, and passing an old name raises a
 
 from __future__ import annotations
 
-import functools
 import math
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+from ._legacy import install_legacy_check
 
 # ---------------------------------------------------------------------------
 # Source types
@@ -180,20 +181,6 @@ _REMOVED_FIELDS: Dict[str, str] = {
         "keyword lines. There is nothing to append them to."
     ),
 }
-
-
-def _reject_legacy_kwargs(kwargs: Dict[str, Any]) -> None:
-    """Raise a TypeError naming the replacement for an old field name."""
-    for old, new in _RENAMED_FIELDS.items():
-        if old in kwargs:
-            raise TypeError(
-                f"AERSCREENConfig has no field {old!r}; it is now {new!r}. "
-                "The old fields described a KEY: value deck AERSCREEN never "
-                "read -- see the CHANGELOG upgrade notes."
-            )
-    for old, why in _REMOVED_FIELDS.items():
-        if old in kwargs:
-            raise TypeError(f"AERSCREENConfig has no field {old!r}. {why}")
 
 
 # ---------------------------------------------------------------------------
@@ -1277,19 +1264,11 @@ def _quoted_if_needed(name: str) -> str:
     return f'"{name}"' if " " in name else name
 
 
-# The dataclass generates __init__, so the legacy-name check has to wrap
-# it rather than live in __post_init__ (which never sees an unexpected
-# keyword -- __init__ has already raised by then).
-_generated_init = AERSCREENConfig.__init__
-
-
-@functools.wraps(_generated_init)
-def _init_with_legacy_check(self: AERSCREENConfig, *args: Any, **kwargs: Any) -> None:
-    _reject_legacy_kwargs(kwargs)
-    _generated_init(self, *args, **kwargs)
-
-
-AERSCREENConfig.__init__ = _init_with_legacy_check  # type: ignore[method-assign]
+install_legacy_check(
+    AERSCREENConfig, _RENAMED_FIELDS, _REMOVED_FIELDS,
+    "The old fields described a KEY: value deck AERSCREEN never "
+    "read -- see the CHANGELOG upgrade notes.",
+)
 
 
 # ---------------------------------------------------------------------------
