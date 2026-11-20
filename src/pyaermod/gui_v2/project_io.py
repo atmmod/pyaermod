@@ -161,6 +161,11 @@ def _types() -> _Types:
     return _TYPES
 
 
+def type_hints(cls: type) -> Dict[str, Any]:
+    """Resolved field types of dataclass ``cls`` (the forms read them too)."""
+    return _types().hints(cls)
+
+
 def _json_kind(value: Any) -> str:
     if value is None:
         return "null"

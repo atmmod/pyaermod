@@ -43,8 +43,9 @@ columns, depending on the width of the window.
 optionally in a union with ``None`` — never a container or tuple that
 merely mentions a float (``List[Tuple[float, float]]``,
 ``Optional[Tuple[DepositionMethod, float]]``). Annotations are resolved
-with :func:`typing.get_type_hints`; string annotations that cannot be
-resolved are parsed structurally instead.
+by :func:`pyaermod.gui_v2.project_io.type_hints`, which knows every name
+the model's dataclasses use. A field whose annotation cannot be resolved
+(a dataclass from elsewhere with a forward reference) is shown read-only.
 
 The "scalar *or* list of numerics" row exists for the building-downwash
 dimensions (``building_height``, ``building_width``, ``building_length``,
@@ -61,7 +62,6 @@ non-``None`` value, and an empty list would be rejected as "not 36 values".
 
 from __future__ import annotations
 
-import ast
 import dataclasses
 import enum
 import math
@@ -71,26 +71,30 @@ import typing
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 from .._fields import help_of, units_of
+from .project_io import type_hints
 
 _NUMERIC_TYPES = (int, float)   # bool is excluded on purpose (identity check)
-_UNION_WRAPPERS = ("Optional", "Union")
-_LIST_WRAPPERS = ("List", "list")
-# Leaf tag for ``List[int]`` / ``list[float]`` in the string-annotation
-# parser. Not a legal identifier, so it can never collide with a real name
-# and the numeric-only checks below reject it for free.
-_NUMERIC_LIST_LEAF = "<numeric-list>"
 
 
-def _numeric_info_type(tp: Any) -> Tuple[bool, bool]:
-    """Return ``(is_numeric, allows_none)`` for a resolved typing object."""
+def _args_without_none(tp: Any) -> Tuple[list, bool]:
+    """The members of a union other than None, and whether None was one.
+
+    Anything that is not a union is its own single member.
+    """
     origin = typing.get_origin(tp)
     if origin is Union or origin is types.UnionType:
-        args = typing.get_args(tp)
+        args = list(typing.get_args(tp))
         non_none = [a for a in args if a is not type(None)]
-        if not non_none or not all(a in _NUMERIC_TYPES for a in non_none):
-            return False, False
-        return True, len(non_none) < len(args)
-    return (tp in _NUMERIC_TYPES), False
+        return non_none, len(non_none) < len(args)
+    return [tp], False
+
+
+def _numeric_info(tp: Any) -> Tuple[bool, bool]:
+    """Return ``(is_numeric, allows_none)`` for a resolved typing object."""
+    non_none, allows_none = _args_without_none(tp)
+    if not non_none or not all(a in _NUMERIC_TYPES for a in non_none):
+        return False, False
+    return True, allows_none
 
 
 def _is_numeric_list_type(tp: Any) -> bool:
@@ -105,81 +109,11 @@ def _is_numeric_list_type(tp: Any) -> bool:
     return len(args) == 1 and args[0] in _NUMERIC_TYPES
 
 
-def _wrapper_name(node: ast.expr) -> Optional[str]:
-    """``Optional`` / ``Union`` whether written bare or as ``typing.X``."""
-    if isinstance(node, ast.Name) and node.id in _UNION_WRAPPERS:
-        return node.id
-    if isinstance(node, ast.Attribute) and node.attr in _UNION_WRAPPERS:
-        return node.attr
-    return None
-
-
-def _is_numeric_list_node(node: ast.expr) -> bool:
-    """Structural equivalent of :func:`_is_numeric_list_type`."""
-    if not isinstance(node, ast.Subscript):
-        return False
-    value = node.value
-    if isinstance(value, ast.Name):
-        name: Optional[str] = value.id
-    elif isinstance(value, ast.Attribute):
-        name = value.attr          # ``typing.List[float]``
-    else:
-        name = None
-    if name not in _LIST_WRAPPERS:
-        return False
-    return isinstance(node.slice, ast.Name) and node.slice.id in ("int", "float")
-
-
-def _leaf_names(node: ast.expr) -> list:
-    """Flatten ``Optional[...]`` / ``Union[...]`` / ``X | Y`` into leaf names."""
-    if isinstance(node, ast.Subscript) and _wrapper_name(node.value):
-        sl = node.slice
-        elts = list(sl.elts) if isinstance(sl, ast.Tuple) else [sl]
-        names: list = []
-        for e in elts:
-            names.extend(_leaf_names(e))
-        if _wrapper_name(node.value) == "Optional":
-            names.append("None")
-        return names
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        return _leaf_names(node.left) + _leaf_names(node.right)
-    if isinstance(node, ast.Name):
-        return [node.id]
-    if isinstance(node, ast.Constant) and node.value is None:
-        return ["None"]
-    if _is_numeric_list_node(node):
-        # Tagged rather than dropped so the scalar-or-list check below can
-        # see it; the numeric-only checks still reject the tag, because it
-        # is neither "int" nor "float".
-        return [_NUMERIC_LIST_LEAF]
-    return ["<non-numeric>"]   # containers, tuples, dotted names, ...
-
-
-def _numeric_info_str(annotation: str) -> Tuple[bool, bool]:
-    """Structural equivalent of :func:`_numeric_info_type` for string annotations."""
-    try:
-        node = ast.parse(annotation.strip(), mode="eval").body
-    except SyntaxError:
-        return False, False
-    names = _leaf_names(node)
-    non_none = [n for n in names if n != "None"]
-    if not non_none or any(n not in ("int", "float") for n in non_none):
-        return False, False
-    return True, "None" in names
-
-
-def _numeric_info(annotation: Any) -> Tuple[bool, bool]:
-    if isinstance(annotation, str):
-        return _numeric_info_str(annotation)
-    return _numeric_info_type(annotation)
-
-
 def is_numeric(annotation: Any) -> bool:
-    """True iff ``annotation`` resolves to ``int``/``float``, optionally with ``None``.
+    """True iff ``annotation`` is ``int``/``float``, optionally with ``None``.
 
-    Accepts a typing object (``float``, ``Optional[int]``) or the string
-    form used under ``from __future__ import annotations``. Containers
-    and tuples that merely contain a numeric type are *not* numeric.
+    Takes a typing object (``float``, ``Optional[int]``). Containers and
+    tuples that merely contain a numeric type are *not* numeric.
     """
     return _numeric_info(annotation)[0]
 
@@ -188,35 +122,6 @@ def is_optional_numeric(annotation: Any) -> bool:
     """True iff :func:`is_numeric` holds *and* the annotation admits ``None``."""
     is_num, allows_none = _numeric_info(annotation)
     return is_num and allows_none
-
-
-def _matches_scalar_or_list_type(tp: Any) -> bool:
-    """True for a resolved union admitting a numeric scalar *and* a numeric list."""
-    origin = typing.get_origin(tp)
-    if origin is not Union and origin is not types.UnionType:
-        return False     # a bare ``float`` or ``List[float]`` is not this shape
-    args = typing.get_args(tp)
-    non_none = [a for a in args if a is not type(None)]
-    if not all(a in _NUMERIC_TYPES or _is_numeric_list_type(a) for a in non_none):
-        return False
-    if not any(a in _NUMERIC_TYPES for a in non_none):
-        return False
-    return any(_is_numeric_list_type(a) for a in non_none)
-
-
-def _matches_scalar_or_list_str(annotation: str) -> bool:
-    """Structural equivalent of :func:`_matches_scalar_or_list_type`."""
-    try:
-        node = ast.parse(annotation.strip(), mode="eval").body
-    except SyntaxError:
-        return False
-    names = _leaf_names(node)
-    non_none = [n for n in names if n != "None"]
-    if not all(n in ("int", "float", _NUMERIC_LIST_LEAF) for n in non_none):
-        return False
-    if not any(n in ("int", "float") for n in non_none):
-        return False
-    return _NUMERIC_LIST_LEAF in non_none
 
 
 def is_numeric_or_numeric_list(annotation: Any) -> bool:
@@ -229,39 +134,30 @@ def is_numeric_or_numeric_list(annotation: Any) -> bool:
     number box) and from the ``List[...]`` branch of :func:`emit_field` (a
     plain ``List[float]`` stays a list editor).
 
-    Accepts a typing object or the string form, like :func:`is_numeric`.
+    Takes a typing object, like :func:`is_numeric`.
     """
-    if isinstance(annotation, str):
-        return _matches_scalar_or_list_str(annotation)
-    return _matches_scalar_or_list_type(annotation)
-
-
-_HINTS_CACHE: dict = {}
-
-
-def _type_hints(cls: type) -> dict:
-    """Resolved annotations for ``cls`` (empty if a forward ref cannot be resolved)."""
-    if cls not in _HINTS_CACHE:
-        try:
-            _HINTS_CACHE[cls] = typing.get_type_hints(cls)
-        except (NameError, AttributeError):
-            # An unresolvable forward reference, and only that. Real case in
-            # this codebase: ``pathways.ChemistryOptions.olm_groups`` is
-            # ``List[SourceGroupDefinition]`` and the name is imported only
-            # under ``if TYPE_CHECKING`` -> NameError. AttributeError is the
-            # dotted-name sibling (``mod.Missing``). ``TypeError`` is *not*
-            # caught: get_type_hints raises it for a non-class argument, and
-            # ``cls`` here is always ``type(obj)``, so it would mean a bug
-            # worth seeing rather than a field worth falling back on.
-            # Falling back to {} sends the caller to ``fmeta.type``, the raw
-            # string annotation, which the structural parsers above handle.
-            _HINTS_CACHE[cls] = {}
-    return _HINTS_CACHE[cls]
+    origin = typing.get_origin(annotation)
+    if origin is not Union and origin is not types.UnionType:
+        return False     # a bare ``float`` or ``List[float]`` is not this shape
+    non_none, _ = _args_without_none(annotation)
+    if not all(a in _NUMERIC_TYPES or _is_numeric_list_type(a) for a in non_none):
+        return False
+    if not any(a in _NUMERIC_TYPES for a in non_none):
+        return False
+    return any(_is_numeric_list_type(a) for a in non_none)
 
 
 def resolve_annotation(obj: Any, fmeta) -> Any:
-    """The resolved type of field ``fmeta`` on ``obj``, else its raw annotation."""
-    return _type_hints(type(obj)).get(fmeta.name, fmeta.type)
+    """The resolved type of field ``fmeta`` on ``obj``, else its raw annotation.
+
+    Every dataclass of a project resolves (:func:`project_io.type_hints`
+    knows ``SourceGroupDefinition``, which ``pathways.ChemistryOptions``
+    imports only under ``if TYPE_CHECKING``). The raw annotation, a string,
+    comes back only for a dataclass from elsewhere whose names cannot be
+    found; no classifier below matches a string, so such a field is
+    read-only.
+    """
+    return type_hints(type(obj)).get(fmeta.name, fmeta.type)
 
 
 # ---------------------------------------------------------------------
@@ -281,13 +177,7 @@ def _is_path_name(name: str) -> bool:
     return name.endswith("_file") or name in _PATH_NAMES
 
 
-def _args_without_none(tp: Any) -> Tuple[list, bool]:
-    origin = typing.get_origin(tp)
-    if origin is Union or origin is types.UnionType:
-        args = list(typing.get_args(tp))
-        non_none = [a for a in args if a is not type(None)]
-        return non_none, len(non_none) < len(args)
-    return [tp], False
+_NOT_A_LIST = object()
 
 
 def _list_item(tp: Any) -> Any:
@@ -299,44 +189,39 @@ def _list_item(tp: Any) -> Any:
     return _NOT_A_LIST
 
 
-_NOT_A_LIST = object()
-
-
-def _str_kind(type_str: str) -> Optional[str]:
-    """The kind of a field whose annotation could not be resolved."""
-    compact = type_str.replace(" ", "").replace("typing.", "")
-    if compact in ("str", "Optional[str]"):
-        return TEXT
-    if compact == "bool":
-        return BOOL
-    if compact in ("List[Tuple[float,float]]", "list[tuple[float,float]]"):
-        return VERTICES
-    if compact in ("List[str]", "list[str]", "Optional[List[str]]"):
-        return STR_LIST
-    if compact in ("List[float]", "list[float]", "Optional[List[float]]", "List[int]"):
-        return NUMBER_LIST
-    return None
-
-
 def _allows_none(annotation: Any) -> bool:
-    """Whether a field's annotation admits None (resolved or as a string)."""
-    if isinstance(annotation, str):
-        compact = annotation.replace(" ", "")
-        return compact.startswith(("Optional[", "typing.Optional[")) or "None" in compact
+    """Whether a field's annotation admits None."""
     return _args_without_none(annotation)[1]
 
 
 def is_integer(annotation: Any) -> bool:
-    """True for ``int`` / ``Optional[int]`` (resolved or as a string); False for floats."""
-    if isinstance(annotation, str):
-        try:
-            node = ast.parse(annotation.strip(), mode="eval").body
-        except SyntaxError:
-            return False
-        names = [n for n in _leaf_names(node) if n != "None"]
-        return bool(names) and all(n == "int" for n in names)
+    """True for ``int`` / ``Optional[int]``; False for floats."""
     non_none, _ = _args_without_none(annotation)
     return bool(non_none) and all(a is int for a in non_none)
+
+
+def annotation_kind(annotation: Any) -> str:
+    """The kind of a resolved annotation: :func:`field_kind` without the
+    field's name, so never :data:`PATH`."""
+    non_none, _ = _args_without_none(annotation)
+    item = _list_item(annotation)
+    if non_none == [str]:
+        return TEXT
+    if non_none == [bool]:
+        return BOOL
+    if item is not _NOT_A_LIST:
+        if item is str:
+            return STR_LIST
+        if item in _NUMERIC_TYPES:
+            return NUMBER_LIST
+        if typing.get_origin(item) is tuple and list(typing.get_args(item)) == [float, float]:
+            return VERTICES
+        return READ_ONLY
+    if is_numeric_or_numeric_list(annotation):
+        return SCALAR_OR_LIST
+    if is_numeric(annotation):
+        return INT if is_integer(annotation) else FLOAT
+    return READ_ONLY
 
 
 def field_kind(obj: Any, fmeta) -> str:
@@ -351,39 +236,7 @@ def field_kind(obj: Any, fmeta) -> str:
     of lists), enums and nested dataclasses, which have no editor yet and
     are shown, not edited.
     """
-    annotation = resolve_annotation(obj, fmeta)
-    if isinstance(annotation, str):
-        kind = _str_kind(annotation)
-        if kind is None:
-            if is_numeric_or_numeric_list(annotation):
-                kind = SCALAR_OR_LIST
-            elif is_numeric(annotation):
-                kind = INT if is_integer(annotation) else FLOAT
-            else:
-                kind = READ_ONLY
-    else:
-        non_none, _ = _args_without_none(annotation)
-        item = _list_item(annotation)
-        if non_none == [str]:
-            kind = TEXT
-        elif non_none == [bool]:
-            kind = BOOL
-        elif item is not _NOT_A_LIST:
-            if item is str:
-                kind = STR_LIST
-            elif item in _NUMERIC_TYPES:
-                kind = NUMBER_LIST
-            elif (typing.get_origin(item) is tuple
-                  and list(typing.get_args(item)) == [float, float]):
-                kind = VERTICES
-            else:
-                kind = READ_ONLY
-        elif is_numeric_or_numeric_list(annotation):
-            kind = SCALAR_OR_LIST
-        elif is_numeric(annotation):
-            kind = INT if is_integer(annotation) else FLOAT
-        else:
-            kind = READ_ONLY
+    kind = annotation_kind(resolve_annotation(obj, fmeta))
     if kind == TEXT and _is_path_name(fmeta.name):
         return PATH
     return kind
@@ -742,6 +595,7 @@ __all__ = [
     "STR_LIST",
     "TEXT",
     "VERTICES",
+    "annotation_kind",
     "emit_field",
     "emit_fields",
     "emit_form",
