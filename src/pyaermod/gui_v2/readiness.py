@@ -53,18 +53,12 @@ NO_BINARY = "No 'aermod' binary on PATH. Install AERMOD and re-launch."
 
 
 def aermod_available() -> bool:
-    """Whether a run would find AERMOD: the search ``AERMODRunner()`` makes.
-
-    The names ``aermod``, ``AERMOD``, ``aermod.exe`` and ``AERMOD.EXE`` on
-    ``PATH`` (EPA's own build is called ``AERMOD``), or AERMOD's
-    WebAssembly build under Pyodide.
-    """
-    from ..runner import AERMODRunner
+    """Whether a run would find AERMOD
+    (:func:`pyaermod.runner.find_aermod_executable`)."""
+    from ..runner import find_aermod_executable
 
     try:
-        # The runner's own search, without building a runner (which would
-        # set up its logging).
-        AERMODRunner._find_or_set_executable(object.__new__(AERMODRunner), None)
+        find_aermod_executable()
     except (FileNotFoundError, OSError):
         return False
     return True

@@ -258,7 +258,11 @@ class AERMODVisualizer:
         ax.set_ylabel('Y Coordinate (m)', fontsize=12)
 
         if title is None:
-            title = f'{averaging_period} Average Concentration\n{self.results.run_info.jobname}'
+            # The run's first title line: AERMOD prints no job name.
+            run_title = (getattr(self.results.run_info, 'title', None) or '').strip()
+            title = f'{averaging_period} Average Concentration'
+            if run_title:
+                title += f'\n{run_title}'
         ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
 
         # Grid
