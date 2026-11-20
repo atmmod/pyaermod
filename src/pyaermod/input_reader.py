@@ -419,14 +419,68 @@ def _drop(dropped: Optional[List[int]], lineno: int) -> None:
 # Pathway parsers
 # ---------------------------------------------------------------------------
 
-_CHEM_METHODS: Dict[str, ChemistryMethod] = {
-    "OLM": ChemistryMethod.OLM,
-    "PVMRM": ChemistryMethod.PVMRM,
-    "ARM2": ChemistryMethod.ARM2,
-    "GRSM": ChemistryMethod.GRSM,
-    "TTRM": ChemistryMethod.TTRM,
-    "TTRM2": ChemistryMethod.TTRM2,
+_CHEM_METHODS: Dict[str, ChemistryMethod] = {m.value: m for m in ChemistryMethod}
+
+#: MODELOPT tokens that switch one ControlPathway flag on.
+_MODELOPT_FLAGS = {
+    "CONC": "calculate_concentration",
+    "DEPOS": "calculate_deposition",
+    "DDEP": "calculate_dry_deposition",
+    "WDEP": "calculate_wet_deposition",
+    "DFAULT": "regulatory_default",
+    "ALPHA": "alpha",
+    "BETA": "beta",
+    "PSDCREDIT": "psd_credit",
 }
+_DEPLETION_TOKENS = {
+    "DRYDPLT": ("dry_depletion", True), "NODRYDPLT": ("dry_depletion", False),
+    "WETDPLT": ("wet_depletion", True), "NOWETDPLT": ("wet_depletion", False),
+}
+
+
+def _modelopt(tokens: Optional[List[str]]) -> Tuple[Dict[str, Any], Optional[ChemistryMethod]]:
+    """The ControlPathway arguments the deck's MODELOPT tokens give (None
+    for a deck with no MODELOPT card), and its NO2 chemistry method."""
+    flags: Dict[str, Any] = dict.fromkeys(_MODELOPT_FLAGS.values(), False)
+    flags.update(dry_depletion=None, wet_depletion=None, extra_model_options=[],
+                 terrain_type=TerrainType.FLAT)
+    chem_method: Optional[ChemistryMethod] = None
+    if tokens is None:
+        return flags, chem_method
+    upper = [tok.upper() for tok in tokens]
+    for up in upper:
+        depletion, value = _DEPLETION_TOKENS.get(up, ("", None))
+        if up in _MODELOPT_FLAGS:
+            flags[_MODELOPT_FLAGS[up]] = True
+        elif up in ("FLAT", "ELEV", "ELEVATED", "FLATSRCS"):
+            pass  # terrain, settled below
+        elif up in _CHEM_METHODS:
+            chem_method = _CHEM_METHODS[up]
+        elif depletion and flags[depletion] in (None, value):
+            flags[depletion] = value
+        else:
+            # A depletion token contradicting an earlier one
+            # (AERMOD's E149) lands here too, so it is kept.
+            # SCREEN, FASTALL, NOCHKD, ... have no field of
+            # their own; kept so the deck rewrites with the
+            # same options.
+            flags["extra_model_options"].append(up)
+
+    # coset.f MODOPT scans the whole line for each terrain token, so
+    # their order does not matter. It starts from ELEV and leaves it
+    # only for FLAT, so ``MODELOPT CONC`` runs with ELEV. Without
+    # DFAULT, FLAT gives flat terrain, and FLAT with ELEV, in either
+    # order, gives flat sources in elevated terrain (FLATSRCS). With
+    # DFAULT anywhere on the line, AERMOD overrides any FLAT (W206)
+    # and runs ELEV; the tokens are still read as given, so the
+    # rewrite keeps them, ControlPathway.elevated_terrain reports
+    # ELEV and the validator raises W206 as AERMOD does.
+    # FLATSRCS is pyaermod's own spelling (not an AERMOD token).
+    if not {"FLAT", "FLATSRCS"}.intersection(upper):
+        flags["terrain_type"] = TerrainType.ELEVATED
+    elif {"ELEV", "ELEVATED", "FLATSRCS"}.intersection(upper):
+        flags["terrain_type"] = TerrainType.FLATSRCS
+    return flags, chem_method
 
 
 _SECT_RE = re.compile(r"^SECT([1-6])$")
@@ -492,10 +546,6 @@ def _parse_control(block: _PathwayBlock,
     title_one = title_two = ""
     avertime: List[str] = []
     pollutant = "OTHER"
-    terrain = TerrainType.FLAT
-    reg_default = False
-    alpha = beta = psd_credit = False
-    calc_conc = calc_dep = calc_ddep = calc_wdep = False
     half_life: Optional[float] = None
     decay: Optional[float] = None
     flagpole: Optional[float] = None
@@ -503,9 +553,7 @@ def _parse_control(block: _PathwayBlock,
     urban_pop: Optional[float] = None
     urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
-    saw_flat = saw_elev = False
-    saw_modelopt = False
-    extra_opts: List[str] = []
+    modelopt: Optional[List[str]] = None  # the tokens of every MODELOPT card
     urban_lines: List[Tuple[int, List[str]]] = []
     run_model = True
     eventfil: Optional[str] = None
@@ -515,12 +563,9 @@ def _parse_control(block: _PathwayBlock,
     ord_downwash: List[str] = []
     aircraft_option = False
     airport_id: Optional[str] = None
-    dry_depletion: Optional[bool] = None
-    wet_depletion: Optional[bool] = None
     debug_options: List[str] = []
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
-    chem_method: Optional[ChemistryMethod] = None
     no2_ratio: Optional[float] = None
     o3_specs: Dict[Optional[int], BackgroundSpec] = {}
     o3_sectors: List[float] = []
@@ -550,47 +595,7 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "TITLETWO":
             title_two = " ".join(toks)
         elif kw == "MODELOPT":
-            saw_modelopt = True
-            for opt in toks:
-                up = opt.upper()
-                if up == "CONC":
-                    calc_conc = True
-                elif up == "DEPOS":
-                    calc_dep = True
-                elif up == "DDEP":
-                    calc_ddep = True
-                elif up == "WDEP":
-                    calc_wdep = True
-                elif up == "FLAT":
-                    # Terrain is settled after the loop: coset.f MODOPT
-                    # does not read the terrain tokens in line order.
-                    saw_flat = True
-                elif up in ("ELEV", "ELEVATED"):
-                    saw_elev = True
-                elif up == "FLATSRCS":
-                    # pyaermod's own spelling (not an AERMOD token).
-                    saw_flat = saw_elev = True
-                elif up == "DFAULT":
-                    reg_default = True
-                elif up in _CHEM_METHODS:
-                    chem_method = _CHEM_METHODS[up]
-                elif up == "ALPHA":
-                    alpha = True
-                elif up == "BETA":
-                    beta = True
-                elif up == "PSDCREDIT":
-                    psd_credit = True
-                elif up in ("DRYDPLT", "NODRYDPLT") and dry_depletion in (None, up == "DRYDPLT"):
-                    dry_depletion = up == "DRYDPLT"
-                elif up in ("WETDPLT", "NOWETDPLT") and wet_depletion in (None, up == "WETDPLT"):
-                    wet_depletion = up == "WETDPLT"
-                else:
-                    # A depletion token contradicting an earlier one
-                    # (AERMOD's E149) lands here too, so it is kept.
-                    # SCREEN, FASTALL, NOCHKD, ... have no field of
-                    # their own; kept so the deck rewrites with the
-                    # same options.
-                    extra_opts.append(up)
+            modelopt = (modelopt or []) + toks
         elif kw == "AVERTIME":
             avertime = [t.upper() for t in toks]
         elif kw == "POLLUTID":
@@ -768,6 +773,7 @@ def _parse_control(block: _PathwayBlock,
             units=nox_units, sectors=nox_sectors,
             by_sector={k: v for k, v in nox_specs.items() if k is not None},
         )
+    flags, chem_method = _modelopt(modelopt)
     if (chem_method is not None or no2_ratio is not None
             or ozone_data is not None or nox_background is not None):
         chemistry = ChemistryOptions(
@@ -782,32 +788,12 @@ def _parse_control(block: _PathwayBlock,
             nox_background=nox_background,
         )
 
-    if saw_modelopt:
-        # coset.f MODOPT scans the whole line for each terrain token, so
-        # their order does not matter. It starts from ELEV and leaves it
-        # only for FLAT, so ``MODELOPT CONC`` runs with ELEV. Without
-        # DFAULT, FLAT gives flat terrain, and FLAT with ELEV, in either
-        # order, gives flat sources in elevated terrain (FLATSRCS). With
-        # DFAULT anywhere on the line, AERMOD overrides any FLAT (W206)
-        # and runs ELEV; the tokens are still read as given, so the
-        # rewrite keeps them, ControlPathway.elevated_terrain reports
-        # ELEV and the validator raises W206 as AERMOD does.
-        if saw_flat:
-            terrain = TerrainType.FLATSRCS if saw_elev else TerrainType.FLAT
-        else:
-            terrain = TerrainType.ELEVATED
-
     return ControlPathway(
         title_one=title_one,
         title_two=title_two or None,
         pollutant_id=_coerce_pollutant(pollutant),
         averaging_periods=avertime or ["ANNUAL"],
-        terrain_type=terrain,
-        calculate_concentration=calc_conc,
-        calculate_deposition=calc_dep,
-        calculate_dry_deposition=calc_ddep,
-        calculate_wet_deposition=calc_wdep,
-        regulatory_default=reg_default,
+        **flags,
         half_life=half_life,
         decay_coefficient=decay,
         flag_pole_height=flagpole,
@@ -816,12 +802,6 @@ def _parse_control(block: _PathwayBlock,
         urban_roughness=urban_z0,
         urban_areas=urban_areas,
         low_wind_option=low_wind,
-        alpha=alpha,
-        beta=beta,
-        psd_credit=psd_credit,
-        dry_depletion=dry_depletion,
-        wet_depletion=wet_depletion,
-        extra_model_options=extra_opts,
         debug_options=debug_options,
         run_model=run_model,
         eventfil=eventfil,
