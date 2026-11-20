@@ -21,32 +21,11 @@ from typing import Any, Callable, List, Optional
 
 from ...input_generator import PollutantType, TerrainType
 from ...naaqs import naaqs_averaging_periods
-from ...validator import VALID_AVERAGING_PERIODS
 from .. import _native, files
 from .._layout import Goto, confirm, section, step_page
 from .._live import live
+from ..catalog import AVERAGING_PERIODS, OUTPUT_OPTIONS, TERRAIN_CHOICES
 from ..session import ProjectFileError, Session
-
-#: AERMOD's averaging periods, in the order AVERTIME lists them.
-AVERAGING_PERIODS: List[str] = sorted(
-    VALID_AVERAGING_PERIODS,
-    key=lambda p: (0, int(p)) if p.isdigit() else (1, ["MONTH", "PERIOD", "ANNUAL"].index(p)),
-)
-
-#: The terrain choices, as MODELOPT spells them.
-TERRAIN_CHOICES = {
-    TerrainType.FLAT.value: "Flat (FLAT)",
-    TerrainType.ELEVATED.value: "Elevated (ELEV)",
-    TerrainType.FLATSRCS.value: "Elevated, some sources flat (FLAT ELEV)",
-}
-
-#: What AERMOD computes (MODELOPT), as the check boxes read.
-OUTPUT_OPTIONS = (
-    ("calculate_concentration", "Concentration (CONC)"),
-    ("calculate_deposition", "Total deposition (DEPOS)"),
-    ("calculate_dry_deposition", "Dry deposition (DDEP)"),
-    ("calculate_wet_deposition", "Wet deposition (WDEP)"),
-)
 
 #: Beside the deposition check boxes, until a step edits deposition parameters.
 DEPOSITION_NOTE = ("Deposition also needs each source's deposition parameters, which the "

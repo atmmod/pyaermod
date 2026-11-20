@@ -8,7 +8,8 @@ AERMOD source types. The editor is generated from the source's dataclass
 cards need come first, the rest under "Advanced". Labels carry units and
 the inputs their help text, from the library's field metadata.
 
-New sources start from :data:`_DEFAULTS`, placeholder values that pass
+New sources start from :data:`~pyaermod.gui_v2.catalog.SOURCE_DEFAULTS`,
+placeholder values that pass
 ``__post_init__`` so the editor opens cleanly; the user overrides them
 before Save. The table shows one page of rows at a time
 (:class:`pyaermod.gui_v2._layout.Pager`).
@@ -18,116 +19,18 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional
 
 from ..._fields import units_of
-from ...input_generator import (
-    AreaCircSource,
-    AreaPolySource,
-    AreaSource,
-    BuoyLineSegment,
-    BuoyLineSource,
-    LineSource,
-    OpenPitSource,
-    PointCapSource,
-    PointHorSource,
-    PointSource,
-    RLineExtSource,
-    RLineSource,
-    SidewashPointSource,
-    VolumeSource,
-)
 from .._form import emit_fields
 from .._layout import Goto, Pager, editor_dialog, plan_view, section, step_page
 from .._live import live
+from ..catalog import ADVANCED_FIELDS
+from ..catalog import SOURCE_DEFAULTS as _DEFAULTS  # noqa: F401 - the tests read it here
+from ..catalog import SOURCE_TYPES as _SOURCE_TYPES
+from ..catalog import new_source as _new_source
 from ..readiness import item_findings
 from ..session import Session, SessionEvent
-
-# ---------------------------------------------------------------------
-# Source-type registry
-# ---------------------------------------------------------------------
-
-_SOURCE_TYPES: Dict[str, Type] = {
-    "PointSource":      PointSource,
-    "VolumeSource":     VolumeSource,
-    "AreaSource":       AreaSource,
-    "AreaCircSource":   AreaCircSource,
-    "AreaPolySource":   AreaPolySource,
-    "LineSource":       LineSource,
-    "RLineSource":      RLineSource,
-    "RLineExtSource":   RLineExtSource,
-    "BuoyLineSource":   BuoyLineSource,
-    "OpenPitSource":    OpenPitSource,
-    "PointCapSource":  PointCapSource,
-    "PointHorSource":  PointHorSource,
-    "SidewashPointSource": SidewashPointSource,
-}
-
-
-# Required-field placeholder values for new-source instantiation.
-# Each value should pass __post_init__ validation so the dialog can
-# open without errors; the user is expected to override before save.
-_DEFAULTS: Dict[str, Any] = {
-    "source_id":       "NEW_SRC",
-    "x_coord":         0.0,
-    "y_coord":         0.0,
-    "x_start":         0.0,
-    "y_start":         0.0,
-    "x_end":           100.0,
-    "y_end":           0.0,
-    "stack_height":    10.0,
-    "release_height":  2.0,
-    "stack_temp":      400.0,
-    "exit_velocity":   10.0,
-    "stack_diameter":  1.0,
-    "emission_rate":   1.0,
-    "x_length":        100.0,
-    "y_length":        100.0,
-    "radius":          50.0,
-    "vertices":        [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
-    "initial_lateral_dimension":  10.0,
-    "initial_vertical_dimension": 5.0,
-    "init_sigma_y":               5.0,
-    "init_sigma_z":               2.0,
-    "pit_volume":                 1000.0,
-    "pit_height":                 10.0,
-    "depth":                      2.0,
-    "width_top":                  20.0,
-    "width_bottom":               10.0,
-    "line_segments":              [
-        BuoyLineSegment(
-            source_id="BL_SEG1",
-            x_start=0.0, y_start=0.0, x_end=100.0, y_end=0.0,
-            emission_rate=1.0, release_height=2.0,
-        ),
-    ],
-    # RLineExtSource z coords (per-endpoint elevations)
-    "z_start":  0.0,
-    "z_end":    0.0,
-    # BuoyLineSource per-line meteorological parameters
-    "avg_line_length":           100.0,
-    "avg_line_width":             10.0,
-    "avg_buoyancy_parameter":      5.0,
-    "avg_building_height":         5.0,
-    "avg_building_width":         10.0,
-    "avg_building_separation":    10.0,
-}
-
-
-def _new_source(type_name: str) -> Any:
-    """Construct a default instance of ``type_name`` for editing.
-
-    Pulls from ``_DEFAULTS`` for every field listed there, even if the
-    underlying dataclass has its own default — the GUI's defaults are
-    intentionally sensible (10 m stack, 1 g/s emission) where the
-    dataclass defaults to 0.
-    """
-    cls = _SOURCE_TYPES[type_name]
-    kwargs = {}
-    for f in dataclasses.fields(cls):
-        if f.name in _DEFAULTS:
-            kwargs[f.name] = _DEFAULTS[f.name]
-    return cls(**kwargs)
 
 
 def _summary_row(src: Any) -> Dict[str, Any]:
@@ -157,24 +60,6 @@ def _summary_row(src: Any) -> Dict[str, Any]:
 # ---------------------------------------------------------------------
 # Page render
 # ---------------------------------------------------------------------
-
-#: Fields the editor puts under "Advanced": everything AERMOD does not need
-#: on the LOCATION and SRCPARAM cards. Shared with the Receptors step.
-ADVANCED_FIELDS = frozenset({
-    "base_elevation", "flat_source",
-    "building_height", "building_width", "building_length",
-    "building_x_offset", "building_y_offset",
-    "source_groups", "is_urban", "urban_area_name", "no2_ratio",
-    "gas_deposition", "particle_deposition", "deposition_method", "method_2",
-    "platform", "street_canyon", "vegetative_barriers",
-    "barrier_height_1", "barrier_dcl_1", "barrier_height_2", "barrier_dcl_2",
-    "depression_depth", "depression_wtop", "depression_wbottom", "num_vertices",
-    "depth_hint",
-    # receptors
-    "z_elev", "z_hill", "z_flag", "grid_elevations", "grid_hills", "grid_flags",
-    "x_points", "y_points", "distances", "directions", "origin_source_id",
-    "elevations", "hills", "flags",
-})
 
 _COLUMNS = [
     {"name": "id", "label": "ID", "field": "id", "align": "left"},

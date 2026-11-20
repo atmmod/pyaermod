@@ -186,14 +186,13 @@ def load(text: str) -> Dict[str, Any]:
 
 def new_item(type_name: str) -> Dict[str, Any]:
     """A new source or receptor of ``type_name`` with the pip GUI's starting values."""
-    from .gui_v2.pages.receptors import _RECEPTOR_TYPES, _new_receptor
-    from .gui_v2.pages.sources import _SOURCE_TYPES, _new_source
+    from .gui_v2.catalog import RECEPTOR_TYPES, SOURCE_TYPES, new_receptor, new_source
     from .gui_v2.project_io import _encode
 
-    if type_name in _SOURCE_TYPES:
-        return {"item": _encode(_new_source(type_name))}
-    if type_name in _RECEPTOR_TYPES:
-        return {"item": _encode(_new_receptor(type_name))}
+    if type_name in SOURCE_TYPES:
+        return {"item": _encode(new_source(type_name))}
+    if type_name in RECEPTOR_TYPES:
+        return {"item": _encode(new_receptor(type_name))}
     raise BrowserError(f"unknown source or receptor type {type_name!r}")
 
 
@@ -203,7 +202,7 @@ def new_item(type_name: str) -> Dict[str, Any]:
 
 #: Fields offered as a set of choices rather than free text.
 def _choice_overrides() -> Dict[Tuple[str, str], List[str]]:
-    from .gui_v2.pages.project import AVERAGING_PERIODS
+    from .gui_v2.catalog import AVERAGING_PERIODS
 
     return {("ControlPathway", "averaging_periods"): list(AVERAGING_PERIODS)}
 
@@ -289,22 +288,20 @@ def class_schema(cls: type) -> Dict[str, Any]:
 
 def schema() -> Dict[str, Any]:
     """Everything the shell needs to draw its forms, with no project."""
-    from .gui_v2.pages import meteorology, output
-    from .gui_v2.pages.project import OUTPUT_OPTIONS, TERRAIN_CHOICES
-    from .gui_v2.pages.receptors import _RECEPTOR_TYPES
-    from .gui_v2.pages.sources import _SOURCE_TYPES
+    from .gui_v2 import catalog
+    from .gui_v2.catalog import OUTPUT_OPTIONS, RECEPTOR_TYPES, SOURCE_TYPES, TERRAIN_CHOICES
     from .gui_v2.steps import STEPS
     from .input_generator import ControlPathway, MeteorologyPathway, OutputPathway
 
     classes = {cls.__name__: class_schema(cls) for cls in (
-        *_SOURCE_TYPES.values(), *_RECEPTOR_TYPES.values(),
+        *SOURCE_TYPES.values(), *RECEPTOR_TYPES.values(),
         ControlPathway, MeteorologyPathway, OutputPathway)}
     return {
         "version": __version__,
         "banner": BANNER,
         "steps": [{"id": s.id, "label": s.label} for s in STEPS],
-        "sources": list(_SOURCE_TYPES),
-        "receptors": list(_RECEPTOR_TYPES),
+        "sources": list(SOURCE_TYPES),
+        "receptors": list(RECEPTOR_TYPES),
         "classes": classes,
         "groups": {
             "project": [
@@ -315,13 +312,13 @@ def schema() -> Dict[str, Any]:
                  "fields": ["terrain_type", *[name for name, _ in OUTPUT_OPTIONS]]},
             ],
             "meteorology": [{"title": t, "intro": i, "fields": list(f)}
-                            for t, i, f in meteorology.GROUPS],
+                            for t, i, f in catalog.MET_GROUPS],
             "output": [
-                {"title": "Tables", "fields": list(output.TABLE_FIELDS)},
-                {"title": "Files", "fields": list(output.FILE_FIELDS)},
-                {"title": "Files for the Results step", "fields": list(output.RESULTS_FIELDS)},
+                {"title": "Tables", "fields": list(catalog.TABLE_FIELDS)},
+                {"title": "Files", "fields": list(catalog.FILE_FIELDS)},
+                {"title": "Files for the Results step", "fields": list(catalog.RESULTS_FIELDS)},
             ],
-            "hidden": {"OutputPathway": list(output.HIDDEN_FIELDS)},
+            "hidden": {"OutputPathway": list(catalog.HIDDEN_FIELDS)},
         },
         "terrain_labels": dict(TERRAIN_CHOICES),
         "limits": {"max_table_rows": MAX_TABLE_ROWS, "max_maps": MAX_MAPS},
@@ -713,8 +710,7 @@ def run(document: Any, number: int = 1) -> Dict[str, Any]:
     number on the page ("Run 3 succeeded"): each call is a new session,
     and the page counts its runs.
     """
-    from .gui_v2.pages.run import message_counts_text, run_status_text
-    from .gui_v2.run_results import view_of
+    from .gui_v2.run_results import message_counts_text, run_status_text, view_of
 
     project = _project(document)
     found = _review(project)
@@ -759,7 +755,7 @@ def _cell(value: Any) -> Any:
 
 
 def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
-    from .gui_v2.pages.results import _UNITS
+    from .gui_v2.catalog import UNITS
     from .gui_v2.run_results import period_label, table_qualifier
 
     rows = []
@@ -770,7 +766,7 @@ def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
             "qualifier": table_qualifier(table.title),
             "value": str(top.get("value_text") or table.max_value),
             "flag": top.get("flag") or "",
-            "units": _UNITS.get(table.units, table.units),
+            "units": UNITS.get(table.units, table.units),
             "x": _cell(table.max_location[0]),
             "y": _cell(table.max_location[1]),
             "group": top.get("group") or "",
@@ -782,7 +778,7 @@ def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
 
 
 def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
-    from .gui_v2.pages.results import _UNITS
+    from .gui_v2.catalog import UNITS
     from .gui_v2.run_results import OUTPUT_TYPES, period_label
 
     out = []
@@ -791,7 +787,7 @@ def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
         kind = OUTPUT_TYPES.get(table.output_type, table.output_type)
         out.append({
             "name": f"{kind}, {period_label(table.averaging_period)}: {table.title or ''}",
-            "units": _UNITS.get(table.units, table.units),
+            "units": UNITS.get(table.units, table.units),
             "total_rows": len(records),
             "rows": [{
                 "group": r.get("group") or "",
@@ -808,7 +804,7 @@ def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
 
 
 def _results(view: Any) -> Dict[str, Any]:
-    from .gui_v2.pages.results import _UNITS
+    from .gui_v2.catalog import UNITS
     from .gui_v2.results_map import concentration_map_png
     from .gui_v2.run_results import naaqs_caption
 
@@ -837,7 +833,7 @@ def _results(view: Any) -> Dict[str, Any]:
                     for s in view.results.sources)
     for plot in view.plots[:MAX_MAPS]:
         units = view.plot_units(plot)
-        units = _UNITS.get(units, units) if units else (
+        units = UNITS.get(units, units) if units else (
             "µg/m³" if plot.output_type == "CONC" else "AERMOD's deposition units")
         try:
             png = concentration_map_png(plot, units=units, sources=sources)

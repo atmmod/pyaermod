@@ -16,57 +16,16 @@ the browser one page of rows, not ten thousand.
 from __future__ import annotations
 
 import copy
-import dataclasses
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from ...input_generator import (
-    CartesianGrid,
-    DiscreteReceptor,
-    PolarGrid,
-    ReceptorPathway,
-)
+from ...input_generator import ReceptorPathway
 from .._layout import Goto, Pager, editor_dialog, plan_view, section, step_page
 from .._live import live
+from ..catalog import RECEPTOR_DEFAULTS as _DEFAULTS  # noqa: F401 - the tests read it here
+from ..catalog import RECEPTOR_TYPES as _RECEPTOR_TYPES
+from ..catalog import new_receptor as _new_receptor
 from ..readiness import item_findings
 from ..session import Session, SessionEvent
-
-_RECEPTOR_TYPES: Dict[str, Type] = {
-    "CartesianGrid":     CartesianGrid,
-    "PolarGrid":         PolarGrid,
-    "DiscreteReceptor":  DiscreteReceptor,
-}
-
-
-# Sensible defaults for new receptors. Only required fields (no
-# default / default_factory) need entries; the rest fall back to the
-# dataclass's own defaults.
-_DEFAULTS: Dict[str, Any] = {
-    "grid_name":   "GRID1",
-    "x_origin":    0.0,
-    "y_origin":    0.0,
-    "x_init":      -1000.0,
-    "y_init":      -1000.0,
-    "x_num":       21,
-    "y_num":       21,
-    "x_delta":     100.0,
-    "y_delta":     100.0,
-    "dist_init":   100.0,
-    "dist_num":    10,
-    "dist_delta":  100.0,
-    "dir_init":    0.0,
-    "dir_num":     36,
-    "dir_delta":   10.0,
-    "x_coord":     0.0,
-    "y_coord":     0.0,
-}
-
-
-def _new_receptor(type_name: str) -> Any:
-    """Construct a default-filled receptor of ``type_name``."""
-    cls = _RECEPTOR_TYPES[type_name]
-    kwargs = {f.name: _DEFAULTS[f.name]
-              for f in dataclasses.fields(cls) if f.name in _DEFAULTS}
-    return cls(**kwargs)
 
 
 def _receptor_lists(rp: ReceptorPathway):

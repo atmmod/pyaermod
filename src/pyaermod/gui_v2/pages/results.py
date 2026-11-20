@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .._live import is_deleted, live
+from ..catalog import UNITS as _UNITS
 from ..run_results import (
     FLAG_MEANINGS,
     OUTPUT_TYPES,
@@ -75,8 +76,6 @@ COULD_NOT_READ = "Could not read the results of run {number}: {error}"
 CHANGED_SINCE = ("The project has changed since run {number} started. These results are "
                  "for the project as it was then; run AERMOD again for results of the "
                  "project as it is now.")
-
-_UNITS = {"ug/m^3": "µg/m³", "g/m^2": "g/m²", "g/m^2/yr": "g/m²/yr"}
 
 
 def _no_goto(step: str) -> None:
