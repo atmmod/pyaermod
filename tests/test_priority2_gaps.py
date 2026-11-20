@@ -468,76 +468,80 @@ class TestValidateInputErrorReading:
 
 
 # ============================================================================
-# Output parser: source parsing with synthetic data (lines 252-257)
+# Output parser: source parsing
 # ============================================================================
+
+# Source tables as AERMOD v26135 printed them
+# (tests/fixtures/runner/killed_sigterm/aermod.out).
+_POINT_SOURCE_DATA = """\
+                                                  *** POINT SOURCE DATA ***
+
+               NUMBER EMISSION RATE                    BASE     STACK   STACK    STACK     STACK    BLDG   URBAN  CAP/  EMIS RATE
+   SOURCE       PART.  (GRAMS/SEC)     X        Y      ELEV.    HEIGHT  TEMP.   EXIT VEL. DIAMETER  EXISTS SOURCE HOR   SCALAR
+     ID         CATS.               (METERS) (METERS) (METERS) (METERS) (DEG.K)  (M/SEC)  (METERS)                      VARY BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ STACK1           0   0.10000E+03       0.0       0.0     0.0    65.00   425.00    18.00     3.00    NO      NO    NO
+"""
+
+_AREA_SOURCE_DATA = """\
+                                                  *** AREA SOURCE DATA ***
+
+               NUMBER EMISSION RATE  COORD (SW CORNER)  BASE     RELEASE  X-DIM     Y-DIM    ORIENT.    INIT.   URBAN  EMISSION RATE  AIRCRAFT
+   SOURCE       PART.  (GRAMS/SEC       X        Y      ELEV.    HEIGHT  OF AREA   OF AREA   OF AREA     SZ     SOURCE  SCALAR VARY
+     ID         CATS.   /METER**2)   (METERS) (METERS) (METERS) (METERS) (METERS)  (METERS)   (DEG.)  (METERS)              BY
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ AREA1            0   0.10000E-03    -250.0    -250.0     0.0     2.00    500.00    500.00      0.00     0.00     NO                     NO
+"""
 
 
 class TestOutputParserSources:
-    """Test _parse_sources with synthetic *** SOURCE LOCATIONS *** section."""
+    """Test _parse_sources with AERMOD's source tables."""
 
     def test_point_source_full_parsing(self, tmp_path):
-        content = """\
-*** MODEL SETUP OPTIONS ***
-
-   AERMOD Version: 24142
-
-*** SOURCE LOCATIONS ***
-
-   SOURCE    TYPE       X          Y          ELEV     HEIGHT    TEMP      VELOC     DIAM      EMISS
-   ------    ----    --------   --------     ------    ------    ------    ------    ------    ------
-   STACK1    POINT   500000.0   3800000.0     100.0      50.0     400.0      15.0       2.0      1.5
-
-*** END OF SOURCE LOCATIONS ***
-"""
         out_file = tmp_path / "test.out"
-        out_file.write_text(content)
+        out_file.write_text(_POINT_SOURCE_DATA)
         parser = AERMODOutputParser(str(out_file))
         results = parser.parse()
         assert len(results.sources) == 1
         src = results.sources[0]
         assert src.source_id == "STACK1"
         assert src.source_type == "POINT"
-        assert src.x_coord == 500000.0
-        assert src.stack_height == 50.0
-        assert src.emission_rate == 1.5
+        assert src.x_coord == 0.0
+        assert src.stack_height == 65.0
+        assert src.emission_rate == 100.0
 
     def test_non_point_source_basic_parsing(self, tmp_path):
-        content = """\
-*** SOURCE LOCATIONS ***
-
-   SOURCE    TYPE       X          Y          ELEV
-   ------    ----    --------   --------     ------
-   AREA1     AREA    500000.0   3800000.0     100.0
-
-*** END ***
-"""
         out_file = tmp_path / "test.out"
-        out_file.write_text(content)
+        out_file.write_text(_AREA_SOURCE_DATA)
         parser = AERMODOutputParser(str(out_file))
         results = parser.parse()
         assert len(results.sources) == 1
         assert results.sources[0].source_type == "AREA"
+        assert results.sources[0].x_coord == -250.0
         assert results.sources[0].stack_height is None
 
 
 # ============================================================================
-# Output parser: receptor parsing (lines 284, 303-304)
+# Output parser: receptor parsing
 # ============================================================================
+
+_RECEPTOR_HEADING = """\
+                                             *** DISCRETE CARTESIAN RECEPTORS ***
+                                           (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                           (METERS)
+
+"""
 
 
 class TestOutputParserReceptors:
-    """Test _parse_receptors with synthetic *** RECEPTOR LOCATIONS *** section."""
+    """Test _parse_receptors with AERMOD's discrete receptor echo."""
 
     def test_receptor_parsing(self, tmp_path):
-        content = """\
-*** RECEPTOR LOCATIONS ***
-
-   X-COORD       Y-COORD       ZELEV    ZHILL    ZFLAG
-   500000.00     3800000.00    100.00   110.00     0.00
-   500100.00     3800100.00    105.00   115.00     1.50
-
-*** END ***
-"""
+        content = _RECEPTOR_HEADING + (
+            "     ( 500000.0, 3800000.0,     100.0,     110.0,       0.0);"
+            "         ( 500100.0, 3800100.0,     105.0,     115.0,       1.5);\n")
         out_file = tmp_path / "test.out"
         out_file.write_text(content)
         parser = AERMODOutputParser(str(out_file))
@@ -547,17 +551,11 @@ class TestOutputParserReceptors:
         assert results.receptors[1].z_flag == 1.5
 
     def test_receptor_malformed_line_skipped(self, tmp_path):
-        """Malformed receptor lines should be skipped gracefully."""
-        content = """\
-*** RECEPTOR LOCATIONS ***
-
-   RECEPTOR       X-COORD       Y-COORD
-   500000.00     3800000.00
-   NOT_A_NUMBER  BAD_DATA
-   500100.00     3800100.00
-
-*** END ***
-"""
+        """Malformed receptor entries should be skipped gracefully."""
+        content = _RECEPTOR_HEADING + (
+            "     ( 500000.0, 3800000.0,     100.0,     110.0,       0.0);\n"
+            "     ( NOT_A_NUMBER, BAD_DATA,     100.0,     110.0,       0.0);\n"
+            "     ( 500100.0, 3800100.0,     105.0,     115.0,       0.0);\n")
         out_file = tmp_path / "test.out"
         out_file.write_text(content)
         parser = AERMODOutputParser(str(out_file))
@@ -566,19 +564,17 @@ class TestOutputParserReceptors:
 
 
 # ============================================================================
-# Output parser: model options and terrain type (lines 160-164, 186, 188)
+# Output parser: model options and terrain type
 # ============================================================================
 
 
 class TestOutputParserModelOptions:
-    """Test _parse_run_info model options parsing and terrain type detection."""
+    """Test model options parsing and terrain type detection, from the
+    MODELOPTs line of AERMOD's page banner."""
 
     def test_model_options_parsed(self, tmp_path):
         content = (
-            "**  Model Setup Options Selected  **\n"
-            "   CONC -- Calculate Concentration Values\n"
-            "   FLAT -- Use Flat Terrain\n"
-            "   DFAULT -- Use Default Options\n"
+            " *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW\n"
             "\n"
             "Other content\n"
         )
@@ -592,8 +588,7 @@ class TestOutputParserModelOptions:
 
     def test_terrain_type_flat(self, tmp_path):
         content = (
-            "**  Model Setup Options Selected  **\n"
-            "   FLAT -- Use Flat Terrain\n"
+            " *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW\n"
             "\n"
             "Other content\n"
         )
@@ -605,8 +600,7 @@ class TestOutputParserModelOptions:
 
     def test_terrain_type_elevated(self, tmp_path):
         content = (
-            "**  Model Setup Options Selected  **\n"
-            "   ELEVATED -- Use Elevated Terrain\n"
+            " *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW\n"
             "\n"
             "Other content\n"
         )
@@ -618,24 +612,30 @@ class TestOutputParserModelOptions:
 
 
 # ============================================================================
-# Output parser: concentration results with rank field (lines 388-389)
+# Output parser: concentration results with rank field
 # ============================================================================
 
 
 class TestOutputParserRank:
-    """Test concentration parsing when rank field is present."""
+    """Test concentration parsing: each summary row carries its rank."""
 
     def test_concentration_with_rank(self, tmp_path):
+        # tests/fixtures/output_parser/full_year/aermod.out
         content = """\
-*** ANNUAL RESULTS ***
+                                  *** THE SUMMARY OF MAXIMUM ANNUAL RESULTS AVERAGED OVER   1 YEARS ***
 
-            ** MAXIMUM ANNUAL CONCENTRATION VALUES **
 
-     X          Y         CONC      RANK
-   500000.00  3800000.00   50.500    1
-   500100.00  3800100.00   30.200    2
+                                    ** CONC OF SO2      IN MICROGRAMS/M**3                          **
 
-*** END ***
+                                                                                                             NETWORK
+GROUP ID                       AVERAGE CONC                RECEPTOR  (XR, YR, ZELEV, ZHILL, ZFLAG)  OF TYPE  GRID-ID
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ALL       1ST HIGHEST VALUE IS       5.42148 AT (     519.62,     -300.00,     0.00,     0.00,    0.00)  GP  GRID1
+          2ND HIGHEST VALUE IS       4.96958 AT (     563.82,     -205.21,     0.00,     0.00,    0.00)  GP  GRID1
+
+
+ *** RECEPTOR TYPES:  GC = GRIDCART
 """
         out_file = tmp_path / "test.out"
         out_file.write_text(content)
@@ -646,6 +646,7 @@ class TestOutputParserRank:
         assert len(df) == 2
         assert "rank" in df.columns
         assert df.iloc[0]["rank"] == 1
+        assert df.iloc[1]["rank"] == 2
 
 
 # ============================================================================

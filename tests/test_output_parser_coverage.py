@@ -3,16 +3,16 @@ Additional coverage tests for output_parser.py.
 
 Targets paths not exercised by test_output_parser.py:
   - AERTEST.SUM (real EPA SUM file) end-to-end parsing
-  - pyaermod format POINT source with full stack parameters (lines 261-265)
-  - pyaermod receptor format with elevation columns (lines 402-405)
-  - Terrain-type detection from model_options (lines 185-188)
-  - num_sources / num_receptors update after parsing (lines 236, 382-384)
-  - Additional averaging periods: 3HR, 8HR, 2HR, 12HR, MONTH
+  - POINT source with full stack parameters, AREA source without
+  - Discrete receptors with elevation columns
+  - Terrain-type detection from model_options
+  - num_sources / num_receptors update after parsing
+  - Additional averaging periods: 3HR, 8HR, 2HR, 12HR, 4HR, 6HR
   - export_to_csv with no sources / no receptors
   - get_concentration_at_point when averaging period is absent
   - get_sources_dataframe with sources that have no optional params
   - summary() without run_date field
-  - Rank column parsing in tabular results (including suppressed ValueError)
+  - Rank column of the summary tables
 """
 
 from pathlib import Path
@@ -31,7 +31,17 @@ from pyaermod.output_parser import (
 )
 
 # Real EPA AERTEST summary fixture (vendored at tests/fixtures/epa_official/)
-AERTEST_SUM = Path(__file__).parent / "fixtures" / "epa_official" / "AERTEST.SUM"
+FIXTURES = Path(__file__).parent / "fixtures"
+AERTEST_SUM = FIXTURES / "epa_official" / "AERTEST.SUM"
+# Recorded AERMOD v26135 runs (see the README.md beside each):
+# one POINT source (STACK1) and one AREA source (AREA1)
+POINT_AND_AREA = FIXTURES / "runner" / "killed_sigterm" / "aermod.out"
+# four POINT sources (AERO1, AERO265, STOKES, NAIVE)
+FOUR_POINTS = FIXTURES / "psd" / "aermod.out"
+# AVERTIME 1 ANNUAL, SO2, ELEV terrain, one POINT source, 72 polar-grid receptors
+FULL_YEAR = FIXTURES / "output_parser" / "full_year" / "aermod.out"
+# MODELOPT CONC DDEP FLAT
+FLAT_RUN = FIXTURES / "output_parser" / "conc_ddep" / "aermod.out"
 
 
 # ============================================================================
@@ -135,133 +145,111 @@ class TestAERTESTSUM:
 
 
 # ============================================================================
-# pyaermod POINT source with full stack parameters (lines 261-265)
+# POINT source with full stack parameters
 # ============================================================================
 
-POINT_WITH_STACK_PARAMS = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: STACK_PARAMS
-
-*** SOURCE LOCATIONS ***
-
-   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV  HGT   TEMP    VELOC   DIAM   EMISS
-   STK1     POINT      100.00       200.00       5.00      75.0  400.0   15.0    2.5    1.25
-   STK2     POINT      300.00       400.00       8.00      50.0  350.0   10.0    1.8    0.80
-   AREA1    AREA       500.00       600.00       0.00
-
-*** RECEPTOR LOCATIONS ***
-
-   X-COORD      Y-COORD    ZELEV    ZHILL    ZFLAG
-   100.00       200.00     50.0     55.0     0.0
-   300.00       400.00     80.0     90.0     1.5
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    8.500
-   300.00    400.00    4.200
-"""
+# STACK1   0   0.10000E+03   0.0   0.0   0.0   65.00   425.00   18.00   3.00  NO NO NO
+# AREA1    0   0.10000E-03   -250.0   -250.0   0.0   2.00   500.00   500.00   0.00   0.00  NO  NO
 
 
-class TestPyaermodPointSourceStackParams:
-    """POINT source rows with 10 columns trigger the stack-param branch."""
+class TestPointSourceStackParams:
+    """POINT source rows carry the stack parameters; other types do not."""
 
-    def test_stack_height_parsed(self, tmp_path):
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_stack_height_parsed(self):
+        results = parse_aermod_output(str(POINT_AND_AREA))
 
-        stk1 = next(s for s in results.sources if s.source_id == "STK1")
-        assert stk1.stack_height == pytest.approx(75.0)
+        stk1 = next(s for s in results.sources if s.source_id == "STACK1")
+        assert stk1.stack_height == pytest.approx(65.0)
 
-    def test_stack_temp_parsed(self, tmp_path):
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_stack_temp_parsed(self):
+        results = parse_aermod_output(str(POINT_AND_AREA))
 
-        stk1 = next(s for s in results.sources if s.source_id == "STK1")
-        assert stk1.stack_temp == pytest.approx(400.0)
+        stk1 = next(s for s in results.sources if s.source_id == "STACK1")
+        assert stk1.stack_temp == pytest.approx(425.0)
 
-    def test_exit_velocity_parsed(self, tmp_path):
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_exit_velocity_parsed(self):
+        results = parse_aermod_output(str(POINT_AND_AREA))
 
-        stk1 = next(s for s in results.sources if s.source_id == "STK1")
-        assert stk1.exit_velocity == pytest.approx(15.0)
+        stk1 = next(s for s in results.sources if s.source_id == "STACK1")
+        assert stk1.exit_velocity == pytest.approx(18.0)
 
-    def test_stack_diameter_parsed(self, tmp_path):
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_stack_diameter_parsed(self):
+        results = parse_aermod_output(str(POINT_AND_AREA))
 
-        stk1 = next(s for s in results.sources if s.source_id == "STK1")
-        assert stk1.stack_diameter == pytest.approx(2.5)
+        stk1 = next(s for s in results.sources if s.source_id == "STACK1")
+        assert stk1.stack_diameter == pytest.approx(3.0)
 
-    def test_emission_rate_parsed(self, tmp_path):
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_emission_rate_parsed(self):
+        results = parse_aermod_output(str(POINT_AND_AREA))
 
-        stk1 = next(s for s in results.sources if s.source_id == "STK1")
-        assert stk1.emission_rate == pytest.approx(1.25)
+        stk1 = next(s for s in results.sources if s.source_id == "STACK1")
+        assert stk1.emission_rate == pytest.approx(100.0)
 
-    def test_second_point_source_params(self, tmp_path):
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_second_point_source_params(self):
+        # AERO265  16  0.10000E+01  0.0  0.0  0.0  10.00  300.00  1.00  1.00
+        results = parse_aermod_output(str(FOUR_POINTS))
 
-        stk2 = next(s for s in results.sources if s.source_id == "STK2")
-        assert stk2.stack_height == pytest.approx(50.0)
-        assert stk2.emission_rate == pytest.approx(0.80)
+        assert [s.source_id for s in results.sources] == ["AERO1", "AERO265", "STOKES", "NAIVE"]
+        second = next(s for s in results.sources if s.source_id == "AERO265")
+        assert second.stack_height == pytest.approx(10.0)
+        assert second.emission_rate == pytest.approx(1.0)
 
-    def test_area_source_no_stack_params(self, tmp_path):
-        """AREA source row has only 5 columns; stack params should remain None."""
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        results = parse_aermod_output(str(outfile))
+    def test_area_source_no_stack_params(self):
+        """An AREA source row has no stack columns; they stay None."""
+        results = parse_aermod_output(str(POINT_AND_AREA))
 
         area1 = next(s for s in results.sources if s.source_id == "AREA1")
+        assert area1.source_type == "AREA"
         assert area1.stack_height is None
-        assert area1.emission_rate is None
+        assert area1.stack_temp is None
+        assert area1.emission_rate == pytest.approx(1.0e-4)
 
-    def test_num_sources_updated_after_parsing(self, tmp_path):
+    def test_num_sources_updated_after_parsing(self):
         """run_info.num_sources should be set to len(sources) after _parse_sources."""
-        outfile = tmp_path / "stack.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
-        parser = AERMODOutputParser(str(outfile))
-        parser.run_info = ModelRunInfo("24142", "TEST")
+        parser = AERMODOutputParser(str(POINT_AND_AREA))
+        parser.run_info = ModelRunInfo("26135", "TEST")
         parser._parse_sources()
 
         assert parser.run_info.num_sources == len(parser.sources)
-        assert parser.run_info.num_sources == 3  # STK1 + STK2 + AREA1
+        assert parser.run_info.num_sources == 2  # STACK1 + AREA1
 
 
 # ============================================================================
-# pyaermod receptor format with elevation columns (lines 402-405)
+# Discrete receptors with elevation columns
 # ============================================================================
 
+# The layout of AERMOD's receptor echo, with elevations and a flagpole height.
+RECEPTORS_WITH_ELEVATIONS = """\
+*** AERMOD - VERSION 26135  ***
 
-class TestPyaermodReceptorsWithElevations:
-    """Receptor rows with 5 columns exercise the z_elev/z_hill/z_flag branches."""
+                                             *** DISCRETE CARTESIAN RECEPTORS ***
+                                           (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
+                                                           (METERS)
+
+     (    100.0,     200.0,      50.0,      55.0,       0.0);         (    300.0,     400.0,      80.0,      90.0,       1.5);
+"""
+
+
+class TestReceptorsWithElevations:
+    """Receptor tuples of five values fill z_elev, z_hill and z_flag."""
 
     def test_zelev_parsed(self, tmp_path):
         outfile = tmp_path / "recepts.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
+        outfile.write_text(RECEPTORS_WITH_ELEVATIONS)
         results = parse_aermod_output(str(outfile))
 
         assert results.receptors[0].z_elev == pytest.approx(50.0)
 
     def test_zhill_parsed(self, tmp_path):
         outfile = tmp_path / "recepts.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
+        outfile.write_text(RECEPTORS_WITH_ELEVATIONS)
         results = parse_aermod_output(str(outfile))
 
         assert results.receptors[0].z_hill == pytest.approx(55.0)
 
     def test_zflag_nonzero(self, tmp_path):
         outfile = tmp_path / "recepts.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
+        outfile.write_text(RECEPTORS_WITH_ELEVATIONS)
         results = parse_aermod_output(str(outfile))
 
         assert results.receptors[1].z_flag == pytest.approx(1.5)
@@ -269,9 +257,9 @@ class TestPyaermodReceptorsWithElevations:
     def test_num_receptors_updated_after_parsing(self, tmp_path):
         """run_info.num_receptors is updated from 0 to 2 after parse."""
         outfile = tmp_path / "recepts.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
+        outfile.write_text(RECEPTORS_WITH_ELEVATIONS)
         parser = AERMODOutputParser(str(outfile))
-        parser.run_info = ModelRunInfo("24142", "TEST", num_receptors=0)
+        parser.run_info = ModelRunInfo("26135", "TEST", num_receptors=0)
         parser._parse_receptors()
 
         assert parser.run_info.num_receptors == 2
@@ -279,80 +267,47 @@ class TestPyaermodReceptorsWithElevations:
     def test_num_receptors_uses_max(self, tmp_path):
         """If run_info.num_receptors is already higher than parsed count, keep it."""
         outfile = tmp_path / "recepts.out"
-        outfile.write_text(POINT_WITH_STACK_PARAMS)
+        outfile.write_text(RECEPTORS_WITH_ELEVATIONS)
         parser = AERMODOutputParser(str(outfile))
-        parser.run_info = ModelRunInfo("24142", "TEST", num_receptors=999)
+        parser.run_info = ModelRunInfo("26135", "TEST", num_receptors=999)
         parser._parse_receptors()
 
         # max(2, 999) = 999
+        assert len(parser.receptors) == 2
         assert parser.run_info.num_receptors == 999
 
 
 # ============================================================================
-# Terrain type detection from model_options (lines 185-188)
+# Terrain type detection from model_options
 # ============================================================================
-
-MODEL_OPTIONS_FLAT = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: TERRAIN_FLAT
-
-** Model Setup Options Selected **
-   FLAT -- Receptors on flat terrain
-   RURAL -- Rural dispersion
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    5.432
-"""
-
-MODEL_OPTIONS_ELEVATED = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: TERRAIN_ELEV
-
-** Model Setup Options Selected **
-   ELEVATED -- Complex terrain receptors
-   URBAN -- Urban dispersion
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    5.432
-"""
 
 
 class TestTerrainTypeDetection:
-    """Terrain type is inferred from the model_options list in the header."""
+    """Terrain type is inferred from the MODELOPTs line of the page banner."""
 
-    def test_flat_terrain_type_set(self, tmp_path):
-        outfile = tmp_path / "flat.out"
-        outfile.write_text(MODEL_OPTIONS_FLAT)
-        parser = AERMODOutputParser(str(outfile))
+    def test_flat_terrain_type_set(self):
+        # *** MODELOPTs:    NonDFAULT  CONC  DDEP  FLAT  DRYDPLT  ALPHA  RURAL  SigA&SigW
+        parser = AERMODOutputParser(str(FLAT_RUN))
         parser._parse_header()
 
-        if "FLAT" in parser.run_info.model_options:
-            assert parser.run_info.terrain_type == "FLAT"
+        assert "FLAT" in parser.run_info.model_options
+        assert parser.run_info.terrain_type == "FLAT"
 
-    def test_flat_model_option_present(self, tmp_path):
-        outfile = tmp_path / "flat.out"
-        outfile.write_text(MODEL_OPTIONS_FLAT)
-        parser = AERMODOutputParser(str(outfile))
+    def test_flat_model_option_present(self):
+        parser = AERMODOutputParser(str(FLAT_RUN))
         parser._parse_header()
 
-        # Confirm the option was captured; terrain_type follows from it
-        if "FLAT" in parser.run_info.model_options:
-            assert parser.run_info.terrain_type == "FLAT"
-        # Even if regex didn't match, no crash
-        assert parser.run_info is not None
+        assert parser.run_info.model_options == [
+            "NonDFAULT", "CONC", "DDEP", "FLAT", "DRYDPLT", "ALPHA", "RURAL", "SigA&SigW"]
+        assert parser.run_info.urban_option == "RURAL"
 
-    def test_elevated_terrain_type_set(self, tmp_path):
-        outfile = tmp_path / "elevated.out"
-        outfile.write_text(MODEL_OPTIONS_ELEVATED)
-        parser = AERMODOutputParser(str(outfile))
+    def test_elevated_terrain_type_set(self):
+        # *** MODELOPTs:    RegDFAULT  CONC  ELEV  RURAL  SigA&SigW
+        parser = AERMODOutputParser(str(FULL_YEAR))
         parser._parse_header()
 
-        if "ELEVATED" in parser.run_info.model_options:
-            assert parser.run_info.terrain_type == "ELEVATED"
+        assert "ELEV" in parser.run_info.model_options
+        assert parser.run_info.terrain_type == "ELEVATED"
 
 
 # ============================================================================
@@ -361,8 +316,6 @@ class TestTerrainTypeDetection:
 
 MULTI_PERIOD_EPA = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: MULTI_PERIOD
 
 *** THE SUMMARY OF HIGHEST 3-HR RESULTS ***
 
@@ -382,21 +335,8 @@ Jobname: MULTI_PERIOD
    ALL   HIGH   1ST HIGH VALUE IS  50.0 AT (  100.0,  200.0,  0.0,  0.0,  0.0)
 """
 
-MONTH_PERIOD_OUTPUT = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: MONTH_PERIOD
-
-*** MONTH RESULTS ***
-
-   100.00    200.00    12.500
-   300.00    400.00    8.300
-"""
-
 PERIOD_4HR_6HR = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: SHORT_PERIODS
 
 *** THE SUMMARY OF HIGHEST 4-HR RESULTS ***
 
@@ -409,7 +349,7 @@ Jobname: SHORT_PERIODS
 
 
 class TestAdditionalAveragingPeriods:
-    """3HR, 8HR, 2HR, 12HR, 4HR, 6HR, and MONTH periods."""
+    """3HR, 8HR, 2HR, 12HR, 4HR and 6HR periods."""
 
     def test_3hr_concentrations(self, tmp_path):
         outfile = tmp_path / "multi.out"
@@ -449,22 +389,6 @@ class TestAdditionalAveragingPeriods:
 
         assert "12HR" in results.concentrations
         assert results.concentrations["12HR"].max_value == pytest.approx(50.0)
-
-    def test_month_concentrations_tabular(self, tmp_path):
-        """MONTH results in tabular (non-VALUE-IS) format."""
-        outfile = tmp_path / "month.out"
-        outfile.write_text(MONTH_PERIOD_OUTPUT)
-        results = parse_aermod_output(str(outfile))
-
-        assert "MONTH" in results.concentrations
-        assert results.concentrations["MONTH"].max_value == pytest.approx(12.5)
-
-    def test_month_concentration_data_has_rows(self, tmp_path):
-        outfile = tmp_path / "month.out"
-        outfile.write_text(MONTH_PERIOD_OUTPUT)
-        results = parse_aermod_output(str(outfile))
-
-        assert len(results.concentrations["MONTH"].data) == 2
 
     def test_4hr_concentrations(self, tmp_path):
         outfile = tmp_path / "short.out"
@@ -612,174 +536,94 @@ class TestAERMODResultsMethodEdgeCases:
 
 
 # ============================================================================
-# Rank column in tabular concentration tables
+# Rank column of the summary tables
 # ============================================================================
-
-OUTPUT_WITH_RANK = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: RANKED
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    5.432    1
-   300.00    400.00    2.876    2
-   500.00    600.00    1.000    3
-"""
-
-OUTPUT_WITH_INVALID_RANK = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: INVALID_RANK
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    5.432    not_a_rank
-   300.00    400.00    2.876    2
-"""
 
 
 class TestConcentrationRankColumn:
-    """Rank column branch in _parse_concentration_table (lines 529-531)."""
+    """Each summary row carries its rank (1ST, 2ND, 3RD ...)."""
 
-    def test_rank_column_present(self, tmp_path):
-        outfile = tmp_path / "ranked.out"
-        outfile.write_text(OUTPUT_WITH_RANK)
-        results = parse_aermod_output(str(outfile))
+    # AERTEST.SUM, THE SUMMARY OF HIGHEST 1-HR RESULTS:
+    # ALL  HIGH  1ST HIGH VALUE IS  753.65603  ON 88030111: AT ( ...
+    #      HIGH  2ND HIGH VALUE IS  421.98845  ON 88030113: AT ( ...
+    #      HIGH  3RD HIGH VALUE IS  371.81291  ON 88030116: AT ( ...
 
-        df = results.concentrations["ANNUAL"].data
+    def test_rank_column_present(self):
+        results = parse_aermod_output(AERTEST_SUM)
+
+        df = results.concentrations["1HR"].data
         assert "rank" in df.columns
 
-    def test_rank_values_correct(self, tmp_path):
-        outfile = tmp_path / "ranked.out"
-        outfile.write_text(OUTPUT_WITH_RANK)
-        results = parse_aermod_output(str(outfile))
+    def test_rank_values_correct(self):
+        results = parse_aermod_output(AERTEST_SUM)
 
-        df = results.concentrations["ANNUAL"].data
+        df = results.concentrations["1HR"].data
+        assert df["rank"].tolist() == [1, 2, 3]
         max_row = df.loc[df["concentration"].idxmax()]
         assert int(max_row["rank"]) == 1
 
-    def test_three_rows_parsed(self, tmp_path):
-        outfile = tmp_path / "ranked.out"
-        outfile.write_text(OUTPUT_WITH_RANK)
-        results = parse_aermod_output(str(outfile))
+    def test_three_rows_parsed(self):
+        results = parse_aermod_output(AERTEST_SUM)
 
-        assert len(results.concentrations["ANNUAL"].data) == 3
-
-    def test_invalid_rank_suppressed(self, tmp_path):
-        """Non-integer rank value is suppressed (contextlib.suppress)."""
-        outfile = tmp_path / "invalid_rank.out"
-        outfile.write_text(OUTPUT_WITH_INVALID_RANK)
-        results = parse_aermod_output(str(outfile))
-
-        # Both rows should be parsed despite first having a bad rank
-        df = results.concentrations["ANNUAL"].data
-        assert len(df) == 2
-        assert results.concentrations["ANNUAL"].max_value == pytest.approx(5.432)
+        assert len(results.concentrations["1HR"].data) == 3
 
 
 # ============================================================================
-# Synthetic full-format .out with pyaermod source section (line 231-232 branch)
+# A whole recorded run, end to end
 # ============================================================================
 
-PYAERMOD_FORMAT_FULL = """\
-*** AERMOD - VERSION 24142 ***
 
-Jobname: PYAERMOD_FULL
+class TestFullRunEndToEnd:
+    """Every part of a recorded run (full_year) read by parse_aermod_output."""
 
-** Model Setup Options Selected **
-   FLAT -- Flat terrain
-   RURAL -- Rural dispersion
+    def test_pollutant_id(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
-Pollutant/Gas ID: PM10
+        assert results.run_info.pollutant_id == "SO2"
 
-Averaging Time Period: ANNUAL
+    def test_averaging_period_parsed(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
-This Run Includes: 2 Source(s);   1 Source Group(s); and  10 Receptor(s)
+        assert results.run_info.averaging_periods == ["1-HR", "ANNUAL"]
 
-*** SOURCE LOCATIONS ***
+    def test_source_count_from_header_line(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
-   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV
-   SRC1     POINT      0.00         0.00        0.00
-   SRC2     AREA       500.00       500.00      0.00
+        assert results.run_info.num_sources == 1
 
-*** RECEPTOR LOCATIONS ***
+    def test_one_source_parsed(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
-   X-COORD      Y-COORD
-   -500.00      -500.00
-    500.00       500.00
+        assert len(results.sources) == 1
 
-*** ANNUAL RESULTS ***
+    def test_receptor_count_from_header_line(self):
+        # A polar grid is not echoed receptor by receptor; the count is
+        # the one of "This Run Includes".
+        results = parse_aermod_output(str(FULL_YEAR))
 
-   -500.00   -500.00    1.000
-    500.00    500.00    2.000
-"""
+        assert results.receptors == []
+        assert results.run_info.num_receptors == 72
 
-
-class TestPyaermodFullFormat:
-    """End-to-end test of pyaermod format with all sections present."""
-
-    def test_standard_pollutant_id(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
-
-        assert results.run_info.pollutant_id == "PM10"
-
-    def test_averaging_period_parsed(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
-
-        assert "ANNUAL" in results.run_info.averaging_periods
-
-    def test_source_count_from_header_line(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
-
-        assert results.run_info.num_sources in (2, 10)  # parsed from section or header
-
-    def test_two_sources_parsed(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
-
-        assert len(results.sources) == 2
-
-    def test_two_receptors_parsed(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
-
-        assert len(results.receptors) == 2
-
-    def test_annual_results_parsed(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
+    def test_annual_results_parsed(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
         assert "ANNUAL" in results.concentrations
-        assert results.concentrations["ANNUAL"].max_value == pytest.approx(2.0)
+        assert results.concentrations["ANNUAL"].max_value == pytest.approx(5.42148)
 
-    def test_max_location_correct(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
+    def test_max_location_correct(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
         loc = results.concentrations["ANNUAL"].max_location
-        assert loc[0] == pytest.approx(500.0)
-        assert loc[1] == pytest.approx(500.0)
+        assert loc[0] == pytest.approx(519.62)
+        assert loc[1] == pytest.approx(-300.0)
 
-    def test_get_max_concentration_dict(self, tmp_path):
-        outfile = tmp_path / "full.out"
-        outfile.write_text(PYAERMOD_FORMAT_FULL)
-        results = parse_aermod_output(str(outfile))
+    def test_get_max_concentration_dict(self):
+        results = parse_aermod_output(str(FULL_YEAR))
 
         max_info = results.get_max_concentration("ANNUAL")
         assert max_info is not None
         assert max_info["averaging_period"] == "ANNUAL"
-        assert max_info["value"] == pytest.approx(2.0)
+        assert max_info["value"] == pytest.approx(5.42148)
         assert max_info["units"] == "ug/m^3"
 
 

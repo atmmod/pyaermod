@@ -215,6 +215,14 @@ reader parses now write with `validate=True`; 72 did not.
 
 - `requirements.txt`: nothing used it, and its version floors disagreed
   with `pyproject.toml`.
+- `parse_aermod_output` no longer reads a report layout that AERMOD
+  never writes (`Jobname:`, `*** SOURCE LOCATIONS ***`,
+  `*** ANNUAL RESULTS ***` with an x/y/value table). Nothing in pyaermod
+  produced it; it existed in hand-written test text and one notebook.
+  AERMOD's own `.out` files are read as before. A file in which no source,
+  receptor or result table is found now gives a `UserWarning` that says
+  whether it looks like an AERMOD run that stopped early or like another
+  kind of file, where it used to return empty results silently.
 
 ### Regulatory text and design values by met year
 
