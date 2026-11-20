@@ -7,8 +7,9 @@ users hit when building AERMAP inputs for real sites:
 
 - `DatumTransformer`: NAD27 <-> NAD83 <-> WGS84 coordinate conversions
   for legacy DEM data (requires pyproj).
-- `SRTMDownloader`: fallback DEM source (SRTM v3.0 1-arc-second) for
-  regions outside CONUS where USGS NED isn't available.
+- `srtm_tiles_for_bbox`: names and URLs of the SRTM v3.0 1-arc-second
+  tiles over a bounding box, for regions outside CONUS where USGS NED
+  isn't available (the tiles are listed, not downloaded).
 - `mosaic_dem_tiles`: merge multiple DEM tiles into a single GeoTIFF
   (requires rasterio).
 - `reproject_dem`: reproject a DEM to a target UTM zone or EPSG.
