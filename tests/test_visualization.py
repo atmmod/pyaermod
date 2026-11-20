@@ -251,6 +251,30 @@ class TestAdvancedVisualizer3D:
         assert os.path.exists(save_file)
         plt.close(fig)
 
+    def test_plot_3d_surface_of_an_l_shaped_set(self, advanced_viz_df):
+        """Receptors that do not fill their bounding box draw where they are.
+
+        The base contours were put at the grid's minimum, which is NaN when
+        a cell has no receptor, and drawing them raised a broadcast error.
+        """
+        import matplotlib.pyplot as plt
+        df = advanced_viz_df
+        l_shape = df[(df["X"] < -200) | (df["Y"] < -200)]
+
+        fig = AdvancedVisualizer.plot_3d_surface(l_shape)
+        fig.canvas.draw()
+
+        ax = fig.axes[0]
+        surface, base_contours = ax.collections[0], ax.collections[1:]
+        # 20 x 20 cells in the box, 14 x 14 of them with no corner at all
+        assert len(surface.get_paths()) == 20 * 20 - 14 * 14
+        assert base_contours
+        zmin = l_shape["CONC"].min()
+        for contour in base_contours:
+            for verts, _ in contour._3dverts_codes:
+                assert np.all(verts[:, 2] == zmin)
+        plt.close(fig)
+
 
 class TestAdvancedVisualizerWindRose:
     """Test wind rose plotting"""

@@ -91,7 +91,7 @@ class AdvancedVisualizer:
                               alpha=0.9, edgecolor='none')
 
         # Add contour lines at base
-        ax.contour(X, Y, Z, zdir='z', offset=Z.min(),
+        ax.contour(X, Y, Z, zdir='z', offset=np.nanmin(Z),
                   cmap='Greys', alpha=0.5, linewidths=0.5)
 
         # Colorbar
