@@ -10,6 +10,7 @@ AERMOD rejects at runtime.
 import itertools
 import math
 import numbers
+import operator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -923,10 +924,7 @@ class Validator:
                 result.errors.append(ValidationError(
                     name, "type", "SWPOINT needs the ALPHA option (E198)"
                 ))
-            if source.release_height < 0:
-                result.errors.append(ValidationError(
-                    name, "release_height", f"must be >= 0, got {source.release_height} (E209)"
-                ))
+            cls._check_ranges(name, source, result, (("release_height", ">=", 0, " (E209)"),))
 
     @classmethod
     def _validate_source_flags(cls, sources, control, result: ValidationResult):
@@ -1202,6 +1200,47 @@ class Validator:
                 "AERMOD rejects GASDEPOS with GASDEPVD (E195)"
             ))
 
+    #: The comparison that breaks each kind of bound in a range row.
+    _BOUND_BROKEN = {">=": operator.lt, ">": operator.le, "<=": operator.gt}
+
+    @classmethod
+    def _check_ranges(cls, name, obj, result: ValidationResult, rows, *, optional=False):
+        """Report each ``(field, bound, limit[, note])`` row that ``obj`` breaks.
+
+        ``("stack_height", ">=", 0, " (AERMOD E209)")`` gives "must be >= 0,
+        got -5.0 (AERMOD E209)". Rows run in order; a dotted field reads a
+        nested object; ``optional`` skips a field that is None.
+        """
+        for field_name, bound, limit, *note in rows:
+            value = operator.attrgetter(field_name)(obj)
+            if optional and value is None:
+                continue
+            if cls._BOUND_BROKEN[bound](value, limit):
+                result.errors.append(ValidationError(
+                    name, field_name,
+                    f"must be {bound} {limit}, got {value}{''.join(note)}"
+                ))
+
+    @staticmethod
+    def _check_building_arrays(name, src, result: ValidationResult):
+        """Building downwash array lengths."""
+        for field_name in ("building_height", "building_width", "building_length",
+                           "building_x_offset", "building_y_offset"):
+            val = getattr(src, field_name, None)
+            if val is not None and isinstance(val, list) and len(val) != 36:
+                result.errors.append(ValidationError(
+                    name, field_name,
+                    f"must have exactly 36 values (one per 10° sector), got {len(val)}"
+                ))
+
+    @staticmethod
+    def _check_zero_length(name, line, result: ValidationResult):
+        if (line.x_start == line.x_end and line.y_start == line.y_end):
+            result.errors.append(ValidationError(
+                name, "coordinates",
+                "start and end points are identical (zero-length line)"
+            ))
+
     @classmethod
     def _validate_point_source(cls, src, result: ValidationResult):
         name = f"PointSource({src.source_id})"
@@ -1209,17 +1248,10 @@ class Validator:
         # soset.f PPARM (v24142, 2713-2818): a negative height or diameter
         # is E209; a zero diameter is reset to 1e-5 m and a zero height
         # is a ground-level release, both accepted.
-        if src.stack_height < 0:
-            result.errors.append(ValidationError(
-                name, "stack_height",
-                f"must be >= 0, got {src.stack_height} (AERMOD E209)"
-            ))
-
-        if src.stack_diameter < 0:
-            result.errors.append(ValidationError(
-                name, "stack_diameter",
-                f"must be >= 0, got {src.stack_diameter} (AERMOD E209)"
-            ))
+        cls._check_ranges(name, src, result, (
+            ("stack_height", ">=", 0, " (AERMOD E209)"),
+            ("stack_diameter", ">=", 0, " (AERMOD E209)"),
+        ))
 
         # PPARM 2770-2781: Ts == 0 is a release at ambient temperature and
         # Ts < 0 a fixed Ts - Ta offset of |Ts| (calc1.f FLUXES); only
@@ -1242,21 +1274,8 @@ class Validator:
                 severity="warning",
             ))
 
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
-
-        # Building downwash array lengths
-        for field_name in ("building_height", "building_width", "building_length",
-                           "building_x_offset", "building_y_offset"):
-            val = getattr(src, field_name, None)
-            if val is not None and isinstance(val, list) and len(val) != 36:
-                result.errors.append(ValidationError(
-                    name, field_name,
-                    f"must have exactly 36 values (one per 10° sector), got {len(val)}"
-                ))
+        cls._check_ranges(name, src, result, (("emission_rate", ">=", 0),))
+        cls._check_building_arrays(name, src, result)
 
         # Cross-field: building height < stack height for downwash to be meaningful
         bh = src.building_height
@@ -1273,40 +1292,13 @@ class Validator:
     @classmethod
     def _validate_area_source(cls, src, result: ValidationResult):
         name = f"AreaSource({src.source_id})"
-
-        if src.initial_lateral_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "initial_lateral_dimension",
-                f"must be > 0, got {src.initial_lateral_dimension}"
-            ))
-
-        if src.initial_vertical_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "initial_vertical_dimension",
-                f"must be > 0, got {src.initial_vertical_dimension}"
-            ))
-
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
-
-        if src.release_height < 0:
-            result.errors.append(ValidationError(
-                name, "release_height",
-                f"must be >= 0, got {src.release_height}"
-            ))
-
-        # Building downwash array lengths
-        for field_name in ("building_height", "building_width", "building_length",
-                           "building_x_offset", "building_y_offset"):
-            val = getattr(src, field_name, None)
-            if val is not None and isinstance(val, list) and len(val) != 36:
-                result.errors.append(ValidationError(
-                    name, field_name,
-                    f"must have exactly 36 values (one per 10° sector), got {len(val)}"
-                ))
+        cls._check_ranges(name, src, result, (
+            ("initial_lateral_dimension", ">", 0),
+            ("initial_vertical_dimension", ">", 0),
+            ("emission_rate", ">=", 0),
+            ("release_height", ">=", 0),
+        ))
+        cls._check_building_arrays(name, src, result)
 
     @classmethod
     def _validate_area_depth_hint(cls, src, control, result: ValidationResult):
@@ -1352,31 +1344,12 @@ class Validator:
 
     @classmethod
     def _validate_area_circ_source(cls, src, result: ValidationResult):
-        name = f"AreaCircSource({src.source_id})"
-
-        if src.radius <= 0:
-            result.errors.append(ValidationError(
-                name, "radius",
-                f"must be > 0, got {src.radius}"
-            ))
-
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
-
-        if src.release_height < 0:
-            result.errors.append(ValidationError(
-                name, "release_height",
-                f"must be >= 0, got {src.release_height}"
-            ))
-
-        if src.num_vertices < 3:
-            result.errors.append(ValidationError(
-                name, "num_vertices",
-                f"must be >= 3, got {src.num_vertices}"
-            ))
+        cls._check_ranges(f"AreaCircSource({src.source_id})", src, result, (
+            ("radius", ">", 0),
+            ("emission_rate", ">=", 0),
+            ("release_height", ">=", 0),
+            ("num_vertices", ">=", 3),
+        ))
 
     @classmethod
     def _validate_area_poly_source(cls, src, result: ValidationResult):
@@ -1388,55 +1361,27 @@ class Validator:
                 f"must have at least 3 vertices, got {len(src.vertices)}"
             ))
 
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
-
-        if src.release_height < 0:
-            result.errors.append(ValidationError(
-                name, "release_height",
-                f"must be >= 0, got {src.release_height}"
-            ))
+        cls._check_ranges(name, src, result, (
+            ("emission_rate", ">=", 0),
+            ("release_height", ">=", 0),
+        ))
 
     @classmethod
     def _validate_volume_source(cls, src, result: ValidationResult):
         name = f"VolumeSource({src.source_id})"
+        cls._check_ranges(name, src, result, (
+            ("initial_lateral_dimension", ">", 0),
+            ("initial_vertical_dimension", ">", 0),
+            ("emission_rate", ">=", 0),
+            ("release_height", ">=", 0),
+        ))
+        cls._check_building_arrays(name, src, result)
 
-        if src.initial_lateral_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "initial_lateral_dimension",
-                f"must be > 0, got {src.initial_lateral_dimension}"
-            ))
-
-        if src.initial_vertical_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "initial_vertical_dimension",
-                f"must be > 0, got {src.initial_vertical_dimension}"
-            ))
-
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
-
-        if src.release_height < 0:
-            result.errors.append(ValidationError(
-                name, "release_height",
-                f"must be >= 0, got {src.release_height}"
-            ))
-
-        # Building downwash array lengths
-        for field_name in ("building_height", "building_width", "building_length",
-                           "building_x_offset", "building_y_offset"):
-            val = getattr(src, field_name, None)
-            if val is not None and isinstance(val, list) and len(val) != 36:
-                result.errors.append(ValidationError(
-                    name, field_name,
-                    f"must have exactly 36 values (one per 10° sector), got {len(val)}"
-                ))
+    #: Range rows for a source's ``street_canyon``.
+    _STREET_CANYON_RANGES = (
+        ("street_canyon.building_height", ">", 0),
+        ("street_canyon.street_width", ">", 0),
+    )
 
     @classmethod
     def _validate_line_source(cls, src, result: ValidationResult):
@@ -1444,88 +1389,33 @@ class Validator:
         src_type = "RLineSource" if isinstance(src, RLineSource) else "LineSource"
         name = f"{src_type}({src.source_id})"
 
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
+        cls._check_ranges(name, src, result, (
+            ("emission_rate", ">=", 0),
+            ("release_height", ">=", 0),
+            ("initial_lateral_dimension", ">", 0),
+        ))
+        cls._check_zero_length(name, src, result)
 
-        if src.release_height < 0:
-            result.errors.append(ValidationError(
-                name, "release_height",
-                f"must be >= 0, got {src.release_height}"
-            ))
-
-        if src.initial_lateral_dimension <= 0:
-            result.errors.append(ValidationError(
-                name, "initial_lateral_dimension",
-                f"must be > 0, got {src.initial_lateral_dimension}"
-            ))
-
-        # Zero-length line
-        if (src.x_start == src.x_end and src.y_start == src.y_end):
-            result.errors.append(ValidationError(
-                name, "coordinates",
-                "start and end points are identical (zero-length line)"
-            ))
-
-        # Street canyon validation (RLineSource only — LineSource has no canyon)
+        # Street canyon validation (RLineSource only; LineSource has no canyon)
         if isinstance(src, RLineSource) and src.street_canyon is not None:
-            cls._validate_street_canyon(name, src.street_canyon, result)
-
-    @classmethod
-    def _validate_street_canyon(cls, name: str, canyon, result: ValidationResult):
-        if canyon.building_height <= 0:
-            result.errors.append(ValidationError(
-                name, "street_canyon.building_height",
-                f"must be > 0, got {canyon.building_height}"
-            ))
-        if canyon.street_width <= 0:
-            result.errors.append(ValidationError(
-                name, "street_canyon.street_width",
-                f"must be > 0, got {canyon.street_width}"
-            ))
+            cls._check_ranges(name, src, result, cls._STREET_CANYON_RANGES)
 
     @classmethod
     def _validate_rline_ext_source(cls, src, result: ValidationResult):
         name = f"RLineExtSource({src.source_id})"
 
-        if src.emission_rate < 0:
-            result.errors.append(ValidationError(
-                name, "emission_rate",
-                f"must be >= 0, got {src.emission_rate}"
-            ))
-
-        if src.road_width <= 0:
-            result.errors.append(ValidationError(
-                name, "road_width",
-                f"must be > 0, got {src.road_width}"
-            ))
-
-        if src.init_sigma_z < 0:
-            result.errors.append(ValidationError(
-                name, "init_sigma_z",
-                f"must be >= 0, got {src.init_sigma_z}"
-            ))
-
-        # Zero-length line
-        if (src.x_start == src.x_end and src.y_start == src.y_end):
-            result.errors.append(ValidationError(
-                name, "coordinates",
-                "start and end points are identical (zero-length line)"
-            ))
+        cls._check_ranges(name, src, result, (
+            ("emission_rate", ">=", 0),
+            ("road_width", ">", 0),
+            ("init_sigma_z", ">=", 0),
+        ))
+        cls._check_zero_length(name, src, result)
 
         # Barrier validation
-        if src.barrier_height_1 is not None and src.barrier_height_1 < 0:
-            result.errors.append(ValidationError(
-                name, "barrier_height_1",
-                f"must be >= 0, got {src.barrier_height_1}"
-            ))
-        if src.barrier_height_2 is not None and src.barrier_height_2 < 0:
-            result.errors.append(ValidationError(
-                name, "barrier_height_2",
-                f"must be >= 0, got {src.barrier_height_2}"
-            ))
+        cls._check_ranges(name, src, result, (
+            ("barrier_height_1", ">=", 0),
+            ("barrier_height_2", ">=", 0),
+        ), optional=True)
 
         # Depression validation
         if src.depression_depth is not None and src.depression_depth > 0:
@@ -1533,48 +1423,30 @@ class Validator:
                 name, "depression_depth",
                 f"must be <= 0 (negative depth), got {src.depression_depth}"
             ))
-        if src.depression_wtop is not None and src.depression_wtop < 0:
+        cls._check_ranges(name, src, result, (
+            ("depression_wtop", ">=", 0),
+            ("depression_wbottom", ">=", 0),
+        ), optional=True)
+        if (src.depression_wbottom is not None and src.depression_wtop is not None
+                and src.depression_wbottom > src.depression_wtop):
             result.errors.append(ValidationError(
-                name, "depression_wtop",
-                f"must be >= 0, got {src.depression_wtop}"
+                name, "depression_wbottom",
+                f"must be <= depression_wtop ({src.depression_wtop}), got {src.depression_wbottom}"
             ))
-        if src.depression_wbottom is not None:
-            if src.depression_wbottom < 0:
-                result.errors.append(ValidationError(
-                    name, "depression_wbottom",
-                    f"must be >= 0, got {src.depression_wbottom}"
-                ))
-            if src.depression_wtop is not None and src.depression_wbottom > src.depression_wtop:
-                result.errors.append(ValidationError(
-                    name, "depression_wbottom",
-                    f"must be <= depression_wtop ({src.depression_wtop}), got {src.depression_wbottom}"
-                ))
 
         # Street canyon validation
         if src.street_canyon is not None:
-            cls._validate_street_canyon(name, src.street_canyon, result)
+            cls._check_ranges(name, src, result, cls._STREET_CANYON_RANGES)
 
     @classmethod
     def _validate_buoyline_source(cls, src, result: ValidationResult):
         name = f"BuoyLineSource({src.source_id})"
 
-        if src.avg_buoyancy_parameter <= 0:
-            result.errors.append(ValidationError(
-                name, "avg_buoyancy_parameter",
-                f"must be > 0, got {src.avg_buoyancy_parameter}"
-            ))
-
-        if src.avg_line_length <= 0:
-            result.errors.append(ValidationError(
-                name, "avg_line_length",
-                f"must be > 0, got {src.avg_line_length}"
-            ))
-
-        if src.avg_building_height <= 0:
-            result.errors.append(ValidationError(
-                name, "avg_building_height",
-                f"must be > 0, got {src.avg_building_height}"
-            ))
+        cls._check_ranges(name, src, result, (
+            ("avg_buoyancy_parameter", ">", 0),
+            ("avg_line_length", ">", 0),
+            ("avg_building_height", ">", 0),
+        ))
 
         if not src.line_segments:
             result.errors.append(ValidationError(
@@ -1582,28 +1454,14 @@ class Validator:
                 "must have at least one line segment"
             ))
 
-        for _i, seg in enumerate(src.line_segments):
+        for seg in src.line_segments:
             seg_name = f"BuoyLineSegment({seg.source_id})"
-            if seg.emission_rate < 0:
-                result.errors.append(ValidationError(
-                    seg_name, "emission_rate",
-                    f"must be >= 0, got {seg.emission_rate}"
-                ))
-            if seg.release_height < 0:
-                result.errors.append(ValidationError(
-                    seg_name, "release_height",
-                    f"must be >= 0, got {seg.release_height}"
-                ))
-            if seg.release_height > 3000:
-                result.errors.append(ValidationError(
-                    seg_name, "release_height",
-                    f"must be <= 3000, got {seg.release_height}"
-                ))
-            if (seg.x_start == seg.x_end and seg.y_start == seg.y_end):
-                result.errors.append(ValidationError(
-                    seg_name, "coordinates",
-                    "start and end points are identical (zero-length line)"
-                ))
+            cls._check_ranges(seg_name, seg, result, (
+                ("emission_rate", ">=", 0),
+                ("release_height", ">=", 0),
+                ("release_height", "<=", 3000),
+            ))
+            cls._check_zero_length(seg_name, seg, result)
 
     #: soset.f OPARM substitutes this for an XINIT or YINIT below it (W320)
     #: "to avoid zero-divide and underflow", then uses it in the depth and
