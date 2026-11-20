@@ -10,7 +10,7 @@ wrong results:
   implausibly small diameter given emission rate, etc.).
 - Receptor-grid/domain sanity (extent, density).
 - DFAULT vs. non-default model-option consistency.
-- Emission-rate plausibility for the declared pollutant.
+- A point source with an emission rate of 0.
 - Met date range vs. ControlPathway date range.
 - ANNUAL averages vs. the period the surface file covers
   (:func:`check_annual_met_coverage`, which reads the file and so is not
@@ -118,24 +118,6 @@ def _check_point_source(src: Any) -> List[ValidationError]:
 # ---------------------------------------------------------------------------
 # Receptor / grid sanity
 # ---------------------------------------------------------------------------
-
-def _iter_receptor_coords(receptors: Any):
-    """Yield (x, y) for every receptor (grid + discrete)."""
-    for grid in getattr(receptors, "cartesian_grids", []) or []:
-        for x in _cart_values(grid, "x"):
-            for y in _cart_values(grid, "y"):
-                yield (x, y)
-    for grid in getattr(receptors, "polar_grids", []) or []:
-        # Polar grids rotate around (x_origin, y_origin)
-        import math
-        for theta_deg in _polar_directions(grid):
-            theta = math.radians(90.0 - theta_deg)  # met -> math
-            for r in _polar_distances(grid):
-                yield (grid.x_origin + r * math.cos(theta),
-                       grid.y_origin + r * math.sin(theta))
-    for r in getattr(receptors, "discrete_receptors", []) or []:
-        yield (r.x_coord, r.y_coord)
-
 
 def _cart_values(grid: Any, axis: str) -> List[float]:
     """Explicit XPNTS/YPNTS list if the grid has one, else the generator."""
