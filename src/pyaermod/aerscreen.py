@@ -133,19 +133,6 @@ _HEADER_KEYWORD = {
     AERSCREENSourceType.POINTHOR: "POINTHOR DATA",
 }
 
-_STACK_GEOMETRY = (("stack_diameter", ">", ""), ("exit_velocity", ">=", ""))
-
-#: The release-geometry fields each source type requires, as (field,
-#: bound against 0, note for the message), in the order checked. The
-#: three stack types share the first row; the rest are keyed by type.
-_REQUIRED_GEOMETRY: Dict[AERSCREENSourceType, Tuple[Tuple[str, str, str], ...]] = {
-    AERSCREENSourceType.FLARE: (("flare_heat_release", ">", " (cal/s)"),),
-    AERSCREENSourceType.VOLUME: (("lateral_dimension", ">=", ""),
-                                 ("vertical_dimension", ">=", "")),
-    AERSCREENSourceType.AREA: (("area_length", ">", ""), ("area_width", ">", "")),
-    AERSCREENSourceType.AREACIRC: (("radius", ">", ""),),
-}
-
 #: AERMET's eight land-use categories, for ``land_use`` (the surface
 #: characteristics prompt's option 2 takes one of these plus a climate).
 AERMET_LAND_USE: Dict[int, str] = {
@@ -467,27 +454,43 @@ class AERSCREENConfig:
                 "(the release height)"
             )
 
-        required = _STACK_GEOMETRY if st.is_stack else _REQUIRED_GEOMETRY[st]
-        for fname, bound, note in required:
-            v = getattr(self, fname)
-            if v is None or (v <= 0 if bound == ">" else v < 0):
+        if st.is_stack:
+            if self.stack_diameter is None or self.stack_diameter <= 0:
+                raise ValueError(f"{st.value} sources require stack_diameter > 0")
+            if self.exit_velocity is None or self.exit_velocity < 0:
                 raise ValueError(
-                    f"{st.value} sources require {fname} {bound} 0{note}"
+                    f"{st.value} sources require exit_velocity >= 0"
                 )
-        if (st is AERSCREENSourceType.FLARE
-                and not 0.0 <= self.flare_heat_loss <= 1.0):
-            raise ValueError("flare_heat_loss must be in [0, 1]")
-        if (st in (AERSCREENSourceType.AREA, AERSCREENSourceType.AREACIRC)
-                and self.vertical_dimension is None):
-            self.vertical_dimension = 0.0
-        if st is AERSCREENSourceType.AREA:
-            assert self.area_length is not None and self.area_width is not None
+        elif st is AERSCREENSourceType.FLARE:
+            if self.flare_heat_release is None or self.flare_heat_release <= 0:
+                raise ValueError(
+                    "FLARE sources require flare_heat_release > 0 (cal/s)"
+                )
+            if not 0.0 <= self.flare_heat_loss <= 1.0:
+                raise ValueError("flare_heat_loss must be in [0, 1]")
+        elif st is AERSCREENSourceType.VOLUME:
+            for fname in ("lateral_dimension", "vertical_dimension"):
+                v = getattr(self, fname)
+                if v is None or v < 0:
+                    raise ValueError(f"VOLUME sources require {fname} >= 0")
+        elif st is AERSCREENSourceType.AREA:
+            if self.area_length is None or self.area_length <= 0:
+                raise ValueError("AREA sources require area_length > 0")
+            if self.area_width is None or self.area_width <= 0:
+                raise ValueError("AREA sources require area_width > 0")
+            if self.vertical_dimension is None:
+                self.vertical_dimension = 0.0
             if self.area_width > self.area_length:
                 # AERSCREEN swaps them and says so; do it here so the
                 # header and the answers agree with what it will use.
                 self.area_length, self.area_width = (
                     self.area_width, self.area_length
                 )
+        elif st is AERSCREENSourceType.AREACIRC:
+            if self.radius is None or self.radius <= 0:
+                raise ValueError("AREACIRC sources require radius > 0")
+            if self.vertical_dimension is None:
+                self.vertical_dimension = 0.0
 
         if self.urban and (self.population is None or self.population <= 100):
             raise ValueError(
