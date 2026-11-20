@@ -351,6 +351,13 @@ def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
 _ASCII_INTEGER = re.compile(r"[+-]?[0-9]+")
 
 
+def _real(token: str) -> float:
+    """One field as AERMOD's STODBL reads it (a ``D`` exponent is a number;
+    ``nan``, ``inf`` and ``1_000`` are not), or :class:`ValueError`. Every
+    number of a deck is read through here."""
+    return fortran_float(token, strict=True)
+
+
 def _whole_number(token: str, keyword: str, lineno: int) -> int:
     """An integer field that AERMOD also accepts written as a real (``1988.0``).
 
@@ -361,7 +368,7 @@ def _whole_number(token: str, keyword: str, lineno: int) -> int:
     if _ASCII_INTEGER.fullmatch(token):
         return int(token)
     try:
-        value = fortran_float(token, strict=True)
+        value = _real(token)
     except ValueError:
         value = math.nan
     if not math.isfinite(value) or value != int(value):
@@ -380,7 +387,7 @@ def _number(toks: List[str], index: int, keyword: str, lineno: int) -> float:
         raise ValueError(f"line {lineno}: {keyword} expects a number in field "
                          f"{index + 1}, got none")
     try:
-        return fortran_float(toks[index], strict=True)
+        return _real(toks[index])
     except ValueError:
         raise ValueError(f"line {lineno}: {keyword} expects a number, got "
                          f"{toks[index]!r}") from None
@@ -390,10 +397,16 @@ def _int_field(token: str) -> int:
     """An integer field written as AERMOD reads one (``24``, ``24.``,
     ``2.4D1``); :class:`ValueError` for anything else, an infinity
     included (``int(float("inf"))`` would be an OverflowError)."""
-    value = fortran_float(token, strict=True)
+    value = _real(token)
     if value != int(value):
         raise ValueError(f"not a whole number: {token!r}")
     return int(value)
+
+
+def _opt_int(toks: List[str], index: int) -> Optional[int]:
+    """The optional integer field ``index`` of a card (a file unit): None
+    when the card is too short, :class:`ValueError` when it does not read."""
+    return _int_field(toks[index]) if len(toks) > index else None
 
 
 def _drop(dropped: Optional[List[int]], lineno: int) -> None:
@@ -450,9 +463,9 @@ def _parse_background_keyword(
         return
     try:
         if kw == value_kw:
-            value = fortran_float(rest[0], strict=True)
+            value = _real(rest[0])
         elif kw == vals_kw:
-            values = [fortran_float(t, strict=True) for t in rest[1:]]
+            values = [_real(t) for t in rest[1:]]
     except ValueError:
         _drop(dropped, lineno)
         return
@@ -607,7 +620,7 @@ def _parse_control(block: _PathwayBlock,
             # FRANMAX SWMIN BIGT FRANMIN PBAL); every one is kept.
             low_wind = "  ".join(toks)
         elif kw == "NO2STACK" and len(toks) == 1 and _is_number(toks[0]):
-            no2_ratio = fortran_float(toks[0], strict=True)
+            no2_ratio = _real(toks[0])
         elif kw == "ARMRATIO" and len(toks) == 2:
             # coset.f ARM2_Ratios: min max.
             values = _floats(toks)
@@ -631,8 +644,7 @@ def _parse_control(block: _PathwayBlock,
             # Not an AERMOD form (O3VALS rejects the flag, E203) but what
             # pyaermod < 2.1 wrote for a uniform value; read it as one.
             try:
-                o3_specs.setdefault(None, BackgroundSpec()).value = fortran_float(
-                    toks[1], strict=True)
+                o3_specs.setdefault(None, BackgroundSpec()).value = _real(toks[1])
             except (IndexError, ValueError):
                 _drop(dropped, ln)
         elif kw == "O3VALUES" and len(toks) == 1 and toks[0].upper() not in TEMPORAL_FLAG_COUNTS:
@@ -660,7 +672,7 @@ def _parse_control(block: _PathwayBlock,
                 reference_species=toks[3] if len(toks) > 3 else None,
             )
         elif kw == "GASDEPVD" and len(toks) == 1 and _is_number(toks[0]):
-            gas_vd = fortran_float(toks[0], strict=True)
+            gas_vd = _real(toks[0])
         elif kw in ("GDSEASON", "GDLANUSE") and toks and _ints(toks) is not None:
             # 12 monthly Wesely season categories / land-use categories;
             # N*V shorthand is already expanded by _group_keywords.
@@ -673,10 +685,9 @@ def _parse_control(block: _PathwayBlock,
             # AERMOD's default SAVE.FIL, which is kept as filename=None.
             save_file = SaveFile(
                 filename=unquote_path(toks[0]) if toks else None,
+                day_increment=_opt_int(toks, 1),
                 alternate_filename=unquote_path(toks[2]) if len(toks) > 2 else None,
             )
-            if len(toks) > 1:
-                save_file.day_increment = _int_field(toks[1])
         elif kw == "INITFILE":
             init_file = InitFile(filename=unquote_path(toks[0]) if toks else None)
         elif kw == "MULTYEAR":
@@ -719,10 +730,10 @@ def _parse_control(block: _PathwayBlock,
                 or (len(rest) > 2 and not _is_number(rest[2]))):
             _drop(dropped, uln)
             continue
-        area = UrbanArea(population=fortran_float(rest[0], strict=True), urban_id=uid,
+        area = UrbanArea(population=_real(rest[0]), urban_id=uid,
                          name=rest[1] if len(rest) > 1 else None)
         if len(rest) > 2:
-            area.roughness = fortran_float(rest[2], strict=True)
+            area.roughness = _real(rest[2])
         urban_areas.append(area)
     if urban_areas:
         first_area = urban_areas[0]
@@ -833,7 +844,7 @@ def _parse_control(block: _PathwayBlock,
 
 def _is_number(tok: str) -> bool:
     try:
-        fortran_float(tok, strict=True)
+        _real(tok)
     except ValueError:
         return False
     return True
@@ -904,7 +915,7 @@ def _floats(toks: List[str]) -> Optional[List[float]]:
     a ``D`` exponent is one, ``nan``, ``inf`` and ``1_000`` are not), or
     None when one is not."""
     try:
-        return [fortran_float(t, strict=True) for t in toks]
+        return [_real(t) for t in toks]
     except ValueError:
         return None
 
@@ -1114,7 +1125,7 @@ def _parse_sources(block: _PathwayBlock,
                 elev_tok = toks[4] if len(toks) > 4 else None
             if elev_tok is not None:
                 try:
-                    locs[sid]["z_elev"] = fortran_float(elev_tok, strict=True)
+                    locs[sid]["z_elev"] = _real(elev_tok)
                 except ValueError:
                     # Non-numeric (e.g. "FLAT") -- store as flag,
                     # default elevation to 0.
@@ -1205,7 +1216,7 @@ def _parse_sources(block: _PathwayBlock,
             psd_groups.setdefault(toks[0].upper(), []).extend(toks[1:])
         elif kw == "NO2RATIO" and len(toks) == 2 and _is_number(toks[1]):
             # NO2RATIO srcid|range ratio (exactly two fields, NO2RAT)
-            no2_ratio_tokens.append((toks[0].upper(), fortran_float(toks[1], strict=True)))
+            no2_ratio_tokens.append((toks[0].upper(), _real(toks[1])))
 
         # ------------------------------------------------------------------
         # Emission-rate unit conversions and the RLINE MOVES-units switch
@@ -1214,7 +1225,7 @@ def _parse_sources(block: _PathwayBlock,
             # <keyword> factor emission_label output_label (EMUNIT/COUNIT/DPUNIT)
             if len(toks) >= 3 and _is_number(toks[0]):
                 units[_UNIT_KEYWORDS[kw]] = EmissionUnits(
-                    factor=fortran_float(toks[0], strict=True), emission_label=toks[1],
+                    factor=_real(toks[0]), emission_label=toks[1],
                     output_label=toks[2],
                 )
             else:
@@ -2069,7 +2080,7 @@ def _parse_meteorology(block: _PathwayBlock,
             # PROFBASE the pathway always writes (a repeated keyword), and
             # removing it would silently give 0 m.
             try:
-                elevation = fortran_float(toks[0], strict=True)
+                elevation = _real(toks[0])
             except ValueError:
                 raise ValueError(
                     f"line {ln}: PROFBASE expects a number, got {toks[0]!r}; "
@@ -2231,16 +2242,13 @@ def _parse_output(block: _PathwayBlock,
             # MAXIFILE <aveper> <grpid> <thresh> <filename> [unit]
             # (ouset.f OUMXFL: fields 3-6, optional 7).
             try:
-                maxi = MaxiFile(
+                maxi_files.append(MaxiFile(
                     averaging_period=toks[0].upper(), source_group=toks[1],
-                    threshold=fortran_float(toks[2], strict=True), filename=unquote_path(toks[3]),
-                )
-                if len(toks) > 4:
-                    maxi.file_unit = _int_field(toks[4])
+                    threshold=_real(toks[2]), filename=unquote_path(toks[3]),
+                    file_unit=_opt_int(toks, 4),
+                ))
             except ValueError:
                 _drop(dropped, ln)
-                continue
-            maxi_files.append(maxi)
         elif kw == "PLOTFILE":
             # PLOTFILE PERIOD|ANNUAL <group> <filename> [unit]
             # PLOTFILE <hours>       <group> <rank> <filename> [unit]
@@ -2299,44 +2307,41 @@ def _parse_output(block: _PathwayBlock,
         elif kw == "RANKFILE" and len(toks) in (3, 4):
             # OURANK: aveper rank filnam [funit]
             try:
-                rank = RankFile(toks[0].upper(), _int_field(toks[1]), unquote_path(toks[2]),
-                                _int_field(toks[3]) if len(toks) > 3 else None)
+                rank_files.append(RankFile(toks[0].upper(), _int_field(toks[1]),
+                                           unquote_path(toks[2]), _opt_int(toks, 3)))
             except ValueError:
                 _drop(dropped, ln)
-                continue
-            rank_files.append(rank)
         elif kw == "SEASONHR" and len(toks) in (2, 3):
             # OUSEAS: grpid filnam [funit]
             try:
                 season_hour_files.append(SeasonHourFile(
-                    toks[0], unquote_path(toks[1]), _int_field(toks[2]) if len(toks) > 2 else None))
+                    toks[0], unquote_path(toks[1]), _opt_int(toks, 2)))
             except ValueError:
                 _drop(dropped, ln)
         elif kw == "EVALFILE" and len(toks) in (2, 3):
             # OUEVAL: srcid filnam [funit]
             try:
                 eval_files.append(EvalFile(
-                    toks[0], unquote_path(toks[1]), _int_field(toks[2]) if len(toks) > 2 else None))
+                    toks[0], unquote_path(toks[1]), _opt_int(toks, 2)))
             except ValueError:
                 _drop(dropped, ln)
         elif kw == "TOXXFILE" and len(toks) in (3, 4):
             # OUTOXX: aveper thresh filnam [funit]
             try:
                 toxx_files.append(ToxxFile(
-                    toks[0].upper(), fortran_float(toks[1], strict=True), unquote_path(toks[2]),
-                    _int_field(toks[3]) if len(toks) > 3 else None))
+                    toks[0].upper(), _real(toks[1]), unquote_path(toks[2]),
+                    _opt_int(toks, 3)))
             except ValueError:
                 _drop(dropped, ln)
         elif kw in ("MAXDAILY", "MXDYBYYR") and len(toks) >= 2:
             # MAXDAILY <group> <filename> [unit] -- no averaging period
             # field; ouset.f reads the group from field 3.
-            entry = MaxDailyFile(source_group=toks[0], filename=unquote_path(toks[1]))
-            if len(toks) > 2:
-                if _ints(toks[2:3]) is None:
-                    _drop(dropped, ln)
-                    continue
-                entry.file_unit = _int_field(toks[2])
-            (max_daily if kw == "MAXDAILY" else max_daily_by_year).append(entry)
+            try:
+                (max_daily if kw == "MAXDAILY" else max_daily_by_year).append(MaxDailyFile(
+                    source_group=toks[0], filename=unquote_path(toks[1]),
+                    file_unit=_opt_int(toks, 2)))
+            except ValueError:
+                _drop(dropped, ln)
         elif kw == "MAXDCONT" and len(toks) >= 4:
             # MAXDCONT <group> <upper> <lower> <filename> [unit]
             # MAXDCONT <group> <upper> THRESH <thresh> <filename> [unit]
@@ -2348,17 +2353,15 @@ def _parse_output(block: _PathwayBlock,
                     contribution = MaxDailyContribution(
                         source_group=toks[0], upper_rank=upper,
                         filename=unquote_path(toks[4]),
-                        threshold=fortran_float(toks[3], strict=True),
+                        threshold=_real(toks[3]),
                     )
-                    unit_tok = toks[5] if len(toks) > 5 else None
+                    contribution.file_unit = _opt_int(toks, 5)
                 else:
                     contribution = MaxDailyContribution(
                         source_group=toks[0], upper_rank=upper,
                         filename=unquote_path(toks[3]), lower_rank=_int_field(toks[2]),
                     )
-                    unit_tok = toks[4] if len(toks) > 4 else None
-                if unit_tok is not None:
-                    contribution.file_unit = _int_field(unit_tok)
+                    contribution.file_unit = _opt_int(toks, 4)
             except ValueError:
                 _drop(dropped, ln)
                 continue
@@ -2435,7 +2438,7 @@ def _parse_events(block: _PathwayBlock,
                 events[toks[0]] = EventPeriod(
                     event_name=toks[0], averaging_period=_int_field(toks[1]),
                     source_group=toks[2], date=f"{_int_field(toks[3]):08d}",
-                    original_conc=fortran_float(toks[4], strict=True),
+                    original_conc=_real(toks[4]),
                 )
             except ValueError:
                 _drop(dropped, ln)
