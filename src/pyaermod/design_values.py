@@ -404,11 +404,6 @@ def _daily_series(df: pd.DataFrame, how: str) -> pd.DataFrame:
     return daily
 
 
-def _agg_daily_max(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-(receptor, day) max -- the daily-maximum series."""
-    return _daily_series(df, "max")
-
-
 def _nth_highest(values: np.ndarray, rank: int) -> float:
     """``rank``-th highest of ``values`` (1 = highest)."""
     values = values[~np.isnan(values)]
