@@ -15,6 +15,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -468,9 +469,11 @@ class AERMODRunner:
                     check=False
                 )
 
-            if stdout_fh is not None:
-                stdout_fh.close()
-                stderr_fh.close()
+            if stdout_path is not None and stderr_path is not None:
+                # Capturing: both paths and both handles were set together.
+                for fh in (stdout_fh, stderr_fh):
+                    if fh is not None:
+                        fh.close()
                 stdout_fh = stderr_fh = None
                 # Populate result.stdout / stderr from the temp files so the
                 # AERMODRunResult looks the same as before to callers.
@@ -904,7 +907,7 @@ class AERMODRunner:
         return messages
 
     def run_batch(self,
-                  input_files: List[Union[str, Path]],
+                  input_files: Sequence[Union[str, Path]],
                   n_workers: int = 4,
                   timeout: int = 3600,
                   stop_on_error: bool = False) -> List[AERMODRunResult]:
@@ -1419,28 +1422,32 @@ def _acquire_dir_lock(lock_path: Path):
         # Pyodide: one interpreter, no threads, no other processes, so
         # nothing to serialize; and its fcntl has no flock.
         return fh
+    # The platform is tested with sys.platform, not by which import works,
+    # so that a type checker knows which module's functions exist.
     try:
-        try:
-            import fcntl  # POSIX
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        except ImportError:
+        if sys.platform == "win32":
+            import msvcrt
+
+            # Lock the first byte. LK_LOCK gives up after about ten
+            # seconds (OSError), so a queued run would fail instead of
+            # waiting its turn: try without blocking, until it is ours.
+            # (Not run on Windows in this repository's tests.)
+            while True:
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+        else:
             try:
-                import msvcrt  # Windows
-                # Lock the first byte. LK_LOCK gives up after about ten
-                # seconds (OSError), so a queued run would fail instead of
-                # waiting its turn: try without blocking, until it is ours.
-                # (Not run on Windows in this repository's tests.)
-                while True:
-                    try:
-                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                        break
-                    except OSError:
-                        time.sleep(0.1)
+                import fcntl  # POSIX
             except ImportError:
                 logging.getLogger(__name__).warning(
                     "Neither fcntl nor msvcrt available; concurrent runs "
                     "in the same working_dir are NOT serialized."
                 )
+            else:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
     except Exception:
         with contextlib.suppress(Exception):
             fh.close()
@@ -1457,16 +1464,18 @@ def _release_dir_lock(fh) -> None:
             fh.close()
         return
     try:
-        try:
-            import fcntl
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-        except ImportError:
+        if sys.platform == "win32":
+            import msvcrt
+
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
             try:
-                import msvcrt
-                fh.seek(0)
-                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                import fcntl
             except ImportError:
                 pass
+            else:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
     finally:
         with contextlib.suppress(Exception):
             fh.close()

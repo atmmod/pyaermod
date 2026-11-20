@@ -24,7 +24,7 @@ help:
 	@echo "make test-gui-e2e  - GUI journeys in Chromium with recorded AERMOD runs (tier T2)"
 	@echo "make test-gui-e2e-real - GUI journeys against ./bin/aermod (tier T3)"
 	@echo "make lint        - ruff check src/ tests/"
-	@echo "make typecheck   - mypy ratchet gate (fails only if the error count grows)"
+	@echo "make typecheck   - mypy gate (fails on any type error; the baseline is 0)"
 	@echo "make benchmark   - benchmarks/run_benchmarks.py -> benchmark_results.json"
 	@echo "make clean       - remove caches and coverage artifacts"
 

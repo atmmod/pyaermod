@@ -22,6 +22,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ._optional import optional_import, require
@@ -30,8 +31,8 @@ requests = optional_import("requests")
 HAS_REQUESTS = requests is not None
 
 
-def _require_requests() -> None:
-    require(requests, "requests", pip_extra="met")
+def _require_requests() -> ModuleType:
+    return require(requests, "requests", pip_extra="met")
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +134,9 @@ def aggregate_1min_to_hourly(records: List[ASOS1MinRecord]) -> List[Dict[str, An
 
     out: List[Dict[str, Any]] = []
     for (y, mo, d, h), recs in sorted(buckets.items()):
-        valid = [r for r in recs if not r.is_calm and not r.is_variable
+        # (direction, speed) of each record that has both and is usable
+        valid = [(r.wind_dir_deg, r.wind_speed_ms) for r in recs
+                 if not r.is_calm and not r.is_variable
                  and r.wind_dir_deg is not None and r.wind_speed_ms is not None]
         n = len(valid)
         if n == 0:
@@ -153,10 +156,10 @@ def aggregate_1min_to_hourly(records: List[ASOS1MinRecord]) -> List[Dict[str, An
 
         u_sum = 0.0
         v_sum = 0.0
-        for r in valid:
-            theta = math.radians(270.0 - r.wind_dir_deg)  # met -> math
-            u_sum += r.wind_speed_ms * math.cos(theta)
-            v_sum += r.wind_speed_ms * math.sin(theta)
+        for direction, speed in valid:
+            theta = math.radians(270.0 - direction)  # met -> math
+            u_sum += speed * math.cos(theta)
+            v_sum += speed * math.sin(theta)
         u = u_sum / n
         v = v_sum / n
         ws = math.hypot(u, v)
@@ -229,7 +232,7 @@ class ISDFetcher:
         If `cache_dir` was set and the file is already cached, returns the
         cached bytes without hitting the network.
         """
-        _require_requests()
+        req = _require_requests()
         fname = f"{station.usaf}-{station.wban}-{year}.gz"
         cache_path: Optional[Path] = None
         if self.cache_dir:
@@ -240,7 +243,7 @@ class ISDFetcher:
         url = (ISD_LITE_URL if self.use_lite else ISD_FULL_URL).format(
             year=year, usaf=station.usaf, wban=station.wban
         )
-        resp = requests.get(url, timeout=60)
+        resp = req.get(url, timeout=60)
         resp.raise_for_status()
         data = resp.content
         if cache_path is not None:
@@ -392,7 +395,7 @@ class IGRAFetcher:
 
         station_id is the 11-character IGRA id (e.g. 'USM00072469').
         """
-        _require_requests()
+        req = _require_requests()
         fname = f"{station_id}-data.txt"
         cache_path: Optional[Path] = None
         if self.cache_dir:
@@ -401,7 +404,7 @@ class IGRAFetcher:
                 return cache_path.read_text(encoding="latin-1")
 
         url = IGRA_V2_URL.format(station_id=station_id)
-        resp = requests.get(url, timeout=120)
+        resp = req.get(url, timeout=120)
         resp.raise_for_status()
 
         import zipfile

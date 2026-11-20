@@ -15,18 +15,22 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union
+from types import ModuleType
+from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from ._exec import _read_capped, find_executable
 from ._optional import optional_import, require
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 requests = optional_import("requests")
 HAS_REQUESTS = requests is not None
 rasterio = optional_import("rasterio")
 
 
-def _require_requests():
-    require(requests, "requests", pip_extra="terrain")
+def _require_requests() -> ModuleType:
+    return require(requests, "requests", pip_extra="terrain")
 
 
 # ============================================================================
@@ -223,11 +227,12 @@ class DEMDownloader:
 
     def _get_with_retries(self, params: dict, retries: int, backoff: float):
         """GET the TNM API, asking again after a gateway error or lost connection."""
+        req = _require_requests()
         delay = backoff
         for attempt in range(retries + 1):
             last = attempt == retries
             try:
-                response = requests.get(self.TNM_API_URL, params=params, timeout=60)
+                response = req.get(self.TNM_API_URL, params=params, timeout=60)
             except OSError as exc:   # requests' ConnectionError and Timeout
                 if last:
                     raise
@@ -281,7 +286,7 @@ class DEMDownloader:
             return output_path
 
         self.logger.info(f"Downloading: {tile.title} -> {output_path}")
-        response = requests.get(tile.download_url, stream=True, timeout=300)
+        response = _require_requests().get(tile.download_url, stream=True, timeout=300)
         response.raise_for_status()
 
         # Write to a temporary name and rename on success: a connection
@@ -664,7 +669,7 @@ class AERMAPOutputParser:
     """
 
     @staticmethod
-    def parse_receptor_output(filepath: Union[str, Path]) -> "pd.DataFrame":  # noqa: F821
+    def parse_receptor_output(filepath: Union[str, Path]) -> "pd.DataFrame":
         """Parse AERMAP receptor output to extract elevations and hill heights.
 
         Reads discrete receptors (``DISCCART``) and every receptor network
@@ -783,7 +788,7 @@ class AERMAPOutputParser:
         return pd.DataFrame(records, columns=["x", "y", "zelev", "zhill", "network", "row", "col"])
 
     @staticmethod
-    def parse_source_output(filepath: Union[str, Path]) -> "pd.DataFrame":  # noqa: F821
+    def parse_source_output(filepath: Union[str, Path]) -> "pd.DataFrame":
         """Parse AERMAP source output to extract base elevations.
 
         Format: "SO LOCATION  srcid(A12)  type(A8)  x(F12.2)  y(F12.2)  zelev(F12.2)",

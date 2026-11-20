@@ -973,7 +973,7 @@ def read_surface_file(filepath: Union[str, Path]) -> Dict:
         if len(parts) < 20:
             continue
         try:
-            row = {
+            row: Dict[str, Union[int, float, str]] = {
                 "year": int(parts[0]),
                 "month": int(parts[1]),
                 "day": int(parts[2]),

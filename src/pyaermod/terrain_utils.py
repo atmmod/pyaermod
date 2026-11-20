@@ -24,28 +24,16 @@ import concurrent.futures
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple, Union
 
 from ._optional import optional_import, require
 
 _pyproj = optional_import("pyproj")
 HAS_PYPROJ = _pyproj is not None
-Transformer = getattr(_pyproj, "Transformer", None) if _pyproj else None
 
 rasterio = optional_import("rasterio")
 HAS_RASTERIO = rasterio is not None
-if HAS_RASTERIO:
-    from rasterio.merge import merge as rio_merge  # type: ignore
-    from rasterio.warp import (  # type: ignore
-        Resampling,
-        calculate_default_transform,
-        reproject,
-    )
-else:  # pragma: no cover - type stubs for when rasterio is absent
-    rio_merge = None  # type: ignore[assignment]
-    Resampling = None  # type: ignore[assignment]
-    calculate_default_transform = None  # type: ignore[assignment]
-    reproject = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -58,8 +46,8 @@ EPSG_NAD83 = 4269
 EPSG_NAD27 = 4267
 
 
-def _require_pyproj() -> None:
-    require(_pyproj, "pyproj", pip_extra="geo")
+def _require_pyproj() -> ModuleType:
+    return require(_pyproj, "pyproj", pip_extra="geo")
 
 
 class DatumTransformer:
@@ -71,10 +59,10 @@ class DatumTransformer:
     """
 
     def __init__(self, from_epsg: int, to_epsg: int) -> None:
-        _require_pyproj()
+        pyproj = _require_pyproj()
         self.from_epsg = from_epsg
         self.to_epsg = to_epsg
-        self._tr = Transformer.from_crs(
+        self._tr = pyproj.Transformer.from_crs(
             f"EPSG:{from_epsg}", f"EPSG:{to_epsg}", always_xy=True
         )
 
@@ -167,8 +155,8 @@ def srtm_tiles_for_bbox(
 # Mosaic / reproject
 # ---------------------------------------------------------------------------
 
-def _require_rasterio() -> None:
-    require(rasterio, "rasterio", pip_extra="geo")
+def _require_rasterio() -> ModuleType:
+    return require(rasterio, "rasterio", pip_extra="geo")
 
 
 def mosaic_dem_tiles(
@@ -179,8 +167,10 @@ def mosaic_dem_tiles(
 
     Writes the mosaic to `output_path` and returns the path.
     """
-    _require_rasterio()
-    sources = [rasterio.open(str(p)) for p in tile_paths]
+    rio = _require_rasterio()
+    from rasterio.merge import merge as rio_merge
+
+    sources = [rio.open(str(p)) for p in tile_paths]
     try:
         mosaic, transform = rio_merge(sources)
         profile = sources[0].profile
@@ -192,7 +182,7 @@ def mosaic_dem_tiles(
         )
         out_path = Path(output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with rasterio.open(str(out_path), "w", **profile) as dst:
+        with rio.open(str(out_path), "w", **profile) as dst:
             dst.write(mosaic)
         return out_path
     finally:
@@ -207,13 +197,15 @@ def reproject_dem(
     resampling: str = "bilinear",
 ) -> Path:
     """Reproject a DEM to a target EPSG (typically a UTM zone)."""
-    _require_rasterio()
+    rio = _require_rasterio()
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
+
     resampler = {
         "nearest": Resampling.nearest,
         "bilinear": Resampling.bilinear,
         "cubic": Resampling.cubic,
     }[resampling]
-    with rasterio.open(str(src_path)) as src:
+    with rio.open(str(src_path)) as src:
         transform, width, height = calculate_default_transform(
             src.crs, f"EPSG:{dst_epsg}",
             src.width, src.height, *src.bounds,
@@ -227,11 +219,11 @@ def reproject_dem(
         })
         out_path = Path(dst_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with rasterio.open(str(out_path), "w", **profile) as dst:
+        with rio.open(str(out_path), "w", **profile) as dst:
             for i in range(1, src.count + 1):
                 reproject(
-                    source=rasterio.band(src, i),
-                    destination=rasterio.band(dst, i),
+                    source=rio.band(src, i),
+                    destination=rio.band(dst, i),
                     src_transform=src.transform,
                     src_crs=src.crs,
                     dst_transform=transform,
