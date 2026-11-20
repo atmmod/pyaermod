@@ -865,6 +865,13 @@ _BUILDING_KW_TO_FIELD = {
     "YBADJ": "building_y_offset",
 }
 
+#: Particle deposition keywords and the ParticleDepositionParams field of each.
+_PARTICLE_KEYWORDS = {
+    "PARTDIAM": "diameters",
+    "MASSFRAX": "mass_fractions",
+    "PARTDENS": "densities",
+}
+
 #: Keywords whose fields are ``factor emission-label output-label``.
 _UNIT_KEYWORDS = {
     "EMISUNIT": "emission_units",
@@ -1029,6 +1036,197 @@ def _background_from(entries: List[_BgLine],
         period_values.setdefault(e.flag, []).extend(e.values)
     return BackgroundConcentration(
         period_values={k: _one_or_all(v) for k, v in period_values.items()})
+
+
+class _SrcParam(NamedTuple):
+    """How the SRCPARAM values of one LOCATION type become a source."""
+
+    cls: Any
+    fields: Tuple[str, ...]          # constructor argument of each value, in card order
+    required: int                    # fewer values build no source
+    defaults: Tuple[Any, ...] = ()   # the reader's value for each optional field left out
+
+
+_POINT_FIELDS = ("emission_rate", "stack_height", "stack_temp", "exit_velocity",
+                 "stack_diameter")
+_LINE_FIELDS = ("emission_rate", "release_height", "initial_lateral_dimension",
+                "initial_vertical_dimension")
+
+# SRCPARAM layouts by LOCATION type. The defaults are the reader's own for a
+# card shorter than AERMOD takes, not the dataclass defaults (VOLUME 1.0,
+# not 10.0; RLINEXT 0.0, not 30.0 and 1.5). BUOYLINE is assembled by
+# _buoyline_sources.
+_SRCPARAM_LAYOUTS: Dict[str, _SrcParam] = {
+    # emission stackht stacktemp velocity diameter (soset.f PPARM, shared
+    # by the capped and horizontal types)
+    "POINT": _SrcParam(PointSource, _POINT_FIELDS, 5),
+    "POINTCAP": _SrcParam(PointCapSource, _POINT_FIELDS, 5),
+    "POINTHOR": _SrcParam(PointHorSource, _POINT_FIELDS, 5),
+    # emis hs bw bl bh ba (soset.f SWPARM, six)
+    "SWPOINT": _SrcParam(SidewashPointSource, (
+        "emission_rate", "release_height", "building_width", "building_length",
+        "building_height", "building_angle"), 6),
+    # emission relhgt xinit [yinit [angle [szinit]]] (soset.f APARM); a
+    # Yinit left out is Xinit (see _build_source)
+    "AREA": _SrcParam(AreaSource, (*_LINE_FIELDS, "angle", "initial_sigma_z"), 1,
+                      (0.0, 10.0, 10.0, 0.0, 0.0)),
+    # emission relhgt sylinit szinit
+    "VOLUME": _SrcParam(VolumeSource, _LINE_FIELDS, 1, (0.0, 1.0, 1.0)),
+    # emission release_height sy_init
+    "LINE": _SrcParam(LineSource, _LINE_FIELDS, 1, (0.0, 1.0, None)),
+    "RLINE": _SrcParam(RLineSource, _LINE_FIELDS, 1, (0.0, 3.0, 1.5)),
+    # emission relhgt xinit yinit volume [angle]
+    "OPENPIT": _SrcParam(OpenPitSource, (
+        "emission_rate", "release_height", "x_dimension", "y_dimension",
+        "pit_volume", "angle"), 5, (0.0,)),
+    # emission relhgt radius [nverts [szinit]] (soset.f ACPARM)
+    "AREACIRC": _SrcParam(AreaCircSource, (
+        "emission_rate", "release_height", "radius", "num_vertices",
+        "initial_sigma_z"), 1, (0.0, 100.0, 20, 0.0)),
+    # emission relhgt nverts [szinit] (APPARM); nverts is no constructor
+    # argument (see _build_source)
+    "AREAPOLY": _SrcParam(AreaPolySource, (
+        "emission_rate", "release_height", "_nverts",
+        "initial_vertical_dimension"), 1, (0.0, None, None)),
+    # emission dcl width init_sigma_z (RLPARM)
+    "RLINEXT": _SrcParam(RLineExtSource, (
+        "emission_rate", "dcl", "road_width", "init_sigma_z"), 1, (0.0, 0.0, 0.0)),
+}
+
+
+def _build_source(stype: str, data: Dict[str, Any], source_id: str) -> Any:
+    """The source of one LOCATION type in :data:`_SRCPARAM_LAYOUTS` from
+    the cards collected for it, or None for an incomplete definition (too
+    few SRCPARAM values, a LINE with no end point)."""
+    layout = _SRCPARAM_LAYOUTS[stype]
+    params = data.get("params", [])[:len(layout.fields)]
+    if len(params) < layout.required:
+        return None
+    kwargs: Dict[str, Any] = dict(zip(
+        layout.fields, [*params, *layout.defaults[len(params) - layout.required:]]))
+    kwargs.update(source_id=source_id, base_elevation=data.get("z_elev", 0.0))
+    x, y = data.get("x_coord", 0.0), data.get("y_coord", 0.0)
+    extra = data.get("extra_loc", [])
+
+    if stype in ("LINE", "RLINE"):
+        # LOCATION: x_start y_start x_end y_end [elev]
+        if len(extra) < 2:
+            return None
+        kwargs.update(x_start=x, y_start=y, x_end=extra[0], y_end=extra[1])
+    elif stype == "RLINEXT":
+        # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end
+        # [zelev], so extra_loc holds (z_start, x_end, y_end, z_end).
+        if len(extra) < 4:
+            return None
+        kwargs.update(x_start=x, y_start=y, z_start=extra[0],
+                      x_end=extra[1], y_end=extra[2], z_end=extra[3])
+    elif stype == "AREAPOLY":
+        # LOCATION is the polygon's first vertex; AREAVERT carries
+        # the ring. ARVERT reads up to nverts+1 pairs so a deck may
+        # repeat the first vertex to close the ring; AERMOD closes it
+        # itself (AXVERT(NVERTS+1) = AXVERT(1)), so the repeat is dropped.
+        vertices = list(data.get("_vertices", []))
+        if len(vertices) < 3:
+            return None
+        nverts = kwargs.pop("_nverts")
+        nverts = len(vertices) if nverts is None else round(nverts)
+        if len(vertices) == nverts + 1 and vertices[-1] == vertices[0]:
+            vertices.pop()
+        kwargs["vertices"] = vertices
+    else:
+        kwargs.update(x_coord=x, y_coord=y)
+    if stype == "AREA" and len(params) < 4:
+        # A square when Yinit is left out (APARM: AYINIT = AXINIT).
+        kwargs["initial_vertical_dimension"] = kwargs["initial_lateral_dimension"]
+    elif stype == "AREACIRC":
+        kwargs["num_vertices"] = round(kwargs["num_vertices"])
+
+    src = layout.cls(**kwargs)
+    if stype.startswith("POINT") and data.get("_platform") is not None:
+        src.platform = data["_platform"]
+    elif stype == "RLINEXT":
+        barrier = data.get("_rbarrier")
+        if barrier:
+            src.barrier_height_1, src.barrier_dcl_1 = barrier[0], barrier[1]
+            if len(barrier) == 4:
+                src.barrier_height_2, src.barrier_dcl_2 = barrier[2], barrier[3]
+        depress = data.get("_rdepress")
+        if depress:
+            (src.depression_depth, src.depression_wtop,
+             src.depression_wbottom) = depress
+        src.vegetative_barriers = list(data.get("_vbarrier", []))
+    return src
+
+
+def _buoyline_sources(
+    locs: Dict[str, Dict[str, Any]], buoyline_ids: List[str],
+    group_tokens: Dict[str, List[str]], blp_params: Dict[str, List[float]],
+    spelled: Dict[str, str], group_spelled: Dict[str, str],
+) -> List[BuoyLineSource]:
+    """Assemble the buoyant-line sources.
+
+    Each BUOYLINE LOCATION is a single line segment; the source is the
+    BLPGROUP naming them, carrying the averaged geometry from its BLPINPUT
+    record. With no BLPGROUP at all AERMOD puts every BUOYLINE segment in
+    the group of the (single, eight-field) BLPINPUT record, named "ALL";
+    "BLPGROUP ALL" does the same explicitly. Members may be ranges and a
+    group ID repeated on a later line continues the group (soset.f BLPGRP).
+    """
+    if not buoyline_ids:
+        return []
+    groups: Dict[str, List[str]] = {}
+    for grp_id, tokens in group_tokens.items():
+        if grp_id.upper() == "ALL" and not tokens:
+            groups[grp_id] = list(buoyline_ids)
+        else:
+            groups[grp_id] = _expand_source_ids(tokens, buoyline_ids)
+    if not groups:
+        groups = {"ALL": buoyline_ids}
+    sources: List[BuoyLineSource] = []
+    for grp_id, member_ids in groups.items():
+        avg = blp_params.get(grp_id) or blp_params.get("ALL")
+        if avg is None:
+            continue
+        segments = []
+        for member in member_ids:
+            seg_data = locs.get(member)
+            if seg_data is None:
+                continue
+            extra = seg_data.get("extra_loc", [])
+            seg_params = seg_data.get("params", [])
+            if len(extra) < 2:
+                continue
+            segments.append(BuoyLineSegment(
+                source_id=spelled.get(member, member),
+                x_start=seg_data.get("x_coord", 0.0),
+                y_start=seg_data.get("y_coord", 0.0),
+                x_end=extra[0], y_end=extra[1],
+                emission_rate=seg_params[0] if seg_params else 0.0,
+                release_height=seg_params[1] if len(seg_params) > 1 else 0.0,
+                base_elevation=seg_data.get("z_elev", 0.0),
+            ))
+        if not segments:
+            continue
+        # One shared elevation goes on the group; only differing
+        # values stay on the segments.
+        elevations = {seg.base_elevation for seg in segments}
+        group_elev = 0.0
+        if len(elevations) == 1:
+            group_elev = elevations.pop() or 0.0
+            for seg in segments:
+                seg.base_elevation = None
+        sources.append(BuoyLineSource(
+            source_id=group_spelled.get(grp_id, grp_id),
+            avg_line_length=avg[0],
+            avg_building_height=avg[1],
+            avg_building_width=avg[2],
+            avg_line_width=avg[3],
+            avg_building_separation=avg[4],
+            avg_buoyancy_parameter=avg[5],
+            line_segments=segments,
+            base_elevation=group_elev,
+        ))
+    return sources
 
 
 def _parse_sources(block: _PathwayBlock,
@@ -1351,32 +1549,15 @@ def _parse_sources(block: _PathwayBlock,
             aircraft_sources.extend(toks)
         elif kw == "HBPSRCID" and toks:
             hbp_sources.extend(toks)
-        elif kw == "PARTDIAM":
-            # PARTDIAM srcid d1 d2 d3 ...
-            diameters = _floats(toks[1:]) if len(toks) > 1 else None
-            if not diameters:
+        elif kw in _PARTICLE_KEYWORDS:
+            # PARTDIAM srcid d1 d2 ... / MASSFRAX srcid f1 f2 ... /
+            # PARTDENS srcid r1 r2 ...
+            values = _floats(toks[1:]) if len(toks) > 1 else None
+            if not values:
                 _drop(dropped, ln)
                 continue
             sid = toks[0].upper()
-            part_dep_data.setdefault(sid, {})["diameters"] = diameters
-            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
-        elif kw == "MASSFRAX":
-            # MASSFRAX srcid f1 f2 f3 ...
-            fractions = _floats(toks[1:]) if len(toks) > 1 else None
-            if not fractions:
-                _drop(dropped, ln)
-                continue
-            sid = toks[0].upper()
-            part_dep_data.setdefault(sid, {})["mass_fractions"] = fractions
-            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
-        elif kw == "PARTDENS":
-            # PARTDENS srcid r1 r2 r3 ...
-            densities = _floats(toks[1:]) if len(toks) > 1 else None
-            if not densities:
-                _drop(dropped, ln)
-                continue
-            sid = toks[0].upper()
-            part_dep_data.setdefault(sid, {})["densities"] = densities
+            part_dep_data.setdefault(sid, {})[_PARTICLE_KEYWORDS[kw]] = values
             locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
 
         # ------------------------------------------------------------------
@@ -1428,18 +1609,14 @@ def _parse_sources(block: _PathwayBlock,
     # Resolve the keywords whose source field may be a range, now that
     # every source ID is known. BUOYLINE segment IDs count as sources.
     all_ids = list(locs)
-    gas_dep_data: Dict[str, GasDepositionParams] = {}
-    for token, gas in gas_dep_tokens:
-        for sid in _expand_source_ids([token], all_ids):
-            gas_dep_data[sid] = gas
-    no2_ratios: Dict[str, float] = {}
-    for token, ratio in no2_ratio_tokens:
-        for sid in _expand_source_ids([token], all_ids):
-            no2_ratios[sid] = ratio
-    method2_data: Dict[str, Method2Params] = {}
-    for token, m2 in method2_tokens:
-        for sid in _expand_source_ids([token], all_ids):
-            method2_data[sid] = m2
+
+    def by_source(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+        return {sid: value for token, value in pairs
+                for sid in _expand_source_ids([token], all_ids)}
+
+    gas_dep_data: Dict[str, GasDepositionParams] = by_source(gas_dep_tokens)
+    no2_ratios: Dict[str, float] = by_source(no2_ratio_tokens)
+    method2_data: Dict[str, Method2Params] = by_source(method2_tokens)
     urbansrc_data: Dict[str, Optional[str]] = {}
     if urban_all:
         urbansrc_data = dict.fromkeys(all_ids)
@@ -1472,221 +1649,34 @@ def _parse_sources(block: _PathwayBlock,
         if sid in method2_data and hasattr(src, "method_2"):
             src.method_2 = method2_data[sid]
 
-    def keep_lines(data: Dict[str, Any]) -> None:
-        """An incomplete definition (too few SRCPARAM values, a LINE with
-        no end point) builds no source; its lines stay in the deck."""
-        for lineno in data.get("_lines", []):
-            _drop(dropped, lineno)
-
     # Build source objects. The concrete type is chosen per LOCATION
     # keyword, so this list is deliberately heterogeneous.
     sources: List[Any] = []
-    src: Any
     for sid, data in locs.items():
-        if sid not in src_types:
+        kind = src_types.get(sid)
+        if kind == "BUOYLINE":
+            # Each BUOYLINE LOCATION is one *segment*; the source proper
+            # is the BLPGROUP that names them, parameterised by BLPINPUT
+            # (_buoyline_sources).
+            continue
+        src = (_build_source(kind, data, spelled.get(sid, sid))
+               if kind in _SRCPARAM_LAYOUTS else None)
+        if src is None:
+            # No source to construct, so its lines are kept verbatim where
+            # AERMOD will still read them: an incomplete definition;
             # SRCPARAM / building / deposition lines for a source this
             # deck defines elsewhere (an INCLUDED file) or a source-ID
-            # range (PARTDIAM A-Z9999999): nothing to construct, so the
-            # lines are kept verbatim where AERMOD will still read them.
+            # range (PARTDIAM A-Z9999999); or a LOCATION type this reader
+            # does not construct (one AERMOD does not know either, since
+            # every v26135 type is built).
             for lineno in data.get("_lines", []):
                 _drop(dropped, lineno)
-            continue
-        stype = src_types[sid]
-        params = data.get("params", [])
-        common = dict(
-            source_id=spelled.get(sid, sid),
-            x_coord=data.get("x_coord", 0.0),
-            y_coord=data.get("y_coord", 0.0),
-            base_elevation=data.get("z_elev", 0.0),
-        )
-        src = None
-        if stype in ("POINT", "POINTCAP", "POINTHOR"):
-            # SRCPARAM POINT: emission stackht stacktemp velocity diameter
-            # (soset.f PPARM, shared by the capped and horizontal types)
-            if len(params) < 5:
-                keep_lines(data)
-                continue
-            point_cls = {"POINT": PointSource, "POINTCAP": PointCapSource,
-                         "POINTHOR": PointHorSource}[stype]
-            src = point_cls(
-                **common,
-                emission_rate=params[0],
-                stack_height=params[1],
-                stack_temp=params[2],
-                exit_velocity=params[3],
-                stack_diameter=params[4],
-            )
-            if data.get("_platform") is not None:
-                src.platform = data["_platform"]
-        elif stype == "SWPOINT":
-            # SRCPARAM SWPOINT: emis hs bw bl bh ba (soset.f SWPARM, six)
-            if len(params) < 6:
-                keep_lines(data)
-                continue
-            src = SidewashPointSource(
-                **common,
-                emission_rate=params[0], release_height=params[1],
-                building_width=params[2], building_length=params[3],
-                building_height=params[4], building_angle=params[5],
-            )
-        elif stype == "AREA":
-            # SRCPARAM AREA: emission relhgt xinit [yinit [angle [szinit]]]
-            # (soset.f APARM)
-            if not params:
-                keep_lines(data)
-                continue
-            src = AreaSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 10.0,
-                # A square when Yinit is left out (APARM: AYINIT = AXINIT).
-                initial_vertical_dimension=(params[3] if len(params) > 3
-                                            else params[2] if len(params) > 2 else 10.0),
-                angle=params[4] if len(params) > 4 else 0.0,
-                initial_sigma_z=params[5] if len(params) > 5 else 0.0,
-            )
-        elif stype == "VOLUME":
-            # SRCPARAM VOLUME: emission relhgt sylinit szinit
-            if not params:
-                keep_lines(data)
-                continue
-            src = VolumeSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else 1.0,
-            )
-        elif stype == "LINE":
-            # LOCATION LINE: x_start y_start x_end y_end [elev]
-            # SRCPARAM:      emission release_height sy_init
-            extra = data.get("extra_loc", [])
-            if len(extra) < 2 or not params:
-                # Treat as best-effort: require at least x_end,y_end
-                keep_lines(data)
-                continue
-            src = LineSource(
-                source_id=common["source_id"],
-                x_start=common["x_coord"], y_start=common["y_coord"],
-                x_end=extra[0], y_end=extra[1],
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else None,
-            )
-        elif stype == "RLINE":
-            extra = data.get("extra_loc", [])
-            if len(extra) < 2 or not params:
-                keep_lines(data)
-                continue
-            src = RLineSource(
-                source_id=common["source_id"],
-                x_start=common["x_coord"], y_start=common["y_coord"],
-                x_end=extra[0], y_end=extra[1],
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 3.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else 1.5,
-            )
-        elif stype == "OPENPIT":
-            # SRCPARAM: emission relhgt xinit yinit volume [angle]
-            if len(params) < 5:
-                keep_lines(data)
-                continue
-            src = OpenPitSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1],
-                x_dimension=params[2],
-                y_dimension=params[3],
-                pit_volume=params[4],
-                angle=params[5] if len(params) > 5 else 0.0,
-            )
-        elif stype == "AREACIRC":
-            # SRCPARAM: emission relhgt radius [nverts [szinit]] (soset.f ACPARM)
-            if not params:
-                keep_lines(data)
-                continue
-            src = AreaCircSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                radius=params[2] if len(params) > 2 else 100.0,
-                num_vertices=round(params[3]) if len(params) > 3 else 20,
-                initial_sigma_z=params[4] if len(params) > 4 else 0.0,
-            )
-        elif stype == "AREAPOLY":
-            # LOCATION is the polygon's first vertex; AREAVERT carries
-            # the ring. SRCPARAM (APPARM): emission relhgt nverts [szinit].
-            # ARVERT reads up to nverts+1 pairs so a deck may repeat the
-            # first vertex to close the ring; AERMOD closes it itself
-            # (AXVERT(NVERTS+1) = AXVERT(1)), so the repeat is dropped.
-            vertices = list(data.get("_vertices", []))
-            if not params or len(vertices) < 3:
-                keep_lines(data)
-                continue
-            nverts = round(params[2]) if len(params) > 2 else len(vertices)
-            if len(vertices) == nverts + 1 and vertices[-1] == vertices[0]:
-                vertices.pop()
-            src = AreaPolySource(
-                source_id=common["source_id"],
-                vertices=vertices,
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else None,
-            )
-        elif stype == "RLINEXT":
-            # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end
-            # [zelev], so extra_loc holds (z_start, x_end, y_end, z_end).
-            # SRCPARAM (RLPARM): emission dcl width init_sigma_z
-            extra = data.get("extra_loc", [])
-            if len(extra) < 4 or not params:
-                keep_lines(data)
-                continue
-            src = RLineExtSource(
-                source_id=common["source_id"],
-                x_start=common["x_coord"], y_start=common["y_coord"],
-                z_start=extra[0],
-                x_end=extra[1], y_end=extra[2], z_end=extra[3],
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                dcl=params[1] if len(params) > 1 else 0.0,
-                road_width=params[2] if len(params) > 2 else 0.0,
-                init_sigma_z=params[3] if len(params) > 3 else 0.0,
-            )
-            barrier = data.get("_rbarrier")
-            if barrier:
-                src.barrier_height_1, src.barrier_dcl_1 = barrier[0], barrier[1]
-                if len(barrier) == 4:
-                    src.barrier_height_2, src.barrier_dcl_2 = barrier[2], barrier[3]
-            depress = data.get("_rdepress")
-            if depress:
-                (src.depression_depth, src.depression_wtop,
-                 src.depression_wbottom) = depress
-            src.vegetative_barriers = list(data.get("_vbarrier", []))
-        elif stype == "BUOYLINE":
-            # Each BUOYLINE LOCATION is one *segment*; the source proper
-            # is the BLPGROUP that names them, parameterised by BLPINPUT.
-            # Segments are assembled after this loop, so nothing to build
-            # here.
-            continue
-
-        if src is None:
-            # A LOCATION type this reader does not construct (one AERMOD
-            # does not know either, since every v26135 type is built) or
-            # an incomplete definition: the source's own lines are kept
-            # verbatim so the deck still carries it.
-            for lineno in data.get("_lines", []):
-                _drop(dropped, lineno)
-            logger.warning(
-                "SO source %s (%s) is not modelled by pyaermod; its %d "
-                "definition lines are kept verbatim in unparsed_lines",
-                sid, stype, len(data.get("_lines", [])),
-            )
+            if kind is not None and kind not in _SRCPARAM_LAYOUTS:
+                logger.warning(
+                    "SO source %s (%s) is not modelled by pyaermod; its %d "
+                    "definition lines are kept verbatim in unparsed_lines",
+                    sid, kind, len(data.get("_lines", [])),
+                )
             continue
 
         # LOCATION ... FLAT (soset.f SOLOCA): a flat-terrain source in a
@@ -1695,82 +1685,21 @@ def _parse_sources(block: _PathwayBlock,
             src.flat_source = True
 
         # Apply accumulated BUILDHGT/WID/LEN/XBADJ/YBADJ arrays, if any
-        building = data.get("_building")
-        if building:
-            for attr, values in building.items():
-                if hasattr(src, attr):
-                    setattr(src, attr, values)
+        for attr, values in data.get("_building", {}).items():
+            if hasattr(src, attr):
+                setattr(src, attr, values)
 
         _apply_per_source(src, sid)
         sources.append(src)
 
-    # Assemble buoyant-line sources. Each BUOYLINE LOCATION is a single
-    # line segment; the source is the BLPGROUP naming them, carrying the
-    # averaged geometry from its BLPINPUT record. With no BLPGROUP at
-    # all AERMOD puts every BUOYLINE segment in the group of the (single,
-    # eight-field) BLPINPUT record, named "ALL"; "BLPGROUP ALL" does the
-    # same explicitly. Members may be ranges and a group ID repeated on
-    # a later line continues the group (soset.f BLPGRP).
     buoyline_ids = [sid for sid, t in src_types.items() if t == "BUOYLINE"]
-    if buoyline_ids:
-        groups: Dict[str, List[str]] = {}
-        for grp_id, tokens in blp_group_tokens.items():
-            if grp_id.upper() == "ALL" and not tokens:
-                groups[grp_id] = list(buoyline_ids)
-            else:
-                groups[grp_id] = _expand_source_ids(tokens, buoyline_ids)
-        if not groups:
-            groups = {"ALL": buoyline_ids}
-        for grp_id, member_ids in groups.items():
-            avg = blp_params.get(grp_id) or blp_params.get("ALL")
-            if avg is None:
-                continue
-            segments = []
-            for member in member_ids:
-                seg_data = locs.get(member)
-                if seg_data is None:
-                    continue
-                extra = seg_data.get("extra_loc", [])
-                seg_params = seg_data.get("params", [])
-                if len(extra) < 2:
-                    continue
-                segments.append(BuoyLineSegment(
-                    source_id=spelled.get(member, member),
-                    x_start=seg_data.get("x_coord", 0.0),
-                    y_start=seg_data.get("y_coord", 0.0),
-                    x_end=extra[0], y_end=extra[1],
-                    emission_rate=seg_params[0] if seg_params else 0.0,
-                    release_height=(
-                        seg_params[1] if len(seg_params) > 1 else 0.0
-                    ),
-                    base_elevation=seg_data.get("z_elev", 0.0),
-                ))
-            if not segments:
-                continue
-            # One shared elevation goes on the group; only differing
-            # values stay on the segments.
-            elevations = {seg.base_elevation for seg in segments}
-            group_elev = 0.0
-            if len(elevations) == 1:
-                group_elev = elevations.pop() or 0.0
-                for seg in segments:
-                    seg.base_elevation = None
-            src = BuoyLineSource(
-                source_id=group_spelled.get(grp_id, grp_id),
-                avg_line_length=avg[0],
-                avg_building_height=avg[1],
-                avg_building_width=avg[2],
-                avg_line_width=avg[3],
-                avg_building_separation=avg[4],
-                avg_buoyancy_parameter=avg[5],
-                line_segments=segments,
-                base_elevation=group_elev,
-            )
-            # Per-source keywords name the segments; the group carries
-            # them once (the writer emits one line per segment).
-            for seg in segments:
-                _apply_per_source(src, seg.source_id.upper())
-            sources.append(src)
+    for src in _buoyline_sources(locs, buoyline_ids, blp_group_tokens, blp_params,
+                                 spelled, group_spelled):
+        # Per-source keywords name the segments; the group carries
+        # them once (the writer emits one line per segment).
+        for seg in src.line_segments:
+            _apply_per_source(src, seg.source_id.upper())
+        sources.append(src)
 
     background = _background_from(bg_entries, dropped)
 
