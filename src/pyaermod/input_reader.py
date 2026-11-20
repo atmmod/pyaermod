@@ -151,6 +151,7 @@ from .pathways import (
     rectable_rank,
     unquote_path,
 )
+from .sources import _DOWNWASH_KEYWORDS
 from .unparsed import UnparsedLine, unparsed_summary
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,6 @@ class _Record:
 @dataclass
 class _PathwayBlock:
     name: str
-    lines: List[Tuple[int, str]] = field(default_factory=list)
     records: List[_Record] = field(default_factory=list)
 
     def record(self, lineno: int) -> _Record:
@@ -278,7 +278,6 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
             raise ValueError(
                 f"line {lineno}: content outside any pathway block: {line!r}"
             )
-        current.lines.append((lineno, line))
 
         # Resolve the keyword the way AERMOD does: strip a repeated
         # pathway code, then inherit the previous keyword when the
@@ -331,15 +330,10 @@ def _expand_shorthand(tokens: List[str]) -> List[str]:
 def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
     """Return (keyword, tokens, lineno) tuples for a pathway block.
 
-    Handles three AERMOD conventions inside a block:
-    - Lines may start with the pathway code (e.g. ``SO BUILDHGT ...``);
-      the prefix is stripped so the canonical keyword is the first
-      output token.
-    - A line whose keyword columns are blank continues the previous
-      keyword (``GRIDPOLR POL1 STA`` followed by ``POL1 DIST ...``); the
-      inherited keyword is reported.
-    - Repeated values in shorthand form (``36*50.``) are expanded so
-      downstream parsers see the full list.
+    The records already carry the keyword of each line (with a leading
+    pathway code stripped and a blank keyword inherited, see
+    :func:`_split_pathways`); here repeated values in shorthand form
+    (``36*50.``) are expanded so downstream parsers see the full list.
     """
     return [
         (rec.keyword, _expand_shorthand(rec.fields), rec.lineno)
@@ -837,13 +831,7 @@ def _coerce_pollutant(name: str) -> Union[PollutantType, str]:
         return name
 
 
-_BUILDING_KW_TO_FIELD = {
-    "BUILDHGT": "building_height",
-    "BUILDWID": "building_width",
-    "BUILDLEN": "building_length",
-    "XBADJ": "building_x_offset",
-    "YBADJ": "building_y_offset",
-}
+_BUILDING_KW_TO_FIELD = {keyword: attr for attr, keyword in _DOWNWASH_KEYWORDS}
 
 #: Particle deposition keywords and the ParticleDepositionParams field of each.
 _PARTICLE_KEYWORDS = {
@@ -2489,6 +2477,29 @@ def read_aermod_input(
     return project
 
 
+def _split_fields(text: str, keep_quotes: bool) -> List[str]:
+    """Blank-separated fields of ``text``; a field that starts with a double
+    quote runs to the next double quote, or to the end of the line."""
+    fields: List[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+        elif text[i] == '"':
+            close = text.find('"', i + 1)
+            if close < 0:
+                close = n
+            fields.append(text[i:close + 1] if keep_quotes else text[i + 1:close])
+            i = close + 1
+        else:
+            end = i
+            while end < n and not text[end].isspace():
+                end += 1
+            fields.append(text[i:end])
+            i = end
+    return fields
+
+
 def _runstream_tokens(line: str) -> List[str]:
     """Split a runstream line into fields, keeping a quoted field whole.
 
@@ -2501,23 +2512,7 @@ def _runstream_tokens(line: str) -> List[str]:
     >>> _runstream_tokens('SURFFILE  "My Met/a.sfc"  FREE')
     ['SURFFILE', '"My Met/a.sfc"', 'FREE']
     """
-    fields: List[str] = []
-    i, n = 0, len(line)
-    while i < n:
-        if line[i].isspace():
-            i += 1
-        elif line[i] == '"':
-            end = line.find('"', i + 1)
-            end = n if end < 0 else end + 1
-            fields.append(line[i:end])
-            i = end
-        else:
-            end = i
-            while end < n and not line[end].isspace():
-                end += 1
-            fields.append(line[i:end])
-            i = end
-    return fields
+    return _split_fields(line, keep_quotes=True)
 
 
 def runstream_fields(text: str) -> List[str]:
@@ -2531,23 +2526,7 @@ def runstream_fields(text: str) -> List[str]:
     >>> runstream_fields('ERRS.OUT  "My Files/b.dat"  x"y')
     ['ERRS.OUT', 'My Files/b.dat', 'x"y']
     """
-    fields: List[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        if text[i].isspace():
-            i += 1
-        elif text[i] == '"':
-            end = text.find('"', i + 1)
-            end = n if end < 0 else end
-            fields.append(text[i + 1:end])
-            i = end + 1
-        else:
-            end = i
-            while end < n and not text[end].isspace():
-                end += 1
-            fields.append(text[i:end])
-            i = end
-    return fields
+    return _split_fields(text, keep_quotes=False)
 
 
 @dataclass(frozen=True)
