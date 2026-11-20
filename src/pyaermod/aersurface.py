@@ -33,9 +33,10 @@ Typical usage::
 
 from __future__ import annotations
 
-import functools
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from ._legacy import install_legacy_check
 
 # ---------------------------------------------------------------------
 # Migration from the pre-2026-08 field names
@@ -94,21 +95,6 @@ _REMOVED_FIELDS: Dict[str, str] = {
     ),
 }
 
-
-def _reject_legacy_kwargs(kwargs: Dict[str, Any]) -> None:
-    """Raise a TypeError naming the replacement for an old field name."""
-    for old, new in _RENAMED_FIELDS.items():
-        if old in kwargs:
-            raise TypeError(
-                f"AERSURFACEConfig has no field {old!r}; it is now {new!r}. "
-                "The old field names built a deck AERSURFACE rejects -- see "
-                "the CHANGELOG upgrade notes."
-            )
-    for old, why in _REMOVED_FIELDS.items():
-        if old in kwargs:
-            raise TypeError(
-                f"AERSURFACEConfig has no field {old!r}. {why}"
-            )
 
 #: NLCD release years AERSURFACE accepts for the land-cover raster.
 _VALID_NLCD_YEARS = {1992, 2001, 2006, 2011, 2013, 2016, 2019, 2021}
@@ -452,19 +438,11 @@ class AERSURFACEConfig:
         return "\n".join([*co, "", *ou]) + "\n"
 
 
-# The dataclass generates __init__, so the legacy-name check has to wrap
-# it rather than live in __post_init__ (which never sees an unexpected
-# keyword -- __init__ has already raised by then).
-_generated_init = AERSURFACEConfig.__init__
-
-
-@functools.wraps(_generated_init)
-def _init_with_legacy_check(self: AERSURFACEConfig, *args: Any, **kwargs: Any) -> None:
-    _reject_legacy_kwargs(kwargs)
-    _generated_init(self, *args, **kwargs)
-
-
-AERSURFACEConfig.__init__ = _init_with_legacy_check  # type: ignore[method-assign]
+install_legacy_check(
+    AERSURFACEConfig, _RENAMED_FIELDS, _REMOVED_FIELDS,
+    "The old field names built a deck AERSURFACE rejects -- see "
+    "the CHANGELOG upgrade notes.",
+)
 
 
 __all__ = [
