@@ -126,8 +126,9 @@ where = ["src"]
 pyaermod = ["py.typed"]
 
 [tool.mypy]
-# Advisory configuration as of v1.5; ratchet toward strict mode over
-# time. The baseline error count is published in CI logs.
+# `mypy src/pyaermod` reports no errors under this configuration, and CI
+# fails on any (scripts/mypy_gate.py, mypy-baseline.txt). Strict mode is
+# not enabled.
 # No python_version pin: mypy targets whatever interpreter runs it. Pinning
 # 3.11 while the gate runs on the 3.12 CI leg made mypy reject numpy 2.5's
 # own stubs ("Type statement is only supported in Python 3.12 and greater"),

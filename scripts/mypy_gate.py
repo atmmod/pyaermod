@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """Ratchet gate for mypy: fail only when the error count grows.
 
-``mypy src/pyaermod`` is not yet clean. Rather than leaving it advisory
-(where regressions go unnoticed) or blocking on a full cleanup, CI
-compares the current error count against the integer committed in
-``mypy-baseline.txt`` at the repo root:
+CI compares the current error count of ``mypy src/pyaermod`` against the
+integer committed in ``mypy-baseline.txt`` at the repo root. That integer
+has been 0 since November 2026, so any type error fails the gate; the
+ratchet remains for the day a mypy or dependency release reports errors
+that cannot be fixed at once:
 
 * count  > baseline  -> exit 1 (new type errors were introduced)
 * count == baseline  -> exit 0

@@ -42,9 +42,8 @@ make test        # core suite with whatever extras you have installed
 make test-full   # pip install -e ".[dev,all]" (needs GDAL, see above), then
                  # the whole suite including slow tests, with coverage
 make lint        # ruff check src/ tests/
-make typecheck   # mypy ratchet gate: fails only if the error count grows
-                 # beyond mypy-baseline.txt (lower it with
-                 # `python scripts/mypy_gate.py --update`)
+make typecheck   # mypy gate: fails on any type error (the count is
+                 # compared with mypy-baseline.txt, which is 0)
 ```
 
 `make test-full` is what to run before opening a pull request: a green
