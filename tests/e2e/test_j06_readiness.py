@@ -1,6 +1,6 @@
 """J6: open Review & Run on a blank project.
 
-What the user must see (PLAN-gui.md): the Run button is disabled; the
+What the user must see (.10x/plans/PLAN-gui.md): the Run button is disabled; the
 checklist names the missing source, receptors and met files, and each
 item links to its step; fixing each problem clears its item.
 """

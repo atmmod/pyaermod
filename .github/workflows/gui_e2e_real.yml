@@ -1,6 +1,6 @@
 name: GUI journeys with real AERMOD
 
-# The GUI's end-to-end journeys against a real AERMOD binary (PLAN-gui.md,
+# The GUI's end-to-end journeys against a real AERMOD binary (.10x/plans/PLAN-gui.md,
 # tier T3). The gui-e2e job in tests.yml runs the same journeys with AERMOD
 # replayed from recordings; this workflow checks that the recordings still
 # tell the truth about the binary the GUI will meet. AERMOD is compiled from

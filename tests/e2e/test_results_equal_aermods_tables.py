@@ -7,7 +7,7 @@ the ``.out`` file the run left, read here with a few regular expressions
 and not with pyaermod, so the parser the GUI uses is not its own oracle.
 
 AERTEST is imported through Import deck, as J5 does, run and opened on
-Results (PLAN-gui.md's J5 row); Albany is the reference scenario of J1.
+Results (.10x/plans/PLAN-gui.md's J5 row); Albany is the reference scenario of J1.
 Tier T2 replays the recordings, tier T3 runs the real binary.
 """
 

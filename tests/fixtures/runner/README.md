@@ -64,7 +64,7 @@ The `success/` deck asks for first-highest tables only (`RECTABLE ALLAVE
 FIRST`). The GUI's `RECTABLE ALLAVE 1-10` and `MAXTABLE ALLAVE 10` make
 the same run's `aermod.out` about 410 KB instead of 83 KB and change
 nothing in its message summary. The run's maxima are the reference
-scenario's in `PLAN-gui.md`: 76.07952 (1-hour), 59.57654 (3-hour),
+scenario's in `.10x/plans/PLAN-gui.md`: 76.07952 (1-hour), 59.57654 (3-hour),
 16.85665 (24-hour) and 5.40459 (PERIOD) µg/m³, all at (519.62, -300.00).
 
 ## Regenerating

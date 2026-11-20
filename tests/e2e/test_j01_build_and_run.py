@@ -1,6 +1,6 @@
 """J1: build the reference scenario through the UI, run it and read Results.
 
-What the user must see (PLAN-gui.md): the run status reads "Succeeded"
+What the user must see (.10x/plans/PLAN-gui.md): the run status reads "Succeeded"
 with 0 fatal errors; Results shows the four maxima and their location,
 and the map renders; the downloaded deck matches the deck on disk.
 

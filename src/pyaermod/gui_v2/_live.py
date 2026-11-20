@@ -1,7 +1,7 @@
 """
 Page sections that follow a :class:`~pyaermod.gui_v2.session.Session`.
 
-The rule every page follows (PLAN-gui.md, "Target design"): a widget that
+The rule every page follows (.10x/plans/PLAN-gui.md, "Target design"): a widget that
 shows or edits part of ``session.project`` is built only inside a
 :func:`live` section, and every live section is rebuilt when the project
 is replaced. Rebuilding deletes the old widgets and, with them, their
