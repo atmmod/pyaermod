@@ -206,10 +206,16 @@ reader parses now write with `validate=True`; 72 did not.
   their bounding box (an L shape, a triangle, a grid with one receptor
   missing) over the cells they cover. Drawing or saving the figure raised
   a broadcast `ValueError`.
-- `VectorExporter.export_sources` and `export_all` refuse to write a
-  shapefile for sources that mix points, lines and polygons, with a
-  `ValueError` that names GeoPackage and GeoJSON, which hold them
-  together. pyogrio raised `FeatureError` part way through the file.
+- Shapefile export of sources that mix points, lines and polygons. A
+  shapefile holds one geometry type, and pyogrio raised `FeatureError`
+  part way through the file. `VectorExporter.export_all` now writes one
+  shapefile per kind (`sources_point.shp`, `sources_line.shp`,
+  `sources_polygon.shp`) and returns them under the keys `sources_point`,
+  `sources_line` and `sources_polygon`; the new
+  `VectorExporter.export_sources_by_kind` does the same for a path of
+  your choosing. `export_sources`, which writes one file, raises a
+  `ValueError` that names both ways out. GeoPackage and GeoJSON exports
+  are unchanged.
 
 ### Removed
 
