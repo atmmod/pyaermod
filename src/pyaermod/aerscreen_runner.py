@@ -46,19 +46,18 @@ import logging
 import os
 import shutil
 import stat
-import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+from ._exec import find_executable, run_captured
 from .aerscreen import (
     DISCRETE_RECEPTOR_FILE,
     AERSCREENConfig,
     AERSCREENSummary,
     parse_aerscreen_output,
 )
-from .runner import _dir_state, _files_written, _read_capped, _run_tree
 
 #: The programs AERSCREEN spawns, and the marker file it checks for each.
 _HELPERS = {
@@ -169,32 +168,17 @@ class AERSCREENRunner:
 
     @staticmethod
     def _find_or_set_executable(path: Optional[Union[str, Path]]) -> Path:
-        if path:
-            p = Path(path)
-            if not p.exists():
-                raise FileNotFoundError(f"AERSCREEN binary not found: {path}")
-            return p.resolve()
-        for name in ("aerscreen", "AERSCREEN", "aerscreen.exe"):
-            found = shutil.which(name)
-            if found:
-                return Path(found).resolve()
-        raise FileNotFoundError(
-            "No AERSCREEN executable found on PATH. Pass executable_path "
-            "explicitly (scripts/build_aerscreen.sh builds one into ./bin)."
-        )
+        return find_executable(
+            ("aerscreen", "AERSCREEN", "aerscreen.exe"), path, label="AERSCREEN binary",
+            resolve=True, not_found=(
+                "No AERSCREEN executable found on PATH. Pass executable_path "
+                "explicitly (scripts/build_aerscreen.sh builds one into ./bin)."
+            ))
 
     @staticmethod
     def _optional(path: Optional[Union[str, Path]], name: str) -> Optional[Path]:
-        if path:
-            p = Path(path)
-            if not p.exists():
-                raise FileNotFoundError(f"{name} binary not found: {path}")
-            return p.resolve()
-        for candidate in (name, name.upper(), name + ".exe"):
-            found = shutil.which(candidate)
-            if found:
-                return Path(found).resolve()
-        return None
+        return find_executable((name, name.upper(), name + ".exe"), path,
+                               label=f"{name} binary", resolve=True)
 
     # ------------------------------------------------------------------
     def required_helpers(self, config: AERSCREENConfig) -> List[str]:
@@ -377,47 +361,17 @@ class AERSCREENRunner:
             if stale is not None:
                 with contextlib.suppress(OSError):
                     stale.unlink()
-        start = datetime.now()
-        before = _dir_state(work)
-        stdout_path = work / "aerscreen.subproc.stdout"
-        stderr_path = work / "aerscreen.subproc.stderr"
-        # File-redirect to avoid the OS pipe-buffer deadlock — same fix
-        # as the AERMOD/AERMET/AERMAP/AERSURFACE runners.
-        stdout_fh = open(  # noqa: SIM115
-            stdout_path, "w", encoding="utf-8", errors="replace"
-        )
-        stderr_fh = open(  # noqa: SIM115
-            stderr_path, "w", encoding="utf-8", errors="replace"
-        )
-        try:
-            try:
-                proc = _run_tree(
-                    [str(self.executable)],
-                    cwd=str(work),
-                    env=env,
-                    input=stdin_text,
-                    text=True,
-                    stdout=stdout_fh, stderr=stderr_fh,
-                    timeout=timeout,
-                )
-            except subprocess.TimeoutExpired as e:
-                end = datetime.now()
-                return AERSCREENRunResult(
-                    success=False, input_file=str(input_path),
-                    return_code=None,
-                    runtime_seconds=(end - start).total_seconds(),
-                    error_message=(
-                        f"AERSCREEN timed out after {timeout}s: {e}"
-                    ),
-                    start_time=start, end_time=end,
-                )
-        finally:
-            stdout_fh.close()
-            stderr_fh.close()
-        end = datetime.now()
+        proc = run_captured([str(self.executable)], work, "aerscreen", timeout,
+                            input=stdin_text, env=env)
+        if proc.timeout is not None:
+            return AERSCREENRunResult(
+                success=False, input_file=str(input_path),
+                return_code=None,
+                runtime_seconds=proc.runtime_seconds,
+                error_message=f"AERSCREEN timed out after {timeout}s: {proc.timeout}",
+                start_time=proc.start, end_time=proc.end,
+            )
 
-        out = _read_capped(stdout_path, 1_000_000)
-        err = _read_capped(stderr_path, 1_000_000)
         # Each file is reported as AERSCREEN spelled it, whatever the case
         # of the name asked for (see _written_file).
         output_path = _written_file(work, config.output_file)
@@ -430,7 +384,6 @@ class AERSCREENRunner:
             if log_path else ""
         finished = "AERSCREEN Finished Successfully" in log_text
         success = proc.returncode == 0 and finished and output_path is not None
-        outputs = _files_written(work, before)
         summary: Optional[AERSCREENSummary] = None
         if success and output_path is not None:
             try:
@@ -455,10 +408,10 @@ class AERSCREENRunner:
             success=success,
             input_file=str(input_path),
             return_code=proc.returncode,
-            runtime_seconds=(end - start).total_seconds(),
-            stdout=out, stderr=err, output_files=outputs,
+            runtime_seconds=proc.runtime_seconds,
+            stdout=proc.stdout, stderr=proc.stderr, output_files=proc.files_written,
             error_message=error,
-            start_time=start, end_time=end,
+            start_time=proc.start, end_time=proc.end,
             output_file=str(output_path) if output_path else None,
             log_file=str(log_path) if log_path else None,
             restart_file=str(restart) if restart else None,

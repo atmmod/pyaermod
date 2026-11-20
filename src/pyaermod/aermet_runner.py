@@ -44,15 +44,14 @@ from __future__ import annotations
 import logging
 import re
 import shutil
-import subprocess
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Union
 
+from ._exec import _read_capped, find_executable, run_captured
 from .aermet import _MAX_FILENAME, AERMETStage1, AERMETStage2, AERMETStage3
-from .runner import _dir_state, _files_written, _read_capped, _run_tree
 
 _FINISHED_SUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED SUCCESSFULLY[ \t]*$", re.MULTILINE)
 _FINISHED_UNSUCCESSFULLY = re.compile(r"^[ \t]*AERMET FINISHED UN-SUCCESSFULLY[ \t]*$", re.MULTILINE)
@@ -216,18 +215,9 @@ class AERMETRunner:
 
     @staticmethod
     def _find_or_set_executable(path: Optional[Union[str, Path]]) -> Path:
-        if path:
-            p = Path(path)
-            if not p.exists():
-                raise FileNotFoundError(f"AERMET binary not found: {path}")
-            return p
-        for name in ("aermet", "AERMET", "aermet.exe"):
-            found = shutil.which(name)
-            if found:
-                return Path(found)
-        raise FileNotFoundError(
-            "No AERMET executable found on PATH. Pass executable_path explicitly."
-        )
+        return find_executable(
+            ("aermet", "AERMET", "aermet.exe"), path, label="AERMET binary",
+            not_found="No AERMET executable found on PATH. Pass executable_path explicitly.")
 
     @staticmethod
     def _deck_argument(inp_path: Path, work: Path) -> str:
@@ -276,41 +266,19 @@ class AERMETRunner:
         self.logger.info(
             f"Running AERMET stage {stage}: {inp_path} (workdir={work})"
         )
-        start = datetime.now()
-        before = _dir_state(work)
-        # Pipe-safe stdout/stderr handling: redirect to files instead of
-        # OS pipes to avoid deadlock on chatty AERMET stages (the same
-        # fix as runner.py applies to AERMOD).
-        stdout_path = work / f"stage{stage}.subproc.stdout"
-        stderr_path = work / f"stage{stage}.subproc.stderr"
-        stdout_fh = open(stdout_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
-        stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
-        try:
-            try:
-                proc = _run_tree(
-                    [str(self.executable), deck_arg],
-                    cwd=str(work),
-                    text=True,
-                    stdout=stdout_fh, stderr=stderr_fh,
-                    timeout=timeout,
-                )
-            except subprocess.TimeoutExpired as e:
-                end = datetime.now()
-                return AERMETRunResult(
-                    success=False, stage=stage, input_file=str(inp_path),
-                    return_code=None,
-                    runtime_seconds=(end - start).total_seconds(),
-                    error_message=f"AERMET stage {stage} timed out after {timeout}s: {e}",
-                    start_time=start, end_time=end,
-                )
-        finally:
-            stdout_fh.close()
-            stderr_fh.close()
-        end = datetime.now()
+        proc = run_captured([str(self.executable), deck_arg], work, f"stage{stage}", timeout)
+        if proc.timeout is not None:
+            return AERMETRunResult(
+                success=False, stage=stage, input_file=str(inp_path),
+                return_code=None,
+                runtime_seconds=proc.runtime_seconds,
+                error_message=f"AERMET stage {stage} timed out after {timeout}s: {proc.timeout}",
+                start_time=proc.start, end_time=proc.end,
+            )
 
-        # Read captured streams from disk (capped at 1 MB tail), as LF text.
-        out = _read_text(stdout_path)
-        err = _read_text(stderr_path)
+        # The captured streams (capped at 1 MB tail), as LF text.
+        out = _lf(proc.stdout)
+        err = _lf(proc.stderr)
 
         messages = parse_aermet_messages(out)
         if message_path is not None and message_path.is_file():
@@ -326,12 +294,12 @@ class AERMETRunner:
             stage=stage,
             input_file=str(inp_path),
             return_code=proc.returncode,
-            runtime_seconds=(end - start).total_seconds(),
+            runtime_seconds=proc.runtime_seconds,
             stdout=out,
             stderr=err,
-            output_files=_files_written(work, before),
-            start_time=start,
-            end_time=end,
+            output_files=proc.files_written,
+            start_time=proc.start,
+            end_time=proc.end,
             messages=messages,
             message_counts=counts,
             finished_successfully=finished,

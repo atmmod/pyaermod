@@ -10,7 +10,6 @@ Requires: pip install pyaermod[terrain]
 import logging
 import os
 import re
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -18,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
+from ._exec import _read_capped, find_executable
 from ._optional import optional_import, require
 
 requests = optional_import("requests")
@@ -489,23 +489,13 @@ class AERMAPRunner:
 
     def _find_or_set_executable(self, path: Optional[Union[str, Path]]) -> Path:
         """Find or validate AERMAP executable."""
-        if path:
-            exe_path = Path(path)
-            if not exe_path.exists():
-                raise FileNotFoundError(f"AERMAP executable not found: {path}")
-            return exe_path
-
-        exe_names = ["aermap", "AERMAP", "aermap.exe", "AERMAP.EXE"]
-        for name in exe_names:
-            found = shutil.which(name)
-            if found:
-                return Path(found)
-
-        raise FileNotFoundError(
-            "AERMAP executable not found in PATH. Please either:\n"
-            "  1. Add AERMAP to your system PATH, or\n"
-            "  2. Specify the path explicitly: AERMAPRunner(executable_path='/path/to/aermap')"
-        )
+        return find_executable(
+            ("aermap", "AERMAP", "aermap.exe", "AERMAP.EXE"), path,
+            label="AERMAP executable", not_found=(
+                "AERMAP executable not found in PATH. Please either:\n"
+                "  1. Add AERMAP to your system PATH, or\n"
+                "  2. Specify the path explicitly: AERMAPRunner(executable_path='/path/to/aermap')"
+            ))
 
     def run(
         self,
@@ -554,7 +544,6 @@ class AERMAPRunner:
 
         # Pipe-safe stdout/stderr (file redirect, not OS pipes); see
         # runner.AERMODRunner.run for the rationale.
-        from .runner import _read_capped
         stdout_fh = stderr_fh = None
         stdout_path = stderr_path = None
         if capture_output:
