@@ -91,7 +91,7 @@ class AdvancedVisualizer:
                               alpha=0.9, edgecolor='none')
 
         # Add contour lines at base
-        ax.contour(X, Y, Z, zdir='z', offset=Z.min(),
+        ax.contour(X, Y, Z, zdir='z', offset=np.nanmin(Z),
                   cmap='Greys', alpha=0.5, linewidths=0.5)
 
         # Colorbar
@@ -383,9 +383,13 @@ class AdvancedVisualizer:
             # Grid data
             _, _, Z = _grid_from_xy(df, x_unique, y_unique)
 
-            # Plot
-            im = ax.contourf(X, Y, Z, levels=15, cmap='YlOrRd',
-                            norm=mcolors.LogNorm(vmin=vmin, vmax=vmax))
+            # Plot. A frame with no positive value has no level on a log
+            # scale: draw it flat on a linear one, in the lowest colour.
+            if (Z > 0).any():
+                norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+            else:
+                norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            im = ax.contourf(X, Y, Z, levels=15, cmap='YlOrRd', norm=norm)
             ax.contour(X, Y, Z, levels=10, colors='black',
                       linewidths=0.3, alpha=0.3)
 

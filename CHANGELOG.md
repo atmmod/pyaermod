@@ -199,6 +199,17 @@ reader parses now write with `validate=True`; 72 did not.
 - `AERMODVisualizer.plot_contours` titles a plot with the run's title.
   It used a job name, which AERMOD never prints, so the second title
   line of every real run read "Unknown".
+- `AdvancedVisualizer.plot_time_series_animation` draws a frame with no
+  positive concentration as a flat field. It raised "cannot convert float
+  NaN to integer", for all-zero data and for one zero frame among others.
+- `AdvancedVisualizer.plot_3d_surface` draws receptors that do not fill
+  their bounding box (an L shape, a triangle, a grid with one receptor
+  missing) over the cells they cover. Drawing or saving the figure raised
+  a broadcast `ValueError`.
+- `VectorExporter.export_sources` and `export_all` refuse to write a
+  shapefile for sources that mix points, lines and polygons, with a
+  `ValueError` that names GeoPackage and GeoJSON, which hold them
+  together. pyogrio raised `FeatureError` part way through the file.
 
 ### Removed
 
