@@ -607,6 +607,44 @@ class TestVectorExporter:
         assert (tmp_path / "sources.shx").exists()
         assert (tmp_path / "sources.dbf").exists()
 
+    def test_export_shapefile_refuses_mixed_geometry(self, factory, sample_sources, tmp_path):
+        """Point, line and polygon sources cannot share one shapefile.
+
+        The refusal comes before anything is written and names the formats
+        that do hold them; pyogrio raised FeatureError part way through.
+        """
+        exporter = VectorExporter(factory)
+        outdir = tmp_path / "shp"
+        with pytest.raises(ValueError, match=r"one geometry type.*LineString, Point and Polygon.*GPKG.*GeoJSON"):
+            exporter.export_sources(sample_sources, outdir / "sources.shp", driver="ESRI Shapefile")
+        assert not outdir.exists()
+
+    def test_export_all_shapefile_refuses_mixed_geometry(self, factory, sample_sources, tmp_path):
+        from types import SimpleNamespace
+        receptors = ReceptorPathway()
+        receptors.add_discrete_receptor(DiscreteReceptor(x_coord=501000, y_coord=3801000))
+        project = SimpleNamespace(sources=SimpleNamespace(sources=sample_sources), receptors=receptors)
+        outdir = tmp_path / "all"
+        with pytest.raises(ValueError, match="one geometry type"):
+            VectorExporter(factory).export_all(project, output_dir=outdir, driver="ESRI Shapefile")
+        assert not list(outdir.glob("*"))
+
+    def test_export_shapefile_single_and_multi_lines(self, factory, tmp_path):
+        """A line and a buoyant line (a MultiLineString) are one shapefile type."""
+        sources = [
+            LineSource(source_id="LN1", x_start=500500, y_start=3800500,
+                       x_end=501500, y_end=3801500, emission_rate=0.002),
+            BuoyLineSource(
+                source_id="BLP1", avg_line_length=100.0, avg_building_height=15.0,
+                avg_building_width=20.0, avg_line_width=5.0, avg_building_separation=10.0,
+                avg_buoyancy_parameter=0.5,
+                line_segments=[BuoyLineSegment("BL01", 500800, 3800800, 501000, 3800800),
+                               BuoyLineSegment("BL02", 501000, 3800800, 501200, 3800800)]),
+        ]
+        outfile = tmp_path / "lines.shp"
+        VectorExporter(factory).export_sources(sources, outfile, driver="ESRI Shapefile")
+        assert list(gpd.read_file(outfile)["source_id"]) == ["LN1", "BLP1"]
+
     def test_export_creates_parent_dirs(self, factory, sample_sources, tmp_path):
         exporter = VectorExporter(factory)
         outfile = tmp_path / "nested" / "dir" / "sources.gpkg"

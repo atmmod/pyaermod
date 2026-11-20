@@ -670,8 +670,23 @@ class VectorExporter:
         output_path: Union[str, Path],
         driver: str = "GPKG",
     ) -> Path:
-        """Export source objects as a vector file."""
+        """Export source objects as a vector file.
+
+        A shapefile holds one geometry type, so ``driver='ESRI Shapefile'``
+        raises ``ValueError`` for sources that mix points, lines and
+        polygons. GeoPackage and GeoJSON hold them together.
+        """
         gdf = self.factory.sources_to_geodataframe(sources)
+        if driver == "ESRI Shapefile":
+            # LineString and MultiLineString are one shapefile type.
+            kinds = sorted({t.removeprefix("Multi") for t in gdf.geom_type.dropna()})
+            if len(kinds) > 1:
+                raise ValueError(
+                    "a shapefile holds one geometry type, and these sources have "
+                    f"{', '.join(kinds[:-1])} and {kinds[-1]} geometries; use "
+                    "driver='GPKG' or driver='GeoJSON', or export each kind of "
+                    "source to its own shapefile"
+                )
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         gdf.to_file(output_path, driver=driver)
@@ -748,7 +763,9 @@ class VectorExporter:
         output_dir : str or Path
             Output directory.
         driver : str
-            OGR driver.
+            OGR driver. ``'ESRI Shapefile'`` raises ``ValueError`` when
+            the sources mix points, lines and polygons (see
+            :meth:`export_sources`).
 
         Returns
         -------

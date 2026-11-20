@@ -204,6 +204,10 @@ reader parses now write with `validate=True`; 72 did not.
   their bounding box (an L shape, a triangle, a grid with one receptor
   missing) over the cells they cover. Drawing or saving the figure raised
   a broadcast `ValueError`.
+- `VectorExporter.export_sources` and `export_all` refuse to write a
+  shapefile for sources that mix points, lines and polygons, with a
+  `ValueError` that names GeoPackage and GeoJSON, which hold them
+  together. pyogrio raised `FeatureError` part way through the file.
 
 ### Removed
 
