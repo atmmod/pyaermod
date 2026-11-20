@@ -464,17 +464,26 @@ def _background_lines(spec: BackgroundSpec, keywords: Tuple[str, str, str],
     return lines
 
 
+def _sectored_background_lines(data: Union[OzoneData, NOxBackground], whole: BackgroundSpec,
+                               sector_kw: str, units_kw: str,
+                               keywords: Tuple[str, str, str]) -> List[str]:
+    """The sector and units keywords of ``data``, then the lines of its
+    whole-domain specification ``whole`` and of each sector's."""
+    lines: List[str] = []
+    if data.sectors:
+        lines.append(f"   {sector_kw}  " + "  ".join(_num(d) for d in data.sectors))
+    if data.units:
+        lines.append(f"   {units_kw}  {data.units}")
+    lines += _background_lines(whole, keywords)
+    for sector, spec in sorted(data.by_sector.items()):
+        lines += _background_lines(spec, keywords, sector=sector)
+    return lines
+
+
 def _ozone_lines(oz: OzoneData) -> List[str]:
     """CO-pathway ozone keywords for an :class:`OzoneData`."""
-    lines: List[str] = []
-    if oz.sectors:
-        lines.append("   O3SECTOR  " + "  ".join(_num(d) for d in oz.sectors))
-    if oz.units:
-        lines.append(f"   OZONUNIT  {oz.units}")
-    kw = ("OZONEVAL", "OZONEFIL", "O3VALUES")
-    lines += _background_lines(oz.spec(), kw)
-    for sector, spec in sorted(oz.by_sector.items()):
-        lines += _background_lines(spec, kw, sector=sector)
+    lines = _sectored_background_lines(oz, oz.spec(), "O3SECTOR", "OZONUNIT",
+                                       ("OZONEVAL", "OZONEFIL", "O3VALUES"))
     for sector, value in sorted((oz.sector_values or {}).items()):
         if sector not in oz.by_sector:
             lines.append(f"   OZONEVAL  SECT{sector}  {_num(value)}")
@@ -483,16 +492,8 @@ def _ozone_lines(oz: OzoneData) -> List[str]:
 
 def _nox_lines(nox: NOxBackground) -> List[str]:
     """CO-pathway NOx background keywords for a :class:`NOxBackground`."""
-    lines: List[str] = []
-    if nox.sectors:
-        lines.append("   NOXSECTR  " + "  ".join(_num(d) for d in nox.sectors))
-    if nox.units:
-        lines.append(f"   NOX_UNIT  {nox.units}")
-    kw = ("NOXVALUE", "NOX_FILE", "NOX_VALS")
-    lines += _background_lines(nox, kw)
-    for sector, spec in sorted(nox.by_sector.items()):
-        lines += _background_lines(spec, kw, sector=sector)
-    return lines
+    return _sectored_background_lines(nox, nox, "NOXSECTR", "NOX_UNIT",
+                                      ("NOXVALUE", "NOX_FILE", "NOX_VALS"))
 
 
 @dataclass
@@ -537,6 +538,29 @@ class ChemistryOptions:
         if self.nox_file:
             return NOxBackground(hourly_file=self.nox_file)
         return None
+
+
+def _chemistry_lines(chem: ChemistryOptions) -> List[str]:
+    """The chemistry keywords of the CO pathway, in the order written:
+    ozone, NO2STACK, NOx background.
+
+    The ozone keywords each have one job in coset.f: OZONEVAL takes a
+    constant, OZONEFIL a file, O3VALUES a temporal flag and its values.
+    (Earlier releases wrote every form as O3VALUES, which AERMOD rejects
+    as E201/E203.)
+    """
+    lines: List[str] = []
+    if chem.ozone_data is not None:
+        lines += _ozone_lines(chem.ozone_data)
+    # NO2STACK (default in-stack ratio); ARM2 has no in-stack ratio and
+    # rejects the keyword (E600).
+    if chem.method.value in NO2STACK_METHODS and chem.default_no2_ratio is not None:
+        lines.append(f"   NO2STACK  {exact_num(chem.default_no2_ratio)}")
+    # NOx background (GRSM)
+    nox = chem.effective_nox_background()
+    if nox is not None:
+        lines += _nox_lines(nox)
+    return lines
 
 
 # ============================================================================
@@ -884,6 +908,39 @@ class ControlPathway:
                 model_opts.append(opt.upper())
         return model_opts
 
+    def _restart_lines(self) -> List[str]:
+        """The MULTYEAR, SAVEFILE, INITFILE and EVENTFIL cards, in that order."""
+        lines = []
+        if self.multiyear is not None:
+            my = self.multiyear
+            line = "   MULTYEAR  " + ("H6H  " if my.h6h else "") + quote_path(my.save_file)
+            if my.init_file:
+                line += f"  {quote_path(my.init_file)}"
+            lines.append(line)
+        if self.save_file is not None:
+            sf = self.save_file
+            line = "   SAVEFILE"
+            if sf.filename:
+                line += f"  {quote_path(sf.filename)}"
+                if sf.day_increment is not None or sf.alternate_filename:
+                    # An alternate file sits in field 5, so field 4 must
+                    # hold the increment; 1 is AERMOD's own default.
+                    line += f"  {sf.day_increment if sf.day_increment is not None else 1}"
+                if sf.alternate_filename:
+                    line += f"  {quote_path(sf.alternate_filename)}"
+            lines.append(line)
+        if self.init_file is not None:
+            line = "   INITFILE"
+            if self.init_file.filename:
+                line += f"  {quote_path(self.init_file.filename)}"
+            lines.append(line)
+        if self.eventfil:
+            line = f"   EVENTFIL  {quote_path(self.eventfil)}"
+            if self.eventfil_option:
+                line += f"  {self.eventfil_option}"
+            lines.append(line)
+        return lines
+
     def to_aermod_input(self, event_processing: bool = False) -> str:
         """Generate AERMOD CO pathway text.
 
@@ -927,43 +984,36 @@ class ControlPathway:
         if self.flag_pole_height is not None:
             lines.append(f"   FLAGPOLE  {exact_num(self.flag_pole_height)}")
 
-        if self.urban_areas:
-            # coset.f URBOPT: with one URBANOPT card the fields are
-            # ``pop [name [z0]]``; with several, ``id pop [name [z0]]``.
-            multi = len(self.urban_areas) > 1
-            for area in self.urban_areas:
-                fields = [area.urban_id] if multi and area.urban_id else []
-                fields.append(one_decimal_or_exact(area.population))
-                if area.name or area.roughness is not None:
-                    fields.append(area.name or "URBAN")
-                if area.roughness is not None:
-                    fields.append(exact_num(area.roughness))
-                lines.append("   URBANOPT  " + "  ".join(fields))
-        elif self.urban_option or self.urban_population is not None:
+        areas = self.urban_areas
+        if not areas and (self.urban_option or self.urban_population is not None):
             # Single-area URBANOPT: population [name] [roughness]. The
             # earlier "name population" order is the multi-area form,
             # which AERMOD reads as an illegal numeric field (E208) when
             # the deck has only one URBANOPT card.
+            if self.urban_roughness is not None and not self.urban_option:
+                raise ValueError(
+                    "urban_roughness needs urban_option: AERMOD reads the "
+                    "roughness from the third URBANOPT field")
             pop = self.urban_population if self.urban_population is not None else 1000000.0
-            line = f"   URBANOPT  {one_decimal_or_exact(pop)}"
-            if self.urban_option:
-                line += f"  {self.urban_option}"
-            if self.urban_roughness is not None:
-                if not self.urban_option:
-                    raise ValueError(
-                        "urban_roughness needs urban_option: AERMOD reads the "
-                        "roughness from the third URBANOPT field")
-                line += f"  {exact_num(self.urban_roughness)}"
-            lines.append(line)
+            areas = [UrbanArea(pop, name=self.urban_option, roughness=self.urban_roughness)]
+        # coset.f URBOPT: with one URBANOPT card the fields are
+        # ``pop [name [z0]]``; with several, ``id pop [name [z0]]``.
+        for area in areas:
+            fields = [area.urban_id] if len(areas) > 1 and area.urban_id else []
+            fields.append(one_decimal_or_exact(area.population))
+            if area.name or area.roughness is not None:
+                fields.append(area.name or "URBAN")
+            if area.roughness is not None:
+                fields.append(exact_num(area.roughness))
+            lines.append("   URBANOPT  " + "  ".join(fields))
 
         if self.low_wind_option:
             lines.append(f"   LOW_WIND  {self.low_wind_option}")
 
         # PRIME downwash research options (ALPHA)
-        if self.awma_downwash:
-            lines.append("   AWMADWNW  " + "  ".join(o.upper() for o in self.awma_downwash))
-        if self.ord_downwash:
-            lines.append("   ORD_DWNW  " + "  ".join(o.upper() for o in self.ord_downwash))
+        for keyword, options in (("AWMADWNW", self.awma_downwash), ("ORD_DWNW", self.ord_downwash)):
+            if options:
+                lines.append(f"   {keyword}  " + "  ".join(o.upper() for o in options))
 
         # Gas dry-deposition defaults
         gdd = self.gas_deposition_defaults
@@ -975,70 +1025,23 @@ class ControlPathway:
             lines.append(line)
         if self.gas_deposition_velocity is not None:
             lines.append(f"   GASDEPVD  {_num(self.gas_deposition_velocity)}")
-        if self.gas_deposition_seasons:
-            lines.append("   GDSEASON  " + "  ".join(
-                str(int(v)) for v in self.gas_deposition_seasons))
-        if self.gas_deposition_land_use:
-            lines.append("   GDLANUSE  " + "  ".join(
-                str(int(v)) for v in self.gas_deposition_land_use))
+        for keyword, codes in (("GDSEASON", self.gas_deposition_seasons),
+                               ("GDLANUSE", self.gas_deposition_land_use)):
+            if codes:
+                lines.append(f"   {keyword}  " + "  ".join(str(int(v)) for v in codes))
 
-        # Chemistry-related CO keywords. The ozone keywords each have
-        # one job in coset.f: OZONEVAL takes a constant, OZONEFIL a file,
-        # O3VALUES a temporal flag and its values. (Earlier releases wrote
-        # every form as O3VALUES, which AERMOD rejects as E201/E203.)
+        # Chemistry-related CO keywords (ozone, NO2STACK, NOx background)
         if self.chemistry is not None:
-            chem = self.chemistry
-            if chem.ozone_data is not None:
-                lines += _ozone_lines(chem.ozone_data)
-
-            # NO2STACK (default in-stack ratio); ARM2 has no in-stack
-            # ratio and rejects the keyword (E600).
-            if (chem.method.value in NO2STACK_METHODS
-                    and chem.default_no2_ratio is not None):
-                lines.append(f"   NO2STACK  {exact_num(chem.default_no2_ratio)}")
-
-            # NOx background (GRSM)
-            nox = chem.effective_nox_background()
-            if nox is not None:
-                lines += _nox_lines(nox)
+            lines += _chemistry_lines(self.chemistry)
 
         # ARM2 ratio bounds (needs the ARM2 option, E145 otherwise)
         if self.arm2_ratios is not None:
             lines.append(f"   ARMRATIO  {_num(self.arm2_ratios[0])}  {_num(self.arm2_ratios[1])}")
 
-        # Restart / multi-year options (not dispatched in an EVENT run)
-        if event_processing:
-            pass
-        elif self.multiyear is not None:
-            my = self.multiyear
-            line = "   MULTYEAR  " + ("H6H  " if my.h6h else "") + quote_path(my.save_file)
-            if my.init_file:
-                line += f"  {quote_path(my.init_file)}"
-            lines.append(line)
-        if self.save_file is not None and not event_processing:
-            sf = self.save_file
-            line = "   SAVEFILE"
-            if sf.filename:
-                line += f"  {quote_path(sf.filename)}"
-                if sf.day_increment is not None or sf.alternate_filename:
-                    # An alternate file sits in field 5, so field 4 must
-                    # hold the increment; 1 is AERMOD's own default.
-                    line += f"  {sf.day_increment if sf.day_increment is not None else 1}"
-                if sf.alternate_filename:
-                    line += f"  {quote_path(sf.alternate_filename)}"
-            lines.append(line)
-        if self.init_file is not None and not event_processing:
-            line = "   INITFILE"
-            if self.init_file.filename:
-                line += f"  {quote_path(self.init_file.filename)}"
-            lines.append(line)
-
-        # Event file reference (the event deck itself never carries it)
-        if self.eventfil and not event_processing:
-            line = f"   EVENTFIL  {quote_path(self.eventfil)}"
-            if self.eventfil_option:
-                line += f"  {self.eventfil_option}"
-            lines.append(line)
+        # Restart / multi-year options and the event file reference: not
+        # dispatched in an EVENT run, and the event deck never carries them.
+        if not event_processing:
+            lines += self._restart_lines()
 
         # Debug output. After MODELOPT, which DEBOPT checks DEPOS against
         # (E194 otherwise); AERMOD reads the fields as written.
@@ -1216,18 +1219,13 @@ class MeteorologyPathway:
         if not event_processing and all(
                 x is not None for x in [self.start_year, self.start_month, self.start_day,
                                         self.end_year, self.end_month, self.end_day]):
-            if self.start_hour is not None and self.end_hour is not None:
-                lines.append(
-                    f"   STARTEND  {self.start_year:4d} {self.start_month:2d} "
-                    f"{self.start_day:2d} {self.start_hour:2d}  "
-                    f"{self.end_year:4d} {self.end_month:2d} {self.end_day:2d} "
-                    f"{self.end_hour:2d}"
-                )
-            else:
-                lines.append(
-                    f"   STARTEND  {self.start_year:4d} {self.start_month:2d} {self.start_day:2d}  "
-                    f"{self.end_year:4d} {self.end_month:2d} {self.end_day:2d}"
-                )
+            hours = self.start_hour is not None and self.end_hour is not None
+            lines.append(
+                f"   STARTEND  {self.start_year:4d} {self.start_month:2d} {self.start_day:2d}"
+                + (f" {self.start_hour:2d}" if hours else "")
+                + f"  {self.end_year:4d} {self.end_month:2d} {self.end_day:2d}"
+                + (f" {self.end_hour:2d}" if hours else "")
+            )
 
         if self.day_ranges and not event_processing:
             lines.append("   DAYRANGE  " + "  ".join(self.day_ranges))
@@ -1487,6 +1485,11 @@ def _cards_rank(cards: List[List[str]]) -> Optional[int]:
     return max(ranks) if ranks else None
 
 
+def _with_unit(line: str, file_unit: Optional[int]) -> str:
+    """``line`` with the optional Fortran unit field of an OU file keyword."""
+    return line if file_unit is None else f"{line}  {file_unit}"
+
+
 def _resolve(filename: str, base_dir: Optional[Union[str, Path]]) -> Path:
     path = Path(unquote_path(filename))
     return path if path.is_absolute() or base_dir is None else Path(base_dir) / path
@@ -1510,10 +1513,8 @@ class RankFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = f"   RANKFILE  {self.averaging_period}  {int(self.rank)}  {quote_path(self.filename)}"
-        if self.file_unit is not None:
-            line += f"  {self.file_unit}"
-        return line
+        return _with_unit(f"   RANKFILE  {self.averaging_period}  {int(self.rank)}  "
+                          f"{quote_path(self.filename)}", self.file_unit)
 
     def read(self, base_dir: Optional[Union[str, Path]] = None):
         """The ranked values AERMOD wrote (``base_dir`` resolves a relative name)."""
@@ -1535,10 +1536,7 @@ class SeasonHourFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = f"   SEASONHR  {self.source_group}  {quote_path(self.filename)}"
-        if self.file_unit is not None:
-            line += f"  {self.file_unit}"
-        return line
+        return _with_unit(f"   SEASONHR  {self.source_group}  {quote_path(self.filename)}", self.file_unit)
 
     def read(self, base_dir: Optional[Union[str, Path]] = None):
         """The season-by-hour table AERMOD wrote."""
@@ -1561,10 +1559,7 @@ class EvalFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = f"   EVALFILE  {self.source_id}  {quote_path(self.filename)}"
-        if self.file_unit is not None:
-            line += f"  {self.file_unit}"
-        return line
+        return _with_unit(f"   EVALFILE  {self.source_id}  {quote_path(self.filename)}", self.file_unit)
 
 
 @dataclass
@@ -1584,11 +1579,8 @@ class ToxxFile:
     file_unit: Optional[int] = None
 
     def to_aermod_line(self) -> str:
-        line = (f"   TOXXFILE  {self.averaging_period}  {_num(self.threshold)}  "
-                f"{quote_path(self.filename)}")
-        if self.file_unit is not None:
-            line += f"  {self.file_unit}"
-        return line
+        return _with_unit(f"   TOXXFILE  {self.averaging_period}  {_num(self.threshold)}  "
+                          f"{quote_path(self.filename)}", self.file_unit)
 
     def read(self, base_dir: Optional[Union[str, Path]] = None):
         """The threshold records, through :func:`read_toxxfile`."""
@@ -1778,11 +1770,9 @@ class OutputPathway:
 
         # Threshold files: MAXIFILE aveper grpid thresh filnam [funit]
         for mf in self.maxi_files:
-            line = (f"   MAXIFILE  {mf.averaging_period}  {mf.source_group}  "
-                    f"{_num(mf.threshold)}  {quote_path(mf.filename)}")
-            if mf.file_unit is not None:
-                line += f"  {mf.file_unit}"
-            lines.append(line)
+            lines.append(_with_unit(
+                f"   MAXIFILE  {mf.averaging_period}  {mf.source_group}  "
+                f"{_num(mf.threshold)}  {quote_path(mf.filename)}", mf.file_unit))
 
         # Plot file. AERMOD's PLOTFILE syntax depends on the averaging
         # period and carries no output-type field:
@@ -1831,18 +1821,13 @@ class OutputPathway:
         for keyword, entries in (("MAXDAILY", self.max_daily_files),
                                  ("MXDYBYYR", self.max_daily_by_year_files)):
             for entry in entries:
-                line = f"   {keyword}  {entry.source_group}  {quote_path(entry.filename)}"
-                if entry.file_unit is not None:
-                    line += f"  {entry.file_unit}"
-                lines.append(line)
+                lines.append(_with_unit(
+                    f"   {keyword}  {entry.source_group}  {quote_path(entry.filename)}", entry.file_unit))
         for mdc in self.max_daily_contributions:
             bound = (f"THRESH  {_num(mdc.threshold)}" if mdc.threshold is not None
                      else str(mdc.lower_rank))
-            line = (f"   MAXDCONT  {mdc.source_group}  {mdc.upper_rank}  {bound}"
-                    f"  {quote_path(mdc.filename)}")
-            if mdc.file_unit is not None:
-                line += f"  {mdc.file_unit}"
-            lines.append(line)
+            lines.append(_with_unit(f"   MAXDCONT  {mdc.source_group}  {mdc.upper_rank}  {bound}"
+                                    f"  {quote_path(mdc.filename)}", mdc.file_unit))
 
         lines.append("OU FINISHED")
         return "\n".join(lines)
