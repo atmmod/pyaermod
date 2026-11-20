@@ -597,10 +597,10 @@ def test_under_pyodide_aermod_is_the_webassembly_build(monkeypatch):
     from pyaermod import wasm_runner
 
     monkeypatch.setattr(wasm_runner, "IS_EMSCRIPTEN", True)
-    monkeypatch.setattr(wasm_runner, "find_wasm_aermod", lambda: Path("/x/aermod.js"))
+    monkeypatch.setattr(wasm_runner, "find_wasm_aermod", lambda path=None: Path("/x/aermod.js"))
     assert browser._have_aermod()
 
-    def missing():
+    def missing(path=None):
         raise wasm_runner.WasmAERMODNotFound("none")
 
     monkeypatch.setattr(wasm_runner, "find_wasm_aermod", missing)

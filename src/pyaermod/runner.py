@@ -293,6 +293,40 @@ class AERMODRunResult:
         return f"AERMODRunResult({status}, {self.input_file}, runtime={runtime})"
 
 
+#: The names AERMOD is looked for on ``PATH`` under (EPA's own build is
+#: called ``AERMOD``).
+AERMOD_EXECUTABLE_NAMES = ("aermod", "AERMOD", "aermod.exe", "AERMOD.EXE")
+
+
+def find_aermod_executable(path: Optional[Union[str, Path]] = None) -> Path:
+    """The AERMOD executable: ``path`` if given, else the first on ``PATH``.
+
+    Under Pyodide, where no executable can run, this is the ``aermod.js``
+    of a WebAssembly build (see :mod:`pyaermod.wasm_runner`). Raises
+    ``FileNotFoundError`` when ``path`` does not exist or nothing is found.
+    """
+    if wasm_runner.IS_EMSCRIPTEN:
+        return wasm_runner.find_wasm_aermod(path)
+
+    if path:
+        exe_path = Path(path)
+        if not exe_path.exists():
+            raise FileNotFoundError(f"AERMOD executable not found: {path}")
+        return exe_path
+
+    for name in AERMOD_EXECUTABLE_NAMES:
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+
+    raise FileNotFoundError(
+        "AERMOD executable not found in PATH. Please either:\n"
+        "  1. Add AERMOD to your system PATH, or\n"
+        "  2. Specify the path explicitly: AERMODRunner(executable_path='/path/to/aermod')\n\n"
+        f"System: {platform.system()}"
+    )
+
+
 class AERMODRunner:
     """
     Execute AERMOD simulations from Python
@@ -330,38 +364,8 @@ class AERMODRunner:
         self.logger.info(f"Initialized AERMOD runner with executable: {self.executable}")
 
     def _find_or_set_executable(self, path: Optional[Union[str, Path]]) -> Path:
-        """Find or validate AERMOD executable
-
-        Under Pyodide, where no executable can run, this is the
-        ``aermod.js`` of a WebAssembly build (see :mod:`pyaermod.wasm_runner`).
-        """
-        if wasm_runner.IS_EMSCRIPTEN:
-            return wasm_runner.find_wasm_aermod(path)
-
-        if path:
-            exe_path = Path(path)
-            if not exe_path.exists():
-                raise FileNotFoundError(f"AERMOD executable not found: {path}")
-            return exe_path
-
-        # Search in PATH
-        system = platform.system()
-
-        # Try common names
-        exe_names = ['aermod', 'AERMOD', 'aermod.exe', 'AERMOD.EXE']
-
-        for name in exe_names:
-            found = shutil.which(name)
-            if found:
-                return Path(found)
-
-        # If not found, provide helpful error message
-        raise FileNotFoundError(
-            "AERMOD executable not found in PATH. Please either:\n"
-            "  1. Add AERMOD to your system PATH, or\n"
-            "  2. Specify the path explicitly: AERMODRunner(executable_path='/path/to/aermod')\n\n"
-            f"System: {system}"
-        )
+        """:func:`find_aermod_executable`."""
+        return find_aermod_executable(path)
 
     def run(self,
             input_file: Union[str, Path],
