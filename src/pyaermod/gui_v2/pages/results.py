@@ -41,9 +41,11 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .._live import live
+from .._live import is_deleted, live
+from ..catalog import UNITS as _UNITS
 from ..run_results import (
     FLAG_MEANINGS,
+    OUTPUT_TYPES,
     PlotField,
     RunFile,
     RunView,
@@ -74,11 +76,6 @@ COULD_NOT_READ = "Could not read the results of run {number}: {error}"
 CHANGED_SINCE = ("The project has changed since run {number} started. These results are "
                  "for the project as it was then; run AERMOD again for results of the "
                  "project as it is now.")
-
-_UNITS = {"ug/m^3": "µg/m³", "g/m^2": "g/m²", "g/m^2/yr": "g/m²/yr"}
-
-_OUTPUT_TYPES = {"CONC": "Concentration", "DEPOS": "Total deposition",
-                 "DDEP": "Dry deposition", "WDEP": "Wet deposition"}
 
 
 def _no_goto(step: str) -> None:
@@ -120,7 +117,7 @@ def render(session: Session, *, dialogs: Any = None,
                 pass
             finally:
                 awaited.discard(record.number)
-            if not _gone(client):
+            if not is_deleted(client):
                 _body.refresh()
 
         from nicegui import background_tasks
@@ -190,14 +187,6 @@ def render(session: Session, *, dialogs: Any = None,
         later = overwritten_by(session, record)
         _render_view(ui, view, later_run=later.number if later else None,
                      map_choice=map_choice, goto=goto)
-
-
-def _gone(client: Any) -> bool:
-    """Whether the page's client has been deleted (the tab closed)."""
-    flag = getattr(client, "is_deleted", None)
-    if flag is None:
-        flag = getattr(client, "_deleted", False)
-    return bool(flag)
 
 
 def _history_label(record: Any, view: Optional[RunView]) -> str:
@@ -365,7 +354,7 @@ def _deposition_maxima(ui: Any, tables: List[Any]) -> None:
         top = table.max_row or {}
         rows.append({
             "key": i,
-            "what": _OUTPUT_TYPES.get(table.output_type, table.output_type),
+            "what": OUTPUT_TYPES.get(table.output_type, table.output_type),
             "period": period_label(table.averaging_period),
             "value": str(top.get("value_text") or table.max_value),
             "x": _xy(table.max_location[0]),
@@ -546,7 +535,7 @@ def _all_values(ui: Any, tables: List[Any]) -> None:
         return
     ui.label("Summary tables").classes("text-subtitle1 q-mt-md")
     for table in tables:
-        kind = _OUTPUT_TYPES.get(table.output_type, table.output_type)
+        kind = OUTPUT_TYPES.get(table.output_type, table.output_type)
         name = f"{kind}, {period_label(table.averaging_period)}: {table.title or ''}"
         rows = []
         for i, row in enumerate(table.data.to_dict("records")):

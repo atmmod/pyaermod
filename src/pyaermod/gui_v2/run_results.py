@@ -873,6 +873,51 @@ def watch(session: Session) -> Callable[[], None]:
     return session.subscribe(SessionEvent.RUN_FINISHED, on_finished)
 
 
+def _seconds(record: RunRecord) -> float:
+    r = record.result
+    if r is not None and r.runtime_seconds is not None:
+        return float(r.runtime_seconds)
+    end = record.finished_at
+    return (end - record.started_at).total_seconds() if end is not None else 0.0
+
+
+def run_status_text(record: Optional[RunRecord]) -> str:
+    """The one-line status of ``record`` (a placeholder when there is no run).
+
+    The first word is the status: "Running", "Succeeded", "Failed" or
+    "Cancelled".
+    """
+    if record is None:
+        return "AERMOD has not been run for this project yet."
+    status = record.status
+    if status == "Running":
+        return f"Running AERMOD in {record.work_dir} ..."
+    if status == "Succeeded":
+        return f"Succeeded in {_seconds(record):.1f} s. See the Results step."
+    if status == "Cancelled":
+        return f"Cancelled after {_seconds(record):.1f} s."
+    reason = record.error
+    if reason is None and record.result is not None:
+        reason = record.result.error_message or f"exit code {record.result.return_code}"
+    return f"Failed: {reason}"
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def message_counts_text(record: Optional[RunRecord]) -> str:
+    """"0 fatal errors, 6 warnings, 1 informational message" ("" before a result)."""
+    if record is None or record.result is None or record.cancelled:
+        return ""
+    r = record.result
+    if not (r.finished_successfully or r.messages or r.message_counts):
+        return ""
+    return (f"AERMOD reported {_plural(r.fatal_count, 'fatal error')}, "
+            f"{_plural(r.warning_count, 'warning')} and "
+            f"{_plural(r.informational_count, 'informational message')}.")
+
+
 def completed_runs(session: Session) -> List[RunRecord]:
     """The runs Results can show, newest first: every finished run,
     including one AERMOD could not be started for (its view says why),
@@ -882,14 +927,8 @@ def completed_runs(session: Session) -> List[RunRecord]:
 
 def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:
     """The later run of ``session`` that wrote into ``record``'s directory."""
-    def same(a: Path, b: Path) -> bool:
-        try:
-            return a.resolve() == b.resolve()
-        except OSError:
-            return a == b
-
     for later in session.runs:
-        if later.number > record.number and same(later.work_dir, record.work_dir):
+        if later.number > record.number and _same_file(later.work_dir, record.work_dir):
             return later
     return None
 
@@ -908,12 +947,14 @@ __all__ = [
     "cached_view",
     "completed_runs",
     "deck_lines",
+    "message_counts_text",
     "naaqs_caption",
     "naaqs_checks",
     "overwritten_by",
     "period_label",
     "period_sort_key",
     "prepare",
+    "run_status_text",
     "table_qualifier",
     "view_of",
     "watch",

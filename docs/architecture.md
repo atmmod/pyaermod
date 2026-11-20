@@ -59,8 +59,10 @@ read_aermod_input ◀─────────────┘                 
 - **`pyaermod-app`** (`gui_v2`) is a NiceGUI application. A UI-free
   `Session` (`gui_v2/session.py`) holds the project, its file and the
   run history and announces every change; each step's page is rebuilt from
-  the session. The Review & Run checklist (`gui_v2/readiness.py`) and the
-  project file format (`gui_v2/project_io.py`) have no UI either.
+  the session. The Review & Run checklist (`gui_v2/readiness.py`), the
+  project file format (`gui_v2/project_io.py`), the catalogue of source
+  and receptor types, defaults and field groups (`gui_v2/catalog.py`) and
+  deck import (`gui_v2/deck_import.py`) have no UI either.
   `pyaermod-desktop` shows the same app in a pywebview window.
 - **The browser app** (`webapp/`) is a static page. pyaermod runs inside it
   under Pyodide in a Web Worker, and every operation goes through one JSON

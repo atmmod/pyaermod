@@ -24,22 +24,11 @@ from .. import files
 from .._form import emit_fields, field_label
 from .._layout import Goto, section, step_page
 from .._live import live
+from ..catalog import MET_GROUPS as GROUPS
 from ..session import Session, SessionEvent
 
 #: The met file fields, which WP-G6's checked pickers edit.
 MET_FILES = ("surface_file", "profile_file")
-
-#: The groups of the step, in order; every other field goes under "Advanced".
-GROUPS = (
-    ("Met files", "The surface and profile files AERMET wrote for the site.",
-     ("surface_file", "profile_file")),
-    ("Stations", "SURFDATA, UAIRDATA and PROFBASE: AERMOD checks these against the files.",
-     ("surface_station_id", "upper_air_station_id", "data_start_year", "profile_base_elevation")),
-    ("Period to model", "STARTEND: leave blank to model every hour of the files.",
-     ("start_year", "start_month", "start_day", "start_hour",
-      "end_year", "end_month", "end_day", "end_hour")),
-)
-
 
 def render(session: Session, *, dialogs: Any = None, goto: Optional[Goto] = None) -> None:
     from nicegui import ui
