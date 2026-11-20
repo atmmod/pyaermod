@@ -11,6 +11,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Union, overload
@@ -87,7 +88,7 @@ def _kill_tree(proc: "subprocess.Popen[Any]", *, force: bool = True) -> None:
     thing; Windows always ends the tree (``taskkill /T /F``, then
     ``proc.kill()`` as a fallback; correct by inspection, not run here).
     """
-    if os.name == "nt":
+    if sys.platform == "win32":  # same as os.name == "nt", and mypy follows it
         with contextlib.suppress(Exception):
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                            capture_output=True, timeout=30, check=False)

@@ -149,11 +149,11 @@ class LoggingProgress:
 class TqdmProgress:
     """Progress reporter using `tqdm`. Only works if tqdm is installed."""
     def __init__(self) -> None:
-        require(tqdm, "tqdm", pip_extra="hpc")
+        self._tqdm = require(_tqdm_mod, "tqdm", pip_extra="hpc").tqdm
         self.bar = None
 
     def start(self, total: int, description: str = "") -> None:
-        self.bar = tqdm(total=total, desc=description or "AERMOD")
+        self.bar = self._tqdm(total=total, desc=description or "AERMOD")
 
     def update(self, n: int = 1, message: str = "") -> None:
         if self.bar is not None:
