@@ -971,13 +971,12 @@ def _build_binary_deposition_record(kurdat, ianhrs, grpid, concs, dry_deps, wet_
 
 # Synthetic AERMOD output content for E2E tests
 E2E_OUTPUT_CONTENT = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: E2E_TEST
+ *** AERMOD - VERSION 24142  ***   ***  E2E_TEST                                                            ***        03/01/24
 
   Pollutant Type of: SO2
 
-  Averaging Time Period:  1-HR  ANNUAL
+**Model Calculates  1 Short Term Average(s) of:   1-HR
+    and Calculates ANNUAL Averages
 
   This Run Includes:   1 Source(s);   1 Source Group(s); and   25 Receptor(s)
 
@@ -1062,7 +1061,7 @@ class TestEndToEndMockPipeline:
         results = parse_aermod_output(str(e2e_workspace / "e2e_test.out"))
 
         # Verify parsed results
-        assert results.run_info.jobname == "E2E_TEST"
+        assert results.run_info.title == "E2E_TEST"
         assert results.run_info.pollutant_id == "SO2"
         assert "ANNUAL" in results.concentrations
         assert "1HR" in results.concentrations
@@ -1089,7 +1088,7 @@ class TestEndToEndMockPipeline:
         # Need enough data points for contour. The parsed output only has
         # max values, not full grids. So we verify the visualizer initializes
         # correctly and the results chain works.
-        assert viz.results.run_info.jobname == "E2E_TEST"
+        assert viz.results.run_info.title == "E2E_TEST"
         assert viz.results.run_info.pollutant_id == "SO2"
         assert len(viz.results.concentrations) >= 2
         plt.close("all")
@@ -1103,7 +1102,7 @@ class TestEndToEndMockPipeline:
 
         viz = AERMODVisualizer(results)
         # Verify the visualizer is correctly initialized with parsed data
-        assert viz.results.run_info.jobname == "E2E_TEST"
+        assert viz.results.run_info.title == "E2E_TEST"
         assert "ANNUAL" in viz.results.concentrations
 
     def test_postfile_binary_chain(self, e2e_workspace):

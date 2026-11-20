@@ -35,12 +35,9 @@ def _write_synthetic_out(path: Path, header: str, middle_bytes: int, footer: str
 EPA_HEADER = """\
  *** AERMOD - VERSION 24142  *** *** LARGE TEST                                     ***
  *** AERMET - VERSION 24142  *** ***                                                ***
- MODELOPTs: NonDFAULT CONC ELEV RURAL SigA&SigW
- Pollutant/Gas ID: SO2
- Averaging Time Period: 1-HR
- Jobname: LARGE
- Run Date: 04-22-2026
- Run Time: 12:34:56
+ *** MODELOPTs:    NonDFAULT  CONC  ELEV  RURAL  SigA&SigW
+      * The User Specified a Pollutant Type of: SO2
+ **Model Calculates  1 Short Term Average(s) of:   1-HR
 """
 
 EPA_FOOTER = """\

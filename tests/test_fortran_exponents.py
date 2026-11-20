@@ -293,11 +293,11 @@ class TestSummaryTables:
         assert one_hour.max_location == (13663.68, 5682.30)
         assert one_hour.data["date"].tolist() == ["93052120"]
 
-    def test_value_is_reader(self):
-        text = (CONC_ONLY / "aermod.out").read_text(encoding="latin-1")
-        result = AERMODOutputParser._parse_epa_value_is_format(text, "1HR")
-        assert result is not None
-        assert result.data["concentration"].tolist()[:2] == pytest.approx(
+    def test_first_summary_table_rows(self):
+        # THE SUMMARY OF MAXIMUM PERIOD ( 1 HRS) RESULTS, the first table.
+        first = AERMODOutputParser(CONC_ONLY / "aermod.out").parse().summaries[0]
+        assert first.averaging_period == "PERIOD"
+        assert first.data["concentration"].tolist()[:2] == pytest.approx(
             [7.82577e-104, 2.82465e-104], rel=1e-12, abs=0)
 
     def test_source_emission_rate(self, tmp_path):
@@ -310,24 +310,6 @@ class TestSummaryTables:
         (pit,) = AERMODOutputParser(path).parse().sources
         assert (pit.source_id, pit.source_type) == ("PIT", "OPENPIT")
         assert pit.emission_rate == pytest.approx(1.0e-101, rel=1e-12, abs=0)
-
-    def test_pyaermod_layout_emission_rate_and_rows(self, tmp_path):
-        # The SOURCE LOCATIONS / ANNUAL RESULTS layout of
-        # tests/test_output_parser_coverage.py, with E-free values.
-        path = tmp_path / "pyaermod.out"
-        path.write_text(
-            "*** AERMOD - VERSION 24142 ***\n\n"
-            "*** SOURCE LOCATIONS ***\n\n"
-            "   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV  HGT   TEMP    VELOC   DIAM   EMISS\n"
-            "   STK1     POINT      100.00       200.00       5.00      75.0  400.0   15.0    2.5    0.12500-100\n\n"
-            "*** ANNUAL RESULTS ***\n\n"
-            "   100.00    200.00    0.850000-100\n"
-            "   300.00    400.00    4.200\n")
-        results = parse_aermod_output(str(path))
-        (stk1,) = results.sources
-        assert stk1.emission_rate == pytest.approx(1.25e-101, rel=1e-12, abs=0)
-        annual = results.concentrations["ANNUAL"].data
-        assert annual["concentration"].tolist() == pytest.approx([8.5e-101, 4.2], rel=1e-12, abs=0)
 
     def test_malformed_value_is_not_a_row(self, tmp_path):
         path = tmp_path / "bad.out"

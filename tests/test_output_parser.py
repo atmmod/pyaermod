@@ -1,12 +1,12 @@
 """
 Unit tests for PyAERMOD output parser
 
-Since we don't have a real AERMOD output file, we test the dataclasses,
-the AERMODResults methods, and parser behavior with synthetic data.
+Tests the dataclasses, the AERMODResults methods, and the parser on
+recorded AERMOD runs (tests/fixtures) and on short strings in AERMOD's
+own layout.
 """
 
-import os
-import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -241,168 +241,105 @@ class TestAERMODResults:
 
 
 # ---------------------------------------------------------------------------
-# Parser tests (with minimal synthetic output file)
+# Parser tests on recorded AERMOD runs
 # ---------------------------------------------------------------------------
 
-MINIMAL_OUTPUT = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: SYNTH_TEST
-Run Date: 01-15-26
-Run Time: 10:30:00
-
-** Model Setup Options Selected **
-
-*** SOURCE LOCATIONS ***
-
-   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV
-   STACK1   POINT      0.00         0.00        10.00
-
-*** RECEPTOR LOCATIONS ***
-
-   X-COORD      Y-COORD
-   100.00       200.00
-   300.00       400.00
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    5.432
-   300.00    400.00    2.876
-"""
+FIXTURES = Path(__file__).parent / "fixtures"
+# AVERTIME 1 ANNUAL, SO2, one POINT source (see fixtures/output_parser/README.md)
+FULL_YEAR = FIXTURES / "output_parser" / "full_year" / "aermod.out"
+# An open pit with seven discrete Cartesian receptors
+WASHOUT = FIXTURES / "fortran_exponents" / "washout" / "aermod.out"
+# A run AERMOD stopped in setup: no source tables, no results
+SETUP_ERROR = FIXTURES / "runner" / "setup_error_e500" / "aermod.out"
 
 
 class TestAERMODOutputParser:
-    """Test parser with synthetic output"""
+    """Test the parser's steps on a recorded run"""
 
     def test_parser_file_not_found(self):
         with pytest.raises(FileNotFoundError):
             AERMODOutputParser("/nonexistent/path.out")
 
-    def test_parse_header(self, tmp_path):
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        parser = AERMODOutputParser(str(outfile))
+    def test_parse_header(self):
+        parser = AERMODOutputParser(str(FULL_YEAR))
         parser._parse_header()
 
         assert parser.run_info is not None
-        assert parser.run_info.version == "24142"
-        assert parser.run_info.jobname == "SYNTH_TEST"
-        assert parser.run_info.run_date == "01-15-26"
-        assert parser.run_info.run_time == "10:30:00"
+        assert parser.run_info.version == "26135"
+        # AERMOD prints no job name; the banner carries the title.
+        assert parser.run_info.jobname == "Unknown"
+        assert parser.run_info.title == "Albany stack over a repeated year of met data"
+        assert parser.run_info.run_date == "09/29/26"
+        assert parser.run_info.run_time == "19:00:00"
 
-    def test_parse_sources(self, tmp_path):
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        parser = AERMODOutputParser(str(outfile))
-        parser.run_info = ModelRunInfo("24142", "TEST")
+    def test_parse_sources(self):
+        parser = AERMODOutputParser(str(FULL_YEAR))
+        parser.run_info = ModelRunInfo("26135", "TEST")
         parser._parse_sources()
 
         assert len(parser.sources) == 1
         assert parser.sources[0].source_id == "STACK1"
         assert parser.sources[0].source_type == "POINT"
 
-    def test_parse_receptors(self, tmp_path):
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        parser = AERMODOutputParser(str(outfile))
-        parser.run_info = ModelRunInfo("24142", "TEST")
+    def test_parse_receptors(self):
+        parser = AERMODOutputParser(str(WASHOUT))
+        parser.run_info = ModelRunInfo("26135", "TEST")
         parser._parse_receptors()
 
-        assert len(parser.receptors) == 2
-        assert parser.receptors[0].x_coord == 100.0
-        assert parser.receptors[1].y_coord == 400.0
+        # (   1732.0,    1000.0, ...);  (   5196.2,    3000.0, ...);
+        assert len(parser.receptors) == 7
+        assert parser.receptors[0].x_coord == 1732.0
+        assert parser.receptors[1].y_coord == 3000.0
 
-    def test_parse_concentrations(self, tmp_path):
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        parser = AERMODOutputParser(str(outfile))
+    def test_parse_concentrations(self):
+        parser = AERMODOutputParser(str(FULL_YEAR))
         parser._parse_concentration_results()
 
         assert "ANNUAL" in parser.concentrations
         result = parser.concentrations["ANNUAL"]
-        assert result.max_value == pytest.approx(5.432)
-        assert len(result.data) == 2
+        assert result.max_value == pytest.approx(5.42148)
+        assert len(result.data) == 10
 
-    def test_full_parse(self, tmp_path):
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        results = parse_aermod_output(str(outfile))
-        assert results.run_info.jobname == "SYNTH_TEST"
+    def test_full_parse(self):
+        results = parse_aermod_output(str(FULL_YEAR))
+        assert results.run_info.title == "Albany stack over a repeated year of met data"
         assert len(results.sources) == 1
-        assert len(results.receptors) == 2
+        assert results.run_info.num_receptors == 72
         assert "ANNUAL" in results.concentrations
+        assert len(parse_aermod_output(str(WASHOUT)).receptors) == 7
 
 
 class TestConvenienceFunctions:
     """Test module-level convenience functions"""
 
-    def test_quick_summary(self, tmp_path):
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        summary = quick_summary(str(outfile))
+    def test_quick_summary(self):
+        summary = quick_summary(str(FULL_YEAR))
         assert "AERMOD Results Summary" in summary
-        assert "SYNTH_TEST" in summary
+        assert "Albany stack over a repeated year of met data" in summary
 
 
 # ---------------------------------------------------------------------------
-# Additional coverage tests — warnings in output, empty/malformed files
+# Additional coverage tests: warnings in output, empty/malformed files
 # ---------------------------------------------------------------------------
-
-OUTPUT_WITH_WARNINGS = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: WARN_TEST
-Run Date: 02-10-26
-Run Time: 08:00:00
-
-** Model Setup Options Selected **
-
-*** SOURCE LOCATIONS ***
-
-   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV
-   STACK1   POINT      0.00         0.00        10.00
-
-WARNING: Low wind speed detected at hour 1234
-WARNING: Calm processing applied for hour 5678
-
-*** RECEPTOR LOCATIONS ***
-
-   X-COORD      Y-COORD
-   100.00       200.00
-
-*** ANNUAL RESULTS ***
-
-   100.00    200.00    3.210
-"""
-
 
 class TestParserWithWarnings:
     """Test that the parser handles output files containing warning lines."""
 
-    def test_parse_with_warning_lines(self, tmp_path):
+    def test_parse_with_warning_lines(self):
         """Parser should still extract results when warnings are present."""
-        outfile = tmp_path / "warn.out"
-        outfile.write_text(OUTPUT_WITH_WARNINGS)
-
-        results = parse_aermod_output(str(outfile))
-        assert results.run_info.jobname == "WARN_TEST"
+        # FULL_YEAR lists four warnings, among them
+        # "CO W361  7  COCARD: Multiyear PERIOD/ANNUAL values for NO2/SO2 ..."
+        assert "WARNING MESSAGES" in FULL_YEAR.read_text()
+        results = parse_aermod_output(str(FULL_YEAR))
+        assert results.run_info.version == "26135"
         assert len(results.sources) == 1
         assert "ANNUAL" in results.concentrations
-        assert results.concentrations["ANNUAL"].max_value == pytest.approx(3.210)
+        assert results.concentrations["ANNUAL"].max_value == pytest.approx(5.42148)
 
-    def test_warning_lines_dont_corrupt_source_parsing(self, tmp_path):
-        """Warning lines between sections should not be parsed as sources."""
-        outfile = tmp_path / "warn.out"
-        outfile.write_text(OUTPUT_WITH_WARNINGS)
-
-        parser = AERMODOutputParser(str(outfile))
-        parser.run_info = ModelRunInfo("24142", "TEST")
+    def test_warning_lines_dont_corrupt_source_parsing(self):
+        """Warning lines should not be parsed as sources."""
+        parser = AERMODOutputParser(str(FULL_YEAR))
+        parser.run_info = ModelRunInfo("26135", "TEST")
         parser._parse_sources()
 
         # Only STACK1 should be parsed, not the WARNING lines
@@ -439,57 +376,17 @@ class TestEmptyAndMalformedOutput:
         assert results.run_info.version == "Unknown"
         assert len(results.concentrations) == 0
 
-    def test_malformed_concentration_lines(self, tmp_path):
-        """Malformed data lines in concentration section should be skipped."""
-        content = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: MAL_TEST
-
-*** ANNUAL RESULTS ***
-
-   not_a_number    also_bad    nope
-   100.00    200.00    5.432
-   bad line here
-"""
-        outfile = tmp_path / "malformed.out"
-        outfile.write_text(content)
-
-        parser = AERMODOutputParser(str(outfile))
-        parser._parse_concentration_results()
-
-        assert "ANNUAL" in parser.concentrations
-        # Only the valid row should be parsed
-        assert len(parser.concentrations["ANNUAL"].data) == 1
-        assert parser.concentrations["ANNUAL"].max_value == pytest.approx(5.432)
-
-    def test_no_concentration_results_section(self, tmp_path):
+    def test_no_concentration_results_section(self):
         """File with no results section should have empty concentrations."""
-        content = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: NORESULTS
-
-*** SOURCE LOCATIONS ***
-
-   SOURCE   TYPE       X-COORD      Y-COORD    BASE_ELEV
-   STACK1   POINT      0.00         0.00        10.00
-"""
-        outfile = tmp_path / "noresults.out"
-        outfile.write_text(content)
-
-        parser = AERMODOutputParser(str(outfile))
+        parser = AERMODOutputParser(str(SETUP_ERROR))
         parser._parse_concentration_results()
 
         assert len(parser.concentrations) == 0
 
-    def test_from_file_classmethod(self, tmp_path):
+    def test_from_file_classmethod(self):
         """AERMODResults.from_file() should work the same as parse_aermod_output()."""
-        outfile = tmp_path / "test.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-
-        results = AERMODResults.from_file(str(outfile))
-        assert results.run_info.jobname == "SYNTH_TEST"
+        results = AERMODResults.from_file(str(FULL_YEAR))
+        assert results.run_info.title == "Albany stack over a repeated year of met data"
         assert "ANNUAL" in results.concentrations
 
     def test_get_receptors_dataframe_empty(self):
@@ -513,13 +410,13 @@ Jobname: NORESULTS
 EPA_STYLE_OUTPUT = """\
 *** AERMOD - VERSION 24142 ***
 
-Jobname: EPA_STYLE
-
   Pollutant Type of: SO2
 
-  Averaging Time Period:  1-HR  24-HR  ANNUAL
+**Model Calculates  2 Short Term Average(s) of:   1-HR  24-HR
+    and Calculates ANNUAL Averages
 
-  STARTING DATE:  01/01/88   ENDING DATE:  12/31/88
+                       METEOROLOGICAL DATA PROCESSED BETWEEN START DATE: 1988   1  1  1
+                                                           AND END DATE: 1988  12 31 24
 
   This Run Includes:   3 Source(s);   1 Source Group(s); and   50 Receptor(s)
 
@@ -554,14 +451,14 @@ class TestOutputParserEdgeCases:
         assert "24HR" in results.concentrations
 
     def test_modeling_period_dates(self, tmp_path):
-        """STARTING DATE / ENDING DATE extraction from EPA format."""
+        """START DATE / END DATE extraction from the met-data lines."""
         outfile = tmp_path / "dates.out"
         outfile.write_text(EPA_STYLE_OUTPUT)
         parser = AERMODOutputParser(str(outfile))
         parser._parse_header()
 
-        assert parser.run_info.start_date == "01/01/88"
-        assert parser.run_info.end_date == "12/31/88"
+        assert parser.run_info.start_date == "1988/01/01"
+        assert parser.run_info.end_date == "1988/12/31"
 
     def test_epa_value_is_format_synthetic(self, tmp_path):
         """EPA VALUE IS format parsed — both with and without ON date."""
@@ -581,13 +478,11 @@ class TestOutputParserEdgeCases:
         assert hr1.max_value == pytest.approx(753.65603, abs=1e-4)
         assert len(hr1.data) == 2
 
-    def test_summary_with_run_date(self, tmp_path):
-        """Summary includes run date when present in header."""
-        outfile = tmp_path / "summary.out"
-        outfile.write_text(MINIMAL_OUTPUT)
-        results = parse_aermod_output(str(outfile))
+    def test_summary_with_run_date(self):
+        """Summary includes the run date of the page banner."""
+        results = parse_aermod_output(str(FULL_YEAR))
         summary = results.summary()
-        assert "Run Date: 01-15-26" in summary
+        assert "Run Date: 09/29/26" in summary
 
     def test_source_receptor_counts_from_epa(self, tmp_path):
         """Source/receptor counts extracted from EPA 'This Run Includes' line."""
@@ -609,7 +504,7 @@ class TestOutputParserEdgeCases:
         assert parser.run_info.pollutant_id == "SO2"
 
     def test_averaging_periods_parsed(self, tmp_path):
-        """Averaging Time Period line populates averaging_periods list."""
+        """The "Model Calculates" lines populate averaging_periods."""
         outfile = tmp_path / "avgtime.out"
         outfile.write_text(EPA_STYLE_OUTPUT)
         parser = AERMODOutputParser(str(outfile))
@@ -626,8 +521,6 @@ class TestOutputParserEdgeCases:
 
 EPA_SOURCE_SECTIONS = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: EPA_SOURCES
 
 *** POINT SOURCE DATA ***
 
@@ -658,8 +551,6 @@ Jobname: EPA_SOURCES
 EPA_SOURCE_WITH_PAGE_BREAK = """\
 *** AERMOD - VERSION 24142 ***
 
-Jobname: PAGE_BREAK_TEST
-
 *** POINT SOURCE DATA ***
 
            SOURCE       NO.        EMISSION         X             Y       BASE       STACK     STACK     EXIT      STACK
@@ -672,8 +563,6 @@ Jobname: PAGE_BREAK_TEST
 
 EPA_SOURCE_WITH_MODELOPTS = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: MODELOPTS_TEST
 
 *** POINT SOURCE DATA ***
 
@@ -774,8 +663,6 @@ class TestEPASourceParsing:
 EPA_RECEPTOR_SECTIONS = """\
 *** AERMOD - VERSION 24142 ***
 
-Jobname: EPA_RECEPTORS
-
 *** DISCRETE CARTESIAN RECEPTORS ***
                                          (X-COORD, Y-COORD, ZELEV, ZHILL, ZFLAG)
                                                          (METERS)
@@ -786,8 +673,6 @@ Jobname: EPA_RECEPTORS
 
 EPA_RECEPTOR_XY_ONLY = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: RECEPTS_XY
 
 *** DISCRETE CARTESIAN RECEPTORS ***
 
@@ -841,38 +726,11 @@ class TestEPAReceptorParsing:
 
 
 # ===========================================================================
-# Standard Pollutant ID format
-# ===========================================================================
-
-STANDARD_POLLUTANT_OUTPUT = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: STANDARD_POLL
-
-Pollutant/Gas ID: PM25
-"""
-
-
-class TestEPAPollutantStandard:
-    """Test standard Pollutant/Gas ID format (line 169)."""
-
-    def test_standard_pollutant_id_parsed(self, tmp_path):
-        outfile = tmp_path / "standard_poll.out"
-        outfile.write_text(STANDARD_POLLUTANT_OUTPUT)
-        parser = AERMODOutputParser(str(outfile))
-        parser._parse_header()
-
-        assert parser.run_info.pollutant_id == "PM25"
-
-
-# ===========================================================================
 # EPA VALUE IS edge cases
 # ===========================================================================
 
 EPA_VALUE_IS_MALFORMED = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: MALFORMED
 
 *** THE SUMMARY OF HIGHEST ANNUAL RESULTS ***
 
@@ -882,8 +740,6 @@ Jobname: MALFORMED
 
 EPA_VALUE_IS_ALL_BAD = """\
 *** AERMOD - VERSION 24142 ***
-
-Jobname: ALL_BAD
 
 *** THE SUMMARY OF HIGHEST ANNUAL RESULTS ***
 
@@ -913,32 +769,3 @@ class TestEPAValueIsEdgeCases:
 
         assert "ANNUAL" not in results.concentrations
 
-
-# ===========================================================================
-# Receptor pyaermod format edge case
-# ===========================================================================
-
-RECEPTORS_NO_HEADER = """\
-*** AERMOD - VERSION 24142 ***
-
-Jobname: NO_HEADER
-
-*** RECEPTOR LOCATIONS ***
-
-   100.00       200.00
-   300.00       400.00
-
-*** END ***
-"""
-
-
-class TestReceptorPyaermodEdge:
-    """Test pyaermod receptor parsing edge cases."""
-
-    def test_receptors_no_header_line_skips_data(self, tmp_path):
-        """Without X-COORD/RECEPTOR header, data_started never True."""
-        outfile = tmp_path / "no_header.out"
-        outfile.write_text(RECEPTORS_NO_HEADER)
-        results = parse_aermod_output(str(outfile))
-
-        assert len(results.receptors) == 0

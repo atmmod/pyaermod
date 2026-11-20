@@ -6,7 +6,6 @@ Based on AERMOD version 26135 output format specifications (validated against
 26135 and 24142; see :mod:`pyaermod.versions`).
 """
 
-import contextlib
 import logging
 import math
 import re
@@ -106,12 +105,17 @@ class ConcentrationResult:
     @property
     def max_row(self) -> Optional[Dict]:
         """The row of the maximum, as a dict, or None for an empty table."""
-        if self.data.empty or "concentration" not in self.data:
-            return None
-        values = pd.to_numeric(self.data["concentration"], errors="coerce")
-        if values.isna().all():
-            return None
-        return self.data.loc[values.idxmax()].to_dict()
+        i = _max_index(self.data)
+        return None if i is None else self.data.loc[i].to_dict()
+
+
+def _max_index(df: pd.DataFrame):
+    """Index label of the highest ``concentration``, or None when the table
+    is empty or holds no number."""
+    if df.empty or "concentration" not in df:
+        return None
+    values = pd.to_numeric(df["concentration"], errors="coerce")
+    return None if values.isna().all() else values.idxmax()
 
 
 #: Unit labels AERMOD prints over its tables, as pyaermod reports them.
@@ -316,57 +320,17 @@ class AERMODOutputParser:
         if title_match and title_match.group(1).strip():
             run_info.title = title_match.group(1).strip()
 
-        # Job name
-        jobname_match = re.search(r'Jobname:\s*(.+)', self.content)
-        if jobname_match:
-            run_info.jobname = jobname_match.group(1).strip()
-
-        # Run date and time
-        date_match = re.search(r'Run Date:\s*(\d{2}-\d{2}-\d{2})', self.content)
-        if date_match:
-            run_info.run_date = date_match.group(1)
-
-        time_match = re.search(r'Run Time:\s*(\d{2}:\d{2}:\d{2})', self.content)
-        if time_match:
-            run_info.run_time = time_match.group(1)
-
-        # Model options
-        options_section = re.search(
-            r'\*\*\s*Model Setup Options Selected\s*\*\*(.*?)\n\n',
-            self.content,
-            re.DOTALL
-        )
-        if options_section and options_section.group(1):
-            option_lines = options_section.group(1).strip().split('\n')
-            for line in option_lines:
-                if '--' in line:
-                    option = line.split('--')[0].strip()
-                    run_info.model_options.append(option)
-
-        # Pollutant ID — try standard format first, then EPA SUM format
-        pollutant_match = re.search(r'Pollutant/Gas ID:\s*(\w+)', self.content)
+        # Pollutant ID: "* The User Specified a Pollutant Type of: SO2"
+        pollutant_match = re.search(r'Pollutant\s+Type\s+of:\s*(\S+)', self.content)
         if pollutant_match:
-            run_info.pollutant_id = pollutant_match.group(1)
-        else:
-            epa_poll_match = re.search(
-                r'Pollutant\s+Type\s+of:\s*(\S+)', self.content
-            )
-            if epa_poll_match:
-                run_info.pollutant_id = epa_poll_match.group(1).strip()
-
-        # Averaging periods
-        avertime_match = re.search(r'Averaging Time Period.*?:\s*(.+)', self.content)
-        if avertime_match:
-            periods_str = avertime_match.group(1).strip()
-            # Parse periods like "1-HR", "24-HR", "ANNUAL"
-            run_info.averaging_periods = [p.strip() for p in periods_str.split()]
+            run_info.pollutant_id = pollutant_match.group(1).strip()
 
         self._parse_banner_and_setup(run_info)
 
         # The page banner's MODELOPTs line (" *** MODELOPTs:  NonDFAULT  CONC
         # FLAT  RURAL"), which every AERMOD .out carries
         modelopt_match = re.search(r'\*\*\*\s*MODELOPTs:\s*(.+)', self.content)
-        if modelopt_match and not run_info.model_options:
+        if modelopt_match:
             run_info.model_options = modelopt_match.group(1).split()
 
         # Terrain type
@@ -379,21 +343,10 @@ class AERMODOutputParser:
         elif re.search(r'Receptors\s+on\s+ELEV', self.content, re.IGNORECASE):
             run_info.terrain_type = 'ELEVATED'
 
-        # Modeling period
-        period_match = re.search(
-            r'STARTING DATE:\s*(\d{2}/\d{2}/\d{2,4}).*?ENDING DATE:\s*(\d{2}/\d{2}/\d{2,4})',
-            self.content,
-            re.DOTALL
-        )
-        if period_match:
-            run_info.start_date = period_match.group(1)
-            run_info.end_date = period_match.group(2)
-
-        if not run_info.urban_option:
-            for word in ('URBAN', 'RURAL'):
-                if word in run_info.model_options:
-                    run_info.urban_option = word
-                    break
+        for word in ('URBAN', 'RURAL'):
+            if word in run_info.model_options:
+                run_info.urban_option = word
+                break
 
         # EPA SUM format: source/receptor counts from summary line
         # "This Run Includes: 1 Source(s); 1 Source Group(s); and 144 Receptor(s)"
@@ -427,12 +380,12 @@ class AERMODOutputParser:
         date_match = re.search(
             r'\*\*\*\s*AERMOD\s*-\s*VERSION\s*\S+\s*\*\*\*.*?\*\*\*\s*(\d{2}/\d{2}/\d{2,4})\s*$',
             self.content, re.MULTILINE)
-        if date_match and not run_info.run_date:
+        if date_match:
             run_info.run_date = date_match.group(1)
         time_match = re.search(
             r'\*\*\*\s*AERMET\s*-\s*VERSION\s*\S+\s*\*\*\*.*?\*\*\*\s*(\d{2}:\d{2}:\d{2})\s*$',
             self.content, re.MULTILINE)
-        if time_match and not run_info.run_time:
+        if time_match:
             run_info.run_time = time_match.group(1)
 
         short = re.search(
@@ -442,75 +395,28 @@ class AERMODOutputParser:
             r'(?:and\s+)?Calculates\s+(PERIOD|ANNUAL)\s+Averages', self.content)
         if long_term:
             periods.append(long_term.group(1))
-        if periods and not run_info.averaging_periods:
+        if periods:
             run_info.averaging_periods = periods
 
         dates = re.search(
             r'START DATE:\s*(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s*\n\s*AND END DATE:\s*'
             r'(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)', self.content)
-        if dates and not run_info.start_date:
+        if dates:
             y1, m1, d1, _, y2, m2, d2, _ = (int(v) for v in dates.groups())
             run_info.start_date = f"{y1:04d}/{m1:02d}/{d1:02d}"
             run_info.end_date = f"{y2:04d}/{m2:02d}/{d2:02d}"
 
     def _parse_sources(self):
-        """Extract source information from both pyaermod and EPA .out formats.
-
-        pyaermod format uses ``*** SOURCE LOCATIONS ***`` with columns:
-            SOURCE  TYPE  X  Y  ELEV  [stack params...]
-
-        EPA .out format uses per-type sections like
-        ``*** POINT SOURCE DATA ***``, ``*** VOLUME SOURCE DATA ***``, etc.
+        """Extract source information from AERMOD's per-type sections
+        (``*** POINT SOURCE DATA ***``, ``*** VOLUME SOURCE DATA ***``, ...),
         with columns: ID  NPART  EMISSION  X  Y  ELEV  [type-specific...]
         """
-        # Try pyaermod format first
-        sources_section = re.search(
-            r'\*\*\*\s*SOURCE LOCATIONS\s*\*\*\*(.*?)(?:\*\*\*|\Z)',
-            self.content,
-            re.DOTALL
-        )
-
-        if sources_section and sources_section.group(1):
-            self._parse_sources_pyaermod(sources_section.group(1))
-        else:
-            # Try EPA .out format — multiple per-type sections
-            self._parse_sources_epa()
+        self._parse_sources_epa()
 
         if self.run_info and self.sources:
             # Keep the larger count: a row that did not parse must not shrink
             # the "This Run Includes" figure.
             self.run_info.num_sources = max(len(self.sources), self.run_info.num_sources)
-
-    def _parse_sources_pyaermod(self, section_text: str):
-        """Parse sources from pyaermod ``*** SOURCE LOCATIONS ***`` section."""
-        lines = section_text.strip().split('\n')
-        data_started = False
-        for line in lines:
-            if not line.strip():
-                continue
-            if not data_started:
-                if 'SOURCE' in line and 'TYPE' in line:
-                    data_started = True
-                continue
-            parts = line.split()
-            if len(parts) >= 5:
-                try:
-                    source = SourceSummary(
-                        source_id=parts[0],
-                        source_type=parts[1],
-                        x_coord=float(parts[2]),
-                        y_coord=float(parts[3]),
-                        base_elevation=float(parts[4])
-                    )
-                    if len(parts) > 5 and parts[1] == 'POINT' and len(parts) >= 10:
-                        source.stack_height = float(parts[5])
-                        source.stack_temp = float(parts[6])
-                        source.exit_velocity = float(parts[7])
-                        source.stack_diameter = float(parts[8])
-                        source.emission_rate = fortran_float(parts[9])
-                    self.sources.append(source)
-                except (ValueError, IndexError):
-                    continue
 
     def _parse_sources_epa(self):
         """Parse sources from EPA .out per-type sections.
@@ -601,59 +507,20 @@ class AERMODOutputParser:
                 continue
 
     def _parse_receptors(self):
-        """Extract receptor locations from both pyaermod and EPA .out formats.
+        """Extract receptor locations.
 
-        pyaermod format uses ``*** RECEPTOR LOCATIONS ***`` with simple
-        ``X  Y  [ZELEV  ZHILL  ZFLAG]`` rows.
-
-        EPA .out format uses ``*** DISCRETE CARTESIAN RECEPTORS ***`` with
+        AERMOD prints ``*** DISCRETE CARTESIAN RECEPTORS ***`` with
         parenthesized tuples ``( x, y, zelev, zhill, zflag );`` and
         ``*** GRIDDED RECEPTOR NETWORK SUMMARY ***`` sections (grid
-        definitions, not individual receptors — we extract counts from
-        the header instead).
+        definitions, not individual receptors; the count comes from the
+        header instead).
         """
-        # Try pyaermod format first
-        receptor_section = re.search(
-            r'\*\*\*\s*RECEPTOR LOCATIONS\s*\*\*\*(.*?)(?:\*\*\*|\Z)',
-            self.content,
-            re.DOTALL
-        )
-
-        if receptor_section and receptor_section.group(1):
-            self._parse_receptors_pyaermod(receptor_section.group(1))
-        else:
-            # Try EPA .out format — discrete receptors in tuple format
-            self._parse_receptors_epa()
+        self._parse_receptors_epa()
 
         if self.run_info and self.receptors:
             self.run_info.num_receptors = max(
                 len(self.receptors), self.run_info.num_receptors
             )
-
-    def _parse_receptors_pyaermod(self, section_text: str):
-        """Parse receptors from pyaermod ``*** RECEPTOR LOCATIONS ***``."""
-        lines = section_text.strip().split('\n')
-        data_started = False
-        for line in lines:
-            if not line.strip():
-                continue
-            if not data_started:
-                if 'X-COORD' in line or 'RECEPTOR' in line:
-                    data_started = True
-                continue
-            parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    receptor = ReceptorInfo(
-                        x_coord=float(parts[0]),
-                        y_coord=float(parts[1]),
-                        z_elev=float(parts[2]) if len(parts) > 2 else 0.0,
-                        z_hill=float(parts[3]) if len(parts) > 3 else 0.0,
-                        z_flag=float(parts[4]) if len(parts) > 4 else 0.0
-                    )
-                    self.receptors.append(receptor)
-                except (ValueError, IndexError):
-                    continue
 
     def _parse_receptors_epa(self):
         """Parse receptors from EPA .out discrete receptor sections.
@@ -737,34 +604,10 @@ class AERMODOutputParser:
         OF HIGHEST 1-HR RESULTS", "THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS)
         RESULTS", ...), which are read by :meth:`_parse_summary_tables`.
         Concentration tables fill :attr:`concentrations`; deposition tables
-        fill :attr:`deposition` instead. Files without summary tables fall
-        back to the older, pattern-based reading below.
+        fill :attr:`deposition` instead. A file without summary tables has
+        no results.
         """
-        if self._parse_summary_tables():
-            return
-
-        # Common averaging period patterns — matches both standard format
-        # (*** ANNUAL RESULTS ***) and EPA SUM format
-        # (*** THE SUMMARY OF HIGHEST 1-HR RESULTS ***)
-        # (*** THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS) RESULTS ***)
-        period_patterns = [
-            (r'ANNUAL', 'ANNUAL'),
-            (r'24-HOUR|24HR|24-HR', '24HR'),
-            (r'12-HOUR|12HR|12-HR', '12HR'),
-            (r'8-HOUR|8HR|8-HR', '8HR'),
-            (r'6-HOUR|6HR|6-HR', '6HR'),
-            (r'4-HOUR|4HR|4-HR', '4HR'),
-            (r'3-HOUR|3HR|3-HR', '3HR'),
-            (r'2-HOUR|2HR|2-HR', '2HR'),
-            (r'1-HOUR|1HR|1-HR', '1HR'),
-            (r'MONTH', 'MONTH'),
-            (r'PERIOD', 'PERIOD'),
-        ]
-
-        for pattern, period_name in period_patterns:
-            result = self._parse_concentration_table(pattern, period_name)
-            if result is not None:
-                self.concentrations[period_name] = result
+        self._parse_summary_tables()
 
     def _parse_summary_tables(self) -> bool:
         """Read every summary table AERMOD printed; False if there are none.
@@ -892,11 +735,10 @@ class AERMODOutputParser:
     def _summary_result(rows: List[dict], period: str, kind: str, title: str,
                         units: Optional[str]) -> ConcentrationResult:
         df = pd.DataFrame(rows)
-        values = pd.to_numeric(df["concentration"], errors="coerce")
-        if values.isna().all():
+        i = _max_index(df)
+        if i is None:
             max_value, max_location = float("nan"), (float("nan"), float("nan"))
         else:
-            i = values.idxmax()
             max_value = df.loc[i, "concentration"]
             max_location = (df.loc[i, "x"], df.loc[i, "y"])
         if units is None:
@@ -907,177 +749,6 @@ class AERMODOutputParser:
             averaging_period=period, data=df, max_value=max_value,
             max_location=max_location, units=label, output_type=kind, title=title,
         )
-
-    def _parse_concentration_table(self, pattern: str, period_name: str) -> Optional[ConcentrationResult]:
-        """Parse concentration table for specific averaging period"""
-
-        # Find the results section — try two section header formats:
-        # Standard: *** ANNUAL RESULTS ***
-        # EPA SUM:  *** THE SUMMARY OF HIGHEST 1-HR RESULTS ***
-        #           *** THE SUMMARY OF MAXIMUM PERIOD ( 96 HRS) RESULTS ***
-        #
-        # For EPA SUM, the section header is on one line, so we match
-        # [^\n]* instead of .*? to avoid spanning across *** boundaries.
-        #
-        # The period pattern must not start inside a longer number:
-        # without the lookbehind, "24-HR" also satisfies the 4-HR pattern
-        # and a phantom 4HR result (a copy of the 24-HR table) appears.
-        anchored = rf'(?<![0-9])(?:{pattern})'
-
-        # Fast path. Both section patterns below require `anchored` to match
-        # somewhere, so if the period token is absent neither can match and
-        # the answer is None. Checking that first is a single linear scan and
-        # is exactly equivalent — but skipping it is ruinous: the second
-        # pattern's three DOTALL `.*?` spans backtrack from every `***` in the
-        # file to EOF, and `parse()` tries all eleven period patterns against
-        # every output. On EPA's 2.3 MB `allsrcs.out` a single absent period
-        # costs ~291 s in that second pattern (the first costs 0.014 s), so
-        # `tests/test_epa_cases.py` never finished on the .out files. With the
-        # guard the whole file parses in about half a second.
-        if not re.search(anchored, self.content, re.DOTALL | re.IGNORECASE):
-            return None
-
-        section_patterns = [
-            rf'\*\*\*[^\n]*{anchored}[^\n]*RESULTS[^\n]*\*\*\*(.*?)(?:\*\*\*|\Z)',
-            rf'\*\*\*.*?{anchored}.*?RESULTS.*?\*\*\*(.*?)(?:\*\*\*|\Z)',
-        ]
-
-        table_text = None
-        for sp in section_patterns:
-            section_match = re.search(sp, self.content, re.DOTALL | re.IGNORECASE)
-            if section_match and section_match.group(1) and len(section_match.group(1).strip()) > 10:
-                table_text = section_match.group(1)
-                break
-
-        if table_text is None:
-            return None
-
-        # Try EPA SUM "VALUE IS X AT (x, y, ...)" format first
-        epa_result = self._parse_epa_value_is_format(table_text, period_name)
-        if epa_result is not None:
-            return epa_result
-
-        # Fall back to standard tabular format (x y concentration rows)
-        data_rows = []
-        lines = table_text.split('\n')
-
-        # Look for data rows (typically have numeric coordinates)
-        for line in lines:
-            if not line.strip():
-                continue
-
-            parts = line.split()
-
-            # Check if line looks like data (starts with coordinate)
-            if len(parts) >= 3:
-                try:
-                    x = float(parts[0])
-                    y = float(parts[1])
-                    conc = fortran_float(parts[2])
-
-                    row = {
-                        'x': x,
-                        'y': y,
-                        'concentration': conc
-                    }
-
-                    # Additional fields if available
-                    if len(parts) > 3:
-                        # Might include rank, contributing sources, etc.
-                        with contextlib.suppress(ValueError):
-                            row['rank'] = int(parts[3])
-
-                    data_rows.append(row)
-
-                except (ValueError, IndexError):
-                    continue
-
-        if not data_rows:
-            return None
-
-        # Create DataFrame
-        df = pd.DataFrame(data_rows)
-
-        # Find maximum value
-        max_idx = df['concentration'].idxmax()
-        max_value = df.loc[max_idx, 'concentration']
-        max_x = df.loc[max_idx, 'x']
-        max_y = df.loc[max_idx, 'y']
-
-        return ConcentrationResult(
-            averaging_period=period_name,
-            data=df,
-            max_value=max_value,
-            max_location=(max_x, max_y)
-        )
-
-    @staticmethod
-    def _parse_epa_value_is_format(
-        table_text: str, period_name: str
-    ) -> Optional[ConcentrationResult]:
-        """
-        Parse EPA SUM format concentration tables.
-
-        EPA SUM files list results in two formats::
-
-            PERIOD results:
-              ALL   1ST HIGHEST VALUE IS  24.85173 AT (  433.01,  -250.00,  0.00,  0.00,  0.00)
-
-            Short-term (1-HR, etc.) results:
-              ALL   HIGH  1ST HIGH VALUE IS  753.65603  ON 88030111: AT (  303.11,  -175.00, ...)
-
-        Parameters
-        ----------
-        table_text : str
-            Text of the concentration results section.
-        period_name : str
-            Name for the averaging period.
-
-        Returns
-        -------
-        ConcentrationResult or None
-            Parsed result, or *None* if no "VALUE IS" entries found.
-        """
-        # Match both formats: "VALUE IS <conc> AT (...)" and
-        # "VALUE IS <conc> ON <date>: AT (...)"
-        # A short-term value may carry AERMOD's calm/missing flag ("c",
-        # "m" or "b") directly after the number.
-        value_pattern = re.compile(
-            r'VALUE\s+IS\s*(\S+?)([cmb])?\s+(?:ON\s+\S+:\s+)?AT\s*\(\s*'
-            r'([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)'
-        )
-
-        data_rows = []
-        for match in value_pattern.finditer(table_text):
-            try:
-                conc = fortran_float(match.group(1))
-                x = float(match.group(3).strip())
-                y = float(match.group(4).strip())
-                data_rows.append({
-                    'x': x,
-                    'y': y,
-                    'concentration': conc,
-                    'flag': match.group(2) or '',
-                })
-            except ValueError:
-                continue
-
-        if not data_rows:
-            return None
-
-        df = pd.DataFrame(data_rows)
-        max_idx = df['concentration'].idxmax()
-        max_value = df.loc[max_idx, 'concentration']
-        max_x = df.loc[max_idx, 'x']
-        max_y = df.loc[max_idx, 'y']
-
-        return ConcentrationResult(
-            averaging_period=period_name,
-            data=df,
-            max_value=max_value,
-            max_location=(max_x, max_y)
-        )
-
 
 @dataclass
 class AERMODResults:
