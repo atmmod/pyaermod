@@ -55,13 +55,13 @@ def _has_module(name: str) -> bool:
 
 def _cmd_info(args: argparse.Namespace) -> int:
     from . import print_info
-    from .api import HAS_GEOSPATIAL, HAS_TERRAIN
     print_info()
     print("Optional dependencies:")
+    geospatial = all(_has_module(m) for m in ("pyproj", "geopandas", "rasterio"))
     print(f"  geospatial (pyproj / geopandas / rasterio): "
-          f"{'yes' if HAS_GEOSPATIAL else 'no'}")
+          f"{'yes' if geospatial else 'no'}")
     print(f"  terrain (requests-based DEM download):     "
-          f"{'yes' if HAS_TERRAIN else 'no'}")
+          f"{'yes' if _has_module('requests') else 'no'}")
     print(f"  gui (nicegui, for `pyaermod gui`):         "
           f"{'yes' if _has_module('nicegui') else 'no'}")
     print(f"  desktop window (pywebview):                "
