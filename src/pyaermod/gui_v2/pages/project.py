@@ -16,6 +16,7 @@ and Save writes back to that file.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Callable, List, Optional
 
 from ...input_generator import PollutantType, TerrainType
@@ -261,7 +262,7 @@ def _titles_and_pollutant(session: Session) -> List[Any]:
     listeners: List[Any] = []
 
     def pollutant_changed(e) -> None:
-        session.set_control(pollutant_id=_pollutant_value(e.value))
+        session.set_control(pollutant_id=_enum_value(PollutantType, e.value))
         for listener in listeners:
             listener()
 
@@ -275,7 +276,7 @@ def _titles_and_pollutant(session: Session) -> List[Any]:
                 "Title (line 2)", value=control.title_two or "",
                 on_change=lambda e: session.set_control(title_two=e.value or None),
             ).classes("w-full").props('hint="TITLETWO: optional"')
-        current = _pollutant_name(control.pollutant_id)
+        current = _enum_name(control.pollutant_id)
         options = [p.value for p in PollutantType]
         if current not in options:
             # A pollutant AERMOD accepts but the enum does not list (TSP,
@@ -299,7 +300,7 @@ _WHOLE_YEAR_PERIODS = {
 
 
 def _naaqs_hint(pollutant: Any) -> str:
-    name = _pollutant_name(pollutant)
+    name = _enum_name(pollutant)
     periods = naaqs_averaging_periods(name)
     whole_years = _WHOLE_YEAR_PERIODS.get(name.upper().replace(".", "").replace("-", ""),
                                           "ANNUAL needs")
@@ -324,7 +325,7 @@ def _averaging_periods(session: Session) -> Any:
             select.value = periods             # show them in AVERTIME's order
 
     def naaqs_periods() -> List[str]:
-        return naaqs_averaging_periods(_pollutant_name(session.project.control.pollutant_id))
+        return naaqs_averaging_periods(_enum_name(session.project.control.pollutant_id))
 
     def use_naaqs() -> None:
         if naaqs_periods():
@@ -362,13 +363,13 @@ def _model_options(session: Session) -> None:
                 # validator reports a source without them (AERMOD E242).
                 ui.label(DEPOSITION_NOTE).classes("text-caption text-grey-8")
             with ui.column().classes("gap-2 w-full"):
-                terrain = _terrain_name(control.terrain_type)
+                terrain = _enum_name(control.terrain_type)
                 choices = dict(TERRAIN_CHOICES)
                 if terrain not in choices:
                     choices[terrain] = terrain
                 ui.select(choices, label="Terrain", value=terrain,
                           on_change=lambda e: session.set_control(
-                              terrain_type=_terrain_value(e.value)),
+                              terrain_type=_enum_value(TerrainType, e.value)),
                           ).classes("w-full sm:w-80")
                 ui.checkbox("Regulatory default options (DFAULT)",
                             value=bool(control.regulatory_default),
@@ -404,26 +405,15 @@ def _model_options(session: Session) -> None:
                 roughness_allowed()
 
 
-def _pollutant_name(pollutant: Any) -> str:
-    """What the Pollutant select shows for ``control.pollutant_id``."""
-    return pollutant.value if isinstance(pollutant, PollutantType) else str(pollutant)
+def _enum_name(value: Any) -> str:
+    """What a select shows for ``control.pollutant_id`` or ``terrain_type``."""
+    return value.value if isinstance(value, Enum) else str(value)
 
 
-def _pollutant_value(name: str) -> Any:
-    """The ``pollutant_id`` for a choice: the enum member, or the text itself."""
+def _enum_value(cls: Any, name: str) -> Any:
+    """The field's value for a choice: the enum member, or the text itself."""
     try:
-        return PollutantType(name)
-    except ValueError:
-        return name
-
-
-def _terrain_name(terrain: Any) -> str:
-    return terrain.value if isinstance(terrain, TerrainType) else str(terrain)
-
-
-def _terrain_value(name: str) -> Any:
-    try:
-        return TerrainType(name)
+        return cls(name)
     except ValueError:
         return name
 

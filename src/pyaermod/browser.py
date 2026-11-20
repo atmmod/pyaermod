@@ -782,13 +782,13 @@ def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
 
 
 def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
-    from .gui_v2.pages.results import _OUTPUT_TYPES, _UNITS
-    from .gui_v2.run_results import period_label
+    from .gui_v2.pages.results import _UNITS
+    from .gui_v2.run_results import OUTPUT_TYPES, period_label
 
     out = []
     for table in tables:
         records = table.data.to_dict("records")
-        kind = _OUTPUT_TYPES.get(table.output_type, table.output_type)
+        kind = OUTPUT_TYPES.get(table.output_type, table.output_type)
         out.append({
             "name": f"{kind}, {period_label(table.averaging_period)}: {table.title or ''}",
             "units": _UNITS.get(table.units, table.units),

@@ -882,14 +882,8 @@ def completed_runs(session: Session) -> List[RunRecord]:
 
 def overwritten_by(session: Session, record: RunRecord) -> Optional[RunRecord]:
     """The later run of ``session`` that wrote into ``record``'s directory."""
-    def same(a: Path, b: Path) -> bool:
-        try:
-            return a.resolve() == b.resolve()
-        except OSError:
-            return a == b
-
     for later in session.runs:
-        if later.number > record.number and same(later.work_dir, record.work_dir):
+        if later.number > record.number and _same_file(later.work_dir, record.work_dir):
             return later
     return None
 

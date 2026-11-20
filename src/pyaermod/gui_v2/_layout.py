@@ -28,10 +28,6 @@ ROWS_PER_PAGE = 25
 Goto = Callable[[str], None]
 
 
-def no_goto(_step: str) -> None:
-    """The default ``goto`` of a page built without the shell: do nothing."""
-
-
 @contextlib.contextmanager
 def step_page(title: str, intro: str = "") -> Iterator[Any]:
     """The frame of a step: its heading and introduction, then its content."""
@@ -230,19 +226,13 @@ def plan_view(session: Session) -> None:
         ui.html(plan_view_svg(session.project), sanitize=False).classes("w-full").mark("plan-view")
 
 
-def required_goto(goto: Optional[Goto]) -> Goto:
-    return goto if goto is not None else no_goto
-
-
 __all__ = [
     "ROWS_PER_PAGE",
     "Goto",
     "Pager",
     "confirm",
     "editor_dialog",
-    "no_goto",
     "plan_view",
-    "required_goto",
     "section",
     "step_page",
 ]

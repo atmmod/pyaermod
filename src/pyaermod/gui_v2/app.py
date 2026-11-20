@@ -43,13 +43,13 @@ session.
 
 from __future__ import annotations
 
-import inspect
 import logging
 import time
 import traceback
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, Callable, Dict, MutableMapping, Optional, Set
 
+from ._live import is_deleted as _is_deleted
 from ._live import live
 from .pages import meteorology, output, project, receptors, results, run, sources
 from .session import Session, SessionEvent
@@ -93,18 +93,6 @@ def _claim(session: Session, client: Client) -> None:
             del _OWNERS[id(session)]
 
     client.on_delete(release)
-
-
-def _is_deleted(client: Client) -> bool:
-    """Whether NiceGUI has deleted ``client``.
-
-    ``Client.is_deleted`` exists from NiceGUI 3.13; the package allows 3.0,
-    whose clients have only the private flag behind it.
-    """
-    flag = getattr(client, "is_deleted", None)
-    if flag is None:
-        flag = getattr(client, "_deleted", False)
-    return bool(flag)
 
 
 def _tab_storage() -> MutableMapping[str, Any]:
@@ -253,18 +241,6 @@ def _warn_before_leaving(session: Session, client: Client) -> None:
          SessionEvent.RUN_FINISHED}, sync))
 
 
-def _call_render(render: Any, session: Session, **kwargs: Any) -> None:
-    """Call a page's ``render`` with the keyword arguments it accepts.
-
-    Every page takes ``dialogs``; ``goto`` and ``actions`` are passed only
-    to pages whose ``render`` names them, so a page from another work
-    package that does not take them yet still builds.
-    """
-    params = inspect.signature(render).parameters
-    accepted = {k: v for k, v in kwargs.items() if k in params}
-    render(session, **accepted)
-
-
 def build_app() -> None:
     """Define the NiceGUI page hierarchy. Called once on app start."""
     from nicegui import ui
@@ -363,8 +339,9 @@ def build_app() -> None:
             for step in STEPS:
                 with ui.tab_panel(step.id).props(f'aria-label="{step.label}"').classes(
                         "q-pa-sm"):
-                    _call_render(_PAGES[step.id], session, dialogs=page_dialogs, goto=goto,
-                                 actions=actions)
+                    # Only the Project step has the file actions (New, Open, Save).
+                    extra = {"actions": actions} if step.id == "project" else {}
+                    _PAGES[step.id](session, dialogs=page_dialogs, goto=goto, **extra)
 
         _warn_before_leaving(session, client)
 
