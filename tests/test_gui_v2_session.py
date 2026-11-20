@@ -2,7 +2,7 @@
 
 No NiceGUI here: the session is the UI-free half of the GUI, and every
 user operation is checked as an operation plus the change events it
-emits (PLAN-gui.md, "Test strategy").
+emits (.10x/plans/PLAN-gui.md, "Test strategy").
 """
 
 from __future__ import annotations

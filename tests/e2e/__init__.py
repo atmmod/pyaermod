@@ -1,4 +1,4 @@
-"""End-to-end journeys for the NiceGUI app (PLAN-gui.md, tiers T2 and T3)."""
+"""End-to-end journeys for the NiceGUI app (.10x/plans/PLAN-gui.md, tiers T2 and T3)."""
 
 import pytest
 

@@ -1,6 +1,6 @@
 """J4: Save As, click New, then Open the saved file through the upload control.
 
-What the user must see (PLAN-gui.md): every step shows the saved values
+What the user must see (.10x/plans/PLAN-gui.md): every step shows the saved values
 again, the header shows the file name, and no exception appears in the
 server log.
 

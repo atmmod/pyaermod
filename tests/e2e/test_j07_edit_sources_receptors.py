@@ -1,6 +1,6 @@
 """J7: add, edit and delete sources and receptors of several types.
 
-What the user must see (PLAN-gui.md): table rows, the empty-state message,
+What the user must see (.10x/plans/PLAN-gui.md): table rows, the empty-state message,
 the plan-view plot and the step badges update after every action; integer
 fields show integers, and the deck contains ``SURFDATA  14735  1988``.
 

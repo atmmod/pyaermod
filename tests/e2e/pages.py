@@ -2,7 +2,7 @@
 
 Journeys call methods that say what the user does or expects
 (``gui.sources.add_point_source(...)``, ``gui.run.reports_failure()``), so
-a layout change edits this file, not the journeys (PLAN-gui.md, WP-G3
+a layout change edits this file, not the journeys (.10x/plans/PLAN-gui.md, WP-G3
 owns it). Elements are located by role and accessible name. Where the
 current GUI gives an element no accessible name, the fallback is marked
 ``# A11Y-GAP (WP-Gn): ...`` naming the package that will fix it, so the
