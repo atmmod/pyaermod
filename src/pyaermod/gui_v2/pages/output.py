@@ -18,19 +18,11 @@ from ..._fields import help_of
 from .._form import emit_fields
 from .._layout import Goto, section, step_page
 from .._live import live
+from ..catalog import FILE_FIELDS, HIDDEN_FIELDS, RESULTS_FIELDS, TABLE_FIELDS
 from ..session import Session, SessionEvent
 
 #: The file-name stem of the per-period plot files and POSTFILEs the GUI writes.
 PERIOD_FILE_STEM = "pyaermod"
-
-TABLE_FIELDS = ("receptor_table", "receptor_table_rank", "max_table", "max_table_rank",
-                "day_table")
-FILE_FIELDS = ("summary_file", "plot_file", "plot_file_averaging", "postfile",
-               "postfile_averaging", "postfile_source_group", "postfile_format", "file_format")
-#: Shown by the "Files for the Results step" group, not as text boxes.
-RESULTS_FIELDS = ("period_plot_files", "period_postfiles")
-#: Kept for older projects; the model options decide what AERMOD computes.
-HIDDEN_FIELDS = ("output_type",)
 
 _QUANTITIES = (("calculate_concentration", "CONC"), ("calculate_deposition", "DEPOS"),
                ("calculate_dry_deposition", "DDEP"), ("calculate_wet_deposition", "WDEP"))

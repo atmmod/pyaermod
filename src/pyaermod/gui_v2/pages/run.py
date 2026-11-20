@@ -43,29 +43,29 @@ from ..readiness import (  # noqa: F401 - re-exported: this step's checklist
     COMMON_ERRORS,
     COMMON_ERRORS_URL,
     HOME_MET,
-    MISSING_OUTPUT_FOLDER,
     NO_BINARY,
     OUTPUT_KEYWORDS,
     RELATIVE_MET,
-    RELATIVE_OUTPUT,
     STEP_IDS,
     STEP_TITLES,
     ChecklistItem,
     Review,
-    _add,
-    _home_met_files,
-    _met_files,
-    _missing_output_folders,
-    _ordered,
     _problem_text,
-    _relative_met_files,
     _step_for_deck_error,
     _step_for_pathway,
     aermod_available,
     output_folders,
     review,
 )
-from ..run_results import build_error, cached_view, prepare
+from ..run_results import (
+    _plural,
+    _seconds,
+    build_error,
+    cached_view,
+    message_counts_text,
+    prepare,
+    run_status_text,
+)
 from ..session import (
     DECK_NAME,
     Change,
@@ -86,51 +86,6 @@ def _aermod_available() -> bool:
 # ----------------------------------------------------------------------
 # A run as the step shows it
 # ----------------------------------------------------------------------
-
-def _seconds(record: RunRecord) -> float:
-    r = record.result
-    if r is not None and r.runtime_seconds is not None:
-        return float(r.runtime_seconds)
-    end = record.finished_at
-    return (end - record.started_at).total_seconds() if end is not None else 0.0
-
-
-def run_status_text(record: Optional[RunRecord]) -> str:
-    """The one-line status of ``record`` (a placeholder when there is no run).
-
-    The first word is the status: "Running", "Succeeded", "Failed" or
-    "Cancelled".
-    """
-    if record is None:
-        return "AERMOD has not been run for this project yet."
-    status = record.status
-    if status == "Running":
-        return f"Running AERMOD in {record.work_dir} ..."
-    if status == "Succeeded":
-        return f"Succeeded in {_seconds(record):.1f} s. See the Results step."
-    if status == "Cancelled":
-        return f"Cancelled after {_seconds(record):.1f} s."
-    reason = record.error
-    if reason is None and record.result is not None:
-        reason = record.result.error_message or f"exit code {record.result.return_code}"
-    return f"Failed: {reason}"
-
-
-def _plural(n: int, word: str) -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
-
-
-def message_counts_text(record: Optional[RunRecord]) -> str:
-    """"0 fatal errors, 6 warnings, 1 informational message" ("" before a result)."""
-    if record is None or record.result is None or record.cancelled:
-        return ""
-    r = record.result
-    if not (r.finished_successfully or r.messages or r.message_counts):
-        return ""
-    return (f"AERMOD reported {_plural(r.fatal_count, 'fatal error')}, "
-            f"{_plural(r.warning_count, 'warning')} and "
-            f"{_plural(r.informational_count, 'informational message')}.")
-
 
 def progress_text(record: Optional[RunRecord]) -> str:
     """What AERMOD last said it is doing: "Day 62 of 1988 (2 of 4 days)"."""

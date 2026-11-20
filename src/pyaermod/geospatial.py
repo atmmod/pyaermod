@@ -72,6 +72,21 @@ def _require(lib_name: str, flag: bool) -> None:
         )
 
 
+def _interpolate(x, y, z, grid, method):
+    """``griddata`` onto ``grid``; cubic falls back to linear when it leaves
+    more than 30 % of the grid NaN."""
+    zi = griddata((x, y), z, grid, method=method)
+    if method == "cubic" and zi is not None and np.isnan(zi).sum() / zi.size > 0.3:
+        zi = griddata((x, y), z, grid, method="linear")
+    return zi
+
+
+def _points(df: pd.DataFrame, x_col: str = "x", y_col: str = "y"):
+    """Point geometries for the rows of ``df`` (none for an empty frame,
+    which may lack the columns)."""
+    return gpd.points_from_xy(df[x_col], df[y_col]) if len(df) else []
+
+
 # ============================================================================
 # COORDINATE TRANSFORMER
 # ============================================================================
@@ -306,9 +321,7 @@ class GeoDataFrameFactory:
     def sources_from_results(self, results) -> "gpd.GeoDataFrame":
         """Convert parsed AERMODResults source summaries to a GeoDataFrame."""
         df = results.get_sources_dataframe()
-        geometry = [Point(row.x, row.y) for row in df.itertuples()]
-        gdf = gpd.GeoDataFrame(df, geometry=geometry, crs=self.transformer.utm_crs)
-        return gdf
+        return gpd.GeoDataFrame(df, geometry=_points(df), crs=self.transformer.utm_crs)
 
     # -- receptors -----------------------------------------------------------
 
@@ -366,9 +379,8 @@ class GeoDataFrameFactory:
         y_col: str = "y",
     ) -> "gpd.GeoDataFrame":
         """Convert a concentration DataFrame to a GeoDataFrame with Point geometries."""
-        geometry = [Point(row[x_col], row[y_col]) for _, row in df.iterrows()]
-        gdf = gpd.GeoDataFrame(df.copy(), geometry=geometry, crs=self.transformer.utm_crs)
-        return gdf
+        return gpd.GeoDataFrame(
+            df.copy(), geometry=_points(df, x_col, y_col), crs=self.transformer.utm_crs)
 
     def postfile_to_geodataframe(
         self, result, timestep: Optional[str] = None,
@@ -383,9 +395,7 @@ class GeoDataFrameFactory:
             If given, filter to this YYMMDDHH date string.
         """
         data = result.get_timestep(timestep) if timestep else result.data.copy()
-        geometry = [Point(row.x, row.y) for row in data.itertuples()]
-        gdf = gpd.GeoDataFrame(data, geometry=geometry, crs=self.transformer.utm_crs)
-        return gdf
+        return gpd.GeoDataFrame(data, geometry=_points(data), crs=self.transformer.utm_crs)
 
 
 # ============================================================================
@@ -455,14 +465,7 @@ class ContourGenerator:
         yi = np.linspace(y.min(), y.max(), grid_resolution)
         xi_grid, yi_grid = np.meshgrid(xi, yi)
 
-        # Interpolate
-        zi = griddata((x, y), z, (xi_grid, yi_grid), method=method)
-
-        # Fall back to linear if cubic produced too many NaN
-        if method == "cubic" and zi is not None:
-            nan_frac = np.isnan(zi).sum() / zi.size
-            if nan_frac > 0.3:
-                zi = griddata((x, y), z, (xi_grid, yi_grid), method="linear")
+        zi = _interpolate(x, y, z, (xi_grid, yi_grid), method)
 
         # Auto levels
         if levels is None:
@@ -605,14 +608,7 @@ class RasterExporter:
         yi = y_min + resolution * np.arange(nrows)
         xi_grid, yi_grid = np.meshgrid(xi, yi)
 
-        # Interpolate
-        zi = griddata((x, y), z, (xi_grid, yi_grid), method=method)
-
-        # Fall back to linear if cubic produced too many NaN
-        if method == "cubic" and zi is not None:
-            nan_frac = np.isnan(zi).sum() / zi.size
-            if nan_frac > 0.3:
-                zi = griddata((x, y), z, (xi_grid, yi_grid), method="linear")
+        zi = _interpolate(x, y, z, (xi_grid, yi_grid), method)
 
         # Replace remaining NaN with nodata
         if zi is not None:
