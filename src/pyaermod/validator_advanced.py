@@ -81,9 +81,9 @@ def _check_point_source(src: Any) -> List[ValidationError]:
         if ve == 0 and ts > AMBIENT_TEMP_K + 50:
             errors.append(ValidationError(
                 name, "exit_velocity",
-                f"exit_velocity = 0 but stack_temp = {ts} K (>> ambient); "
-                "buoyant plume with zero velocity is inconsistent — "
-                "AERMOD will model as neutral",
+                f"exit_velocity = 0 but stack_temp = {ts} K (>> ambient): "
+                "AERMOD sets the exit velocity to 1.0E-5 m/s without a "
+                "message and models a buoyant plume with no momentum rise",
                 severity="warning",
             ))
         if ve > MAX_PLAUSIBLE_EXIT_V_MS:

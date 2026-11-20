@@ -294,9 +294,13 @@ class TestPointSourceValidation:
         assert any("stack_temp" in e.field and e.severity == "error"
                    for e in result.errors)
 
-    def test_negative_exit_velocity(self):
+    def test_negative_exit_velocity_is_a_warning(self):
+        """soset.f PPARM: Vs < 0 is W325, set to 1e-5, and the run goes on."""
         result = Validator.validate(self._project_with_point(exit_velocity=-1.0))
-        assert any("exit_velocity" in e.field for e in result.errors)
+        found = [e for e in result.errors if "exit_velocity" in e.field]
+        assert [e.severity for e in found] == ["warning"]
+        assert "W325" in found[0].message
+        assert result.is_valid
 
     def test_zero_exit_velocity_ok(self):
         """Zero exit velocity is valid (passive stack); advanced validator
@@ -1780,7 +1784,7 @@ class TestParametrizedValidation:
             ("stack_temp", -1.0, False),
             ("stack_temp", 0.0, False),
             ("stack_temp", 300.0, False),
-            ("exit_velocity", -1.0, True),
+            ("exit_velocity", -1.0, False),  # W325: a warning
             ("exit_velocity", 0.0, False),
             ("exit_velocity", 10.0, False),
             ("emission_rate", -1.0, True),

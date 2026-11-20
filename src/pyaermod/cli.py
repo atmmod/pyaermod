@@ -33,9 +33,9 @@ Subcommands
     its headline stats (record count, peak value, receptor range).
 
 ``pyaermod profile INPUT --profile NAME [--apply]``
-    Lint INPUT against a named regulatory profile (EPA-AppendixW-2017,
-    EPA-AppendixW-2023, Screening). With ``--apply``, mutates the
-    project in-place and rewrites INPUT.
+    Lint INPUT against a named regulatory profile (EPA-AppendixW-2024,
+    EPA-AppendixW-2017, EPA-AppendixW-2023, Screening). With ``--apply``,
+    mutates the project in-place and rewrites INPUT.
 """
 
 from __future__ import annotations
@@ -199,13 +199,15 @@ def _cmd_profile(args: argparse.Namespace) -> int:
         for c in changes:
             print(f"  changed: {c}")
     warnings = profile.check(project)
-    if not warnings:
+    if warnings:
+        print(f"{args.input}: {len(warnings)} findings vs {profile.name}")
+        for w in warnings:
+            print(f"  {w}")
+    else:
         print(f"{args.input}: clean against {profile.name}")
-        return 0
-    print(f"{args.input}: {len(warnings)} findings vs {profile.name}")
-    for w in warnings:
-        print(f"  {w}")
-    return 1
+    for note in profile.advisories(project):
+        print(f"  note: {note}")
+    return 1 if warnings else 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -262,7 +264,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Lint or apply a regulatory profile to an .inp file")
     sp.add_argument("input", help="Path to the .inp file")
     sp.add_argument("--profile", required=True,
-                    help="Profile name (e.g. EPA-AppendixW-2017)")
+                    help="Profile name (e.g. EPA-AppendixW-2024)")
     sp.add_argument("--apply", action="store_true",
                     help="Mutate the project to satisfy the profile and "
                          "rewrite INPUT in place")

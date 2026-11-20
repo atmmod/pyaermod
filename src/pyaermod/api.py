@@ -259,6 +259,7 @@ from .regulatory import (
     ALL_PROFILES,
     EPA_APPENDIX_W_2017,
     EPA_APPENDIX_W_2023,
+    EPA_APPENDIX_W_2024,
     SCREENING_PROFILE,
     RegulatoryProfile,
     get_profile,
@@ -429,7 +430,7 @@ __all__ = [
     "async_fetch_tiles", "HillHeightAnomaly", "hill_height_diagnostics",
     # regulatory
     "RegulatoryProfile", "EPA_APPENDIX_W_2017", "EPA_APPENDIX_W_2023",
-    "SCREENING_PROFILE", "ALL_PROFILES", "get_profile",
+    "EPA_APPENDIX_W_2024", "SCREENING_PROFILE", "ALL_PROFILES", "get_profile",
     # PRIME
     "Building", "BPIPCalculator", "BPIPResult", "GEP_FLOOR_M",
     "gep_stack_height", "gep_from_building", "cavity_length", "in_cavity_region",
@@ -471,7 +472,7 @@ if HAS_TERRAIN:
 # ---------------------------------------------------------------------------
 # The ~30 names below cover 90% of real AERMOD workflows. They are the
 # subset you can trust to keep their names and signatures across every
-# 1.x release. New names are added here sparingly and only after a
+# 2.x release. New names are added here sparingly and only after a
 # minor-version soak with the wider __all__ surface.
 
 CORE_NAMES: frozenset = frozenset({

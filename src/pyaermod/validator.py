@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+from ._fortran import fortran_float
 from .pathways import (
     BACKGROUND_UNITS,
     EVENT_NAME_LENGTH,
@@ -242,6 +243,7 @@ class Validator:
 
         cls._validate_dfault_terrain(control, result)
         cls._validate_dfault_options(control, result)
+        cls._validate_low_wind(control, result)
         cls._validate_restart_options(control, result)
         cls._validate_gas_deposition_defaults(control, result)
         cls._validate_downwash_and_arm2_options(control, result)
@@ -394,6 +396,66 @@ class Validator:
                     severity="warning",
                 ))
 
+    #: The numeric fields of CO LOW_WIND in order, with the range coset.f
+    #: LOW_WND accepts (v23132, v24142 and v26135 are identical; outside
+    #: it is E380). The User's Guide (3.2.3) gives 1.0 as the upper limit
+    #: of SVmin and WSmin; the code accepts up to 1.001.
+    LOW_WIND_FIELDS = (
+        ("SVmin", 0.01, 1.001), ("WSmin", 0.01, 1.001), ("FRANmax", 0.0, 1.0),
+        ("SWmin", 0.0, 3.0), ("BigT", 0.5, 48.0), ("FRANmin", 0.0, 1.0),
+    )
+
+    @classmethod
+    def _validate_low_wind(cls, control, result: ValidationResult):
+        """``CO LOW_WIND SVmin [WSmin [FRANmax [SWmin [BigT [FRANmin [PBAL]]]]]]``.
+
+        coset.f (v24142): the card needs MODELOPT ALPHA (E133, dispatch
+        at 374-386), and ALPHA is refused beside DFAULT (E204), so no
+        regulatory run can carry it. LOW_WND (6779-7014) reads up to six
+        numbers and the word PBAL: a field that is not a number is E208,
+        one outside its range E380, FRANmin above FRANmax E426, more
+        than seven fields E202.
+        """
+        text = getattr(control, "low_wind_option", None)
+        if not text:
+            return
+
+        def error(message: str) -> None:
+            result.errors.append(ValidationError("ControlPathway", "low_wind_option", message))
+
+        if getattr(control, "regulatory_default", False):
+            error("CO LOW_WIND is an ALPHA option, and AERMOD refuses ALPHA beside "
+                  "DFAULT (E204): set regulatory_default=False and alpha=True, or "
+                  "remove low_wind_option")
+        elif not getattr(control, "alpha", False):
+            error("CO LOW_WIND needs MODELOPT ALPHA (E133): set alpha=True")
+
+        tokens = str(text).split()
+        if len(tokens) > len(cls.LOW_WIND_FIELDS) + 1:
+            error(f"has {len(tokens)} fields; CO LOW_WIND takes at most six numbers "
+                  "and PBAL (E202)")
+            return
+        values = {}
+        for i, token in enumerate(tokens):
+            if i == len(cls.LOW_WIND_FIELDS):
+                if token.upper() not in ("PBAL", "PBALANCE"):
+                    error(f"the seventh field must be PBAL or PBALANCE, got '{token}' (E203)")
+                continue
+            name, low, high = cls.LOW_WIND_FIELDS[i]
+            try:
+                value = fortran_float(token, strict=True)
+            except ValueError:
+                error(f"{name} must be a number, got '{token}' (E208). The fields are "
+                      "SVmin [WSmin [FRANmax [SWmin [BigT [FRANmin [PBAL]]]]]]; a name "
+                      "such as LOWWIND3 is not one (those options left AERMOD in v18081)")
+                continue
+            values[name] = value
+            if not low <= value <= high:
+                error(f"{name} = {token} is outside {low} to {high} (E380)")
+        if "FRANmin" in values and values["FRANmin"] > values["FRANmax"]:
+            error(f"FRANmin ({values['FRANmin']}) is above FRANmax "
+                  f"({values['FRANmax']}) (E426)")
+
     @classmethod
     def _validate_dfault_terrain(cls, control, result: ValidationResult):
         """DFAULT with FLAT (coset.f MODOPT, v26135 lines 1622-1683).
@@ -440,7 +502,19 @@ class Validator:
         cls._validate_source_ids(sources, result)
 
         has_urban_source = False
+        several_urban_areas = len(getattr(control, "urban_areas", None) or []) > 1
         for source in sources.sources:
+            # soset.f URBANS: with more than one URBANOPT card (L_MULTURB)
+            # URBANSRC names the urban area before the sources.
+            if (several_urban_areas and getattr(source, "is_urban", False)
+                    and not getattr(source, "urban_area_name", None)):
+                result.errors.append(ValidationError(
+                    f"{type(source).__name__}({source.source_id})", "urban_area_name",
+                    "is_urban=True but urban_area_name is not set, and the project "
+                    f"has {len(control.urban_areas)} urban areas: with several "
+                    "URBANOPT cards AERMOD reads the area's ID on URBANSRC before "
+                    "the sources. Set urban_area_name to one of the urban_id values"
+                ))
             cls._validate_source(source, control, result)
             if (getattr(source, "method_2", None) is not None
                     or getattr(source, "platform", None) is not None
@@ -931,6 +1005,21 @@ class Validator:
                 f"must be between 0 and 1, got {ratio}"
             ))
 
+        # soset.f SRCQA: with OLM, PVMRM, GRSM or TTRM a source that has
+        # neither NO2STACK nor its own NO2RATIO is E336; AERMOD has no
+        # default in-stack ratio.
+        chemistry = getattr(control, "chemistry", None)
+        if (chemistry is not None and ratio is None
+                and chemistry.default_no2_ratio is None
+                and getattr(chemistry.method, "value", chemistry.method) in NO2STACK_METHODS):
+            method = getattr(chemistry.method, "value", chemistry.method)
+            result.errors.append(ValidationError(
+                f"{type(source).__name__}({source.source_id})", "no2_ratio",
+                f"no in-stack NO2/NOx ratio: {method} needs one for every source and "
+                "AERMOD has no default (E336). Set the source's no2_ratio or "
+                "ChemistryOptions.default_no2_ratio (NO2STACK)"
+            ))
+
         if isinstance(source, RLineExtSource):
             cls._validate_rline_configuration(source, control, result)
 
@@ -1143,10 +1232,14 @@ class Validator:
                 "ambient temperature, or a negative value -dT for Ts = Ta + dT"
             ))
 
+        # PPARM 2784-2788: Vs < 0 is W325; AERMOD sets it to 1e-5 m/s and
+        # runs. 0 <= Vs < 1e-5 is reset the same way without a message.
         if src.exit_velocity < 0:
             result.errors.append(ValidationError(
                 name, "exit_velocity",
-                f"must be >= 0, got {src.exit_velocity}"
+                f"{src.exit_velocity} m/s is negative: AERMOD warns (W325), sets "
+                "the exit velocity to 1.0E-5 m/s and runs",
+                severity="warning",
             ))
 
         if src.emission_rate < 0:

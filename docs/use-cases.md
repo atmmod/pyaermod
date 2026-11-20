@@ -165,7 +165,7 @@ The haul road is split into 30 volume sources, 14 m apart, and the pile covers 4
 !!! tip "Adapting it"
     - Set `ROAD` to your road's vertices and `WIDTH` to the road width + 6 m. For other truck heights, set the release height to half of 1.7 × the truck height and σz0 to 1.7 × the truck height ÷ 2.15. Divide the road's total g/s evenly among the volumes. Area sources take g/s/m², so divide each total by its footprint area.
     - Area sources are slow. This deck (about 570 receptors, one year) takes about 4 minutes. Receptor count drives the runtime, so use a coarse grid to explore and refine it near the maximum. An `AreaCircSource` is modelled as a 20-sided polygon and was the slowest type in a timing test. Lower `num_vertices` if you use one.
-    - For PM10, the NAAQS compares the H6H over five years, or the H2H for one year, with 150 µg/m³. The map shows the H1H, and the script takes the H2H from the summary table. To map the H2H instead, set `OutputPathway(plot_file_rank="H2H")`.
+    - For PM10, modelling compares the H6H over five years, or the H2H for one year, with 150 µg/m³. That is the High-N+1-High rule of the AERMOD User's Guide (section 3.2.16.2); the standard itself (40 CFR 50.6(a), Appendix K) is one expected exceedance per year. The map shows the H1H, and the script takes the H2H from the summary table. To map the H2H instead, set `OutputPathway(plot_file_rank="H2H")`.
     - Under `DFAULT`, AERMOD overrides `MODELOPT FLAT` (warning W206). This example keeps `DFAULT` and uses `ELEV` with all elevations at 0 m. A `PLOTFILE` rank needs a `RECTABLE` at least that deep, or AERMOD stops with E203; `Validator` checks it.
 
 ---
@@ -196,7 +196,7 @@ The haul road is split into 30 volume sources, 14 m apart, and the pile covers 4
 
 ## 6. 1-hour NO2 with Tier 2 and Tier 3 chemistry
 
-**When you need it:** A combustion source emits NOx, but the 1-hour NAAQS is for NO2. EPA's Guideline (Appendix W §4.2.3.4) lets you go beyond Tier 1 (all NOx is NO2). Tier 2 is ARM2, an empirical NO2/NOx ratio. Tier 3 is OLM or PVMRM, which limit conversion by the ambient ozone available. A source that fails with ARM2 often passes with a Tier 3 method.
+**When you need it:** A combustion source emits NOx, but the 1-hour NAAQS is for NO2. EPA's Guideline (Appendix W §4.2.3.4) lets you go beyond Tier 1 (all NOx is NO2). Tier 2 is ARM2, an empirical NO2/NOx ratio. Tier 3 is OLM or PVMRM (and GRSM under the 2024 revision), which limit conversion by the ambient ozone available and need consultation with the EPA Regional Office. A source that fails with ARM2 often passes with a Tier 3 method.
 
 **What it shows:** one project built three times with only [`ChemistryOptions`](api/pathways.md) changed: `ChemistryMethod.ARM2`, `.OLM` and `.PVMRM`. The Tier 3 runs take a uniform background ozone ([`OzoneData`](api/pathways.md), written as `OZONEVAL`) and an in-stack NO2/NOx ratio (`default_no2_ratio`, written as `NO2STACK`). Each project is checked with [`Validator`](api/validator.md) and run with [`run_aermod`](api/runner.md). The ranked tables come from `AERMODResults.summaries` ([`parse_aermod_output`](api/output_parser.md)). The maps come from per-period plot files (`OutputPathway.period_plot_files`, read with [`read_plotfile`](api/aermod_outputs.md)).
 
