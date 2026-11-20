@@ -191,6 +191,8 @@ reader parses now write with `validate=True`; 72 did not.
   keeps a circle's area.
 - `CartesianGrid.from_bounds` no longer loses a point to float
   truncation; `run_design` passes `build_fn` its own copy of the factors.
+- `parse_igra_v2` reads an IGRA level with a missing (-9999) temperature,
+  wind direction or wind speed as `None`. It raised `TypeError`.
 - `pyaermod info` reports whether pyproj, geopandas, rasterio and requests
   are installed. It printed "yes" for geospatial and terrain whatever was
   installed.

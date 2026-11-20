@@ -368,11 +368,12 @@ def parse_igra_v2(text: str) -> List[IGRASounding]:
                 levels_remaining -= 1
                 continue
             current.levels.append({
-                "pressure_pa": None if press == -9999 else press,
-                "height_m": None if gph == -9999 else gph,
-                "temp_c": None if temp == -9999 else temp / 10.0,
-                "wind_dir": None if wdir == -9999 else float(wdir),
-                "wind_speed_ms": None if wspd == -9999 else wspd / 10.0,
+                # _int_or_none has already turned -9999 (missing) into None
+                "pressure_pa": press,
+                "height_m": gph,
+                "temp_c": None if temp is None else temp / 10.0,
+                "wind_dir": None if wdir is None else float(wdir),
+                "wind_speed_ms": None if wspd is None else wspd / 10.0,
             })
             levels_remaining -= 1
     return soundings
