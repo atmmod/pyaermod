@@ -140,8 +140,8 @@ class Validator:
         advanced : bool
             If True (default), also run the cross-field checks from
             :mod:`validator_advanced` (stack-parameter consistency,
-            receptor-domain extent, DFAULT consistency, ANNUAL met
-            coverage). Pass ``advanced=False`` to restrict output to
+            receptor-domain extent, DFAULT consistency, STARTEND range
+            under ANNUAL). Pass ``advanced=False`` to restrict output to
             only the base per-field checks.
         preserve_unparsed : bool
             Whether the deck will carry :attr:`AERMODProject.unparsed_lines`
