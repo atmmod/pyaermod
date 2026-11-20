@@ -280,6 +280,19 @@ class AERMODOutputParser:
         self._parse_receptors()
         self._parse_concentration_results()
 
+        if not (self.sources or self.receptors or self.concentrations
+                or self.deposition or self.summaries):
+            what = ("an AERMOD run that stopped before it wrote them, for example "
+                    "on a setup error"
+                    if self.run_info.version != "Unknown" else
+                    "not an AERMOD main output (.out) file, or not in the layout "
+                    "AERMOD writes")
+            warnings.warn(
+                f"{self.output_file}: no source, receptor or result table was "
+                f"found, so the results are empty. This is {what}.",
+                UserWarning, stacklevel=4,
+            )
+
         return AERMODResults(
             run_info=self.run_info,
             sources=self.sources,

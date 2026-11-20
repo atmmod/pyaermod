@@ -347,6 +347,41 @@ class TestParserWithWarnings:
         assert parser.sources[0].source_id == "STACK1"
 
 
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+
+class TestNothingParsedWarning:
+    """A file that yields no source, receptor or result table says so."""
+
+    def test_a_file_that_is_not_an_aermod_report_warns(self, tmp_path):
+        """For example the wrong file, or text in a layout AERMOD does not write."""
+        outfile = tmp_path / "other.out"
+        outfile.write_text(
+            " *** ANNUAL RESULTS ***\n\n"
+            "   X-COORD       Y-COORD    CONC (UG/M3)\n"
+            "      0.00         0.00         5.2341\n"
+        )
+        with pytest.warns(UserWarning, match="not an AERMOD main output") as caught:
+            results = parse_aermod_output(outfile)
+        assert results.concentrations == {} and results.sources == []
+        assert caught[0].filename == __file__  # the caller's line
+
+    def test_another_programs_output_warns(self):
+        with pytest.warns(UserWarning, match="not an AERMOD main output"):
+            parse_aermod_output(_FIXTURES / "aermap_runner/success/aermap.out")
+
+    def test_an_aermod_run_that_stopped_in_setup_says_so(self):
+        with pytest.warns(UserWarning, match="stopped before it wrote them"):
+            parse_aermod_output(_FIXTURES / "runner/setup_error_e500/aermod.out")
+
+    def test_a_complete_run_does_not_warn(self):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            results = parse_aermod_output(_FIXTURES / "output_parser/full_year/aermod.out")
+        assert results.concentrations
+
+
 class TestEmptyAndMalformedOutput:
     """Test parser behavior with empty or malformed output files."""
 
