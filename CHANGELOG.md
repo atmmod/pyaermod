@@ -197,6 +197,9 @@ reader parses now write with `validate=True`; 72 did not.
 - `AERMODVisualizer.plot_contours` titles a plot with the run's title.
   It used a job name, which AERMOD never prints, so the second title
   line of every real run read "Unknown".
+- `AdvancedVisualizer.plot_time_series_animation` draws a frame with no
+  positive concentration as a flat field. It raised "cannot convert float
+  NaN to integer", for all-zero data and for one zero frame among others.
 
 ### Removed
 

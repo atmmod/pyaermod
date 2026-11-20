@@ -518,6 +518,35 @@ class TestAdvancedVisualizerAnimation:
                 timestamps=["T1", "T2"],
             )
 
+    @pytest.mark.parametrize("first_scale", [0.0, 1.0])
+    def test_animation_draws_a_frame_with_no_positive_value(
+        self, advanced_viz_df, first_scale
+    ):
+        """An all-zero frame is drawn flat, alone or after a positive one.
+
+        A log colour scale has no level for a frame without a positive
+        value, so such a frame raised "cannot convert float NaN to integer".
+        """
+        import matplotlib.pyplot as plt
+        zero = advanced_viz_df.assign(CONC=0.0)
+        first = advanced_viz_df.assign(CONC=advanced_viz_df["CONC"] * first_scale)
+
+        anim = AdvancedVisualizer.plot_time_series_animation(
+            dataframes=[first, zero], timestamps=["T1", "T2"],
+        )
+        for frame in range(2):
+            anim._func(frame)
+            anim._fig.canvas.draw()
+
+        ax = anim._fig.axes[0]
+        assert ax.get_title().endswith("T2")
+        filled = ax.collections[0]
+        # the flat frame is filled, in the lowest colour of the scale
+        assert sum(len(p.vertices) for p in filled.get_paths()) > 0
+        assert filled.norm.vmin == 0.0
+        assert filled.norm.vmax == (1.0 if first_scale == 0.0 else first["CONC"].max())
+        plt.close("all")
+
     def test_comparison_grid_save(self, advanced_viz_df, tmp_path):
         """Comparison grid with save_path writes a file."""
         import matplotlib.pyplot as plt
