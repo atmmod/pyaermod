@@ -8,9 +8,9 @@ exported here are guaranteed to remain available.
 
 Two tiers:
 
-**Core** (the ``CORE_NAMES`` frozenset and the ``pyaermod.api.core``
-submodule): the ~30 names that cover 90% of real workflows — pathways,
-source types, the runner, the CLI, and the most common helpers. If
+**Core** (the ``CORE_NAMES`` frozenset): the ~30 names that cover 90% of
+real workflows: pathways, source types, the runner and the most common
+helpers. If
 you're writing production code that ideally never has to change,
 stick to these.
 
@@ -130,6 +130,21 @@ from .ensemble import (
     rewrite_output_names,
     run_design,
     run_id,
+)
+
+# --- Geospatial and terrain ------------------------------------------------
+# Both modules import with numpy and pandas alone; a function that needs
+# pyproj, geopandas, rasterio or requests says so when it is called.
+from .geospatial import (
+    ContourGenerator,
+    CoordinateTransformer,
+    GeoDataFrameFactory,
+    RasterExporter,
+    VectorExporter,
+    export_concentration_geotiff,
+    export_concentration_shapefile,
+    latlon_to_utm,
+    utm_to_latlon,
 )
 from .hourly_emissions import WindEmissionProfile, ap42_wind_profile, write_hourly_emissions
 from .input_generator import (
@@ -259,6 +274,7 @@ from .regulatory import (
     ALL_PROFILES,
     EPA_APPENDIX_W_2017,
     EPA_APPENDIX_W_2023,
+    EPA_APPENDIX_W_2024,
     SCREENING_PROFILE,
     RegulatoryProfile,
     get_profile,
@@ -291,6 +307,15 @@ from .runner_utils import (
     tail_output,
 )
 from .source_importers import from_dxf, from_shapefile
+from .terrain import (
+    AERMAPOutputParser,
+    AERMAPRunner,
+    AERMAPRunResult,
+    DEMDownloader,
+    DEMTileInfo,
+    TerrainProcessor,
+    run_aermap,
+)
 from .terrain_utils import (
     EPSG_NAD27,
     EPSG_NAD83,
@@ -314,40 +339,10 @@ from .versions import VALIDATED_AERMET_VERSIONS, VALIDATED_AERMOD_VERSIONS
 # --- Visualization --------------------------------------------------------
 from .visualization import AERMODVisualizer, quick_map, quick_plot
 
-# --- Optional-dependency surface -----------------------------------------
-# These are only importable when the underlying extras are installed. We
-# still list them in `__all__` so users discover them via tab-completion
-# and IDEs; at import time the flags below advertise availability.
-
-try:
-    from .geospatial import (
-        ContourGenerator,
-        CoordinateTransformer,
-        GeoDataFrameFactory,
-        RasterExporter,
-        VectorExporter,
-        export_concentration_geotiff,
-        export_concentration_shapefile,
-        latlon_to_utm,
-        utm_to_latlon,
-    )
-    HAS_GEOSPATIAL = True
-except ImportError:
-    HAS_GEOSPATIAL = False
-
-try:
-    from .terrain import (
-        AERMAPOutputParser,
-        AERMAPRunner,
-        AERMAPRunResult,
-        DEMDownloader,
-        DEMTileInfo,
-        TerrainProcessor,
-        run_aermap,
-    )
-    HAS_TERRAIN = True
-except ImportError:
-    HAS_TERRAIN = False
+#: Always True, kept for code that tests them: the names above import
+#: without the optional packages. To be removed in 3.0.
+HAS_GEOSPATIAL = True
+HAS_TERRAIN = True
 
 __all__ = [
     "__version__",
@@ -429,7 +424,7 @@ __all__ = [
     "async_fetch_tiles", "HillHeightAnomaly", "hill_height_diagnostics",
     # regulatory
     "RegulatoryProfile", "EPA_APPENDIX_W_2017", "EPA_APPENDIX_W_2023",
-    "SCREENING_PROFILE", "ALL_PROFILES", "get_profile",
+    "EPA_APPENDIX_W_2024", "SCREENING_PROFILE", "ALL_PROFILES", "get_profile",
     # PRIME
     "Building", "BPIPCalculator", "BPIPResult", "GEP_FLOOR_M",
     "gep_stack_height", "gep_from_building", "cavity_length", "in_cavity_region",
@@ -442,28 +437,18 @@ __all__ = [
     "apply_chemistry", "apply_deposition_defaults",
     # .inp file reader
     "parse_aermod_input", "read_aermod_input",
-    # optional-dep availability flags
+    # geospatial
+    "ContourGenerator", "CoordinateTransformer", "GeoDataFrameFactory",
+    "RasterExporter", "VectorExporter",
+    "export_concentration_geotiff", "export_concentration_shapefile",
+    "latlon_to_utm", "utm_to_latlon",
+    # terrain download and AERMAP runs
+    "AERMAPOutputParser", "AERMAPRunResult", "AERMAPRunner",
+    "DEMDownloader", "DEMTileInfo", "TerrainProcessor", "run_aermap",
+    # always True (see above)
     "HAS_GEOSPATIAL", "HAS_TERRAIN",
 ]
 
-# Optional-dep symbols (only added to __all__ when the extras are installed)
-if HAS_GEOSPATIAL:
-    __all__.extend([
-        "ContourGenerator", "CoordinateTransformer", "GeoDataFrameFactory",
-        "RasterExporter", "VectorExporter",
-        "export_concentration_geotiff", "export_concentration_shapefile",
-        "latlon_to_utm", "utm_to_latlon",
-    ])
-if HAS_TERRAIN:
-    __all__.extend([
-        "AERMAPOutputParser",
-        "AERMAPRunResult",
-        "AERMAPRunner",
-        "DEMDownloader",
-        "DEMTileInfo",
-        "TerrainProcessor",
-        "run_aermap",
-    ])
 
 
 # ---------------------------------------------------------------------------
@@ -471,7 +456,7 @@ if HAS_TERRAIN:
 # ---------------------------------------------------------------------------
 # The ~30 names below cover 90% of real AERMOD workflows. They are the
 # subset you can trust to keep their names and signatures across every
-# 1.x release. New names are added here sparingly and only after a
+# 2.x release. New names are added here sparingly and only after a
 # minor-version soak with the wider __all__ surface.
 
 CORE_NAMES: frozenset = frozenset({

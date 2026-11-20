@@ -62,9 +62,7 @@ def _check_dependencies() -> None:
     """Emit ImportWarning for missing optional visualization deps.
 
     Uses `builtins.__import__` directly so test fixtures that monkey-
-    patch that symbol still see the import attempt. The equivalent
-    information is also available via `HAS_GEOSPATIAL` / `HAS_TERRAIN`
-    on :mod:`pyaermod.api`.
+    patch that symbol still see the import attempt.
     """
     import builtins
     import warnings

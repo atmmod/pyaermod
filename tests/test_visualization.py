@@ -251,6 +251,27 @@ class TestAdvancedVisualizer3D:
         assert os.path.exists(save_file)
         plt.close(fig)
 
+    def test_plot_3d_surface_of_an_l_shaped_set(self, advanced_viz_df):
+        """Receptors that do not fill their bounding box draw where they are.
+
+        The base contours were put at the grid's minimum, which is NaN when
+        a cell has no receptor, and drawing them raised a broadcast error.
+        """
+        import matplotlib.pyplot as plt
+        df = advanced_viz_df
+        l_shape = df[(df["X"] < -200) | (df["Y"] < -200)]
+
+        fig = AdvancedVisualizer.plot_3d_surface(l_shape)
+        fig.canvas.draw()
+
+        # Drawing is where the error was raised. The checks stay away from
+        # how matplotlib stores 3D contours, which differs between versions.
+        ax = fig.axes[0]
+        assert ax.collections, "nothing was drawn"
+        low, high = ax.get_zlim()
+        assert np.isfinite(low) and np.isfinite(high)
+        plt.close(fig)
+
 
 class TestAdvancedVisualizerWindRose:
     """Test wind rose plotting"""
@@ -517,6 +538,33 @@ class TestAdvancedVisualizerAnimation:
                 dataframes=[advanced_viz_df],
                 timestamps=["T1", "T2"],
             )
+
+    @pytest.mark.parametrize("first_scale", [0.0, 1.0])
+    def test_animation_draws_a_frame_with_no_positive_value(
+        self, advanced_viz_df, first_scale
+    ):
+        """An all-zero frame is drawn flat, alone or after a positive one.
+
+        A log colour scale has no level for a frame without a positive
+        value, so such a frame raised "cannot convert float NaN to integer".
+        """
+        import matplotlib.pyplot as plt
+        zero = advanced_viz_df.assign(CONC=0.0)
+        first = advanced_viz_df.assign(CONC=advanced_viz_df["CONC"] * first_scale)
+
+        anim = AdvancedVisualizer.plot_time_series_animation(
+            dataframes=[first, zero], timestamps=["T1", "T2"],
+        )
+        for frame in range(2):
+            anim._func(frame)
+            anim._fig.canvas.draw()
+
+        ax = anim._fig.axes[0]
+        assert ax.get_title().endswith("T2")
+        # Drawing is where the error was raised. How matplotlib stores the
+        # filled contours and their norm differs between versions.
+        assert ax.collections, "the flat frame drew nothing"
+        plt.close("all")
 
     def test_comparison_grid_save(self, advanced_viz_df, tmp_path):
         """Comparison grid with save_path writes a file."""

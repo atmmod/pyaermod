@@ -114,11 +114,13 @@ reviewing before the run.
 
 ## Low-wind options
 
-AERMOD's LOWWIND family adjusts how the model handles stable, calm
-hours. Appendix W (2017) currently allows `LOWWIND3` when documented.
-
-`pyaermod.regulatory.EPA_APPENDIX_W_2017.check(project)` will warn if
-`low_wind_option` is outside the allowed set.
+AERMOD's `CO LOW_WIND` card sets minimum sigma-v, wind speed and meander
+values for stable, light-wind hours. It is an ALPHA option: it needs
+`alpha=True` and cannot run with DFAULT, and no revision of Appendix W
+names a low-wind option. LOWWIND1, 2 and 3 were BETA options removed in
+AERMOD v18081. `ControlPathway.low_wind_option` takes the card's fields
+(`"0.3 0.5"` for SVmin and WSmin); `Validator` checks them, and every
+profile in `pyaermod.regulatory` flags the option.
 
 ## ADJ_U* and surface characteristics
 

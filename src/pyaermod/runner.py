@@ -27,6 +27,18 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tu
 
 from . import wasm_runner
 
+# These lived here before _exec.py; the names stay importable from this module.
+from ._exec import (  # noqa: F401
+    _dir_state,
+    _files_written,
+    _FileState,
+    _kill_tree,
+    _read_capped,
+    _run_tree,
+    _tree_popen_kwargs,
+    find_executable,
+)
+
 # ============================================================================
 # AERMOD'S MESSAGE SUMMARY
 # ============================================================================
@@ -308,23 +320,12 @@ def find_aermod_executable(path: Optional[Union[str, Path]] = None) -> Path:
     if wasm_runner.IS_EMSCRIPTEN:
         return wasm_runner.find_wasm_aermod(path)
 
-    if path:
-        exe_path = Path(path)
-        if not exe_path.exists():
-            raise FileNotFoundError(f"AERMOD executable not found: {path}")
-        return exe_path
-
-    for name in AERMOD_EXECUTABLE_NAMES:
-        found = shutil.which(name)
-        if found:
-            return Path(found)
-
-    raise FileNotFoundError(
+    return find_executable(AERMOD_EXECUTABLE_NAMES, path, label="AERMOD executable", not_found=(
         "AERMOD executable not found in PATH. Please either:\n"
         "  1. Add AERMOD to your system PATH, or\n"
         "  2. Specify the path explicitly: AERMODRunner(executable_path='/path/to/aermod')\n\n"
         f"System: {platform.system()}"
-    )
+    ))
 
 
 class AERMODRunner:
@@ -1542,123 +1543,6 @@ def _describe_signal(signum: int, unwritten: Optional[str] = None) -> str:
         f"AERMOD was stopped by {name} before it finished; "
         "its output ends where the run was cut off"
     )
-
-
-class _FileState(NamedTuple):
-    mtime_ns: int
-    size: int
-    ino: int
-
-
-def _tree_popen_kwargs() -> Dict[str, Any]:
-    """Popen arguments that make a child the root of its own process tree.
-
-    POSIX: a session of its own, so ``killpg`` reaches it and everything it
-    started. Windows: a new process group (``taskkill /T`` does the walk).
-    """
-    if os.name == "nt":
-        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
-    return {"start_new_session": True}
-
-
-def _kill_tree(proc: "subprocess.Popen[Any]", *, force: bool = True) -> None:
-    """Stop ``proc`` and the processes it started.
-
-    ``proc`` must have been started with :func:`_tree_popen_kwargs`.
-    ``force=False`` asks politely (SIGTERM) where the platform has such a
-    thing; Windows always ends the tree (``taskkill /T /F``, then
-    ``proc.kill()`` as a fallback; correct by inspection, not run here).
-    """
-    if os.name == "nt":
-        with contextlib.suppress(Exception):
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=30, check=False)
-        with contextlib.suppress(OSError):
-            proc.kill()
-        return
-    sig = signal.SIGKILL if force else signal.SIGTERM
-    try:
-        os.killpg(proc.pid, sig)
-    except (ProcessLookupError, PermissionError):
-        # The group is gone (or was never ours): the child alone.
-        with contextlib.suppress(OSError):
-            proc.kill() if force else proc.terminate()
-
-
-def _run_tree(cmd: Sequence[str], *, timeout: Optional[float] = None,
-              input: Optional[str] = None, **popen_kwargs: Any) -> "subprocess.CompletedProcess[str]":
-    """``subprocess.run`` that, on a timeout or an interrupt, ends the whole process tree.
-
-    ``subprocess.run`` kills only the process it started; AERSCREEN's
-    AERMOD, MAKEMET and AERMAP would run on after the caller was told
-    "timed out". Raises :class:`subprocess.TimeoutExpired` like it.
-    """
-    if input is not None:
-        popen_kwargs["stdin"] = subprocess.PIPE
-    with subprocess.Popen(cmd, **_tree_popen_kwargs(), **popen_kwargs) as proc:
-        try:
-            proc.communicate(input, timeout=timeout)
-        except BaseException:
-            _kill_tree(proc)
-            proc.wait()
-            raise
-    return subprocess.CompletedProcess(list(cmd), proc.returncode)
-
-
-def _dir_state(directory: Path) -> Dict[str, _FileState]:
-    """The regular files directly in ``directory``, by name, as they stand now.
-
-    Taken just before a program runs, so that :func:`_files_written` can
-    tell afterwards which files the run created or changed. Comparing
-    each file with its own earlier state, not its mtime with the wall
-    clock, matters on Linux, which stamps files from a coarse kernel
-    clock: a file written a few ms after ``datetime.now()`` can carry an
-    earlier mtime and would be missed.
-    """
-    state: Dict[str, _FileState] = {}
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return state
-    for entry in entries:
-        try:
-            if entry.is_file():
-                st = entry.stat()
-                state[entry.name] = _FileState(st.st_mtime_ns, st.st_size, st.st_ino)
-        except OSError:
-            continue
-    return state
-
-
-def _files_written(directory: Path, before: Dict[str, _FileState]) -> List[str]:
-    """The files in ``directory`` that are new or changed since ``before``, sorted.
-
-    A file rewritten in place with the same size within one tick of the
-    filesystem's timestamp clock of ``before`` being taken is not seen.
-    """
-    after = _dir_state(directory)
-    return [str(directory / name) for name in sorted(after)
-            if before.get(name) != after[name]]
-
-
-def _read_capped(path: Path, max_bytes: int = 1_000_000) -> str:
-    """Read a text file, returning at most the last `max_bytes` bytes.
-
-    Used to populate `AERMODRunResult.stdout`/`.stderr` from the
-    subprocess-redirect temp files without OOM on pathological runs.
-    If the file is larger than the cap, returns the final `max_bytes`
-    bytes prefixed with a "[...truncated...]" marker.
-    """
-    if not path.exists():
-        return ""
-    size = path.stat().st_size
-    with open(path, "rb") as f:
-        if size <= max_bytes:
-            return f.read().decode("utf-8", errors="replace")
-        # Seek to the tail
-        f.seek(size - max_bytes)
-        tail = f.read().decode("utf-8", errors="replace")
-    return f"[...truncated: {size - max_bytes:,} bytes omitted...]\n" + tail
 
 
 def _set_sweep_parameter(project, name: str, value, source_index: int = 0) -> None:

@@ -24,7 +24,13 @@ in a table, and takes the *n*-th value from the top.
 | NO2, 1-hour | 3-yr avg of annual 98th percentile of daily max 1-hour values | 8th highest | 40 CFR 50 app. S, Table 1 |
 | SO2, 1-hour | 3-yr avg of annual 99th percentile of daily max 1-hour values | 4th highest | 40 CFR 50 app. T, Table 1 |
 | O3, 8-hour | 3-yr avg of annual 4th-highest daily max 8-hour average | 4th highest | 40 CFR 50.19 |
-| PM10, 24-hour | Highest 6th-high of the pooled 5-year record (H6H); H2H with one year | — | 40 CFR 50.6; Appendix W Table 8-2 |
+| PM10, 24-hour | Highest 6th-high of the pooled 5-year record (H6H); H2H with one year | — | AERMOD User's Guide 3.2.16.2 (High-N+1-High), for the standard of 40 CFR 50.6(a) and app. K: at most one expected exceedance per year |
+
+Modelled values are compared with the standard unrounded (Appendix W
+9.2.2(b)); the rounding conventions of the Part 50 appendices apply to
+monitored design values. Years are met years, as AERMOD counts them: a
+record that starts on 1 July is ranked July to June, and
+`year_start="calendar"` forces calendar years.
 
 `naaqs_percentile_rank(n_days, percentile)` implements the tables. Both
 are transcribed into `tests/test_naaqs_rank_tables.py` and checked row by

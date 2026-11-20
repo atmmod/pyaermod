@@ -28,6 +28,18 @@ SECTION_FAILED = "This part of the page could not be shown"
 _BUILDING = contextvars.ContextVar("pyaermod_live_building", default=False)
 
 
+def is_deleted(client: Any) -> bool:
+    """Whether NiceGUI has deleted ``client`` (the tab closed).
+
+    ``Client.is_deleted`` exists from NiceGUI 3.13; the package allows 3.0,
+    whose clients have only the private flag behind it.
+    """
+    flag = getattr(client, "is_deleted", None)
+    if flag is None:
+        flag = getattr(client, "_deleted", False)
+    return bool(flag)
+
+
 def live(session: Session, *events: SessionEvent,
          parts: Optional[Iterable[str]] = None) -> Callable[[Callable[[], Any]], Any]:
     """Decorator: build a refreshable section now and rebuild it on change.

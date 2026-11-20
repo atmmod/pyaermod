@@ -151,6 +151,7 @@ from .pathways import (
     rectable_rank,
     unquote_path,
 )
+from .sources import _DOWNWASH_KEYWORDS
 from .unparsed import UnparsedLine, unparsed_summary
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,6 @@ class _Record:
 @dataclass
 class _PathwayBlock:
     name: str
-    lines: List[Tuple[int, str]] = field(default_factory=list)
     records: List[_Record] = field(default_factory=list)
 
     def record(self, lineno: int) -> _Record:
@@ -278,7 +278,6 @@ def _split_pathways(text: str) -> Dict[str, _PathwayBlock]:
             raise ValueError(
                 f"line {lineno}: content outside any pathway block: {line!r}"
             )
-        current.lines.append((lineno, line))
 
         # Resolve the keyword the way AERMOD does: strip a repeated
         # pathway code, then inherit the previous keyword when the
@@ -331,15 +330,10 @@ def _expand_shorthand(tokens: List[str]) -> List[str]:
 def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
     """Return (keyword, tokens, lineno) tuples for a pathway block.
 
-    Handles three AERMOD conventions inside a block:
-    - Lines may start with the pathway code (e.g. ``SO BUILDHGT ...``);
-      the prefix is stripped so the canonical keyword is the first
-      output token.
-    - A line whose keyword columns are blank continues the previous
-      keyword (``GRIDPOLR POL1 STA`` followed by ``POL1 DIST ...``); the
-      inherited keyword is reported.
-    - Repeated values in shorthand form (``36*50.``) are expanded so
-      downstream parsers see the full list.
+    The records already carry the keyword of each line (with a leading
+    pathway code stripped and a blank keyword inherited, see
+    :func:`_split_pathways`); here repeated values in shorthand form
+    (``36*50.``) are expanded so downstream parsers see the full list.
     """
     return [
         (rec.keyword, _expand_shorthand(rec.fields), rec.lineno)
@@ -349,6 +343,13 @@ def _group_keywords(block: _PathwayBlock) -> List[Tuple[str, List[str], int]]:
 
 #: An integer as AERMOD reads one: an optional sign and ASCII digits only.
 _ASCII_INTEGER = re.compile(r"[+-]?[0-9]+")
+
+
+def _real(token: str) -> float:
+    """One field as AERMOD's STODBL reads it (a ``D`` exponent is a number;
+    ``nan``, ``inf`` and ``1_000`` are not), or :class:`ValueError`. Every
+    number of a deck is read through here."""
+    return fortran_float(token, strict=True)
 
 
 def _whole_number(token: str, keyword: str, lineno: int) -> int:
@@ -361,7 +362,7 @@ def _whole_number(token: str, keyword: str, lineno: int) -> int:
     if _ASCII_INTEGER.fullmatch(token):
         return int(token)
     try:
-        value = fortran_float(token, strict=True)
+        value = _real(token)
     except ValueError:
         value = math.nan
     if not math.isfinite(value) or value != int(value):
@@ -380,7 +381,7 @@ def _number(toks: List[str], index: int, keyword: str, lineno: int) -> float:
         raise ValueError(f"line {lineno}: {keyword} expects a number in field "
                          f"{index + 1}, got none")
     try:
-        return fortran_float(toks[index], strict=True)
+        return _real(toks[index])
     except ValueError:
         raise ValueError(f"line {lineno}: {keyword} expects a number, got "
                          f"{toks[index]!r}") from None
@@ -390,10 +391,16 @@ def _int_field(token: str) -> int:
     """An integer field written as AERMOD reads one (``24``, ``24.``,
     ``2.4D1``); :class:`ValueError` for anything else, an infinity
     included (``int(float("inf"))`` would be an OverflowError)."""
-    value = fortran_float(token, strict=True)
+    value = _real(token)
     if value != int(value):
         raise ValueError(f"not a whole number: {token!r}")
     return int(value)
+
+
+def _opt_int(toks: List[str], index: int) -> Optional[int]:
+    """The optional integer field ``index`` of a card (a file unit): None
+    when the card is too short, :class:`ValueError` when it does not read."""
+    return _int_field(toks[index]) if len(toks) > index else None
 
 
 def _drop(dropped: Optional[List[int]], lineno: int) -> None:
@@ -406,14 +413,68 @@ def _drop(dropped: Optional[List[int]], lineno: int) -> None:
 # Pathway parsers
 # ---------------------------------------------------------------------------
 
-_CHEM_METHODS: Dict[str, ChemistryMethod] = {
-    "OLM": ChemistryMethod.OLM,
-    "PVMRM": ChemistryMethod.PVMRM,
-    "ARM2": ChemistryMethod.ARM2,
-    "GRSM": ChemistryMethod.GRSM,
-    "TTRM": ChemistryMethod.TTRM,
-    "TTRM2": ChemistryMethod.TTRM2,
+_CHEM_METHODS: Dict[str, ChemistryMethod] = {m.value: m for m in ChemistryMethod}
+
+#: MODELOPT tokens that switch one ControlPathway flag on.
+_MODELOPT_FLAGS = {
+    "CONC": "calculate_concentration",
+    "DEPOS": "calculate_deposition",
+    "DDEP": "calculate_dry_deposition",
+    "WDEP": "calculate_wet_deposition",
+    "DFAULT": "regulatory_default",
+    "ALPHA": "alpha",
+    "BETA": "beta",
+    "PSDCREDIT": "psd_credit",
 }
+_DEPLETION_TOKENS = {
+    "DRYDPLT": ("dry_depletion", True), "NODRYDPLT": ("dry_depletion", False),
+    "WETDPLT": ("wet_depletion", True), "NOWETDPLT": ("wet_depletion", False),
+}
+
+
+def _modelopt(tokens: Optional[List[str]]) -> Tuple[Dict[str, Any], Optional[ChemistryMethod]]:
+    """The ControlPathway arguments the deck's MODELOPT tokens give (None
+    for a deck with no MODELOPT card), and its NO2 chemistry method."""
+    flags: Dict[str, Any] = dict.fromkeys(_MODELOPT_FLAGS.values(), False)
+    flags.update(dry_depletion=None, wet_depletion=None, extra_model_options=[],
+                 terrain_type=TerrainType.FLAT)
+    chem_method: Optional[ChemistryMethod] = None
+    if tokens is None:
+        return flags, chem_method
+    upper = [tok.upper() for tok in tokens]
+    for up in upper:
+        depletion, value = _DEPLETION_TOKENS.get(up, ("", None))
+        if up in _MODELOPT_FLAGS:
+            flags[_MODELOPT_FLAGS[up]] = True
+        elif up in ("FLAT", "ELEV", "ELEVATED", "FLATSRCS"):
+            pass  # terrain, settled below
+        elif up in _CHEM_METHODS:
+            chem_method = _CHEM_METHODS[up]
+        elif depletion and flags[depletion] in (None, value):
+            flags[depletion] = value
+        else:
+            # A depletion token contradicting an earlier one
+            # (AERMOD's E149) lands here too, so it is kept.
+            # SCREEN, FASTALL, NOCHKD, ... have no field of
+            # their own; kept so the deck rewrites with the
+            # same options.
+            flags["extra_model_options"].append(up)
+
+    # coset.f MODOPT scans the whole line for each terrain token, so
+    # their order does not matter. It starts from ELEV and leaves it
+    # only for FLAT, so ``MODELOPT CONC`` runs with ELEV. Without
+    # DFAULT, FLAT gives flat terrain, and FLAT with ELEV, in either
+    # order, gives flat sources in elevated terrain (FLATSRCS). With
+    # DFAULT anywhere on the line, AERMOD overrides any FLAT (W206)
+    # and runs ELEV; the tokens are still read as given, so the
+    # rewrite keeps them, ControlPathway.elevated_terrain reports
+    # ELEV and the validator raises W206 as AERMOD does.
+    # FLATSRCS is pyaermod's own spelling (not an AERMOD token).
+    if not {"FLAT", "FLATSRCS"}.intersection(upper):
+        flags["terrain_type"] = TerrainType.ELEVATED
+    elif {"ELEV", "ELEVATED", "FLATSRCS"}.intersection(upper):
+        flags["terrain_type"] = TerrainType.FLATSRCS
+    return flags, chem_method
 
 
 _SECT_RE = re.compile(r"^SECT([1-6])$")
@@ -450,9 +511,9 @@ def _parse_background_keyword(
         return
     try:
         if kw == value_kw:
-            value = fortran_float(rest[0], strict=True)
+            value = _real(rest[0])
         elif kw == vals_kw:
-            values = [fortran_float(t, strict=True) for t in rest[1:]]
+            values = [_real(t) for t in rest[1:]]
     except ValueError:
         _drop(dropped, lineno)
         return
@@ -479,10 +540,6 @@ def _parse_control(block: _PathwayBlock,
     title_one = title_two = ""
     avertime: List[str] = []
     pollutant = "OTHER"
-    terrain = TerrainType.FLAT
-    reg_default = False
-    alpha = beta = psd_credit = False
-    calc_conc = calc_dep = calc_ddep = calc_wdep = False
     half_life: Optional[float] = None
     decay: Optional[float] = None
     flagpole: Optional[float] = None
@@ -490,9 +547,7 @@ def _parse_control(block: _PathwayBlock,
     urban_pop: Optional[float] = None
     urban_z0: Optional[float] = None
     low_wind: Optional[str] = None
-    saw_flat = saw_elev = False
-    saw_modelopt = False
-    extra_opts: List[str] = []
+    modelopt: Optional[List[str]] = None  # the tokens of every MODELOPT card
     urban_lines: List[Tuple[int, List[str]]] = []
     run_model = True
     eventfil: Optional[str] = None
@@ -502,12 +557,9 @@ def _parse_control(block: _PathwayBlock,
     ord_downwash: List[str] = []
     aircraft_option = False
     airport_id: Optional[str] = None
-    dry_depletion: Optional[bool] = None
-    wet_depletion: Optional[bool] = None
     debug_options: List[str] = []
 
     # Chemistry options (populated by NO2STACK, OZONEVAL, OZONEFIL, MODELOPT method)
-    chem_method: Optional[ChemistryMethod] = None
     no2_ratio: Optional[float] = None
     o3_specs: Dict[Optional[int], BackgroundSpec] = {}
     o3_sectors: List[float] = []
@@ -537,47 +589,7 @@ def _parse_control(block: _PathwayBlock,
         elif kw == "TITLETWO":
             title_two = " ".join(toks)
         elif kw == "MODELOPT":
-            saw_modelopt = True
-            for opt in toks:
-                up = opt.upper()
-                if up == "CONC":
-                    calc_conc = True
-                elif up == "DEPOS":
-                    calc_dep = True
-                elif up == "DDEP":
-                    calc_ddep = True
-                elif up == "WDEP":
-                    calc_wdep = True
-                elif up == "FLAT":
-                    # Terrain is settled after the loop: coset.f MODOPT
-                    # does not read the terrain tokens in line order.
-                    saw_flat = True
-                elif up in ("ELEV", "ELEVATED"):
-                    saw_elev = True
-                elif up == "FLATSRCS":
-                    # pyaermod's own spelling (not an AERMOD token).
-                    saw_flat = saw_elev = True
-                elif up == "DFAULT":
-                    reg_default = True
-                elif up in _CHEM_METHODS:
-                    chem_method = _CHEM_METHODS[up]
-                elif up == "ALPHA":
-                    alpha = True
-                elif up == "BETA":
-                    beta = True
-                elif up == "PSDCREDIT":
-                    psd_credit = True
-                elif up in ("DRYDPLT", "NODRYDPLT") and dry_depletion in (None, up == "DRYDPLT"):
-                    dry_depletion = up == "DRYDPLT"
-                elif up in ("WETDPLT", "NOWETDPLT") and wet_depletion in (None, up == "WETDPLT"):
-                    wet_depletion = up == "WETDPLT"
-                else:
-                    # A depletion token contradicting an earlier one
-                    # (AERMOD's E149) lands here too, so it is kept.
-                    # SCREEN, FASTALL, NOCHKD, ... have no field of
-                    # their own; kept so the deck rewrites with the
-                    # same options.
-                    extra_opts.append(up)
+            modelopt = (modelopt or []) + toks
         elif kw == "AVERTIME":
             avertime = [t.upper() for t in toks]
         elif kw == "POLLUTID":
@@ -607,7 +619,7 @@ def _parse_control(block: _PathwayBlock,
             # FRANMAX SWMIN BIGT FRANMIN PBAL); every one is kept.
             low_wind = "  ".join(toks)
         elif kw == "NO2STACK" and len(toks) == 1 and _is_number(toks[0]):
-            no2_ratio = fortran_float(toks[0], strict=True)
+            no2_ratio = _real(toks[0])
         elif kw == "ARMRATIO" and len(toks) == 2:
             # coset.f ARM2_Ratios: min max.
             values = _floats(toks)
@@ -631,8 +643,7 @@ def _parse_control(block: _PathwayBlock,
             # Not an AERMOD form (O3VALS rejects the flag, E203) but what
             # pyaermod < 2.1 wrote for a uniform value; read it as one.
             try:
-                o3_specs.setdefault(None, BackgroundSpec()).value = fortran_float(
-                    toks[1], strict=True)
+                o3_specs.setdefault(None, BackgroundSpec()).value = _real(toks[1])
             except (IndexError, ValueError):
                 _drop(dropped, ln)
         elif kw == "O3VALUES" and len(toks) == 1 and toks[0].upper() not in TEMPORAL_FLAG_COUNTS:
@@ -660,7 +671,7 @@ def _parse_control(block: _PathwayBlock,
                 reference_species=toks[3] if len(toks) > 3 else None,
             )
         elif kw == "GASDEPVD" and len(toks) == 1 and _is_number(toks[0]):
-            gas_vd = fortran_float(toks[0], strict=True)
+            gas_vd = _real(toks[0])
         elif kw in ("GDSEASON", "GDLANUSE") and toks and _ints(toks) is not None:
             # 12 monthly Wesely season categories / land-use categories;
             # N*V shorthand is already expanded by _group_keywords.
@@ -673,10 +684,9 @@ def _parse_control(block: _PathwayBlock,
             # AERMOD's default SAVE.FIL, which is kept as filename=None.
             save_file = SaveFile(
                 filename=unquote_path(toks[0]) if toks else None,
+                day_increment=_opt_int(toks, 1),
                 alternate_filename=unquote_path(toks[2]) if len(toks) > 2 else None,
             )
-            if len(toks) > 1:
-                save_file.day_increment = _int_field(toks[1])
         elif kw == "INITFILE":
             init_file = InitFile(filename=unquote_path(toks[0]) if toks else None)
         elif kw == "MULTYEAR":
@@ -719,10 +729,10 @@ def _parse_control(block: _PathwayBlock,
                 or (len(rest) > 2 and not _is_number(rest[2]))):
             _drop(dropped, uln)
             continue
-        area = UrbanArea(population=fortran_float(rest[0], strict=True), urban_id=uid,
+        area = UrbanArea(population=_real(rest[0]), urban_id=uid,
                          name=rest[1] if len(rest) > 1 else None)
         if len(rest) > 2:
-            area.roughness = fortran_float(rest[2], strict=True)
+            area.roughness = _real(rest[2])
         urban_areas.append(area)
     if urban_areas:
         first_area = urban_areas[0]
@@ -757,6 +767,7 @@ def _parse_control(block: _PathwayBlock,
             units=nox_units, sectors=nox_sectors,
             by_sector={k: v for k, v in nox_specs.items() if k is not None},
         )
+    flags, chem_method = _modelopt(modelopt)
     if (chem_method is not None or no2_ratio is not None
             or ozone_data is not None or nox_background is not None):
         chemistry = ChemistryOptions(
@@ -771,32 +782,12 @@ def _parse_control(block: _PathwayBlock,
             nox_background=nox_background,
         )
 
-    if saw_modelopt:
-        # coset.f MODOPT scans the whole line for each terrain token, so
-        # their order does not matter. It starts from ELEV and leaves it
-        # only for FLAT, so ``MODELOPT CONC`` runs with ELEV. Without
-        # DFAULT, FLAT gives flat terrain, and FLAT with ELEV, in either
-        # order, gives flat sources in elevated terrain (FLATSRCS). With
-        # DFAULT anywhere on the line, AERMOD overrides any FLAT (W206)
-        # and runs ELEV; the tokens are still read as given, so the
-        # rewrite keeps them, ControlPathway.elevated_terrain reports
-        # ELEV and the validator raises W206 as AERMOD does.
-        if saw_flat:
-            terrain = TerrainType.FLATSRCS if saw_elev else TerrainType.FLAT
-        else:
-            terrain = TerrainType.ELEVATED
-
     return ControlPathway(
         title_one=title_one,
         title_two=title_two or None,
         pollutant_id=_coerce_pollutant(pollutant),
         averaging_periods=avertime or ["ANNUAL"],
-        terrain_type=terrain,
-        calculate_concentration=calc_conc,
-        calculate_deposition=calc_dep,
-        calculate_dry_deposition=calc_ddep,
-        calculate_wet_deposition=calc_wdep,
-        regulatory_default=reg_default,
+        **flags,
         half_life=half_life,
         decay_coefficient=decay,
         flag_pole_height=flagpole,
@@ -805,12 +796,6 @@ def _parse_control(block: _PathwayBlock,
         urban_roughness=urban_z0,
         urban_areas=urban_areas,
         low_wind_option=low_wind,
-        alpha=alpha,
-        beta=beta,
-        psd_credit=psd_credit,
-        dry_depletion=dry_depletion,
-        wet_depletion=wet_depletion,
-        extra_model_options=extra_opts,
         debug_options=debug_options,
         run_model=run_model,
         eventfil=eventfil,
@@ -833,7 +818,7 @@ def _parse_control(block: _PathwayBlock,
 
 def _is_number(tok: str) -> bool:
     try:
-        fortran_float(tok, strict=True)
+        _real(tok)
     except ValueError:
         return False
     return True
@@ -846,12 +831,13 @@ def _coerce_pollutant(name: str) -> Union[PollutantType, str]:
         return name
 
 
-_BUILDING_KW_TO_FIELD = {
-    "BUILDHGT": "building_height",
-    "BUILDWID": "building_width",
-    "BUILDLEN": "building_length",
-    "XBADJ": "building_x_offset",
-    "YBADJ": "building_y_offset",
+_BUILDING_KW_TO_FIELD = {keyword: attr for attr, keyword in _DOWNWASH_KEYWORDS}
+
+#: Particle deposition keywords and the ParticleDepositionParams field of each.
+_PARTICLE_KEYWORDS = {
+    "PARTDIAM": "diameters",
+    "MASSFRAX": "mass_fractions",
+    "PARTDENS": "densities",
 }
 
 #: Keywords whose fields are ``factor emission-label output-label``.
@@ -904,7 +890,7 @@ def _floats(toks: List[str]) -> Optional[List[float]]:
     a ``D`` exponent is one, ``nan``, ``inf`` and ``1_000`` are not), or
     None when one is not."""
     try:
-        return [fortran_float(t, strict=True) for t in toks]
+        return [_real(t) for t in toks]
     except ValueError:
         return None
 
@@ -1020,6 +1006,197 @@ def _background_from(entries: List[_BgLine],
         period_values={k: _one_or_all(v) for k, v in period_values.items()})
 
 
+class _SrcParam(NamedTuple):
+    """How the SRCPARAM values of one LOCATION type become a source."""
+
+    cls: Any
+    fields: Tuple[str, ...]          # constructor argument of each value, in card order
+    required: int                    # fewer values build no source
+    defaults: Tuple[Any, ...] = ()   # the reader's value for each optional field left out
+
+
+_POINT_FIELDS = ("emission_rate", "stack_height", "stack_temp", "exit_velocity",
+                 "stack_diameter")
+_LINE_FIELDS = ("emission_rate", "release_height", "initial_lateral_dimension",
+                "initial_vertical_dimension")
+
+# SRCPARAM layouts by LOCATION type. The defaults are the reader's own for a
+# card shorter than AERMOD takes, not the dataclass defaults (VOLUME 1.0,
+# not 10.0; RLINEXT 0.0, not 30.0 and 1.5). BUOYLINE is assembled by
+# _buoyline_sources.
+_SRCPARAM_LAYOUTS: Dict[str, _SrcParam] = {
+    # emission stackht stacktemp velocity diameter (soset.f PPARM, shared
+    # by the capped and horizontal types)
+    "POINT": _SrcParam(PointSource, _POINT_FIELDS, 5),
+    "POINTCAP": _SrcParam(PointCapSource, _POINT_FIELDS, 5),
+    "POINTHOR": _SrcParam(PointHorSource, _POINT_FIELDS, 5),
+    # emis hs bw bl bh ba (soset.f SWPARM, six)
+    "SWPOINT": _SrcParam(SidewashPointSource, (
+        "emission_rate", "release_height", "building_width", "building_length",
+        "building_height", "building_angle"), 6),
+    # emission relhgt xinit [yinit [angle [szinit]]] (soset.f APARM); a
+    # Yinit left out is Xinit (see _build_source)
+    "AREA": _SrcParam(AreaSource, (*_LINE_FIELDS, "angle", "initial_sigma_z"), 1,
+                      (0.0, 10.0, 10.0, 0.0, 0.0)),
+    # emission relhgt sylinit szinit
+    "VOLUME": _SrcParam(VolumeSource, _LINE_FIELDS, 1, (0.0, 1.0, 1.0)),
+    # emission release_height sy_init
+    "LINE": _SrcParam(LineSource, _LINE_FIELDS, 1, (0.0, 1.0, None)),
+    "RLINE": _SrcParam(RLineSource, _LINE_FIELDS, 1, (0.0, 3.0, 1.5)),
+    # emission relhgt xinit yinit volume [angle]
+    "OPENPIT": _SrcParam(OpenPitSource, (
+        "emission_rate", "release_height", "x_dimension", "y_dimension",
+        "pit_volume", "angle"), 5, (0.0,)),
+    # emission relhgt radius [nverts [szinit]] (soset.f ACPARM)
+    "AREACIRC": _SrcParam(AreaCircSource, (
+        "emission_rate", "release_height", "radius", "num_vertices",
+        "initial_sigma_z"), 1, (0.0, 100.0, 20, 0.0)),
+    # emission relhgt nverts [szinit] (APPARM); nverts is no constructor
+    # argument (see _build_source)
+    "AREAPOLY": _SrcParam(AreaPolySource, (
+        "emission_rate", "release_height", "_nverts",
+        "initial_vertical_dimension"), 1, (0.0, None, None)),
+    # emission dcl width init_sigma_z (RLPARM)
+    "RLINEXT": _SrcParam(RLineExtSource, (
+        "emission_rate", "dcl", "road_width", "init_sigma_z"), 1, (0.0, 0.0, 0.0)),
+}
+
+
+def _build_source(stype: str, data: Dict[str, Any], source_id: str) -> Any:
+    """The source of one LOCATION type in :data:`_SRCPARAM_LAYOUTS` from
+    the cards collected for it, or None for an incomplete definition (too
+    few SRCPARAM values, a LINE with no end point)."""
+    layout = _SRCPARAM_LAYOUTS[stype]
+    params = data.get("params", [])[:len(layout.fields)]
+    if len(params) < layout.required:
+        return None
+    kwargs: Dict[str, Any] = dict(zip(
+        layout.fields, [*params, *layout.defaults[len(params) - layout.required:]]))
+    kwargs.update(source_id=source_id, base_elevation=data.get("z_elev", 0.0))
+    x, y = data.get("x_coord", 0.0), data.get("y_coord", 0.0)
+    extra = data.get("extra_loc", [])
+
+    if stype in ("LINE", "RLINE"):
+        # LOCATION: x_start y_start x_end y_end [elev]
+        if len(extra) < 2:
+            return None
+        kwargs.update(x_start=x, y_start=y, x_end=extra[0], y_end=extra[1])
+    elif stype == "RLINEXT":
+        # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end
+        # [zelev], so extra_loc holds (z_start, x_end, y_end, z_end).
+        if len(extra) < 4:
+            return None
+        kwargs.update(x_start=x, y_start=y, z_start=extra[0],
+                      x_end=extra[1], y_end=extra[2], z_end=extra[3])
+    elif stype == "AREAPOLY":
+        # LOCATION is the polygon's first vertex; AREAVERT carries
+        # the ring. ARVERT reads up to nverts+1 pairs so a deck may
+        # repeat the first vertex to close the ring; AERMOD closes it
+        # itself (AXVERT(NVERTS+1) = AXVERT(1)), so the repeat is dropped.
+        vertices = list(data.get("_vertices", []))
+        if len(vertices) < 3:
+            return None
+        nverts = kwargs.pop("_nverts")
+        nverts = len(vertices) if nverts is None else round(nverts)
+        if len(vertices) == nverts + 1 and vertices[-1] == vertices[0]:
+            vertices.pop()
+        kwargs["vertices"] = vertices
+    else:
+        kwargs.update(x_coord=x, y_coord=y)
+    if stype == "AREA" and len(params) < 4:
+        # A square when Yinit is left out (APARM: AYINIT = AXINIT).
+        kwargs["initial_vertical_dimension"] = kwargs["initial_lateral_dimension"]
+    elif stype == "AREACIRC":
+        kwargs["num_vertices"] = round(kwargs["num_vertices"])
+
+    src = layout.cls(**kwargs)
+    if stype.startswith("POINT") and data.get("_platform") is not None:
+        src.platform = data["_platform"]
+    elif stype == "RLINEXT":
+        barrier = data.get("_rbarrier")
+        if barrier:
+            src.barrier_height_1, src.barrier_dcl_1 = barrier[0], barrier[1]
+            if len(barrier) == 4:
+                src.barrier_height_2, src.barrier_dcl_2 = barrier[2], barrier[3]
+        depress = data.get("_rdepress")
+        if depress:
+            (src.depression_depth, src.depression_wtop,
+             src.depression_wbottom) = depress
+        src.vegetative_barriers = list(data.get("_vbarrier", []))
+    return src
+
+
+def _buoyline_sources(
+    locs: Dict[str, Dict[str, Any]], buoyline_ids: List[str],
+    group_tokens: Dict[str, List[str]], blp_params: Dict[str, List[float]],
+    spelled: Dict[str, str], group_spelled: Dict[str, str],
+) -> List[BuoyLineSource]:
+    """Assemble the buoyant-line sources.
+
+    Each BUOYLINE LOCATION is a single line segment; the source is the
+    BLPGROUP naming them, carrying the averaged geometry from its BLPINPUT
+    record. With no BLPGROUP at all AERMOD puts every BUOYLINE segment in
+    the group of the (single, eight-field) BLPINPUT record, named "ALL";
+    "BLPGROUP ALL" does the same explicitly. Members may be ranges and a
+    group ID repeated on a later line continues the group (soset.f BLPGRP).
+    """
+    if not buoyline_ids:
+        return []
+    groups: Dict[str, List[str]] = {}
+    for grp_id, tokens in group_tokens.items():
+        if grp_id.upper() == "ALL" and not tokens:
+            groups[grp_id] = list(buoyline_ids)
+        else:
+            groups[grp_id] = _expand_source_ids(tokens, buoyline_ids)
+    if not groups:
+        groups = {"ALL": buoyline_ids}
+    sources: List[BuoyLineSource] = []
+    for grp_id, member_ids in groups.items():
+        avg = blp_params.get(grp_id) or blp_params.get("ALL")
+        if avg is None:
+            continue
+        segments = []
+        for member in member_ids:
+            seg_data = locs.get(member)
+            if seg_data is None:
+                continue
+            extra = seg_data.get("extra_loc", [])
+            seg_params = seg_data.get("params", [])
+            if len(extra) < 2:
+                continue
+            segments.append(BuoyLineSegment(
+                source_id=spelled.get(member, member),
+                x_start=seg_data.get("x_coord", 0.0),
+                y_start=seg_data.get("y_coord", 0.0),
+                x_end=extra[0], y_end=extra[1],
+                emission_rate=seg_params[0] if seg_params else 0.0,
+                release_height=seg_params[1] if len(seg_params) > 1 else 0.0,
+                base_elevation=seg_data.get("z_elev", 0.0),
+            ))
+        if not segments:
+            continue
+        # One shared elevation goes on the group; only differing
+        # values stay on the segments.
+        elevations = {seg.base_elevation for seg in segments}
+        group_elev = 0.0
+        if len(elevations) == 1:
+            group_elev = elevations.pop() or 0.0
+            for seg in segments:
+                seg.base_elevation = None
+        sources.append(BuoyLineSource(
+            source_id=group_spelled.get(grp_id, grp_id),
+            avg_line_length=avg[0],
+            avg_building_height=avg[1],
+            avg_building_width=avg[2],
+            avg_line_width=avg[3],
+            avg_building_separation=avg[4],
+            avg_buoyancy_parameter=avg[5],
+            line_segments=segments,
+            base_elevation=group_elev,
+        ))
+    return sources
+
+
 def _parse_sources(block: _PathwayBlock,
                    dropped: Optional[List[int]] = None) -> SourcePathway:
     # LOCATION gives us each source's type and coordinates; SRCPARAM fills
@@ -1114,7 +1291,7 @@ def _parse_sources(block: _PathwayBlock,
                 elev_tok = toks[4] if len(toks) > 4 else None
             if elev_tok is not None:
                 try:
-                    locs[sid]["z_elev"] = fortran_float(elev_tok, strict=True)
+                    locs[sid]["z_elev"] = _real(elev_tok)
                 except ValueError:
                     # Non-numeric (e.g. "FLAT") -- store as flag,
                     # default elevation to 0.
@@ -1205,7 +1382,7 @@ def _parse_sources(block: _PathwayBlock,
             psd_groups.setdefault(toks[0].upper(), []).extend(toks[1:])
         elif kw == "NO2RATIO" and len(toks) == 2 and _is_number(toks[1]):
             # NO2RATIO srcid|range ratio (exactly two fields, NO2RAT)
-            no2_ratio_tokens.append((toks[0].upper(), fortran_float(toks[1], strict=True)))
+            no2_ratio_tokens.append((toks[0].upper(), _real(toks[1])))
 
         # ------------------------------------------------------------------
         # Emission-rate unit conversions and the RLINE MOVES-units switch
@@ -1214,7 +1391,7 @@ def _parse_sources(block: _PathwayBlock,
             # <keyword> factor emission_label output_label (EMUNIT/COUNIT/DPUNIT)
             if len(toks) >= 3 and _is_number(toks[0]):
                 units[_UNIT_KEYWORDS[kw]] = EmissionUnits(
-                    factor=fortran_float(toks[0], strict=True), emission_label=toks[1],
+                    factor=_real(toks[0]), emission_label=toks[1],
                     output_label=toks[2],
                 )
             else:
@@ -1340,32 +1517,15 @@ def _parse_sources(block: _PathwayBlock,
             aircraft_sources.extend(toks)
         elif kw == "HBPSRCID" and toks:
             hbp_sources.extend(toks)
-        elif kw == "PARTDIAM":
-            # PARTDIAM srcid d1 d2 d3 ...
-            diameters = _floats(toks[1:]) if len(toks) > 1 else None
-            if not diameters:
+        elif kw in _PARTICLE_KEYWORDS:
+            # PARTDIAM srcid d1 d2 ... / MASSFRAX srcid f1 f2 ... /
+            # PARTDENS srcid r1 r2 ...
+            values = _floats(toks[1:]) if len(toks) > 1 else None
+            if not values:
                 _drop(dropped, ln)
                 continue
             sid = toks[0].upper()
-            part_dep_data.setdefault(sid, {})["diameters"] = diameters
-            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
-        elif kw == "MASSFRAX":
-            # MASSFRAX srcid f1 f2 f3 ...
-            fractions = _floats(toks[1:]) if len(toks) > 1 else None
-            if not fractions:
-                _drop(dropped, ln)
-                continue
-            sid = toks[0].upper()
-            part_dep_data.setdefault(sid, {})["mass_fractions"] = fractions
-            locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
-        elif kw == "PARTDENS":
-            # PARTDENS srcid r1 r2 r3 ...
-            densities = _floats(toks[1:]) if len(toks) > 1 else None
-            if not densities:
-                _drop(dropped, ln)
-                continue
-            sid = toks[0].upper()
-            part_dep_data.setdefault(sid, {})["densities"] = densities
+            part_dep_data.setdefault(sid, {})[_PARTICLE_KEYWORDS[kw]] = values
             locs.setdefault(sid, {}).setdefault("_lines", []).append(ln)
 
         # ------------------------------------------------------------------
@@ -1417,18 +1577,14 @@ def _parse_sources(block: _PathwayBlock,
     # Resolve the keywords whose source field may be a range, now that
     # every source ID is known. BUOYLINE segment IDs count as sources.
     all_ids = list(locs)
-    gas_dep_data: Dict[str, GasDepositionParams] = {}
-    for token, gas in gas_dep_tokens:
-        for sid in _expand_source_ids([token], all_ids):
-            gas_dep_data[sid] = gas
-    no2_ratios: Dict[str, float] = {}
-    for token, ratio in no2_ratio_tokens:
-        for sid in _expand_source_ids([token], all_ids):
-            no2_ratios[sid] = ratio
-    method2_data: Dict[str, Method2Params] = {}
-    for token, m2 in method2_tokens:
-        for sid in _expand_source_ids([token], all_ids):
-            method2_data[sid] = m2
+
+    def by_source(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+        return {sid: value for token, value in pairs
+                for sid in _expand_source_ids([token], all_ids)}
+
+    gas_dep_data: Dict[str, GasDepositionParams] = by_source(gas_dep_tokens)
+    no2_ratios: Dict[str, float] = by_source(no2_ratio_tokens)
+    method2_data: Dict[str, Method2Params] = by_source(method2_tokens)
     urbansrc_data: Dict[str, Optional[str]] = {}
     if urban_all:
         urbansrc_data = dict.fromkeys(all_ids)
@@ -1461,221 +1617,34 @@ def _parse_sources(block: _PathwayBlock,
         if sid in method2_data and hasattr(src, "method_2"):
             src.method_2 = method2_data[sid]
 
-    def keep_lines(data: Dict[str, Any]) -> None:
-        """An incomplete definition (too few SRCPARAM values, a LINE with
-        no end point) builds no source; its lines stay in the deck."""
-        for lineno in data.get("_lines", []):
-            _drop(dropped, lineno)
-
     # Build source objects. The concrete type is chosen per LOCATION
     # keyword, so this list is deliberately heterogeneous.
     sources: List[Any] = []
-    src: Any
     for sid, data in locs.items():
-        if sid not in src_types:
+        kind = src_types.get(sid)
+        if kind == "BUOYLINE":
+            # Each BUOYLINE LOCATION is one *segment*; the source proper
+            # is the BLPGROUP that names them, parameterised by BLPINPUT
+            # (_buoyline_sources).
+            continue
+        src = (_build_source(kind, data, spelled.get(sid, sid))
+               if kind in _SRCPARAM_LAYOUTS else None)
+        if src is None:
+            # No source to construct, so its lines are kept verbatim where
+            # AERMOD will still read them: an incomplete definition;
             # SRCPARAM / building / deposition lines for a source this
             # deck defines elsewhere (an INCLUDED file) or a source-ID
-            # range (PARTDIAM A-Z9999999): nothing to construct, so the
-            # lines are kept verbatim where AERMOD will still read them.
+            # range (PARTDIAM A-Z9999999); or a LOCATION type this reader
+            # does not construct (one AERMOD does not know either, since
+            # every v26135 type is built).
             for lineno in data.get("_lines", []):
                 _drop(dropped, lineno)
-            continue
-        stype = src_types[sid]
-        params = data.get("params", [])
-        common = dict(
-            source_id=spelled.get(sid, sid),
-            x_coord=data.get("x_coord", 0.0),
-            y_coord=data.get("y_coord", 0.0),
-            base_elevation=data.get("z_elev", 0.0),
-        )
-        src = None
-        if stype in ("POINT", "POINTCAP", "POINTHOR"):
-            # SRCPARAM POINT: emission stackht stacktemp velocity diameter
-            # (soset.f PPARM, shared by the capped and horizontal types)
-            if len(params) < 5:
-                keep_lines(data)
-                continue
-            point_cls = {"POINT": PointSource, "POINTCAP": PointCapSource,
-                         "POINTHOR": PointHorSource}[stype]
-            src = point_cls(
-                **common,
-                emission_rate=params[0],
-                stack_height=params[1],
-                stack_temp=params[2],
-                exit_velocity=params[3],
-                stack_diameter=params[4],
-            )
-            if data.get("_platform") is not None:
-                src.platform = data["_platform"]
-        elif stype == "SWPOINT":
-            # SRCPARAM SWPOINT: emis hs bw bl bh ba (soset.f SWPARM, six)
-            if len(params) < 6:
-                keep_lines(data)
-                continue
-            src = SidewashPointSource(
-                **common,
-                emission_rate=params[0], release_height=params[1],
-                building_width=params[2], building_length=params[3],
-                building_height=params[4], building_angle=params[5],
-            )
-        elif stype == "AREA":
-            # SRCPARAM AREA: emission relhgt xinit [yinit [angle [szinit]]]
-            # (soset.f APARM)
-            if not params:
-                keep_lines(data)
-                continue
-            src = AreaSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 10.0,
-                # A square when Yinit is left out (APARM: AYINIT = AXINIT).
-                initial_vertical_dimension=(params[3] if len(params) > 3
-                                            else params[2] if len(params) > 2 else 10.0),
-                angle=params[4] if len(params) > 4 else 0.0,
-                initial_sigma_z=params[5] if len(params) > 5 else 0.0,
-            )
-        elif stype == "VOLUME":
-            # SRCPARAM VOLUME: emission relhgt sylinit szinit
-            if not params:
-                keep_lines(data)
-                continue
-            src = VolumeSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else 1.0,
-            )
-        elif stype == "LINE":
-            # LOCATION LINE: x_start y_start x_end y_end [elev]
-            # SRCPARAM:      emission release_height sy_init
-            extra = data.get("extra_loc", [])
-            if len(extra) < 2 or not params:
-                # Treat as best-effort: require at least x_end,y_end
-                keep_lines(data)
-                continue
-            src = LineSource(
-                source_id=common["source_id"],
-                x_start=common["x_coord"], y_start=common["y_coord"],
-                x_end=extra[0], y_end=extra[1],
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 1.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else None,
-            )
-        elif stype == "RLINE":
-            extra = data.get("extra_loc", [])
-            if len(extra) < 2 or not params:
-                keep_lines(data)
-                continue
-            src = RLineSource(
-                source_id=common["source_id"],
-                x_start=common["x_coord"], y_start=common["y_coord"],
-                x_end=extra[0], y_end=extra[1],
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_lateral_dimension=params[2] if len(params) > 2 else 3.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else 1.5,
-            )
-        elif stype == "OPENPIT":
-            # SRCPARAM: emission relhgt xinit yinit volume [angle]
-            if len(params) < 5:
-                keep_lines(data)
-                continue
-            src = OpenPitSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1],
-                x_dimension=params[2],
-                y_dimension=params[3],
-                pit_volume=params[4],
-                angle=params[5] if len(params) > 5 else 0.0,
-            )
-        elif stype == "AREACIRC":
-            # SRCPARAM: emission relhgt radius [nverts [szinit]] (soset.f ACPARM)
-            if not params:
-                keep_lines(data)
-                continue
-            src = AreaCircSource(
-                **common,
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                radius=params[2] if len(params) > 2 else 100.0,
-                num_vertices=round(params[3]) if len(params) > 3 else 20,
-                initial_sigma_z=params[4] if len(params) > 4 else 0.0,
-            )
-        elif stype == "AREAPOLY":
-            # LOCATION is the polygon's first vertex; AREAVERT carries
-            # the ring. SRCPARAM (APPARM): emission relhgt nverts [szinit].
-            # ARVERT reads up to nverts+1 pairs so a deck may repeat the
-            # first vertex to close the ring; AERMOD closes it itself
-            # (AXVERT(NVERTS+1) = AXVERT(1)), so the repeat is dropped.
-            vertices = list(data.get("_vertices", []))
-            if not params or len(vertices) < 3:
-                keep_lines(data)
-                continue
-            nverts = round(params[2]) if len(params) > 2 else len(vertices)
-            if len(vertices) == nverts + 1 and vertices[-1] == vertices[0]:
-                vertices.pop()
-            src = AreaPolySource(
-                source_id=common["source_id"],
-                vertices=vertices,
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                release_height=params[1] if len(params) > 1 else 0.0,
-                initial_vertical_dimension=params[3] if len(params) > 3 else None,
-            )
-        elif stype == "RLINEXT":
-            # LOCATION RLINEXT: x_start y_start z_start x_end y_end z_end
-            # [zelev], so extra_loc holds (z_start, x_end, y_end, z_end).
-            # SRCPARAM (RLPARM): emission dcl width init_sigma_z
-            extra = data.get("extra_loc", [])
-            if len(extra) < 4 or not params:
-                keep_lines(data)
-                continue
-            src = RLineExtSource(
-                source_id=common["source_id"],
-                x_start=common["x_coord"], y_start=common["y_coord"],
-                z_start=extra[0],
-                x_end=extra[1], y_end=extra[2], z_end=extra[3],
-                base_elevation=common["base_elevation"],
-                emission_rate=params[0],
-                dcl=params[1] if len(params) > 1 else 0.0,
-                road_width=params[2] if len(params) > 2 else 0.0,
-                init_sigma_z=params[3] if len(params) > 3 else 0.0,
-            )
-            barrier = data.get("_rbarrier")
-            if barrier:
-                src.barrier_height_1, src.barrier_dcl_1 = barrier[0], barrier[1]
-                if len(barrier) == 4:
-                    src.barrier_height_2, src.barrier_dcl_2 = barrier[2], barrier[3]
-            depress = data.get("_rdepress")
-            if depress:
-                (src.depression_depth, src.depression_wtop,
-                 src.depression_wbottom) = depress
-            src.vegetative_barriers = list(data.get("_vbarrier", []))
-        elif stype == "BUOYLINE":
-            # Each BUOYLINE LOCATION is one *segment*; the source proper
-            # is the BLPGROUP that names them, parameterised by BLPINPUT.
-            # Segments are assembled after this loop, so nothing to build
-            # here.
-            continue
-
-        if src is None:
-            # A LOCATION type this reader does not construct (one AERMOD
-            # does not know either, since every v26135 type is built) or
-            # an incomplete definition: the source's own lines are kept
-            # verbatim so the deck still carries it.
-            for lineno in data.get("_lines", []):
-                _drop(dropped, lineno)
-            logger.warning(
-                "SO source %s (%s) is not modelled by pyaermod; its %d "
-                "definition lines are kept verbatim in unparsed_lines",
-                sid, stype, len(data.get("_lines", [])),
-            )
+            if kind is not None and kind not in _SRCPARAM_LAYOUTS:
+                logger.warning(
+                    "SO source %s (%s) is not modelled by pyaermod; its %d "
+                    "definition lines are kept verbatim in unparsed_lines",
+                    sid, kind, len(data.get("_lines", [])),
+                )
             continue
 
         # LOCATION ... FLAT (soset.f SOLOCA): a flat-terrain source in a
@@ -1684,82 +1653,21 @@ def _parse_sources(block: _PathwayBlock,
             src.flat_source = True
 
         # Apply accumulated BUILDHGT/WID/LEN/XBADJ/YBADJ arrays, if any
-        building = data.get("_building")
-        if building:
-            for attr, values in building.items():
-                if hasattr(src, attr):
-                    setattr(src, attr, values)
+        for attr, values in data.get("_building", {}).items():
+            if hasattr(src, attr):
+                setattr(src, attr, values)
 
         _apply_per_source(src, sid)
         sources.append(src)
 
-    # Assemble buoyant-line sources. Each BUOYLINE LOCATION is a single
-    # line segment; the source is the BLPGROUP naming them, carrying the
-    # averaged geometry from its BLPINPUT record. With no BLPGROUP at
-    # all AERMOD puts every BUOYLINE segment in the group of the (single,
-    # eight-field) BLPINPUT record, named "ALL"; "BLPGROUP ALL" does the
-    # same explicitly. Members may be ranges and a group ID repeated on
-    # a later line continues the group (soset.f BLPGRP).
     buoyline_ids = [sid for sid, t in src_types.items() if t == "BUOYLINE"]
-    if buoyline_ids:
-        groups: Dict[str, List[str]] = {}
-        for grp_id, tokens in blp_group_tokens.items():
-            if grp_id.upper() == "ALL" and not tokens:
-                groups[grp_id] = list(buoyline_ids)
-            else:
-                groups[grp_id] = _expand_source_ids(tokens, buoyline_ids)
-        if not groups:
-            groups = {"ALL": buoyline_ids}
-        for grp_id, member_ids in groups.items():
-            avg = blp_params.get(grp_id) or blp_params.get("ALL")
-            if avg is None:
-                continue
-            segments = []
-            for member in member_ids:
-                seg_data = locs.get(member)
-                if seg_data is None:
-                    continue
-                extra = seg_data.get("extra_loc", [])
-                seg_params = seg_data.get("params", [])
-                if len(extra) < 2:
-                    continue
-                segments.append(BuoyLineSegment(
-                    source_id=spelled.get(member, member),
-                    x_start=seg_data.get("x_coord", 0.0),
-                    y_start=seg_data.get("y_coord", 0.0),
-                    x_end=extra[0], y_end=extra[1],
-                    emission_rate=seg_params[0] if seg_params else 0.0,
-                    release_height=(
-                        seg_params[1] if len(seg_params) > 1 else 0.0
-                    ),
-                    base_elevation=seg_data.get("z_elev", 0.0),
-                ))
-            if not segments:
-                continue
-            # One shared elevation goes on the group; only differing
-            # values stay on the segments.
-            elevations = {seg.base_elevation for seg in segments}
-            group_elev = 0.0
-            if len(elevations) == 1:
-                group_elev = elevations.pop() or 0.0
-                for seg in segments:
-                    seg.base_elevation = None
-            src = BuoyLineSource(
-                source_id=group_spelled.get(grp_id, grp_id),
-                avg_line_length=avg[0],
-                avg_building_height=avg[1],
-                avg_building_width=avg[2],
-                avg_line_width=avg[3],
-                avg_building_separation=avg[4],
-                avg_buoyancy_parameter=avg[5],
-                line_segments=segments,
-                base_elevation=group_elev,
-            )
-            # Per-source keywords name the segments; the group carries
-            # them once (the writer emits one line per segment).
-            for seg in segments:
-                _apply_per_source(src, seg.source_id.upper())
-            sources.append(src)
+    for src in _buoyline_sources(locs, buoyline_ids, blp_group_tokens, blp_params,
+                                 spelled, group_spelled):
+        # Per-source keywords name the segments; the group carries
+        # them once (the writer emits one line per segment).
+        for seg in src.line_segments:
+            _apply_per_source(src, seg.source_id.upper())
+        sources.append(src)
 
     background = _background_from(bg_entries, dropped)
 
@@ -2069,7 +1977,7 @@ def _parse_meteorology(block: _PathwayBlock,
             # PROFBASE the pathway always writes (a repeated keyword), and
             # removing it would silently give 0 m.
             try:
-                elevation = fortran_float(toks[0], strict=True)
+                elevation = _real(toks[0])
             except ValueError:
                 raise ValueError(
                     f"line {ln}: PROFBASE expects a number, got {toks[0]!r}; "
@@ -2231,16 +2139,13 @@ def _parse_output(block: _PathwayBlock,
             # MAXIFILE <aveper> <grpid> <thresh> <filename> [unit]
             # (ouset.f OUMXFL: fields 3-6, optional 7).
             try:
-                maxi = MaxiFile(
+                maxi_files.append(MaxiFile(
                     averaging_period=toks[0].upper(), source_group=toks[1],
-                    threshold=fortran_float(toks[2], strict=True), filename=unquote_path(toks[3]),
-                )
-                if len(toks) > 4:
-                    maxi.file_unit = _int_field(toks[4])
+                    threshold=_real(toks[2]), filename=unquote_path(toks[3]),
+                    file_unit=_opt_int(toks, 4),
+                ))
             except ValueError:
                 _drop(dropped, ln)
-                continue
-            maxi_files.append(maxi)
         elif kw == "PLOTFILE":
             # PLOTFILE PERIOD|ANNUAL <group> <filename> [unit]
             # PLOTFILE <hours>       <group> <rank> <filename> [unit]
@@ -2299,44 +2204,41 @@ def _parse_output(block: _PathwayBlock,
         elif kw == "RANKFILE" and len(toks) in (3, 4):
             # OURANK: aveper rank filnam [funit]
             try:
-                rank = RankFile(toks[0].upper(), _int_field(toks[1]), unquote_path(toks[2]),
-                                _int_field(toks[3]) if len(toks) > 3 else None)
+                rank_files.append(RankFile(toks[0].upper(), _int_field(toks[1]),
+                                           unquote_path(toks[2]), _opt_int(toks, 3)))
             except ValueError:
                 _drop(dropped, ln)
-                continue
-            rank_files.append(rank)
         elif kw == "SEASONHR" and len(toks) in (2, 3):
             # OUSEAS: grpid filnam [funit]
             try:
                 season_hour_files.append(SeasonHourFile(
-                    toks[0], unquote_path(toks[1]), _int_field(toks[2]) if len(toks) > 2 else None))
+                    toks[0], unquote_path(toks[1]), _opt_int(toks, 2)))
             except ValueError:
                 _drop(dropped, ln)
         elif kw == "EVALFILE" and len(toks) in (2, 3):
             # OUEVAL: srcid filnam [funit]
             try:
                 eval_files.append(EvalFile(
-                    toks[0], unquote_path(toks[1]), _int_field(toks[2]) if len(toks) > 2 else None))
+                    toks[0], unquote_path(toks[1]), _opt_int(toks, 2)))
             except ValueError:
                 _drop(dropped, ln)
         elif kw == "TOXXFILE" and len(toks) in (3, 4):
             # OUTOXX: aveper thresh filnam [funit]
             try:
                 toxx_files.append(ToxxFile(
-                    toks[0].upper(), fortran_float(toks[1], strict=True), unquote_path(toks[2]),
-                    _int_field(toks[3]) if len(toks) > 3 else None))
+                    toks[0].upper(), _real(toks[1]), unquote_path(toks[2]),
+                    _opt_int(toks, 3)))
             except ValueError:
                 _drop(dropped, ln)
         elif kw in ("MAXDAILY", "MXDYBYYR") and len(toks) >= 2:
             # MAXDAILY <group> <filename> [unit] -- no averaging period
             # field; ouset.f reads the group from field 3.
-            entry = MaxDailyFile(source_group=toks[0], filename=unquote_path(toks[1]))
-            if len(toks) > 2:
-                if _ints(toks[2:3]) is None:
-                    _drop(dropped, ln)
-                    continue
-                entry.file_unit = _int_field(toks[2])
-            (max_daily if kw == "MAXDAILY" else max_daily_by_year).append(entry)
+            try:
+                (max_daily if kw == "MAXDAILY" else max_daily_by_year).append(MaxDailyFile(
+                    source_group=toks[0], filename=unquote_path(toks[1]),
+                    file_unit=_opt_int(toks, 2)))
+            except ValueError:
+                _drop(dropped, ln)
         elif kw == "MAXDCONT" and len(toks) >= 4:
             # MAXDCONT <group> <upper> <lower> <filename> [unit]
             # MAXDCONT <group> <upper> THRESH <thresh> <filename> [unit]
@@ -2348,17 +2250,15 @@ def _parse_output(block: _PathwayBlock,
                     contribution = MaxDailyContribution(
                         source_group=toks[0], upper_rank=upper,
                         filename=unquote_path(toks[4]),
-                        threshold=fortran_float(toks[3], strict=True),
+                        threshold=_real(toks[3]),
                     )
-                    unit_tok = toks[5] if len(toks) > 5 else None
+                    contribution.file_unit = _opt_int(toks, 5)
                 else:
                     contribution = MaxDailyContribution(
                         source_group=toks[0], upper_rank=upper,
                         filename=unquote_path(toks[3]), lower_rank=_int_field(toks[2]),
                     )
-                    unit_tok = toks[4] if len(toks) > 4 else None
-                if unit_tok is not None:
-                    contribution.file_unit = _int_field(unit_tok)
+                    contribution.file_unit = _opt_int(toks, 4)
             except ValueError:
                 _drop(dropped, ln)
                 continue
@@ -2435,7 +2335,7 @@ def _parse_events(block: _PathwayBlock,
                 events[toks[0]] = EventPeriod(
                     event_name=toks[0], averaging_period=_int_field(toks[1]),
                     source_group=toks[2], date=f"{_int_field(toks[3]):08d}",
-                    original_conc=fortran_float(toks[4], strict=True),
+                    original_conc=_real(toks[4]),
                 )
             except ValueError:
                 _drop(dropped, ln)
@@ -2577,6 +2477,29 @@ def read_aermod_input(
     return project
 
 
+def _split_fields(text: str, keep_quotes: bool) -> List[str]:
+    """Blank-separated fields of ``text``; a field that starts with a double
+    quote runs to the next double quote, or to the end of the line."""
+    fields: List[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+        elif text[i] == '"':
+            close = text.find('"', i + 1)
+            if close < 0:
+                close = n
+            fields.append(text[i:close + 1] if keep_quotes else text[i + 1:close])
+            i = close + 1
+        else:
+            end = i
+            while end < n and not text[end].isspace():
+                end += 1
+            fields.append(text[i:end])
+            i = end
+    return fields
+
+
 def _runstream_tokens(line: str) -> List[str]:
     """Split a runstream line into fields, keeping a quoted field whole.
 
@@ -2589,23 +2512,7 @@ def _runstream_tokens(line: str) -> List[str]:
     >>> _runstream_tokens('SURFFILE  "My Met/a.sfc"  FREE')
     ['SURFFILE', '"My Met/a.sfc"', 'FREE']
     """
-    fields: List[str] = []
-    i, n = 0, len(line)
-    while i < n:
-        if line[i].isspace():
-            i += 1
-        elif line[i] == '"':
-            end = line.find('"', i + 1)
-            end = n if end < 0 else end + 1
-            fields.append(line[i:end])
-            i = end
-        else:
-            end = i
-            while end < n and not line[end].isspace():
-                end += 1
-            fields.append(line[i:end])
-            i = end
-    return fields
+    return _split_fields(line, keep_quotes=True)
 
 
 def runstream_fields(text: str) -> List[str]:
@@ -2619,23 +2526,7 @@ def runstream_fields(text: str) -> List[str]:
     >>> runstream_fields('ERRS.OUT  "My Files/b.dat"  x"y')
     ['ERRS.OUT', 'My Files/b.dat', 'x"y']
     """
-    fields: List[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        if text[i].isspace():
-            i += 1
-        elif text[i] == '"':
-            end = text.find('"', i + 1)
-            end = n if end < 0 else end
-            fields.append(text[i + 1:end])
-            i = end + 1
-        else:
-            end = i
-            while end < n and not text[end].isspace():
-                end += 1
-            fields.append(text[i:end])
-            i = end
-    return fields
+    return _split_fields(text, keep_quotes=False)
 
 
 @dataclass(frozen=True)

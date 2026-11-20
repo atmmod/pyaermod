@@ -391,14 +391,3 @@ def create_example_project() -> AERMODProject:
         meteorology=meteorology,
         output=output
     )
-
-
-if __name__ == "__main__":
-    # Create example project
-    project = create_example_project()
-
-    # Print to console
-    print(project.to_aermod_input())
-
-    # Or write to file
-    # project.write("example.inp")

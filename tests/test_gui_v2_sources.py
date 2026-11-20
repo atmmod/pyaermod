@@ -101,48 +101,32 @@ class TestTypeStringDispatch:
     user write a float into a tuple-typed field.
     """
 
-    @pytest.mark.parametrize("ann,expected", [
-        ("float",                                     True),
-        ("int",                                       True),
-        ("Optional[float]",                           True),
-        ("Optional[int]",                             True),
-        ("Union[int, None]",                          True),
-        ("float | None",                              True),
-        ("typing.Optional[float]",                    True),
-        ("List[float]",                               False),
-        ("List[Tuple[float, float]]",                 False),
-        ("Optional[Tuple[DepositionMethod, float]]",  False),
-        ("Optional[Union[float, List[float]]]",       False),
-        ("Optional[str]",                             False),
-        ("str",                                       False),
-        ("bool",                                      False),
-        ("not an annotation[",                        False),
-    ])
-    def test_is_numeric_string_annotations(self, ann, expected):
-        assert _is_numeric(ann) is expected
-
     @pytest.mark.parametrize("tp,expected", [
         (float,                                      True),
         (int,                                        True),
         (Optional[int],                              True),
         (Optional[float],                            True),
+        (Union[int, None],                           True),
+        (float | None,                               True),
+        (List[float],                                False),
         (List[Tuple[float, float]],                  False),
         (Optional[Tuple[DepositionMethod, float]],   False),
         (Optional[Union[float, List[float]]],        False),
+        (Optional[str],                              False),
         (str,                                        False),
         (bool,                                       False),
+        ("float",                                    False),   # an unresolved annotation
     ])
     def test_is_numeric_resolved_types(self, tp, expected):
         assert _is_numeric(tp) is expected
 
     def test_is_optional_numeric(self):
-        assert _is_optional_numeric("Optional[float]")
-        assert _is_optional_numeric("Optional[int]")
+        assert _is_optional_numeric(Optional[float])
         assert _is_optional_numeric(Optional[int])
-        assert not _is_optional_numeric("Optional[str]")
-        assert not _is_optional_numeric("float")
+        assert not _is_optional_numeric(Optional[str])
+        assert not _is_optional_numeric(float)
         assert not _is_optional_numeric(int)
-        assert not _is_optional_numeric("Optional[Tuple[DepositionMethod, float]]")
+        assert not _is_optional_numeric(Optional[Tuple[DepositionMethod, float]])
 
     def test_real_source_fields_resolve_correctly(self):
         """The shapes that bit, taken from the real dataclass annotations."""
@@ -170,41 +154,23 @@ class TestScalarOrListDispatch:
     ``List[Tuple[float, float]]``).
     """
 
-    @pytest.mark.parametrize("ann,expected", [
-        ("Optional[Union[float, List[float]]]",              True),
-        ("Union[float, List[float], None]",                  True),
-        ("Union[float, List[float]]",                        True),
-        ("Optional[Union[int, list[int]]]",                  True),
-        ("float | List[float] | None",                       True),
-        ("typing.Optional[typing.Union[float, typing.List[float]]]", True),
-        # Disjoint from the branches that already worked
-        ("float",                                            False),
-        ("Optional[float]",                                  False),
-        ("List[float]",                                      False),
-        ("List[Tuple[float, float]]",                        False),
-        ("Optional[Union[float, List[Tuple[float, float]]]]", False),
-        ("Optional[Union[str, List[str]]]",                  False),
-        ("Optional[Union[float, List[str]]]",                False),
-        ("Optional[Tuple[DepositionMethod, float]]",         False),
-        ("str",                                              False),
-        ("bool",                                             False),
-        ("not an annotation[",                               False),
-    ])
-    def test_string_annotations(self, ann, expected):
-        assert _is_numeric_or_numeric_list(ann) is expected
-
     @pytest.mark.parametrize("tp,expected", [
         (Optional[Union[float, List[float]]],        True),
         (Union[float, List[float]],                  True),
         (Optional[Union[int, List[int]]],            True),
+        (Union[float, List[float], None],            True),
+        (float | list[float] | None,                 True),
         (float,                                      False),
         (Optional[float],                            False),
         (List[float],                                False),
         (List[Tuple[float, float]],                  False),
+        (Optional[Union[float, List[Tuple[float, float]]]], False),
         (Optional[Tuple[DepositionMethod, float]],   False),
         (Optional[Union[str, List[str]]],            False),
+        (Optional[Union[float, List[str]]],          False),
         (str,                                        False),
         (bool,                                       False),
+        ("Optional[Union[float, List[float]]]",      False),   # an unresolved annotation
     ])
     def test_resolved_types(self, tp, expected):
         assert _is_numeric_or_numeric_list(tp) is expected
@@ -232,35 +198,45 @@ class TestScalarOrListDispatch:
                 )
 
 
-class TestForwardRefFallback:
-    """``_form._type_hints`` falls back to {} on an unresolvable forward ref.
+class TestForwardRef:
+    """A forward reference ``typing.get_type_hints`` cannot resolve alone.
 
     ``pathways.ChemistryOptions.olm_groups`` is annotated
     ``List[SourceGroupDefinition]`` with the name imported only under
     ``if TYPE_CHECKING``, so ``typing.get_type_hints`` raises ``NameError``
-    at runtime. The form must degrade to the raw string annotation, which
-    the structural parsers handle, rather than propagate the error.
+    at runtime. The form resolves it with the project file's type table
+    (``project_io.type_hints``), which knows the name.
     """
 
     def test_get_type_hints_really_raises_name_error(self):
         with pytest.raises(NameError):
             typing.get_type_hints(ChemistryOptions)
 
-    def test_resolve_annotation_falls_back_to_the_raw_string(self):
+    def test_resolve_annotation_resolves_the_forward_reference(self):
+        from pyaermod.sources import SourceGroupDefinition
+
         opts = ChemistryOptions()
         meta = {f.name: f for f in dataclasses.fields(opts)}
         ann = _resolve_annotation(opts, meta["olm_groups"])
-        assert ann == "List[SourceGroupDefinition]"
-        # Neither numeric predicate claims it, so emit_field routes it by
-        # its ``List[`` type string as before.
+        assert ann == List[SourceGroupDefinition]
         assert not _is_numeric(ann)
         assert not _is_numeric_or_numeric_list(ann)
 
-    def test_sibling_fields_of_the_same_class_still_resolve(self):
-        """The {} fallback is per class, so every field uses the string path."""
+    def test_sibling_fields_of_the_same_class_resolve(self):
         opts = ChemistryOptions()
         meta = {f.name: f for f in dataclasses.fields(opts)}
         assert _is_numeric(_resolve_annotation(opts, meta["default_no2_ratio"]))
+
+    def test_an_annotation_nothing_resolves_is_read_only(self):
+        """A dataclass from elsewhere, naming a type nobody defines."""
+        from pyaermod.gui_v2._form import READ_ONLY, field_kind
+
+        Elsewhere = dataclasses.make_dataclass(
+            "Elsewhere", [("thing", "NoSuchType", None), ("count", "int", 0)])
+        obj = Elsewhere()
+        for f in dataclasses.fields(obj):
+            assert isinstance(_resolve_annotation(obj, f), str)
+            assert field_kind(obj, f) == READ_ONLY
 
 
 class TestDefaults:

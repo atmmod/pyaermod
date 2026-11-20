@@ -25,14 +25,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Union
 
+from ._exec import find_executable, run_captured
 from .aersurface import AERSURFACEConfig
-from .runner import _dir_state, _files_written, _read_capped, _run_tree
 
 
 @dataclass
@@ -76,19 +75,9 @@ class AERSURFACERunner:
 
     @staticmethod
     def _find_or_set_executable(path: Optional[Union[str, Path]]) -> Path:
-        if path:
-            p = Path(path)
-            if not p.exists():
-                raise FileNotFoundError(f"AERSURFACE binary not found: {path}")
-            return p
-        for name in ("aersurface", "AERSURFACE", "aersurface.exe"):
-            found = shutil.which(name)
-            if found:
-                return Path(found)
-        raise FileNotFoundError(
-            "No AERSURFACE executable found on PATH. Pass executable_path "
-            "explicitly."
-        )
+        return find_executable(
+            ("aersurface", "AERSURFACE", "aersurface.exe"), path, label="AERSURFACE binary",
+            not_found="No AERSURFACE executable found on PATH. Pass executable_path explicitly.")
 
     #: Environment variable pointing at a directory of NADCON grid files.
     NADCON_ENV = "PYAERMOD_NADCON_DIR"
@@ -157,46 +146,18 @@ class AERSURFACERunner:
         self.logger.info(
             f"Running AERSURFACE: {deck_path} (workdir={work})"
         )
-        start = datetime.now()
-        before = _dir_state(work)
-        stdout_path = work / "aersurface.subproc.stdout"
-        stderr_path = work / "aersurface.subproc.stderr"
-        # File-redirect, not OS pipes — same pipe-deadlock fix as the
-        # other runners. AERSURFACE on a continental NLCD can be chatty.
-        stdout_fh = open(  # noqa: SIM115
-            stdout_path, "w", encoding="utf-8", errors="replace"
-        )
-        stderr_fh = open(  # noqa: SIM115
-            stderr_path, "w", encoding="utf-8", errors="replace"
-        )
-        try:
-            try:
-                proc = _run_tree(
-                    [str(self.executable)],
-                    cwd=str(work),
-                    text=True,
-                    stdout=stdout_fh, stderr=stderr_fh,
-                    timeout=timeout,
-                )
-            except subprocess.TimeoutExpired as e:
-                end = datetime.now()
-                return AERSURFACERunResult(
-                    success=False, input_file=str(deck_path),
-                    return_code=None,
-                    runtime_seconds=(end - start).total_seconds(),
-                    error_message=(
-                        f"AERSURFACE timed out after {timeout}s: {e}"
-                    ),
-                    start_time=start, end_time=end,
-                )
-        finally:
-            stdout_fh.close()
-            stderr_fh.close()
-        end = datetime.now()
+        # AERSURFACE on a continental NLCD can be chatty.
+        proc = run_captured([str(self.executable)], work, "aersurface", timeout)
+        if proc.timeout is not None:
+            return AERSURFACERunResult(
+                success=False, input_file=str(deck_path),
+                return_code=None,
+                runtime_seconds=proc.runtime_seconds,
+                error_message=f"AERSURFACE timed out after {timeout}s: {proc.timeout}",
+                start_time=proc.start, end_time=proc.end,
+            )
 
-        out = _read_capped(stdout_path, 1_000_000)
-        err = _read_capped(stderr_path, 1_000_000)
-        outputs = _files_written(work, before)
+        out, err, outputs = proc.stdout, proc.stderr, proc.files_written
         # AERSURFACE sometimes exits 0 even with FATAL messages logged, and
         # an exit code says nothing about the table it was asked to write:
         # a run succeeds when it exits 0, says nothing fatal on either
@@ -218,10 +179,10 @@ class AERSURFACERunner:
             success=success,
             input_file=str(deck_path),
             return_code=proc.returncode,
-            runtime_seconds=(end - start).total_seconds(),
+            runtime_seconds=proc.runtime_seconds,
             stdout=out, stderr=err, output_files=outputs,
             error_message=error,
-            start_time=start, end_time=end,
+            start_time=proc.start, end_time=proc.end,
         )
 
 

@@ -8,6 +8,7 @@ every type the GUI edits.
 from __future__ import annotations
 
 import dataclasses
+from typing import Optional, Union
 
 import pytest
 
@@ -63,7 +64,7 @@ def _kind(obj, name):
     (OutputPathway(), "maxi_files", READ_ONLY),             # List[MaxiFile]
     (OutputPathway(), "no_header", STR_LIST),
     (OutputPathway(), "receptor_table_rank", INT),
-    (ChemistryOptions(), "olm_groups", READ_ONLY),          # unresolvable forward ref
+    (ChemistryOptions(), "olm_groups", READ_ONLY),          # List[SourceGroupDefinition]
     (ChemistryOptions(), "default_no2_ratio", FLOAT),
 ])
 def test_field_kinds(obj, name, kind):
@@ -81,8 +82,8 @@ def test_no_source_list_of_objects_gets_a_text_box(type_name):
 
 
 @pytest.mark.parametrize(("annotation", "expected"), [
-    ("int", True), ("Optional[int]", True), ("float", False), ("Optional[float]", False),
-    ("Union[int, float]", False), (int, True), (float, False),
+    (int, True), (Optional[int], True), (float, False), (Optional[float], False),
+    (Union[int, float], False), ("int", False),
 ])
 def test_is_integer(annotation, expected):
     assert is_integer(annotation) is expected

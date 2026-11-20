@@ -5,7 +5,7 @@ Built on top of `input_generator.ChemistryOptions` / `ChemistryMethod`
 and the deposition dataclasses. Provides:
 
 - Ready-made `ChemistryOptions` bundles for the common NO2 modeling
-  setups (OLM / PVMRM / PVMRM2 / GRSM) with sensible defaults.
+  setups (OLM / PVMRM / ARM2 / GRSM) with sensible defaults.
 - Deposition velocity tables / presets for SO2, NOx, PM2.5, PM10, Hg.
 - `suggest_chemistry_for` — heuristic for picking a chemistry method
   given a project's pollutant and source count.
@@ -89,9 +89,10 @@ def pvmrm_preset(
 def arm2_preset(in_stack_no2_ratio: float = 0.1) -> ChemistryOptions:
     """ARM2 (Ambient Ratio Method 2) configuration.
 
-    Default-case NO2 fallback when no ozone data is available. Uses
-    AERMOD's built-in NO2/NOx ratio curve. Not accepted by Appendix W
-    for new submittals.
+    The Tier 2 NO2 screening method of Appendix W 4.2.3.4(d), in the 2017
+    and 2024 revisions alike, and usable with DFAULT. It needs no ozone
+    data: AERMOD applies its NO2/NOx ratio curve to the modelled NOx,
+    between the national default ratios 0.5 and 0.9.
     """
     return ChemistryOptions(
         method=ChemistryMethod.ARM2,
@@ -109,8 +110,9 @@ def grsm_preset(
     """GRSM (Generic Reaction Set Method) configuration.
 
     Appropriate for multi-source NOx modeling with background ozone +
-    optionally a NOx background file. Preferred over OLM/PVMRM in
-    Appendix W 2023 where documented.
+    optionally a NOx background file. A Tier 3 method under the 2024
+    revision of Appendix W (4.2.3.4(e)), regulatory from AERMOD v24142;
+    Appendix W states no preference among OLM, PVMRM and GRSM.
     """
     if ozone_ppb is None and not ozone_file:
         raise ValueError("GRSM requires either ozone_ppb or ozone_file")
@@ -140,7 +142,7 @@ def suggest_chemistry_for(
     - With ozone AND >= 5 sources -> PVMRM.
     - With ozone AND NOx background -> GRSM.
     - With ozone AND few sources -> OLM.
-    - Without ozone data -> ARM2 (fallback; not Appendix-W-compliant).
+    - Without ozone data -> ARM2 (Appendix W Tier 2).
     """
     if pollutant is not PollutantType.NO2:
         return "NONE"

@@ -186,14 +186,13 @@ def load(text: str) -> Dict[str, Any]:
 
 def new_item(type_name: str) -> Dict[str, Any]:
     """A new source or receptor of ``type_name`` with the pip GUI's starting values."""
-    from .gui_v2.pages.receptors import _RECEPTOR_TYPES, _new_receptor
-    from .gui_v2.pages.sources import _SOURCE_TYPES, _new_source
+    from .gui_v2.catalog import RECEPTOR_TYPES, SOURCE_TYPES, new_receptor, new_source
     from .gui_v2.project_io import _encode
 
-    if type_name in _SOURCE_TYPES:
-        return {"item": _encode(_new_source(type_name))}
-    if type_name in _RECEPTOR_TYPES:
-        return {"item": _encode(_new_receptor(type_name))}
+    if type_name in SOURCE_TYPES:
+        return {"item": _encode(new_source(type_name))}
+    if type_name in RECEPTOR_TYPES:
+        return {"item": _encode(new_receptor(type_name))}
     raise BrowserError(f"unknown source or receptor type {type_name!r}")
 
 
@@ -203,78 +202,66 @@ def new_item(type_name: str) -> Dict[str, Any]:
 
 #: Fields offered as a set of choices rather than free text.
 def _choice_overrides() -> Dict[Tuple[str, str], List[str]]:
-    from .gui_v2.pages.project import AVERAGING_PERIODS
+    from .gui_v2.catalog import AVERAGING_PERIODS
 
     return {("ControlPathway", "averaging_periods"): list(AVERAGING_PERIODS)}
 
 
-def _unwrap_optional(tp: Any) -> Tuple[Any, bool]:
-    if typing.get_origin(tp) is typing.Union:
-        args = tuple(a for a in typing.get_args(tp) if a is not type(None))
-        if len(args) < len(typing.get_args(tp)):
-            return (args[0] if len(args) == 1 else typing.Union[args]), True
-    return tp, False
-
-
-def _is_point_list(tp: Any) -> bool:
-    """List[Tuple[float, float]] and the like: edited as "x, y" lines."""
-    if typing.get_origin(tp) not in (list, typing.List):
-        return False
-    (item,) = typing.get_args(tp) or (None,)
-    item, _ = _unwrap_optional(item)
-    args = typing.get_args(item)
-    return typing.get_origin(item) in (tuple, typing.Tuple) and len(args) in (2, 3) and all(
-        a in (float, int) for a in args)
+#: The item kinds of a list the shell edits one entry per line.
+_LIST_ITEMS = {str: "string", float: "number", int: "integer"}
 
 
 def _field_kind(tp: Any) -> Tuple[str, Dict[str, Any]]:
-    extra: Dict[str, Any] = {}
-    if typing.get_origin(tp) is typing.Union:
-        members = typing.get_args(tp)
-        enums = [m for m in members if isinstance(m, type) and issubclass(m, Enum)]
+    """The schema's kind for a field of type ``tp``, and what else its input needs.
+
+    The pip GUI's classification in the shell's words, and the two things
+    only the shell edits: enums (a dropdown) and lists of x, y(, z) rows.
+    """
+    from .gui_v2 import _form
+
+    simple = {_form.TEXT: "string", _form.BOOL: "boolean", _form.INT: "integer",
+              _form.FLOAT: "number",
+              # Union[float, List[float]]: one value, or one per wind direction.
+              _form.SCALAR_OR_LIST: "numbers"}
+    kind = _form.annotation_kind(tp)
+    if kind in simple:
+        return simple[kind], {}
+    item = _form._list_item(tp)
+    if item in _LIST_ITEMS:
+        return "list", {"item": _LIST_ITEMS[item]}
+    members, _ = _form._args_without_none(tp)
+    enums = [m for m in members if isinstance(m, type) and issubclass(m, Enum)]
+    if len(enums) == 1 and set(members) <= {str, enums[0]}:
+        extra: Dict[str, Any] = {"choices": [
+            {"value": {"_enum": f"{enums[0].__name__}.{m.name}"}, "label": str(m.value)}
+            for m in enums[0]]}
         # Union[str, PollutantType]: the enum's members, or a name AERMOD
         # knows that the enum does not list.
-        if len(enums) == 1 and set(members) <= {str, enums[0]}:
-            kind, extra = _field_kind(enums[0])
-            extra["custom"] = str in members
-            return kind, extra
-        # Union[float, List[float]]: one value, or one per wind direction.
-        if set(members) == {float, typing.List[float]}:
-            return "numbers", extra
-    if tp is bool:
-        return "boolean", extra
-    if tp is int:
-        return "integer", extra
-    if tp is float:
-        return "number", extra
-    if tp is str:
-        return "string", extra
-    if isinstance(tp, type) and issubclass(tp, Enum):
-        extra["choices"] = [{"value": {"_enum": f"{tp.__name__}.{m.name}"}, "label": str(m.value)}
-                            for m in tp]
+        if str in members:
+            extra["custom"] = True
         return "enum", extra
-    if _is_point_list(tp):
-        extra["width"] = len(typing.get_args(_unwrap_optional(typing.get_args(tp)[0])[0]))
-        return "points", extra
-    if typing.get_origin(tp) in (list, typing.List) and typing.get_args(tp) in ((str,), (float,),
-                                                                              (int,)):
-        extra["item"] = {str: "string", float: "number", int: "integer"}[typing.get_args(tp)[0]]
-        return "list", extra
-    return "json", extra
+    # List[Tuple[float, float]] and the like: edited as "x, y" lines.
+    rows, _ = _form._args_without_none(item)
+    args = typing.get_args(rows[0])
+    if (len(rows) == 1 and typing.get_origin(rows[0]) is tuple and len(args) in (2, 3)
+            and all(a in (float, int) for a in args)):
+        return "points", {"width": len(args)}
+    return "json", {}
 
 
 def class_schema(cls: type) -> Dict[str, Any]:
     """The fields of dataclass ``cls`` as the shell's forms draw them."""
     from ._fields import help_of, units_of
-    from .gui_v2.project_io import _encode, _types
+    from .gui_v2._form import _allows_none
+    from .gui_v2.project_io import _encode, type_hints
 
-    hints = _types().hints(cls)
+    hints = type_hints(cls)
     overrides = _choice_overrides()
     fields = []
     for f in dataclasses.fields(cls):
         if not f.init or f.name.startswith("_"):
             continue
-        tp, optional = _unwrap_optional(hints.get(f.name, Any))
+        tp = hints.get(f.name, Any)
         kind, extra = _field_kind(tp)
         if (cls.__name__, f.name) in overrides:
             kind, extra = "multichoice", {"choices": overrides[(cls.__name__, f.name)]}
@@ -288,7 +275,7 @@ def class_schema(cls: type) -> Dict[str, Any]:
             "name": f.name,
             "label": f.name.replace("_", " ").capitalize(),
             "kind": kind,
-            "optional": optional,
+            "optional": _allows_none(tp),
             "required": required,
             "units": units_of(f),
             "help": help_of(f),
@@ -301,22 +288,20 @@ def class_schema(cls: type) -> Dict[str, Any]:
 
 def schema() -> Dict[str, Any]:
     """Everything the shell needs to draw its forms, with no project."""
-    from .gui_v2.pages import meteorology, output
-    from .gui_v2.pages.project import OUTPUT_OPTIONS, TERRAIN_CHOICES
-    from .gui_v2.pages.receptors import _RECEPTOR_TYPES
-    from .gui_v2.pages.sources import _SOURCE_TYPES
+    from .gui_v2 import catalog
+    from .gui_v2.catalog import OUTPUT_OPTIONS, RECEPTOR_TYPES, SOURCE_TYPES, TERRAIN_CHOICES
     from .gui_v2.steps import STEPS
     from .input_generator import ControlPathway, MeteorologyPathway, OutputPathway
 
     classes = {cls.__name__: class_schema(cls) for cls in (
-        *_SOURCE_TYPES.values(), *_RECEPTOR_TYPES.values(),
+        *SOURCE_TYPES.values(), *RECEPTOR_TYPES.values(),
         ControlPathway, MeteorologyPathway, OutputPathway)}
     return {
         "version": __version__,
         "banner": BANNER,
         "steps": [{"id": s.id, "label": s.label} for s in STEPS],
-        "sources": list(_SOURCE_TYPES),
-        "receptors": list(_RECEPTOR_TYPES),
+        "sources": list(SOURCE_TYPES),
+        "receptors": list(RECEPTOR_TYPES),
         "classes": classes,
         "groups": {
             "project": [
@@ -327,13 +312,13 @@ def schema() -> Dict[str, Any]:
                  "fields": ["terrain_type", *[name for name, _ in OUTPUT_OPTIONS]]},
             ],
             "meteorology": [{"title": t, "intro": i, "fields": list(f)}
-                            for t, i, f in meteorology.GROUPS],
+                            for t, i, f in catalog.MET_GROUPS],
             "output": [
-                {"title": "Tables", "fields": list(output.TABLE_FIELDS)},
-                {"title": "Files", "fields": list(output.FILE_FIELDS)},
-                {"title": "Files for the Results step", "fields": list(output.RESULTS_FIELDS)},
+                {"title": "Tables", "fields": list(catalog.TABLE_FIELDS)},
+                {"title": "Files", "fields": list(catalog.FILE_FIELDS)},
+                {"title": "Files for the Results step", "fields": list(catalog.RESULTS_FIELDS)},
             ],
-            "hidden": {"OutputPathway": list(output.HIDDEN_FIELDS)},
+            "hidden": {"OutputPathway": list(catalog.HIDDEN_FIELDS)},
         },
         "terrain_labels": dict(TERRAIN_CHOICES),
         "limits": {"max_table_rows": MAX_TABLE_ROWS, "max_maps": MAX_MAPS},
@@ -725,8 +710,7 @@ def run(document: Any, number: int = 1) -> Dict[str, Any]:
     number on the page ("Run 3 succeeded"): each call is a new session,
     and the page counts its runs.
     """
-    from .gui_v2.pages.run import message_counts_text, run_status_text
-    from .gui_v2.run_results import view_of
+    from .gui_v2.run_results import message_counts_text, run_status_text, view_of
 
     project = _project(document)
     found = _review(project)
@@ -771,7 +755,7 @@ def _cell(value: Any) -> Any:
 
 
 def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
-    from .gui_v2.pages.results import _UNITS
+    from .gui_v2.catalog import UNITS
     from .gui_v2.run_results import period_label, table_qualifier
 
     rows = []
@@ -782,7 +766,7 @@ def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
             "qualifier": table_qualifier(table.title),
             "value": str(top.get("value_text") or table.max_value),
             "flag": top.get("flag") or "",
-            "units": _UNITS.get(table.units, table.units),
+            "units": UNITS.get(table.units, table.units),
             "x": _cell(table.max_location[0]),
             "y": _cell(table.max_location[1]),
             "group": top.get("group") or "",
@@ -794,16 +778,16 @@ def _maxima(tables: List[Any]) -> List[Dict[str, Any]]:
 
 
 def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
-    from .gui_v2.pages.results import _OUTPUT_TYPES, _UNITS
-    from .gui_v2.run_results import period_label
+    from .gui_v2.catalog import UNITS
+    from .gui_v2.run_results import OUTPUT_TYPES, period_label
 
     out = []
     for table in tables:
         records = table.data.to_dict("records")
-        kind = _OUTPUT_TYPES.get(table.output_type, table.output_type)
+        kind = OUTPUT_TYPES.get(table.output_type, table.output_type)
         out.append({
             "name": f"{kind}, {period_label(table.averaging_period)}: {table.title or ''}",
-            "units": _UNITS.get(table.units, table.units),
+            "units": UNITS.get(table.units, table.units),
             "total_rows": len(records),
             "rows": [{
                 "group": r.get("group") or "",
@@ -820,7 +804,7 @@ def _tables(tables: List[Any]) -> List[Dict[str, Any]]:
 
 
 def _results(view: Any) -> Dict[str, Any]:
-    from .gui_v2.pages.results import _UNITS
+    from .gui_v2.catalog import UNITS
     from .gui_v2.results_map import concentration_map_png
     from .gui_v2.run_results import naaqs_caption
 
@@ -849,7 +833,7 @@ def _results(view: Any) -> Dict[str, Any]:
                     for s in view.results.sources)
     for plot in view.plots[:MAX_MAPS]:
         units = view.plot_units(plot)
-        units = _UNITS.get(units, units) if units else (
+        units = UNITS.get(units, units) if units else (
             "µg/m³" if plot.output_type == "CONC" else "AERMOD's deposition units")
         try:
             png = concentration_map_png(plot, units=units, sources=sources)

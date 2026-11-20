@@ -147,13 +147,17 @@ def test_rewrite_does_not_invent_no2stack():
     assert "NO2STACK" not in text
 
 
-@pytest.mark.xfail(reason="needs the validator to accept default_no2_ratio=None and report "
-                          "E336 (validator.py is fixed separately)", strict=False)
 def test_olm_source_without_any_ratio_is_an_error():
     """E336 in AERMOD: no NO2STACK and no NO2RATIO for the source."""
     deck = _OLM_DECK.replace("   NO2RATIO  S1 0.2\n", "")
     result = Validator.validate(parse_aermod_input(deck))
     assert not result.is_valid
+    assert any(e.field == "no2_ratio" and "E336" in e.message for e in result.errors)
+
+
+def test_olm_source_with_its_own_ratio_needs_no_no2stack():
+    result = Validator.validate(parse_aermod_input(_OLM_DECK))
+    assert not [e for e in result.errors if e.field == "no2_ratio"]
 
 
 # ---------------------------------------------------------------------

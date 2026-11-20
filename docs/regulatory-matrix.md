@@ -4,44 +4,52 @@ pyaermod configurations vs. common regulatory guidance.  Use this as a
 checklist when building a modeling protocol — the profile API
 (`pyaermod.regulatory`) automates most of these.
 
-## EPA Appendix W (40 CFR 51, 2017 revision)
+## EPA Appendix W (40 CFR 51)
+
+Appendix W has two revisions in force since 2017: the 2017 rule
+(82 FR 5182, effective May 22, 2017) and the 2024 rule (89 FR 95034,
+effective March 21, 2025). There was no 2023 revision. The requirements
+below hold under both; the NO2 row is where they differ.
 
 | Requirement | pyaermod setting |
 |---|---|
 | DFAULT option in MODELOPT | `ControlPathway.regulatory_default=True` |
 | Elevated terrain | `ControlPathway.terrain_type = TerrainType.ELEVATED` |
 | Rural/urban dispersion | `is_urban=True` on each urban source (URBANSRC); `ControlPathway.urban_areas` (or `urban_option`, the urban area's name) writes URBANOPT |
-| LOWWIND | only `LOWWIND3` is currently accepted with documentation |
-| NO2 chemistry | OLM or PVMRM (set via `ChemistryOptions`); PVMRM2 and GRSM were BETA in v23132/v24142 (see the 2023 updates) |
+| Low wind | no option. `CO LOW_WIND` is an ALPHA option, which AERMOD refuses with DFAULT. LOWWIND1, 2 and 3 were BETA options removed in v18081; the 2017 rule declined to adopt LOWWIND3 |
+| NO2 (section 4.2.3.4) | Tier 1: no chemistry. Tier 2: ARM2. Tier 3: OLM or PVMRM, and GRSM under the 2024 rule (set via `ChemistryOptions`) |
 | Stack-tip downwash | on by default; **don't** add `NOSTD` to `ControlPathway.extra_model_options` |
-| BETA / experimental options | not permitted under DFAULT |
+| ALPHA and BETA options | not permitted under DFAULT (TTRM, TTRM2, RLINEXT and LOW_WIND are ALPHA) |
+
+| Profile | What it is | NO2 methods accepted |
+|---|---|---|
+| `EPA_APPENDIX_W_2024` | the 2024 rule, with AERMOD v24142 or later | ARM2, OLM, PVMRM, GRSM |
+| `EPA_APPENDIX_W_2017` | the 2017 rule | ARM2, OLM, PVMRM |
+| `EPA_APPENDIX_W_2023` | the 2017 rule as applied with AERMOD v23132; kept for existing scripts | ARM2, OLM, PVMRM |
 
 Apply with:
 
 ```python
-from pyaermod import EPA_APPENDIX_W_2017
-changes = EPA_APPENDIX_W_2017.apply(project)
-warnings = EPA_APPENDIX_W_2017.check(project)
+from pyaermod import EPA_APPENDIX_W_2024
+changes = EPA_APPENDIX_W_2024.apply(project)    # what it changed
+findings = EPA_APPENDIX_W_2024.check(project)   # what still conflicts
+notes = EPA_APPENDIX_W_2024.advisories(project)
 ```
 
-## EPA Appendix W (2023 updates)
+`apply` turns on DFAULT, switches off non-default options and removes a
+`low_wind_option`. `advisories` returns the Tier 3 note: use of OLM,
+PVMRM or GRSM "shall occur in consultation with the EPA Regional Office
+in addition to the appropriate reviewing authority" (4.2.3.4(e)). All
+three tiers are screening techniques agreed with the reviewing authority.
 
-Same base constraints as 2017. Two new NO2 chemistry methods
-(**PVMRM2**, **GRSM**) are available in AERMOD v23132/v24142 but
-were **BETA** in those versions (AERMOD v26135's `coset.f` no longer
-requires the BETA option for GRSM and no longer rejects it beside DFAULT;
-whether EPA accepts it is a policy question) — they require case-by-case EPA concurrence before
-use in a regulatory submittal. `EPA_APPENDIX_W_2023` therefore keeps
-only OLM and PVMRM in its `allow_chemistry_methods` tuple; the BETA
-set is listed separately in `EPA_APPENDIX_W_2023_BETA_METHODS` for
-users with explicit approval.
+GRSM entered AERMOD as an ALPHA option in v21112, was a BETA option in
+v22112 and v23132 (refused with DFAULT), and is regulatory from v24142.
+`EPA_APPENDIX_W_2023_BETA_METHODS` lists it for that reason.
 
-Other 2023 updates:
-
-- ADJ_U* friction-velocity adjustment is permitted for stable
-  conditions with agency review.
-
-Use `EPA_APPENDIX_W_2023` for this profile.
+ADJ_U* is chosen in AERMET, not in the AERMOD deck, so no profile checks
+it. It has been a regulatory option since the 2017 rule, except with
+site-specific turbulence data, where it needs approval as an alternative
+model (Appendix W, Addendum A, A.1(b)(2)(ii)).
 
 ## Screening-level analyses
 
@@ -52,28 +60,24 @@ from pyaermod import SCREENING_PROFILE
 SCREENING_PROFILE.apply(project)
 ```
 
-Screening profile forbids all non-default options, including LOWWIND3.
-Tighten to a formal profile before submittal.
+The screening profile forbids all non-default options. Tighten to a
+formal profile before submittal.
 
 ## Per-state/agency notes
 
-pyaermod doesn't currently ship state-specific profiles. Build your
-own by subclassing `RegulatoryProfile`:
+pyaermod doesn't ship state-specific profiles. Build your own from
+`RegulatoryProfile`:
 
 ```python
 from pyaermod import RegulatoryProfile
 
-CARB_DRAFT_2024 = RegulatoryProfile(
-    name="CARB-Draft-2024",
-    description="California draft 2024 modeling guidance",
+STATE_DRAFT = RegulatoryProfile(
+    name="State-Draft",
+    description="A state agency's modeling guidance",
     regulatory_default=True,
     terrain_type="ELEVATED",
-    allowed_low_wind=("LOWWIND3",),
-    allow_chemistry_methods=("OLM", "PVMRM", "PVMRM2", "GRSM"),  # BETA incl.
-    forbid_nondefault_flags=(
-        "flat_terrain", "no_stack_tip_downwash",
-        "use_lowwind1", "use_lowwind2",
-    ),
+    allow_chemistry_methods=("ARM2", "OLM", "PVMRM"),
+    forbid_nondefault_flags=("FLAT", "NOSTD", "alpha", "beta"),
 )
 ```
 

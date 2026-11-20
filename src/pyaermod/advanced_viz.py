@@ -91,7 +91,7 @@ class AdvancedVisualizer:
                               alpha=0.9, edgecolor='none')
 
         # Add contour lines at base
-        ax.contour(X, Y, Z, zdir='z', offset=Z.min(),
+        ax.contour(X, Y, Z, zdir='z', offset=np.nanmin(Z),
                   cmap='Greys', alpha=0.5, linewidths=0.5)
 
         # Colorbar
@@ -383,9 +383,13 @@ class AdvancedVisualizer:
             # Grid data
             _, _, Z = _grid_from_xy(df, x_unique, y_unique)
 
-            # Plot
-            im = ax.contourf(X, Y, Z, levels=15, cmap='YlOrRd',
-                            norm=mcolors.LogNorm(vmin=vmin, vmax=vmax))
+            # Plot. A frame with no positive value has no level on a log
+            # scale: draw it flat on a linear one, in the lowest colour.
+            if (Z > 0).any():
+                norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+            else:
+                norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            im = ax.contourf(X, Y, Z, levels=15, cmap='YlOrRd', norm=norm)
             ax.contour(X, Y, Z, levels=10, colors='black',
                       linewidths=0.3, alpha=0.3)
 
@@ -412,87 +416,3 @@ class AdvancedVisualizer:
             anim.save(save_path, writer=writer)
 
         return anim
-
-
-# Example usage and demonstrations
-if __name__ == "__main__":
-    print("PyAERMOD Advanced Visualization Tools")
-    print("=" * 70)
-    print()
-
-    print("Available visualization functions:")
-    print("  1. plot_3d_surface()       - 3D surface plots of concentration")
-    print("  2. plot_wind_rose()        - Wind rose diagrams")
-    print("  3. plot_concentration_profile() - Cross-section profiles")
-    print("  4. create_comparison_grid() - Side-by-side scenario comparison")
-    print("  5. plot_time_series_animation() - Animated time series")
-    print()
-
-    # Generate sample data for demonstration
-    print("Generating sample data...")
-
-    x = np.linspace(-1000, 1000, 41)
-    y = np.linspace(-1000, 1000, 41)
-    X, Y = np.meshgrid(x, y)
-
-    # Gaussian plume approximation
-    distance = np.sqrt(X**2 + Y**2)
-    conc = 10 * np.exp(-distance/500) + 0.1
-
-    df_sample = pd.DataFrame({
-        'X': X.flatten(),
-        'Y': Y.flatten(),
-        'CONC': conc.flatten()
-    })
-
-    print("✓ Sample data created")
-    print()
-
-    # Example: 3D plot
-    print("Example 1: Creating 3D surface plot...")
-    viz = AdvancedVisualizer()
-    fig = viz.plot_3d_surface(
-        df_sample,
-        title="Example 3D Concentration Surface",
-        save_path="example_3d_surface.png"
-    )
-    print("✓ Saved: example_3d_surface.png")
-    plt.close(fig)
-    print()
-
-    # Example: Wind rose (with synthetic data)
-    print("Example 2: Creating wind rose...")
-    np.random.seed(42)
-    wind_speeds = np.random.gamma(3, 2, 1000)  # Realistic speed distribution
-    wind_directions = np.random.normal(180, 60, 1000) % 360  # Predominantly from S
-
-    fig = viz.plot_wind_rose(
-        wind_speeds,
-        wind_directions,
-        title="Example Wind Rose (Synthetic Data)",
-        save_path="example_wind_rose.png"
-    )
-    print("✓ Saved: example_wind_rose.png")
-    plt.close(fig)
-    print()
-
-    # Example: Profile plot
-    print("Example 3: Creating concentration profile...")
-    fig = viz.plot_concentration_profile(
-        df_sample,
-        direction='x',
-        cross_coord=0.0,
-        save_path="example_profile.png"
-    )
-    print("✓ Saved: example_profile.png")
-    plt.close(fig)
-    print()
-
-    print("=" * 70)
-    print("Advanced visualization examples completed!")
-    print()
-    print("Integration with AERMOD results:")
-    print("  from pyaermod.advanced_viz import AdvancedVisualizer")
-    print("  viz = AdvancedVisualizer()")
-    print("  fig = viz.plot_3d_surface(concentration_df)")
-    print()
