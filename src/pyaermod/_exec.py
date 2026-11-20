@@ -13,7 +13,23 @@ import signal
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Union, overload
+
+
+@overload
+def find_executable(program_names: Sequence[str],
+                    path: Optional[Union[str, Path]] = None, *,
+                    label: str,
+                    not_found: str,
+                    resolve: bool = False) -> Path: ...
+
+
+@overload
+def find_executable(program_names: Sequence[str],
+                    path: Optional[Union[str, Path]] = None, *,
+                    label: str,
+                    not_found: None = None,
+                    resolve: bool = False) -> Optional[Path]: ...
 
 
 def find_executable(program_names: Sequence[str],
