@@ -1014,34 +1014,3 @@ def quick_summary(output_file: Union[str, Path]) -> str:
     """
     results = parse_aermod_output(output_file)
     return results.summary()
-
-
-# ============================================================================
-# EXAMPLE USAGE
-# ============================================================================
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        # Parse file from command line
-        output_file = sys.argv[1]
-
-        print(f"Parsing: {output_file}\n")
-
-        results = parse_aermod_output(output_file)
-        print(results.summary())
-
-        # Show first few concentration values
-        if results.concentrations:
-            period = next(iter(results.concentrations.keys()))
-            df = results.get_concentrations(period)
-            print(f"\nFirst 10 {period} concentrations:")
-            print(df.head(10))
-    else:
-        print("PyAERMOD Output Parser")
-        print("Usage: python -m pyaermod.output_parser <output_file.out>")
-        print("\nOr import and use:")
-        print("  from pyaermod.output_parser import parse_aermod_output")
-        print("  results = parse_aermod_output('myrun.out')")
-        print("  df = results.get_concentrations('ANNUAL')")
