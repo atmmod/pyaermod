@@ -29,6 +29,7 @@ import contextlib
 import re
 import struct
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -215,6 +216,24 @@ def _format_field_slices(spec: str) -> List[Tuple[int, int]]:
             slices.append((pos, pos + width))
         pos += width
     return slices
+
+
+def header_wide_fields(text: str) -> Optional[int]:
+    """Number of ``1X``-led 13-wide fields in a ``FORMAT: (...)`` header line.
+
+    Those are the coordinates and values of a row: AERMOD writes X, Y and
+    one value per output type as ``1X,F13.5`` or ``1X,E13.6``. ``text`` is
+    the line without its leading ``*``; *None* when it is not a FORMAT
+    line, 0 when :func:`parse_fortran_format` cannot expand its FORMAT.
+    """
+    m = _FORMAT_RE.match(text)
+    if not m:
+        return None
+    try:
+        fields = parse_fortran_format(m.group(1))
+    except ValueError:
+        return 0
+    return list(pairwise(fields)).count((("skip", 1), ("data", 13)))
 
 
 def _split_column_labels(line: str) -> List[str]:

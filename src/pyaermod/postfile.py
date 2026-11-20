@@ -48,6 +48,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 import pandas as pd
 
 from ._fortran import fortran_float
+from .aermod_outputs import header_wide_fields
 from .pathways import SHORT_TERM_HOURS
 
 #: AERMOD's output types, in the order AERMOD writes them.
@@ -704,13 +705,8 @@ class PostfileParser:
         #   (6(1X,F13.5),3(1X,F8.2),...)             -> 4 value columns
         #   (2(1X,F13.5),3(1X,E13.6),3(1X,F8.2),...) -> 3 value columns
         #   (2(1X,F13.5),1X,E13.6,3(1X,F8.2),...)    -> 1 value column
-        fmt_match = re.match(r"FORMAT:\s*\(", text, re.IGNORECASE)
-        if fmt_match:
-            # Match repeated groups like N(1X,F13.5) or N(1X,E13.6)
-            wide_groups = re.findall(r"(\d+)\(1X,[FE]13", text)
-            # Match standalone specs like 1X,E13.6 (implicit count of 1)
-            standalone = re.findall(r"(?<!\d\()1X,[FE]13", text)
-            num_wide_cols = sum(int(g) for g in wide_groups) + len(standalone)
+        num_wide_cols = header_wide_fields(text)
+        if num_wide_cols is not None:
             if num_wide_cols >= 3:
                 self._format_numtyp = num_wide_cols - 2
             return
