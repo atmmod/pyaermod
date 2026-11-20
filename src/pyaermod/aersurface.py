@@ -124,6 +124,15 @@ _VALID_SITE_TYPE = {"PRIMARY", "SECONDARY"}
 _VALID_DATUM = {"NAD27", "NAD83"}
 _VALID_AP = {"AP", "NONAP"}
 
+#: Keyword fields upper-cased and checked against a set, in this order.
+_CHOICE_FIELDS = (
+    ("datum", _VALID_DATUM),
+    ("moisture", _VALID_MOISTURE),
+    ("frequency", _VALID_FREQUENCY),
+    ("zo_method", _VALID_ZO_METHOD),
+    ("site_type", _VALID_SITE_TYPE),
+)
+
 #: AERSURFACE's season names. ``WINTERNS`` is winter without continuous
 #: snow cover, ``WINTERWS`` winter with it -- the distinction the older
 #: per-month ``snow_cover`` flag stood in for.
@@ -249,49 +258,24 @@ class AERSURFACEConfig:
     extra_ou_lines: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if not (-90 <= self.latitude <= 90):
-            raise ValueError(
-                f"latitude must be in [-90, 90]; got {self.latitude}"
-            )
-        if not (-180 <= self.longitude <= 180):
-            raise ValueError(
-                f"longitude must be in [-180, 180]; got {self.longitude}"
-            )
+        for name, limit in (("latitude", 90), ("longitude", 180)):
+            value = getattr(self, name)
+            if not (-limit <= value <= limit):
+                raise ValueError(
+                    f"{name} must be in [{-limit}, {limit}]; got {value}"
+                )
         if self.nlcd_year not in _VALID_NLCD_YEARS:
             raise ValueError(
                 f"nlcd_year must be one of {sorted(_VALID_NLCD_YEARS)}; "
                 f"got {self.nlcd_year}"
             )
-        self.datum = self.datum.upper()
-        if self.datum not in _VALID_DATUM:
-            raise ValueError(
-                f"datum must be one of {sorted(_VALID_DATUM)}; "
-                f"got {self.datum!r}"
-            )
-        self.moisture = self.moisture.upper()
-        if self.moisture not in _VALID_MOISTURE:
-            raise ValueError(
-                f"moisture must be one of {sorted(_VALID_MOISTURE)}; "
-                f"got {self.moisture!r}"
-            )
-        self.frequency = self.frequency.upper()
-        if self.frequency not in _VALID_FREQUENCY:
-            raise ValueError(
-                f"frequency must be one of {sorted(_VALID_FREQUENCY)}; "
-                f"got {self.frequency!r}"
-            )
-        self.zo_method = self.zo_method.upper()
-        if self.zo_method not in _VALID_ZO_METHOD:
-            raise ValueError(
-                f"zo_method must be one of {sorted(_VALID_ZO_METHOD)}; "
-                f"got {self.zo_method!r}"
-            )
-        self.site_type = self.site_type.upper()
-        if self.site_type not in _VALID_SITE_TYPE:
-            raise ValueError(
-                f"site_type must be one of {sorted(_VALID_SITE_TYPE)}; "
-                f"got {self.site_type!r}"
-            )
+        for name, valid in _CHOICE_FIELDS:
+            value = getattr(self, name).upper()
+            setattr(self, name, value)
+            if value not in valid:
+                raise ValueError(
+                    f"{name} must be one of {sorted(valid)}; got {value!r}"
+                )
         if self.zo_radius_km <= 0:
             raise ValueError("zo_radius_km must be > 0")
         if self.zo_method == "ZOEFF" and self.anemometer_height_m is None:
