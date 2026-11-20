@@ -7,6 +7,8 @@ Building blocks every step page shares.
 - :func:`confirm`: a yes/no question in the page's dialog container;
 - :class:`Pager`: which slice of a long table is shown, with Previous /
   Next buttons that have accessible names;
+- :func:`item_table`: the paged table of a step's items, with Edit and
+  Delete on every row;
 - :func:`plan_view`: the plan-view plot, rebuilt after every change to
   the sources or receptors.
 
@@ -17,7 +19,7 @@ not import NiceGUI.
 from __future__ import annotations
 
 import contextlib
-from typing import Any, Callable, Iterator, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence
 
 from .session import Session, SessionEvent
 
@@ -210,6 +212,52 @@ class Pager:
             nxt.set_enabled(self.page < self.pages(total) - 1)
 
 
+#: Row actions, with the item named in each button's accessible name.
+ROW_ACTIONS_SLOT = """
+<q-td :props="props" class="text-right">
+  <q-btn dense flat round icon="edit" :aria-label="`Edit ${props.row.name}`"
+         @click="$parent.$emit(`edit`, props.row.key)" />
+  <q-btn dense flat round icon="delete" color="negative"
+         :aria-label="`Delete ${props.row.name}`"
+         @click="$parent.$emit(`delete`, props.row.key)" />
+</q-td>
+"""
+
+
+def item_table(session: Session, *, part: str, noun: str, columns: List[Dict[str, Any]],
+               entries: Callable[[], Sequence[Any]], row: Callable[[Any], Dict[str, Any]],
+               on_edit: Callable[[Any], None], on_delete: Callable[[Any], None],
+               empty: str) -> None:
+    """The table of a step's items, one page at a time, with Edit and Delete on every row.
+
+    A live section rebuilt when ``part`` of the project changes.
+    ``entries()`` lists the items and ``row(entry)`` is the table row of
+    one that is on the page shown: its ``key`` is what the ``edit`` and
+    ``delete`` events carry, its ``name`` what the two buttons say.
+    ``noun`` ("Sources") names the table; ``empty`` is shown under it
+    while there are no items.
+    """
+    from nicegui import ui
+
+    from ._live import live
+
+    # Before the live section, so it is reset before the table is rebuilt.
+    pager = Pager(session=session)
+
+    @live(session, SessionEvent.PROJECT_CHANGED, parts={part})
+    def _table() -> None:
+        found = entries()
+        table = ui.table(columns=columns, rows=[row(e) for e in pager.window(found)],
+                         row_key="key").classes("w-full").props(
+            f'flat bordered hide-bottom aria-label="{noun}"').mark(f"{noun.lower()}-table")
+        table.add_slot("body-cell-actions", ROW_ACTIONS_SLOT)
+        table.on("edit", on_edit)
+        table.on("delete", on_delete)
+        pager.controls(len(found), noun=noun, refresh=lambda: _table.refresh())
+        if not found:
+            ui.label(empty).classes("text-grey-8")
+
+
 def plan_view(session: Session) -> None:
     """The plan-view plot of the session's project, rebuilt after every change.
 
@@ -228,10 +276,12 @@ def plan_view(session: Session) -> None:
 
 __all__ = [
     "ROWS_PER_PAGE",
+    "ROW_ACTIONS_SLOT",
     "Goto",
     "Pager",
     "confirm",
     "editor_dialog",
+    "item_table",
     "plan_view",
     "section",
     "step_page",

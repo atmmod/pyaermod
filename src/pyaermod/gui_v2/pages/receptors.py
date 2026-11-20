@@ -19,13 +19,12 @@ import copy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ...input_generator import ReceptorPathway
-from .._layout import Goto, Pager, editor_dialog, plan_view, section, step_page
-from .._live import live
+from .._layout import Goto, editor_dialog, item_table, plan_view, section, step_page
 from ..catalog import RECEPTOR_DEFAULTS as _DEFAULTS  # noqa: F401 - the tests read it here
 from ..catalog import RECEPTOR_TYPES as _RECEPTOR_TYPES
 from ..catalog import new_receptor as _new_receptor
 from ..readiness import item_findings
-from ..session import Session, SessionEvent
+from ..session import Session
 
 
 def _receptor_lists(rp: ReceptorPathway):
@@ -86,10 +85,9 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
     """Render the Receptors step (the same pattern as the Sources step)."""
     from nicegui import ui
 
-    from .sources import ROW_ACTIONS_SLOT, editor_body
+    from .sources import editor_body
 
     del goto
-    pager = Pager(session=session)
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
         def save() -> bool:
@@ -132,20 +130,11 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
 
         with ui.element("div").classes("grid grid-cols-1 lg:grid-cols-5 gap-4 w-full items-start"):
             with ui.column().classes("lg:col-span-3 min-w-0 w-full gap-2"):
-                @live(session, SessionEvent.PROJECT_CHANGED, parts={"receptors"})
-                def _table() -> None:
-                    rows = _all_rows(session.receptor_entries())
-                    shown = [{**row, "name": row["label"]} for row in pager.window(rows)]
-                    table = ui.table(columns=_COLUMNS, rows=shown, row_key="key").classes(
-                        "w-full").props('flat bordered hide-bottom aria-label="Receptors"').mark(
-                        "receptors-table")
-                    table.add_slot("body-cell-actions", ROW_ACTIONS_SLOT)
-                    table.on("edit", _on_edit)
-                    table.on("delete", _on_delete)
-                    pager.controls(len(rows), noun="Receptors", refresh=lambda: _table.refresh())
-                    if not rows:
-                        ui.label("No receptors yet. Choose a type and click Add.").classes(
-                            "text-grey-8")
+                item_table(session, part="receptors", noun="Receptors", columns=_COLUMNS,
+                           entries=lambda: _all_rows(session.receptor_entries()),
+                           row=lambda row: {**row, "name": row["label"]},
+                           on_edit=_on_edit, on_delete=_on_delete,
+                           empty="No receptors yet. Choose a type and click Add.")
             with ui.column().classes("lg:col-span-2 min-w-0 w-full"), \
                     section("Plan view"):
                 plan_view(session)

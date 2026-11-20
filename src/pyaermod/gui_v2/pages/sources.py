@@ -12,7 +12,7 @@ New sources start from :data:`~pyaermod.gui_v2.catalog.SOURCE_DEFAULTS`,
 placeholder values that pass
 ``__post_init__`` so the editor opens cleanly; the user overrides them
 before Save. The table shows one page of rows at a time
-(:class:`pyaermod.gui_v2._layout.Pager`).
+(:func:`pyaermod.gui_v2._layout.item_table`).
 """
 
 from __future__ import annotations
@@ -23,14 +23,21 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..._fields import units_of
 from .._form import emit_fields
-from .._layout import Goto, Pager, editor_dialog, plan_view, section, step_page
-from .._live import live
+from .._layout import (
+    ROW_ACTIONS_SLOT,  # noqa: F401 - importable from here as before
+    Goto,
+    editor_dialog,
+    item_table,
+    plan_view,
+    section,
+    step_page,
+)
 from ..catalog import ADVANCED_FIELDS
 from ..catalog import SOURCE_DEFAULTS as _DEFAULTS  # noqa: F401 - the tests read it here
 from ..catalog import SOURCE_TYPES as _SOURCE_TYPES
 from ..catalog import new_source as _new_source
 from ..readiness import item_findings
-from ..session import Session, SessionEvent
+from ..session import Session
 
 
 def _summary_row(src: Any) -> Dict[str, Any]:
@@ -75,18 +82,6 @@ _COLUMNS = [
     {"name": "actions", "label": "Actions", "field": "key", "align": "right"},
 ]
 
-#: Row actions, with the item named in each button's accessible name.
-ROW_ACTIONS_SLOT = """
-<q-td :props="props" class="text-right">
-  <q-btn dense flat round icon="edit" :aria-label="`Edit ${props.row.name}`"
-         @click="$parent.$emit(`edit`, props.row.key)" />
-  <q-btn dense flat round icon="delete" color="negative"
-         :aria-label="`Delete ${props.row.name}`"
-         @click="$parent.$emit(`delete`, props.row.key)" />
-</q-td>
-"""
-
-
 def _emission_units(src: Any) -> str:
     for f in dataclasses.fields(src):
         if f.name == "emission_rate":
@@ -126,7 +121,6 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
     from nicegui import ui
 
     del goto
-    pager = Pager(session=session)
 
     def _open_editor(key: Optional[str], draft: Any) -> None:
         def refused() -> List[str]:
@@ -172,24 +166,15 @@ def render(session: Session, *, dialogs: Any, goto: Optional[Goto] = None) -> No
 
         with ui.element("div").classes("grid grid-cols-1 lg:grid-cols-5 gap-4 w-full items-start"):
             with ui.column().classes("lg:col-span-3 min-w-0 w-full gap-2"):
-                @live(session, SessionEvent.PROJECT_CHANGED, parts={"sources"})
-                def _table() -> None:
-                    entries = session.source_entries()
-                    rows: List[Dict[str, Any]] = [
-                        {**_summary_row(s), "units": _emission_units(s), "key": key,
-                         "name": s.source_id}
-                        for key, s in pager.window(entries)
-                    ]
-                    table = ui.table(columns=_COLUMNS, rows=rows, row_key="key").classes(
-                        "w-full").props('flat bordered hide-bottom aria-label="Sources"').mark(
-                        "sources-table")
-                    table.add_slot("body-cell-actions", ROW_ACTIONS_SLOT)
-                    table.on("edit", _on_edit)
-                    table.on("delete", _on_delete)
-                    pager.controls(len(entries), noun="Sources", refresh=lambda: _table.refresh())
-                    if not entries:
-                        ui.label("No sources yet. Choose a type and click Add.").classes(
-                            "text-grey-8")
+                def row(entry: Any) -> Dict[str, Any]:
+                    key, src = entry
+                    return {**_summary_row(src), "units": _emission_units(src), "key": key,
+                            "name": src.source_id}
+
+                item_table(session, part="sources", noun="Sources", columns=_COLUMNS,
+                           entries=session.source_entries, row=row,
+                           on_edit=_on_edit, on_delete=_on_delete,
+                           empty="No sources yet. Choose a type and click Add.")
             with ui.column().classes("lg:col-span-2 min-w-0 w-full"), \
                     section("Plan view"):
                 plan_view(session)
