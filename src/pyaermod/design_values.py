@@ -633,10 +633,11 @@ def annual_mean(
     year starts in.
 
     NOTE: Appendix N (4.4(a)-(b)) forms the annual PM2.5 mean as the mean
-    of the calendar quarters' means of the daily values; this function
-    averages every row of the year, which differs slightly for a complete
-    year (the quarters have different lengths) and can differ more with
-    gaps.
+    of the calendar quarters' means of the daily values. This function
+    averages every row of the year instead, as a model's annual average
+    over the hours of the year does, and that is the form kept here for
+    modelled values. The two differ slightly for a complete year (the
+    quarters have different lengths) and can differ more with gaps.
 
     Hourly (``1-HR``) input warns once that the mean divides by the
     number of rows (:func:`pyaermod.postfile.warn_hourly_mean_limitation`).
@@ -830,29 +831,27 @@ def pm10_24hr_design_value(
     expected number of days per calendar year above 150 µg/m³ is at most
     one, averaged over three years. Unlike the percentile standards this
     value is **not** an average across years: it ranks the pooled
-    multi-year record and takes the *highest sixth-high* (H6H) when five
-    years of meteorology are modelled -- five allowed exceedances plus
-    one -- or the *highest second-high* (H2H) with one year. That
+    multi-year record and takes the highest (N+1)-th-high value for N
+    years of meteorology, N allowed exceedances plus one: the *highest
+    second-high* (H2H) with one year, H3H, H4H and H5H with two, three
+    and four, and the *highest sixth-high* (H6H) with five. That
     modelling rule is the High-N+1-High of the AERMOD User's Guide
     (section 3.2.16.2), carried over from the pre-2017 Guideline on Air
     Quality Models (Appendix W, 7.2.1.1(b)); it is not in Part 50 or in
     the 2017 or current Appendix W.
 
-    ``rank`` defaults to 6 for a record of five or more years and 2
-    otherwise, and can be set explicitly. The years counted are met
-    years (``year_start``, see :func:`nth_highest_daily_max_design_value`),
-    so four July-to-June years are four years, not five. The daily value
-    is the 24-hour average, so hourly input is averaged within each day
-    (with the warning of
-    :func:`pyaermod.postfile.warn_hourly_mean_limitation`).
+    ``rank`` defaults to N+1 for a record of N years and can be set
+    explicitly. The years counted are met years (``year_start``, see
+    :func:`nth_highest_daily_max_design_value`), so four July-to-June
+    years are four years, not five. A partial year counts as a year and
+    so raises the rank; a warning names it. The daily value is the
+    24-hour average, so hourly input is averaged within each day (with
+    the warning of :func:`pyaermod.postfile.warn_hourly_mean_limitation`).
 
-    NOTE: with N complete years the form of Appendix K corresponds to
-    the (N+1)-th highest value (User's Guide 3.2.16.2: H3H, H4H, H5H for
-    two, three, four years); the default here uses H2H for two to four
-    years, which is more stringent. Appendix K (1.0(b)) also rounds each
-    daily value to the nearest 10 µg/m³ before comparing it with 150, so
-    only values of 155 and above are exceedances there, while Appendix W
-    9.2.2(b) says modelled values are not rounded; this function and
+    NOTE: Appendix K (1.0(b)) rounds each daily value to the nearest
+    10 µg/m³ before comparing it with 150, so only values of 155 and
+    above are exceedances there, while Appendix W 9.2.2(b) says modelled
+    values are not rounded; this function and
     :func:`naaqs_compliance_report` compare the unrounded value with 150.
     """
     _warn_hourly_mean(df, "the 24-hour PM10 means")
@@ -866,7 +865,7 @@ def pm10_24hr_design_value(
             stacklevel=2,
         )
     if rank is None:
-        rank = 6 if n_years >= 5 else 2
+        rank = n_years + 1
     out = (
         daily.groupby(["x", "y"], as_index=False, sort=False)["concentration"]
         .agg(lambda s: _nth_highest(s.to_numpy(), rank))
@@ -878,8 +877,102 @@ def pm10_24hr_design_value(
     return out
 
 
+#: Cells (hours x receptors) of the hourly grid :func:`_o3_daily_max`
+#: works on at a time; it bounds the memory of a large receptor grid.
+_O3_GRID_CELLS = 4_000_000
+
+
+def _o3_daily_max(df: pd.DataFrame, level: float) -> pd.DataFrame:
+    """Daily maximum running 8-hour mean of 1-hour values (Appendix U 3(b)-(d)).
+
+    ``df`` holds 1-hour POSTFILE rows; ``level`` is the standard in the
+    units of ``concentration``. Returns ``x, y, date, concentration`` for
+    the valid days, and warns about days left out as invalid.
+
+    A YYMMDDHH stamp names the hour *ending* at HH (01 to 24), so the hour
+    Appendix U calls 07:00 is the row stamped 08. The mean of the eight
+    hours starting at each hour is kept at that first hour; it is valid
+    with six or more hours of data, divided by the hours present, or with
+    fewer when their sum over eight still exceeds the level. A day's value
+    is the highest of the 17 means that start from 07:00 to 23:00, the
+    last of which runs to 07:00 the next day; the day is valid with 13 or
+    more valid means, or with a value above the level.
+    """
+    work = _dedupe_receptors(_one_source_group(df))
+    stamps = _stamp_text(work["date"])
+    day = _stamp_text_to_date(stamps)
+    hour = pd.to_numeric(stamps.str.slice(6, 8), errors="coerce")
+    unreadable = day.isna() | ~hour.between(1, 24)
+    if unreadable.any():
+        raise ValueError(
+            "the running 8-hour means need a YYMMDDHH stamp with an hour "
+            f"from 01 to 24 on every row; cannot read "
+            f"{', '.join(stamps[unreadable].unique()[:4])}."
+        )
+    first_day = day.min()
+    hour_index = ((day - first_day).dt.days * 24 + (hour - 1)).to_numpy(dtype=np.int64)
+    n_days = int(hour_index.max()) // 24 + 1
+    codes, receptors = pd.factorize(pd.MultiIndex.from_frame(work[["x", "y"]]))
+    values = work["concentration"].to_numpy(dtype=float)
+    order = np.argsort(codes, kind="stable")
+    bounds = np.searchsorted(codes[order], np.arange(len(receptors) + 1))
+    days = first_day + pd.to_timedelta(np.arange(n_days), unit="D")
+    last_day = n_days - 1
+    n_hours = n_days * 24
+    step = max(1, _O3_GRID_CELLS // n_hours)
+    frames = []
+    dropped = 0
+    for lo in range(0, len(receptors), step):
+        hi = min(lo + step, len(receptors))
+        rows = order[bounds[lo]:bounds[hi]]
+        # Seven hours of padding let the last evening's windows run on.
+        grid = np.full((n_hours + 7, hi - lo), np.nan)
+        grid[hour_index[rows], codes[rows] - lo] = values[rows]
+        present = ~np.isnan(grid)
+        filled = np.where(present, grid, 0.0)
+        total = np.zeros((n_hours, hi - lo))
+        count = np.zeros((n_hours, hi - lo), dtype=np.int8)
+        for k in range(8):
+            total += filled[k:k + n_hours]
+            count += present[k:k + n_hours]
+        mean = np.full(total.shape, np.nan)
+        enough = count >= 6
+        mean[enough] = total[enough] / count[enough]
+        # Appendix U 3(b): fewer than six hours still make a valid mean
+        # when the missing hours taken as zero leave it above the level.
+        sparse = ~enough & (total / 8.0 > level)
+        mean[sparse] = total[sparse] / 8.0
+        windows = mean.reshape(n_days, 24, hi - lo)[:, 7:, :]
+        n_valid = (~np.isnan(windows)).sum(axis=1)
+        daily = np.where(n_valid > 0, np.nan_to_num(windows, nan=-np.inf).max(axis=1),
+                         np.nan)
+        has_data = present[:n_hours].reshape(n_days, 24, hi - lo).any(axis=1)
+        with np.errstate(invalid="ignore"):
+            valid_day = (n_valid >= 13) | (daily > level)
+        invalid = has_data & ~valid_day
+        # The record's last day is always short: its evening means run
+        # past the data. It is left out without a warning.
+        dropped += int(invalid[:last_day].sum())
+        d_idx, r_idx = np.nonzero(valid_day)
+        frames.append(pd.DataFrame({
+            "x": receptors.get_level_values(0)[lo + r_idx],
+            "y": receptors.get_level_values(1)[lo + r_idx],
+            "date": days[d_idx],
+            "concentration": daily[d_idx, r_idx],
+        }))
+    if dropped:
+        warnings.warn(
+            f"{dropped} receptor-day(s) have fewer than 13 of the 17 running "
+            "8-hour means (each needs 6 of its 8 hours) and no mean above the "
+            "level, so they are not valid days under 40 CFR 50 Appendix U "
+            "3(d) and were left out of the ranking.",
+            stacklevel=3,
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
 def o3_8hr_design_value(
-    df_8hr: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
+    df: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
 ) -> pd.DataFrame:
     """O3 8-hour design value: 3-year avg of annual 4th-highest daily
     max 8-hour average concentration.
@@ -887,36 +980,75 @@ def o3_8hr_design_value(
     Per 40 CFR 50.19 and Appendix U. Standard: 70 ppb. The years are met
     years (``year_start``, see :func:`nth_highest_daily_max_design_value`).
 
-    Note: this expects AERMOD's 8-hour averages as input (``AVE='8-HR'``).
-    AERMOD forms an N-HR average only at the hours that are multiples of
-    N (``MOD(IHOUR, KAVE) == 0`` in ``aermod.f``), so an 8-HR POSTFILE
-    holds three fixed, non-overlapping blocks per day (ending at hours 8,
-    16 and 24), not running 8-hour means. Each (receptor, day) max is
-    taken to obtain the daily 8-hr max series. The maximum of three
-    blocks is never above the maximum of the 24 running means, so the
-    value can be lower than one built from running means.
+    Give it 1-hour values (``AVE='1-HR'``). The daily maximum is then
+    formed as Appendix U 3(b)-(d) forms it: the running 8-hour mean is
+    computed for every hour and kept at its first hour; a mean is valid
+    with at least 6 of its 8 hours, divided by the hours present; the
+    day's value is the highest of the 17 means starting from 07:00 to
+    23:00, the last running to 07:00 the next day; and a day is valid
+    with at least 13 of the 17, or with a value above the level. The
+    stamps are read as AERMOD writes them, the hour ending at HH in local
+    standard time, so the mean starting at 07:00 covers the rows stamped
+    08 to 15. A day belongs to the year its first hour falls in. The last
+    day of the record has too few evening means to be valid and is left
+    out unless it is above the level. An hourly POSTFILE has a row for
+    every hour and no calm or missing flag, so every row counts as an
+    hour of data (:data:`pyaermod.postfile.HOURLY_MEAN_LIMITATION`); the
+    validity rules act on hours that are absent or NaN. The "above the
+    level" tests take the concentrations to be in µg/m³, as AERMOD
+    writes them, and compare them with 70 ppb converted at 25 °C.
 
-    NOTE: Appendix U (3(b)-(d)) forms the daily maximum from running
-    8-hour averages stored at their first hour, over the 17 periods
-    starting 07:00 to 23:00, with validity rules (6 of 8 hours, 13 of 17
-    periods); this function uses AERMOD's block averages instead.
+    AERMOD's own 8-hour averages (``AVE='8-HR'``) are still read, with a
+    warning. AERMOD forms an N-HR average only at the hours that are
+    multiples of N (``MOD(IHOUR, KAVE) == 0`` in ``aermod.f``), so an
+    8-HR POSTFILE holds three fixed blocks per day (ending at hours 8, 16
+    and 24) and no running means. The highest of three blocks is never
+    above the highest running mean, so that value can understate the
+    Appendix U one.
+
+    NOTE: the completeness test of Appendix U 4(b) (90 % of the days of
+    the ozone season) and the truncation to 0.001 ppm (3(e)) are for
+    monitored data and are not applied; Appendix W 9.2.2(b) says modelled
+    values are not rounded.
 
     Raises
     ------
     ValueError
-        If the frame holds ``AVE='1-HR'`` rows, which are hourly values
-        and not 8-hour averages.
+        If the frame mixes ``1-HR`` rows with another averaging period.
     """
-    if _is_hourly(df_8hr):
-        raise ValueError(
-            "o3_8hr_design_value needs AERMOD's 8-HR averages (AVE='8-HR'), "
-            "but the frame holds 1-HR rows; request AVERTIME 8 and read that "
-            "POSTFILE instead of passing 1-hour values as 8-hour averages."
+    from .naaqs import get_naaqs  # local import to avoid cycles
+
+    form = "annual 4th-highest daily max of running 8-hour means"
+    if not _is_hourly(df):
+        warnings.warn(
+            "o3_8hr_design_value was given AERMOD's 8-HR block averages "
+            "(three fixed blocks a day), not 1-hour values. 40 CFR 50 "
+            "Appendix U takes the daily maximum of running 8-hour means, "
+            "which is never below the highest block, so this value can "
+            "understate it; pass the 1-HR POSTFILE to get the Appendix U form.",
+            stacklevel=2,
         )
-    return nth_highest_daily_max_design_value(
-        df_8hr, rank=4, daily="max", n_years=n_years,
-        pollutant="O3", averaging_period="8-hour", year_start=year_start,
-    ).assign(form="annual 4th-highest daily max")
+        return nth_highest_daily_max_design_value(
+            df, rank=4, daily="max", n_years=n_years,
+            pollutant="O3", averaging_period="8-hour", year_start=year_start,
+        ).assign(form="annual 4th-highest daily max of 8-hour blocks")
+    aves = sorted({str(a).strip().upper() for a in pd.unique(df["ave"])})
+    if aves != ["1-HR"]:
+        raise ValueError(
+            f"o3_8hr_design_value needs one averaging period, but the frame "
+            f"holds {', '.join(aves)}; keep the 1-HR rows, e.g. "
+            "df[df['ave'] == '1-HR']."
+        )
+    per_day = _o3_daily_max(df, get_naaqs("O3", "8-hour").level_ugm3)
+    per_day["_year"], partial_note = _daily_years(per_day, year_start)
+    per_year = (
+        per_day.groupby(["x", "y", "_year"], as_index=False, sort=False)
+        ["concentration"].agg(lambda s: _nth_highest(s.to_numpy(), 4))
+    )
+    out = _average_across_years(per_year, expected_years=n_years,
+                                label="The 8-hour O3 NAAQS",
+                                partial_note=partial_note)
+    return out.assign(form=form, averaging_period="8-hour", pollutant="O3")
 
 
 # ---------------------------------------------------------------------
@@ -1381,6 +1513,7 @@ _REPORT_FORMS = {
     "PM2.5": "24-hour PM2.5", "PM25": "24-hour PM2.5",
     "PM2.5_ANNUAL": "annual PM2.5", "PM25_ANNUAL": "annual PM2.5",
     "PM10": "24-hour PM10", "NO2_ANNUAL": "annual NO2",
+    "SO2_ANNUAL": "annual SO2",
     "NO2": "", "SO2": "", "O3": "",
 }
 
@@ -1416,9 +1549,12 @@ def naaqs_compliance_report(
     should not be rounded; the rounding and truncation conventions of the
     Part 50 appendices (N, S, T, U, K) apply to monitored design values.
 
-    Supported pollutants: PM2.5 (24-hour), PM10, NO2 (1-hour), SO2,
-    O3, plus annual forms via ``pollutant="PM2.5_annual"`` /
-    ``"NO2_annual"``.
+    Supported pollutants: PM2.5 (24-hour), PM10, NO2 (1-hour), SO2
+    (1-hour), O3 (from 1-hour values, see :func:`o3_8hr_design_value`),
+    plus annual forms via ``pollutant="PM2.5_annual"``, ``"NO2_annual"``
+    and ``"SO2_annual"``. The last is the secondary SO2 standard (40 CFR
+    50.21, 10 ppb): the average of the annual means, formed as the annual
+    PM2.5 value is.
 
     Years are met years: ``year_start`` (default ``None``, read from the
     first date in the data; ``"calendar"``; or a ``(month, day)`` pair)
@@ -1428,7 +1564,7 @@ def naaqs_compliance_report(
     on 1 January give calendar years either way.
 
     Hourly (``1-HR``) input to a form built from means (PM2.5, PM10,
-    PM2.5_annual, NO2_annual) warns once that the means divide by the
+    PM2.5_annual, NO2_annual, SO2_annual) warns once that the means divide by the
     number of rows (:func:`pyaermod.postfile.warn_hourly_mean_limitation`).
 
     The annual PM2.5 form is the average of the annual means (40 CFR
@@ -1487,7 +1623,7 @@ def naaqs_compliance_report(
     if pollutant not in _REPORT_FORMS:
         raise ValueError(
             f"Unsupported pollutant {pollutant!r}; supported: PM2.5, "
-            f"PM2.5_annual, PM10, NO2, NO2_annual, SO2, O3"
+            f"PM2.5_annual, PM10, NO2, NO2_annual, SO2, SO2_annual, O3"
         )
     if pollutant == "NO2_ANNUAL" and no2_annual not in _NO2_ANNUAL_FORMS:
         raise ValueError(f"no2_annual must be one of {', '.join(_NO2_ANNUAL_FORMS)}; "
@@ -1523,6 +1659,12 @@ def naaqs_compliance_report(
         elif pollutant == "SO2":
             dv = so2_1hr_design_value(work, n_years=n_years, year_start=year_start)
             std = get_naaqs("SO2", "1-hour")
+        elif pollutant == "SO2_ANNUAL":
+            # Secondary standard: the mean of the annual means.
+            dv = (annual_mean(work, year_start=year_start)
+                  .groupby(["x", "y"], as_index=False, sort=False)
+                  ["concentration"].mean())
+            std = get_naaqs("SO2", "annual")
         else:
             dv = o3_8hr_design_value(work, n_years=n_years, year_start=year_start)
             std = get_naaqs("O3", "8-hour")

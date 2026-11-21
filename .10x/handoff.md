@@ -79,12 +79,16 @@ the research write-ups quote the routines and lines that matter. CI is the test 
 1. **Run `.10x/local-verification-prompt.md` locally**, where the AERMOD binaries and EPA Fortran are. Items 1 to 5
    test assumptions in #80 (CO LOW_WIND field 7 and ranges, E336, W325, the urban-area message, GRSM with DFAULT).
 2. **Branch cleanup:** run the commands in `.10x/branch-cleanup.md` and decide on the branches it lists.
-3. **Awaiting the maintainer's word** (each alters computed results; nothing has been changed):
-   - annual PM2.5 as the mean of the four quarterly means (Appendix N 4.4); the code averages all days;
-   - PM10 rank N+1 for 2 to 4 years of data; the code uses the second-highest;
-   - ozone from running 8-hour means (Appendix U); the code uses AERMOD's three fixed blocks per day;
-   - PM10 threshold: 150 as coded, or effectively 155 under Appendix K's rounding to 10 ug/m3;
-   - the SO2 secondary annual standard (50.21, 10 ppb) is not in the table.
+3. **Regulatory forms decided by the maintainer (2026-11-21) and implemented:**
+   - annual PM2.5 stays the mean of all rows of the year; the docstring says how Appendix N 4.4 differs;
+   - PM10 ranks N+1 by default for N years (H3H to H5H for 2 to 4 years);
+   - ozone uses running 8-hour means from 1-hour values (Appendix U 3(b)-(d)); 8-HR blocks still read, with a warning;
+   - PM10 stays compared with 150 unrounded;
+   - the SO2 secondary annual standard (50.21, 10 ppb) is in the table as `primary=False`, with `"SO2_annual"` in
+     `naaqs_compliance_report`.
+   Not checked against AERMOD: that an hourly POSTFILE stamp is the hour ending in LST (taken from the repo's own
+   parser notes), and how AERMOD writes calm or missing hours in a 1-HR POSTFILE, which the ozone validity rules
+   would see as data.
 4. **The open questions and findings listed above**, the intermittent CI hang first.
 5. **Not checked anywhere:** a possible GeoJSON export CRS problem under geopandas 0.14, and
    `tests/regulatory/test_event_rewrite.py` with AERMOD v24142 on PATH. Both are in the local verification prompt.

@@ -293,6 +293,29 @@ class TestPm10_24hr:
         assert out["form"].iloc[0].startswith("H6H")
         assert out["concentration"].iloc[0] == pytest.approx(95.0)
 
+    @pytest.mark.parametrize("n_years", [1, 2, 3, 4, 5])
+    def test_default_rank_is_n_plus_one(self, n_years):
+        # High-N+1-High, AERMOD User's Guide 3.2.16.2: H2H for one year,
+        # H3H, H4H, H5H for two to four, H6H for five.
+        years = tuple(range(2016, 2016 + n_years))
+        df = _hourly_postfile(years=years, receptors=((1.0, 0.0),),
+                              concentration_value=1.0, averaging="24-HR")
+        df = df[df["date"].str.endswith("24")].copy()
+        for i in range(7):
+            df.loc[df["date"] == f"16010{i + 1}24", "concentration"] = 100.0 - i
+        out = pm10_24hr_design_value(df)
+        assert out["form"].iloc[0].startswith(f"H{n_years + 1}H")
+        assert out["concentration"].iloc[0] == pytest.approx(100.0 - n_years)
+
+    def test_an_explicit_rank_overrides_the_default(self):
+        df = _hourly_postfile(years=(2016, 2017, 2018), receptors=((1.0, 0.0),),
+                              concentration_value=1.0, averaging="24-HR")
+        df = df[df["date"].str.endswith("24")].copy()
+        df.loc[df["date"] == "16010124", "concentration"] = 100.0
+        df.loc[df["date"] == "16010224", "concentration"] = 90.0
+        out = pm10_24hr_design_value(df, rank=2)
+        assert out["concentration"].iloc[0] == pytest.approx(90.0)
+
 
 class TestNaaqsComplianceReport:
     def test_pm25_compliance(self):
@@ -336,9 +359,6 @@ class TestNaaqsComplianceReport:
         # AERMOD reports ug/m3; comparing with the ppb level flagged
         # 1324 of 1681 receptors on a real SO2 run instead of 7
         df = _hourly_postfile(concentration_value=ugm3)
-        if pollutant == "O3":
-            # the O3 form reads AERMOD's 8-HR averages and refuses 1-HR rows
-            df = df.assign(ave="8-HR")
         rpt = naaqs_compliance_report(pollutant, df)
         assert (~rpt["exceeds"]).all()
         assert (rpt["naaqs_level_ugm3"] > rpt["naaqs_level"]).all()

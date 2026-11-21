@@ -485,6 +485,8 @@ def naaqs_checks(results: AERMODResults, postfiles: Sequence[Path] = (), *,
         return []
     checks = []
     for standard in NAAQS_TABLE.get(key, []):
+        if not standard.primary:
+            continue
         period = _NAAQS_PERIODS.get(standard.averaging_period.lower())
         level = standard.level_ugm3
         if period is None:

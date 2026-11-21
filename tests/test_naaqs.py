@@ -87,7 +87,7 @@ class TestAveragingPeriods:
     def test_every_table_period_has_a_token(self):
         from pyaermod.naaqs import NAAQS_TABLE, naaqs_averaging_periods
         for key, rows in NAAQS_TABLE.items():
-            assert len(naaqs_averaging_periods(key)) == len({r.averaging_period for r in rows})
+            assert len(naaqs_averaging_periods(key)) == len({r.averaging_period for r in rows if r.primary})
 
 
 class TestUnits:
@@ -114,3 +114,22 @@ class TestUnits:
         assert ppb_to_ugm3("so2", 1.0) == pytest.approx(64.064 / 24.465)
         with pytest.raises(KeyError, match="no molecular weight"):
             ppb_to_ugm3("PM10", 1.0)
+
+
+class TestSo2Secondary:
+    """40 CFR 50.21: annual SO2, 10 ppb, three-year average of annual means."""
+
+    def test_the_annual_standard_is_secondary(self):
+        std = get_naaqs("SO2", "annual")
+        assert (std.level, std.units, std.primary) == (10.0, "ppb", False)
+        assert "50.21" in std.cfr_reference
+        assert std.level_ugm3 == pytest.approx(26.2, abs=0.05)
+
+    def test_every_other_standard_is_primary(self):
+        secondary = [(s.pollutant, s.averaging_period)
+                     for rows in NAAQS_TABLE.values() for s in rows if not s.primary]
+        assert secondary == [("SO2", "annual")]
+
+    def test_it_adds_no_averaging_period_to_an_so2_run(self):
+        from pyaermod.naaqs import naaqs_averaging_periods
+        assert naaqs_averaging_periods("SO2") == ["1"]
