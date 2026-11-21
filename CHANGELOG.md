@@ -68,6 +68,16 @@ out of it; each has a test that failed before the fix.
     `NAAQSStandard.primary = False`, and `naaqs_compliance_report` takes
     `"SO2_annual"`. `naaqs_averaging_periods` and the GUI's NAAQS
     comparison keep to primary standards.
+- **Calm and missing hours in the ozone design value.** AERMOD writes a
+  calm or missing hour to a 1-HR POSTFILE as 0.0 with no flag (read in
+  the 26135 Fortran: `HRLOOP`, `POSTFL`), so those zeros lowered the
+  running 8-hour means. `o3_8hr_design_value` and
+  `naaqs_compliance_report("O3", ...)` take `calm_missing=`, a list of
+  YYMMDDHH stamps, and the new `calm_and_missing_hours(surface_file)`
+  reads them from the AERMET surface file. Each mean leaves those hours
+  out and divides by the hours that remain, or by 6 if fewer remain, as
+  AERMOD's own 8-hour average does. Without `calm_missing` the function
+  warns.
 - The annual PM2.5 mean stays the mean of every row of the year, and PM10
   stays compared with 150 µg/m³ unrounded; the docstrings say how
   Appendix N (quarterly means) and Appendix K (rounding to 10 µg/m³)

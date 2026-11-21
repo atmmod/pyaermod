@@ -152,6 +152,14 @@ def ppb_to_ugm3(pollutant: str, ppb: float) -> float:
     :data:`MOLECULAR_WEIGHTS` and the molar volume at 25 °C and 1 atm
     (40 CFR 50.3). Raises ``KeyError`` for a pollutant that is not a gas
     in the table (particulate matter and lead are set in µg/m³ already).
+
+    NOTE: AERMOD converts a ``BACKGRND`` or ozone value given in ppb with
+    rounded constants (``modules.f``: ``NO2_PPB = 0.5319`` and
+    ``SO2_PPB = 0.3823`` ppb per µg/m³, ``CO_PPB = 1.144`` and
+    ``O3_PPB = 1.960`` µg/m³ per ppb). They give 1.8800, 2.6157, 1.144
+    and 1.960 µg/m³ per ppb, against 1.8805, 2.6186, 1.1449 and 1.9619
+    here, a difference of 0.03 % to 0.11 %. The 1-hour SO2 level is
+    196.4 µg/m³ here and 196.2 with AERMOD's constant.
     """
     key = pollutant.strip().upper()
     if key not in MOLECULAR_WEIGHTS:

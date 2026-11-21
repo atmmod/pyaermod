@@ -41,7 +41,7 @@ import warnings
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Iterable, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -634,10 +634,13 @@ def annual_mean(
 
     NOTE: Appendix N (4.4(a)-(b)) forms the annual PM2.5 mean as the mean
     of the calendar quarters' means of the daily values. This function
-    averages every row of the year instead, as a model's annual average
-    over the hours of the year does, and that is the form kept here for
-    modelled values. The two differ slightly for a complete year (the
-    quarters have different lengths) and can differ more with gaps.
+    averages every row of the year instead, and that is the form kept
+    here for modelled values. The two differ slightly for a complete
+    year (the quarters have different lengths) and can differ more with
+    gaps. AERMOD's own ANNUAL average is also over hours, but it divides
+    by the hours that were neither calm nor missing (``PERAVE`` in
+    ``output.f``), where a mean of hourly POSTFILE rows counts those
+    hours as zeros.
 
     Hourly (``1-HR``) input warns once that the mean divides by the
     number of rows (:func:`pyaermod.postfile.warn_hourly_mean_limitation`).
@@ -882,12 +885,43 @@ def pm10_24hr_design_value(
 _O3_GRID_CELLS = 4_000_000
 
 
-def _o3_daily_max(df: pd.DataFrame, level: float) -> pd.DataFrame:
+def calm_and_missing_hours(sfc_file: Union[str, Path]) -> list[str]:
+    """YYMMDDHH stamps of the hours AERMOD computes nothing for.
+
+    Read from the AERMET surface file as AERMOD reads it: a calm hour has
+    a reference wind speed of exactly 0 (``CHKCLM`` in ``metext.f``) and
+    a missing hour fails one of the checks of ``CHKMSG``. For such an
+    hour AERMOD does not call ``CALC`` and adds no background
+    (``HRLOOP`` in ``aermod.f``), yet ``POSTFL`` still writes the hour to
+    a 1-HR POSTFILE, as a row of 0.0 for every receptor with no flag.
+    Pass the result to :func:`o3_8hr_design_value` so that those zeros
+    are not averaged as concentrations.
+
+    NOTE: an hour with a mixing height of zero or less (AERMOD message
+    470) is also written as zero but counts as a valid hour in AERMOD's
+    own averages, so it is not listed.
+    """
+    from .hourly_emissions import _read_sfc_hours  # avoid a cycle
+
+    hours, speeds, missing = _read_sfc_hours(Path(sfc_file))
+    return [f"{year % 100:02d}{month:02d}{day:02d}{hour:02d}"
+            for (year, month, day, hour), speed, gone in zip(hours, speeds, missing)
+            if gone or speed == 0.0]
+
+
+def _o3_daily_max(df: pd.DataFrame, level: float,
+                  calm_missing: Optional[Iterable] = None) -> pd.DataFrame:
     """Daily maximum running 8-hour mean of 1-hour values (Appendix U 3(b)-(d)).
 
     ``df`` holds 1-hour POSTFILE rows; ``level`` is the standard in the
     units of ``concentration``. Returns ``x, y, date, concentration`` for
     the valid days, and warns about days left out as invalid.
+
+    ``calm_missing`` names the hours AERMOD flagged calm or missing. Their
+    rows hold 0.0 and are left out of the sum, and the mean divides by
+    the remaining hours or by 6, whichever is larger, as AERMOD's own
+    8-hour average does (``AVER`` in ``calc2.f``:
+    ``MAX(NUMHRS-NUMCLM-NUMMSG, NINT(NUMHRS*0.75+0.4))``).
 
     A YYMMDDHH stamp names the hour *ending* at HH (01 to 24), so the hour
     Appendix U calls 07:00 is the row stamped 08. The mean of the eight
@@ -900,6 +934,19 @@ def _o3_daily_max(df: pd.DataFrame, level: float) -> pd.DataFrame:
     """
     work = _dedupe_receptors(_one_source_group(df))
     stamps = _stamp_text(work["date"])
+    if calm_missing is not None:
+        flagged = set(_stamp_text(pd.Series(list(calm_missing), dtype=object)))
+        unknown = flagged - set(stamps.unique())
+        if flagged and len(unknown) == len(flagged):
+            warnings.warn(
+                "none of the calm or missing hours is an hour of the frame, "
+                "so none was left out; they must be YYMMDDHH stamps as in "
+                "df['date'].",
+                stacklevel=3,
+            )
+        skip = stamps.isin(flagged).to_numpy()
+    else:
+        skip = np.zeros(len(work), dtype=bool)
     day = _stamp_text_to_date(stamps)
     hour = pd.to_numeric(stamps.str.slice(6, 8), errors="coerce")
     unreadable = day.isna() | ~hour.between(1, 24)
@@ -929,15 +976,21 @@ def _o3_daily_max(df: pd.DataFrame, level: float) -> pd.DataFrame:
         grid = np.full((n_hours + 7, hi - lo), np.nan)
         grid[hour_index[rows], codes[rows] - lo] = values[rows]
         present = ~np.isnan(grid)
-        filled = np.where(present, grid, 0.0)
+        # Calm and missing hours are hours of the record with no value.
+        calm = np.zeros(grid.shape, dtype=bool)
+        calm[hour_index[rows], codes[rows] - lo] = skip[rows]
+        calm &= present
+        filled = np.where(present & ~calm, grid, 0.0)
         total = np.zeros((n_hours, hi - lo))
         count = np.zeros((n_hours, hi - lo), dtype=np.int8)
+        valid = np.zeros((n_hours, hi - lo), dtype=np.int8)
         for k in range(8):
             total += filled[k:k + n_hours]
             count += present[k:k + n_hours]
+            valid += (present & ~calm)[k:k + n_hours]
         mean = np.full(total.shape, np.nan)
         enough = count >= 6
-        mean[enough] = total[enough] / count[enough]
+        mean[enough] = total[enough] / np.maximum(valid[enough], 6)
         # Appendix U 3(b): fewer than six hours still make a valid mean
         # when the missing hours taken as zero leave it above the level.
         sparse = ~enough & (total / 8.0 > level)
@@ -973,6 +1026,7 @@ def _o3_daily_max(df: pd.DataFrame, level: float) -> pd.DataFrame:
 
 def o3_8hr_design_value(
     df: pd.DataFrame, *, n_years: int = 3, year_start: YearStart = None,
+    calm_missing: Optional[Iterable] = None,
 ) -> pd.DataFrame:
     """O3 8-hour design value: 3-year avg of annual 4th-highest daily
     max 8-hour average concentration.
@@ -989,14 +1043,33 @@ def o3_8hr_design_value(
     with at least 13 of the 17, or with a value above the level. The
     stamps are read as AERMOD writes them, the hour ending at HH in local
     standard time, so the mean starting at 07:00 covers the rows stamped
-    08 to 15. A day belongs to the year its first hour falls in. The last
-    day of the record has too few evening means to be valid and is left
-    out unless it is above the level. An hourly POSTFILE has a row for
-    every hour and no calm or missing flag, so every row counts as an
-    hour of data (:data:`pyaermod.postfile.HOURLY_MEAN_LIMITATION`); the
-    validity rules act on hours that are absent or NaN. The "above the
-    level" tests take the concentrations to be in µg/m³, as AERMOD
-    writes them, and compare them with 70 ppb converted at 25 °C.
+    08 to 15. AERMOD stamps a row with the date and hour of the surface
+    file record, unchanged (``KURDAT`` in ``metext.f``), hours 1 to 24
+    with hour 24 the last of its day, so the stamps are in the time the
+    meteorology is in; AERMET writes hour-ending local standard time. A
+    day belongs to the year its first hour falls in. The first seven
+    hours of a record belong to no day in it, and its last day has only
+    12 of its 17 means (those starting 07:00 to 18:00), so that day is
+    left out unless it is above the level.
+
+    **Calm and missing hours.** AERMOD computes nothing for a calm or
+    missing hour and adds no background to it, but still writes it to a
+    1-HR POSTFILE as 0.0 with no flag (``HRLOOP`` and ``POSTFL``). Read
+    as concentrations, those zeros lower every running mean they fall
+    in. Pass the hours as ``calm_missing`` (YYMMDDHH stamps;
+    :func:`calm_and_missing_hours` reads them from the surface file) and
+    each mean leaves them out and divides by the hours that remain, or
+    by 6 if fewer remain. That is the divisor of AERMOD's own 8-hour
+    average (``AVER`` in ``calc2.f``), and with six or more hours it is
+    also Appendix U's. Without ``calm_missing`` every row counts as an
+    hour of data and a warning says so. Hours with no row at all, or
+    NaN, follow the Appendix U validity rules above.
+
+    The "above the level" tests take the concentrations to be in µg/m³,
+    AERMOD's default for concentration (``EMIFAC = 1.0D06``,
+    ``MICROGRAMS/M**3`` in ``coset.f``), and compare them with 70 ppb
+    converted at 25 °C. A POSTFILE does not name its units, so a run
+    with ``EMISUNIT`` or ``CONCUNIT`` must be converted first.
 
     AERMOD's own 8-hour averages (``AVE='8-HR'``) are still read, with a
     warning. AERMOD forms an N-HR average only at the hours that are
@@ -1039,7 +1112,16 @@ def o3_8hr_design_value(
             f"holds {', '.join(aves)}; keep the 1-HR rows, e.g. "
             "df[df['ave'] == '1-HR']."
         )
-    per_day = _o3_daily_max(df, get_naaqs("O3", "8-hour").level_ugm3)
+    if calm_missing is None:
+        warnings.warn(
+            "o3_8hr_design_value was given no calm_missing hours. AERMOD "
+            "writes a calm or missing hour to a 1-HR POSTFILE as 0.0 with no "
+            "flag, so each such hour lowers the running 8-hour means it falls "
+            "in; pass calm_missing=calm_and_missing_hours(surface_file), or "
+            "an empty list if the meteorology has none.",
+            stacklevel=2,
+        )
+    per_day = _o3_daily_max(df, get_naaqs("O3", "8-hour").level_ugm3, calm_missing)
     per_day["_year"], partial_note = _daily_years(per_day, year_start)
     per_year = (
         per_day.groupby(["x", "y", "_year"], as_index=False, sort=False)
@@ -1526,6 +1608,7 @@ def naaqs_compliance_report(
     n_years: int = 3,
     no2_annual: str = "highest_year",
     year_start: YearStart = None,
+    calm_missing: Optional[Iterable] = None,
 ) -> pd.DataFrame:
     """One-stop compliance roll-up: design value + NAAQS comparison.
 
@@ -1599,6 +1682,12 @@ def naaqs_compliance_report(
     is that mean as it is, whatever its number of years; a PERIOD mean is
     used as it is, with the same warning as above.
 
+    ``calm_missing`` (YYMMDDHH stamps, see :func:`calm_and_missing_hours`)
+    is used by the O3 form only: those hours are left out of the running
+    8-hour means (:func:`o3_8hr_design_value`). A ``background`` is added
+    to every row, calm and missing hours included, where AERMOD's own
+    ``BACKGRND`` adds none to them.
+
     ``background`` is added before the design value is formed. A date-keyed
     background (dict or Series) cannot be matched to ANNUAL or PERIOD
     values, whose date field is not an hour, so it raises
@@ -1666,7 +1755,8 @@ def naaqs_compliance_report(
                   ["concentration"].mean())
             std = get_naaqs("SO2", "annual")
         else:
-            dv = o3_8hr_design_value(work, n_years=n_years, year_start=year_start)
+            dv = o3_8hr_design_value(work, n_years=n_years, year_start=year_start,
+                                     calm_missing=calm_missing)
             std = get_naaqs("O3", "8-hour")
     finally:
         _hourly_mean_warned.reset(token)
@@ -1686,6 +1776,7 @@ __all__ = [
     "DesignValue",
     "add_background",
     "annual_mean",
+    "calm_and_missing_hours",
     "mxdybyyr_design_value",
     "naaqs_compliance_report",
     "naaqs_output_pathway",

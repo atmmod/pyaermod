@@ -46,6 +46,26 @@ secondary SO2 standard) average every row of the year. Appendix N forms
 the PM2.5 annual mean from quarterly means of daily values, which differs
 slightly from an all-hours mean.
 
+AERMOD writes a calm or missing hour to a 1-HR POSTFILE as 0.0 with no
+flag: `HRLOOP` skips the calculation and the background for that hour and
+still calls `POSTFL` (AERMOD 26135, `aermod.f` and `calc2.f`). Read as
+concentrations, those zeros lower every running mean they fall in. Pass
+the hours to `o3_8hr_design_value(calm_missing=...)`;
+`calm_and_missing_hours(surface_file)` reads them from the AERMET surface
+file by AERMOD's own tests. Each mean then leaves those hours out and
+divides by the hours that remain, or by 6 if fewer remain, which is the
+divisor of AERMOD's own 8-hour average (`AVER`). The 24-hour and annual
+means formed from hourly rows still count calm and missing hours as
+zeros; for those, have AERMOD write the 24-hour or annual values.
+
+AERMOD stamps each row with the date and hour of the surface-file record
+(`KURDAT`, hours 1 to 24) and does no time conversion, so the stamps are
+in the time base of the meteorology, which AERMET writes as hour-ending
+local standard time. Concentrations are in µg/m³ unless the run sets
+`EMISUNIT` or `CONCUNIT`; a POSTFILE does not name its units. AERMOD's
+ppb constants for `BACKGRND` and ozone inputs are rounded and differ from
+`ppb_to_ugm3` by up to 0.11 % (SO2).
+
 `naaqs_percentile_rank(n_days, percentile)` implements the tables. Both
 are transcribed into `tests/test_naaqs_rank_tables.py` and checked row by
 row for **every** day count from 1 to 366.
