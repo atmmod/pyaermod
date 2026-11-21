@@ -18,23 +18,13 @@ jobs:
           mkdir /tmp/src && unzip -q /tmp/src.zip -d /tmp/src
           cd "$(dirname "$(find /tmp/src -iname 'aermod.f' | head -1)")"
           ls
-          sub() {  # print one subroutine with file:line
-            awk -v name="$1" 'BEGIN{IGNORECASE=1}
-              $1=="SUBROUTINE" && toupper($2) ~ "^"name"(\\(|$)" {p=1}
-              p && $1=="SUBROUTINE" && toupper($2) !~ "^"name"(\\(|$)" {exit}
-              p {print FILENAME":"FNR": "$0}' *.f | grep -v ':[ ]*[Cc!\*]---\|: *$' | head -n "${2:-250}"
-          }
-          echo "=====PSTFIL"; sub PSTFIL 260
-          echo "=====AVER"; sub AVER 160
-          echo "=====HRLOOP calm/missing/postfile"
-          grep -n -i -B3 -A8 "CLMHR\|MSGHR" aermod.f | grep -n -i -B0 -A0 "" | head -n 420
-          echo "=====PSTFIL callers"
-          grep -n -i -B6 -A3 "CALL PSTFIL" *.f | head -n 120
-          echo "=====KURDAT / hour"
-          grep -n -i "KURDAT *=\|FULLDATE *=\|IHOUR *=\|JDAY *=" *.f | head -n 80
-          echo "=====units"
-          grep -n -i "EMIFAC *(\{0,1\}.*=\|EMILBL.*=\|OUTLBL.*=\|PERLBL.*=\|1\.0D\+\{0,1\}0\{0,1\}6\|MICROGRAMS" *.f | head -n 120
-          echo "=====LST"
-          grep -n -i "local standard\|\bLST\b\|hour ending\|hour-ending\|ending hour" *.f | head -n 60
-          echo "=====BACKGRND/O3 units"
-          grep -n -i "BGUNITS\|BackUnits\|OzoneUnits\|O3CONC *=\|PPB\b" *.f | head -n 80
+          n() { awk -v a="$2" -v b="$3" 'FNR>=a && FNR<=b {print FILENAME":"FNR": "$0}' "$1"; }
+          echo "=====subroutines"; grep -n -i "^ *SUBROUTINE" output.f calc2.f | cut -c1-70
+          echo "=====postfile unit"; grep -n -i "IPSUNT\|PSTFRM\|IPSFRM" *.f | head -n 80
+          echo "=====postfile writes"; grep -n -i -B45 -A14 "WRITE *(IPSUNT" output.f | head -n 420
+          echo "=====HRLOOP"; n aermod.f 1160 1480
+          echo "=====metext kurdat"; n metext.f 1380 1432
+          echo "=====clm/msg set"; grep -n -i -B4 -A10 "CLMHR *=\|MSGHR *=" metext.f | head -n 220
+          echo "=====AVER"; grep -n -i -A75 "^ *SUBROUTINE AVER" calc2.f | head -n 110
+          echo "=====ppb"; grep -n -i "O3_PPB\|NO2_PPB\|SO2_PPB\|CO_PPB\|O3_PPM" modules.f | head -n 20
+          echo "=====hour convention"; grep -n -i "hour.\{0,12\}end\|LST\|standard time\|time zone" metext.f meset.f | head -n 40
