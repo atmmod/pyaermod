@@ -186,3 +186,80 @@ def test_the_secondary_annual_so2_standard_is_the_mean_of_the_annual_means():
     assert rpt["naaqs_level"].iloc[0] == 10.0
     assert "50.21" in rpt["cfr_reference"].iloc[0]
     assert bool(rpt["exceeds"].iloc[0])          # 10 ppb is 26.2 ug/m3
+
+
+# ---------------------------------------------------------------------
+# Calm and missing hours: AERMOD writes them to a 1-HR POSTFILE as 0.0
+# (aermod.f HRLOOP calls POSTFL whether or not CALC ran), and its own
+# 8-hour average divides by MAX(valid hours, 6) (calc2.f AVER).
+# ---------------------------------------------------------------------
+
+def _stamp(when):
+    t = pd.Timestamp(when)
+    return f"{t:%y%m%d}{t.hour + 1:02d}"
+
+
+def test_calm_hours_are_left_out_of_the_mean():
+    f = _hourly(days=30)
+    _set(f, "2019-01-10 10:00", 8, 60.0)
+    _set(f, "2019-01-10 12:00", 2, 0.0)             # two calm hours, written as zero
+    calm = [_stamp("2019-01-10 12:00"), _stamp("2019-01-10 13:00")]
+    assert _daily(f)[pd.Timestamp("2019-01-10")] == pytest.approx(6 * 60.0 / 8)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        daily = dv._o3_daily_max(f, LEVEL, calm).set_index("date")["concentration"]
+    assert daily[pd.Timestamp("2019-01-10")] == pytest.approx(60.0)
+
+
+def test_fewer_than_six_valid_hours_divide_by_six():
+    f = _hourly(days=30)
+    _set(f, "2019-01-10 10:00", 8, 60.0)
+    _set(f, "2019-01-10 12:00", 4, 0.0)
+    calm = [_stamp(f"2019-01-10 {h}:00") for h in (12, 13, 14, 15)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        daily = dv._o3_daily_max(f, LEVEL, calm).set_index("date")["concentration"]
+    # The window 10:00 to 18:00 keeps four hours of 60: 240 / 6, as AERMOD's AVER.
+    # A later window (16:00 on) has two of them and six zeros: 120 / 8.
+    assert daily[pd.Timestamp("2019-01-10")] == pytest.approx(240.0 / 6)
+
+
+def test_a_calm_hour_still_counts_as_an_hour_of_the_record():
+    # A day of calms is a day of the record, not a gap: its means are valid (zero).
+    f = _hourly(days=30, value=10.0)
+    _set(f, "2019-01-10 00:00", 24, 0.0)
+    calm = [_stamp(pd.Timestamp("2019-01-10") + pd.Timedelta(hours=h)) for h in range(24)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        daily = dv._o3_daily_max(f, LEVEL, calm)
+    assert pd.Timestamp("2019-01-10") in set(daily["date"])
+
+
+def test_the_design_value_warns_without_calm_hours_and_not_with_them():
+    f = _hourly()
+    for day in ("2019-06-01", "2019-06-10", "2019-07-04", "2019-08-15"):
+        _set(f, f"{day} 12:00", 8, 80.0)
+    with pytest.warns(UserWarning, match="calm_missing"):
+        dv.o3_8hr_design_value(f, n_years=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        out = dv.o3_8hr_design_value(f, n_years=1, calm_missing=[])
+        rpt = dv.naaqs_compliance_report("O3", f, n_years=1, calm_missing=[])
+    assert out["concentration"].iloc[0] == pytest.approx(80.0)
+    assert rpt["design_value"].iloc[0] == pytest.approx(80.0)
+
+
+def test_calm_hours_that_match_nothing_warn():
+    f = _hourly(days=30)
+    with pytest.warns(UserWarning, match="none of the calm or missing hours"):
+        dv._o3_daily_max(f, LEVEL, ["85010101"])
+
+
+def test_calm_and_missing_hours_are_read_from_a_surface_file():
+    from pathlib import Path
+
+    sfc = Path(__file__).parent / "fixtures" / "output_parser" / "calm_missing" / "CALM.SFC"
+    hours = dv.calm_and_missing_hours(sfc)
+    # Four calm hours (wind speed 0) and three missing ones in 96.
+    assert len(hours) == 7 and len(set(hours)) == 7
+    assert all(h.startswith("8803") and 1 <= int(h[6:]) <= 24 for h in hours)

@@ -86,9 +86,13 @@ the research write-ups quote the routines and lines that matter. CI is the test 
    - PM10 stays compared with 150 unrounded;
    - the SO2 secondary annual standard (50.21, 10 ppb) is in the table as `primary=False`, with `"SO2_annual"` in
      `naaqs_compliance_report`.
-   Not checked against AERMOD: that an hourly POSTFILE stamp is the hour ending in LST (taken from the repo's own
-   parser notes), and how AERMOD writes calm or missing hours in a 1-HR POSTFILE, which the ozone validity rules
-   would see as data.
+   Checked in the AERMOD 26135 Fortran (2026-11-21, read through a CI job because the cloud container cannot reach
+   EPA): a calm or missing hour is a row of 0.0 in a 1-HR POSTFILE with no background (`aermod.f` HRLOOP, `calc2.f`
+   POSTFL); the stamp is the surface-file date and hour, 1 to 24, unconverted (`metext.f` KURDAT); CONC is in ug/m3 by
+   default (`coset.f`). `o3_8hr_design_value(calm_missing=...)` and `calm_and_missing_hours()` follow from the first.
+   Still open: the 24-hour and annual means from hourly rows count calm and missing hours as zeros
+   (`HOURLY_MEAN_LIMITATION`); `ppb_to_ugm3` differs from AERMOD's rounded ppb constants by up to 0.11 %; that AERMET
+   writes hour-ending LST is AERMET's convention and was not read in its source.
 4. **The open questions and findings listed above**, the intermittent CI hang first.
 5. **Not checked anywhere:** a possible GeoJSON export CRS problem under geopandas 0.14, and
    `tests/regulatory/test_event_rewrite.py` with AERMOD v24142 on PATH. Both are in the local verification prompt.

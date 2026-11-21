@@ -109,6 +109,7 @@ from .design_values import (
     DesignValue,
     add_background,
     annual_mean,
+    calm_and_missing_hours,
     mxdybyyr_design_value,
     naaqs_compliance_report,
     naaqs_output_pathway,
@@ -399,7 +400,7 @@ __all__ = [
     "parse_aerscreen_output",
     # Design values + NAAQS
     "DesignValue", "NAAQSStandard", "NAAQS_TABLE", "get_naaqs",
-    "add_background", "annual_mean",
+    "add_background", "annual_mean", "calm_and_missing_hours",
     "pm25_24hr_design_value", "no2_1hr_design_value",
     "so2_1hr_design_value", "pm10_24hr_design_value",
     "o3_8hr_design_value", "naaqs_compliance_report",

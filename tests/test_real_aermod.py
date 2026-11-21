@@ -327,3 +327,43 @@ def test_sigterm_mid_run_reports_the_signal(tmp_path):
     )
     inp = tmp_path / "killed_sigterm.inp"
     assert resume_batch([inp], tmp_path) == {"done": [], "todo": [inp]}
+
+
+def test_calm_and_missing_hours_are_zero_rows_in_an_hourly_postfile(tmp_path):
+    """AERMOD writes a calm or missing hour to a 1-HR POSTFILE as 0.0.
+
+    HRLOOP (aermod.f) skips CALC for such an hour, adds no background and
+    still calls POSTFL, so the hour has a row per receptor holding zero and
+    nothing marks it. o3_8hr_design_value(calm_missing=...) depends on it.
+    """
+    import subprocess
+
+    from pyaermod.design_values import calm_and_missing_hours
+    from pyaermod.postfile import read_postfile
+
+    calm_dir = FIXT.parent / "output_parser" / "calm_missing"
+    deck = (calm_dir / "aermod.inp").read_text()
+    deck = deck.replace("   SRCGROUP  ALL\n",
+                        "   BACKGRND  ANNUAL  5.0\n   SRCGROUP  ALL\n")
+    deck = deck.replace("OU STARTING\n",
+                        "OU STARTING\n   POSTFILE  1  ALL  PLOT  HOURLY.PST\n")
+    assert "BACKGRND" in deck and "POSTFILE" in deck
+    (tmp_path / "aermod.inp").write_text(deck)
+    shutil.copy(calm_dir / "CALM.SFC", tmp_path)
+    shutil.copy(FIXT / "AERMET2.PFL", tmp_path)
+    subprocess.run([shutil.which("aermod")], cwd=tmp_path, check=True,
+                   capture_output=True, timeout=300)
+    out = (tmp_path / "aermod.out").read_text()
+    assert "AERMOD Finishes Successfully" in out, out[-2000:]
+
+    df = read_postfile(tmp_path / "HOURLY.PST").data
+    stamps = df["date"].astype(str).str.zfill(8)
+    skipped = set(calm_and_missing_hours(calm_dir / "CALM.SFC"))
+    assert len(skipped) == 7
+    # A row for every hour of the file, calm and missing ones included.
+    assert stamps.nunique() == 96 and skipped <= set(stamps)
+    by_hour = df.groupby(stamps)["concentration"].agg(["min", "max"])
+    assert (by_hour.loc[sorted(skipped)] == 0.0).all().all()
+    # Every other hour carries at least the background.
+    rest = by_hour.drop(index=sorted(skipped))
+    assert (rest["min"] >= 5.0 - 1e-4).all()
