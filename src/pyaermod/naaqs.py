@@ -13,6 +13,7 @@ For each pollutant the entry encodes:
 - ``level`` — numeric standard
 - ``units`` — "ug/m3" or "ppb"
 - ``cfr_reference`` — the 40 CFR Part 50 section and appendix
+- ``primary`` — False for the one secondary standard listed, annual SO2
 
 This is a *reference* table only. Per-pollutant design-value math
 lives in :mod:`pyaermod.design_values`. The levels are compared with
@@ -43,6 +44,10 @@ class NAAQSStandard:
     units: str
     cfr_reference: str
     percentile: float | None = None
+    #: False for a secondary (welfare) standard that has no primary twin
+    #: in the table. :func:`get_naaqs` returns it when asked for by name;
+    #: :func:`naaqs_averaging_periods` lists primary standards only.
+    primary: bool = True
 
     @property
     def level_ugm3(self) -> float:
@@ -102,6 +107,10 @@ NAAQS_TABLE: dict[str, list[NAAQSStandard]] = {
     "SO2": [
         NAAQSStandard("SO2", "1-hour", "99th percentile of daily max",
                       75.0, "ppb", "40 CFR 50.17", percentile=99.0),
+        # Secondary standard (89 FR 105785, Dec. 2024): the three-year
+        # average of annual means (App. T 3.2, 5.2).
+        NAAQSStandard("SO2", "annual", "annual mean (3-yr avg)", 10.0, "ppb",
+                      "40 CFR 50.21; App. T", primary=False),
     ],
     "CO": [
         NAAQSStandard("CO", "1-hour",
@@ -207,12 +216,14 @@ def naaqs_averaging_periods(pollutant: str) -> list[str]:
     ``["24", "ANNUAL"]`` for PM2.5. The Pb rolling three-month standard
     maps to ``MONTH``, AERMOD's calendar-month average, which is the input
     to the rolling mean. A pollutant without a NAAQS (``OTHER``) has none.
+    Only primary standards are listed, so the secondary annual SO2
+    standard (40 CFR 50.21) adds no ``ANNUAL`` to SO2.
     """
     key = pollutant.strip().upper()
     key = _POLLUTID_KEYS.get(key, key)
     rows = next((v for k, v in NAAQS_TABLE.items() if k.upper() == key.upper()), [])
     order = list(_AVERTIME_TOKENS.values())
-    tokens = {_AVERTIME_TOKENS[r.averaging_period] for r in rows}
+    tokens = {_AVERTIME_TOKENS[r.averaging_period] for r in rows if r.primary}
     return [t for t in order if t in tokens]
 
 

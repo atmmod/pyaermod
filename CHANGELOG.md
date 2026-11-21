@@ -49,6 +49,30 @@ out of it; each has a test that failed before the fix.
 
 ### Changed
 
+- **Design values now differ in three cases** (decided by the maintainer,
+  2026-11-21):
+  - `o3_8hr_design_value` and `naaqs_compliance_report("O3", ...)` take
+    1-hour values and form the daily maximum from running 8-hour means, as
+    40 CFR 50 Appendix U 3(b)-(d) does: each mean is kept at its first
+    hour and needs 6 of its 8 hours, a day takes the highest of the 17
+    means starting 07:00 to 23:00, and a day needs 13 of the 17 or a value
+    above the level. AERMOD's 8-HR block averages are still read, with a
+    warning, and give a value that is never higher.
+  - `pm10_24hr_design_value` ranks N+1 by default for N years of data
+    (H3H, H4H, H5H for two, three and four years; AERMOD User's Guide
+    3.2.16.2). It used H2H for two to four years, so those values are now
+    lower. One year (H2H) and five years (H6H) are unchanged, and `rank=`
+    still overrides.
+  - The NAAQS table has the secondary annual SO2 standard (40 CFR 50.21,
+    10 ppb, three-year average of annual means), marked
+    `NAAQSStandard.primary = False`, and `naaqs_compliance_report` takes
+    `"SO2_annual"`. `naaqs_averaging_periods` and the GUI's NAAQS
+    comparison keep to primary standards.
+- The annual PM2.5 mean stays the mean of every row of the year, and PM10
+  stays compared with 150 µg/m³ unrounded; the docstrings say how
+  Appendix N (quarterly means) and Appendix K (rounding to 10 µg/m³)
+  differ.
+
 - **Exported source geometry is different, because the old output was
   wrong.** GeoPackage, shapefile, GeoJSON and KMZ exports now draw AREA,
   OPENPIT, AREACIRC, AREAPOLY and line sources with the outline AERMOD
@@ -65,9 +89,6 @@ out of it; each has a test that failed before the fix.
   instead of raising.
 - An AERSURFACE run that writes no surface-characteristics file is a
   failure.
-- `o3_8hr_design_value` and `naaqs_compliance_report("O3", ...)` refuse
-  1-hour rows. AERMOD's 8-hour values are fixed blocks ending at hours 8,
-  16 and 24, not running means; the docstring now says so.
 - `prime.gep_from_building` returns lower, correct GEP heights (it now
   uses `BPIPCalculator`'s sweep and the 65 m floor), so downwash is no
   longer written for a stack outside every building's influence zone.

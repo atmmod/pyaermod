@@ -23,14 +23,28 @@ in a table, and takes the *n*-th value from the top.
 | PM2.5, 24-hour | 3-yr avg of annual 98th percentile of daily 24-hour averages | 8th highest | 40 CFR 50 app. N, Table 1 |
 | NO2, 1-hour | 3-yr avg of annual 98th percentile of daily max 1-hour values | 8th highest | 40 CFR 50 app. S, Table 1 |
 | SO2, 1-hour | 3-yr avg of annual 99th percentile of daily max 1-hour values | 4th highest | 40 CFR 50 app. T, Table 1 |
-| O3, 8-hour | 3-yr avg of annual 4th-highest daily max 8-hour average | 4th highest | 40 CFR 50.19 |
-| PM10, 24-hour | Highest 6th-high of the pooled 5-year record (H6H); H2H with one year | — | AERMOD User's Guide 3.2.16.2 (High-N+1-High), for the standard of 40 CFR 50.6(a) and app. K: at most one expected exceedance per year |
+| O3, 8-hour | 3-yr avg of annual 4th-highest daily max of the running 8-hour means, computed from 1-hour values | 4th highest | 40 CFR 50.19; app. U 3(b)-(e) |
+| PM10, 24-hour | Highest (N+1)-th-high of the pooled record of N years: H2H with one year, H6H with five | — | AERMOD User's Guide 3.2.16.2 (High-N+1-High), for the standard of 40 CFR 50.6(a) and app. K: at most one expected exceedance per year |
+| SO2, annual (secondary) | 3-yr avg of annual means | — | 40 CFR 50.21; app. T 3.2, 5.2 |
 
 Modelled values are compared with the standard unrounded (Appendix W
 9.2.2(b)); the rounding conventions of the Part 50 appendices apply to
 monitored design values. Years are met years, as AERMOD counts them: a
 record that starts on 1 July is ranked July to June, and
 `year_start="calendar"` forces calendar years.
+
+The ozone daily maximum follows Appendix U 3(b)-(d). The running 8-hour
+mean is computed for every hour and kept at its first hour, and is valid
+with at least 6 of its 8 hours. A day's value is the highest of the 17
+means that start from 07:00 to 23:00, and the day is valid with at least
+13 of them or with a value above the level. A POSTFILE stamp names the
+hour ending at HH, so the mean starting at 07:00 covers the rows stamped
+08 to 15. AERMOD's own 8-HR averages are three fixed blocks a day;
+`o3_8hr_design_value` still reads them, with a warning that the result
+can understate the Appendix U value. The annual means (PM2.5, NO2 and the
+secondary SO2 standard) average every row of the year. Appendix N forms
+the PM2.5 annual mean from quarterly means of daily values, which differs
+slightly from an all-hours mean.
 
 `naaqs_percentile_rank(n_days, percentile)` implements the tables. Both
 are transcribed into `tests/test_naaqs_rank_tables.py` and checked row by

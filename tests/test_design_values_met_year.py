@@ -59,7 +59,7 @@ def test_pm10_does_not_count_four_july_to_june_years_as_five():
     f = _frame(np.arange(1, 4 * 365 + 1, dtype=float)[::-1], "2019-07-01")
     out = _quiet(dv.pm10_24hr_design_value, f)
     assert int(out["n_years"].iloc[0]) == 4
-    assert out["form"].iloc[0].startswith("H2H")
+    assert out["form"].iloc[0].startswith("H5H")   # N+1 for four years, not H6H
 
 
 def test_calendar_years_keep_the_old_split():
