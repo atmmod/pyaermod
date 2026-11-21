@@ -29,20 +29,25 @@ from pyaermod.geospatial import (  # noqa: E402
     utm_to_latlon,
 )
 from pyaermod.input_generator import (  # noqa: E402
+    AERMODProject,
     AreaCircSource,
     AreaPolySource,
     AreaSource,
     BuoyLineSegment,
     BuoyLineSource,
     CartesianGrid,
+    ControlPathway,
     DiscreteReceptor,
     LineSource,
+    MeteorologyPathway,
     OpenPitSource,
+    OutputPathway,
     PointSource,
     PolarGrid,
     ReceptorPathway,
     RLineExtSource,
     RLineSource,
+    SourcePathway,
     VolumeSource,
 )
 
@@ -563,6 +568,79 @@ class TestVectorExporter:
         outfile = tmp_path / "sources.geojson"
         result = exporter.export_sources(sample_sources, outfile, driver="GeoJSON")
         assert result.exists()
+
+    @staticmethod
+    def _geojson_coordinates(path):
+        """Every [x, y] in a GeoJSON file, read as JSON and not through
+        geopandas, which would hide a missing ``crs`` member."""
+        import json
+
+        def walk(node):
+            if node and isinstance(node[0], (int, float)):
+                yield node[:2]
+            else:
+                for child in node:
+                    yield from walk(child)
+
+        document = json.loads(path.read_text())
+        for feature in document["features"]:
+            yield from walk(feature["geometry"]["coordinates"])
+
+    def test_geojson_holds_longitude_and_latitude(
+        self, factory, transformer, sample_sources, sample_receptors,
+        sample_concentration_df, tmp_path,
+    ):
+        """RFC 7946: GeoJSON is WGS84 longitude and latitude. The frames are
+        UTM, and written as they stood geopandas 0.14 gave a file of
+        metres with no ``crs`` member, which a reader places at the wrong
+        end of the earth (checked with 0.14.4 and fiona 1.9.6)."""
+        exporter = VectorExporter(factory)
+        written = {
+            "sources": exporter.export_sources(
+                sample_sources, tmp_path / "sources.geojson", driver="GeoJSON"),
+            "receptors": exporter.export_receptors(
+                sample_receptors, tmp_path / "receptors.geojson", driver="GeoJSON"),
+            "points": exporter.export_concentrations(
+                sample_concentration_df, tmp_path / "points.geojson", driver="GeoJSON"),
+            "contours": exporter.export_concentrations(
+                sample_concentration_df, tmp_path / "contours.geojson", driver="GeoJSON",
+                as_contours=True),
+        }
+        for name, path in written.items():
+            coordinates = list(self._geojson_coordinates(path))
+            assert coordinates, name
+            for lon, lat in coordinates:
+                assert -180 <= lon <= 180 and -90 <= lat <= 90, (name, lon, lat)
+
+        # The first source is where the transformer puts it.
+        lat, lon = transformer.utm_to_latlon(501000, 3801000)
+        first = next(self._geojson_coordinates(written["sources"]))
+        assert first == pytest.approx([lon, lat], abs=1e-6)
+
+    def test_export_all_geojson_holds_longitude_and_latitude(
+        self, factory, sample_sources, sample_receptors, tmp_path,
+    ):
+        project = AERMODProject(
+            control=ControlPathway(title_one="t"),
+            sources=SourcePathway(sources=sample_sources),
+            receptors=sample_receptors,
+            meteorology=MeteorologyPathway(surface_file="a.sfc", profile_file="a.pfl"),
+            output=OutputPathway(),
+        )
+        paths = VectorExporter(factory).export_all(project, output_dir=tmp_path, driver="GeoJSON")
+        for name, path in paths.items():
+            for lon, lat in self._geojson_coordinates(path):
+                assert -180 <= lon <= 180 and -90 <= lat <= 90, (name, lon, lat)
+
+    def test_geopackage_keeps_utm(self, factory, sample_sources, tmp_path):
+        """Only GeoJSON is reprojected: a GeoPackage records its CRS."""
+        import geopandas as gpd
+
+        path = VectorExporter(factory).export_sources(
+            sample_sources, tmp_path / "sources.gpkg", driver="GPKG")
+        frame = gpd.read_file(path)
+        assert frame.crs.to_epsg() == 32616
+        assert frame.geometry.iloc[0].x == pytest.approx(501000)
 
     def test_export_concentrations_as_points(
         self, factory, sample_concentration_df, tmp_path,

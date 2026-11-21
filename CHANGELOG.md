@@ -100,6 +100,11 @@ out of it; each has a test that failed before the fix.
 
 ### Fixed
 
+- **GeoJSON exports hold longitude and latitude** (RFC 7946). They wrote UTM metres: with geopandas 1.x
+  under an old-style `crs` member, and with geopandas 0.14, which the `geo` extra still allows, with no `crs`
+  member at all, so a GIS reader placed every source, receptor and contour as if the metres were degrees.
+  GeoPackage and shapefile exports are unchanged.
+
 **Validator: accepts what AERMOD accepts.** All 160 EPA test decks the
 reader parses now write with `validate=True`; 72 did not.
 

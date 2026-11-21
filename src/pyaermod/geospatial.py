@@ -643,6 +643,23 @@ class RasterExporter:
         return output_path
 
 
+def _write_vector(gdf, path: Path, driver: str) -> None:
+    """``gdf.to_file`` with GeoJSON written the way RFC 7946 says.
+
+    A GeoJSON file holds WGS84 longitude and latitude. The frames here
+    are in UTM, and what GeoJSON then holds depends on the geopandas
+    release: 1.x (pyogrio) writes the UTM metres with an old-style
+    ``crs`` member naming the zone, while 0.14 (fiona) writes the same
+    metres with no ``crs`` member, so a reader takes them for degrees
+    and places every feature wrongly. Reprojecting here gives one
+    correct file on both. Other drivers keep the UTM coordinates, which
+    GeoPackage and shapefile record.
+    """
+    if str(driver).lower() == "geojson" and gdf.crs is not None:
+        gdf = gdf.to_crs(epsg=4326)
+    gdf.to_file(path, driver=driver)
+
+
 # ============================================================================
 # VECTOR EXPORTER
 # ============================================================================
@@ -693,7 +710,7 @@ class VectorExporter:
                 )
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        gdf.to_file(output_path, driver=driver)
+        _write_vector(gdf, output_path, driver)
         return output_path
 
     def export_sources_by_kind(
@@ -725,7 +742,7 @@ class VectorExporter:
             if part.empty:
                 continue
             path = output_path.with_name(f"{output_path.stem}_{kind}{output_path.suffix}")
-            part.to_file(path, driver=driver)
+            _write_vector(part, path, driver)
             written[kind] = path
         return written
 
@@ -744,7 +761,7 @@ class VectorExporter:
         gdf = self.factory.receptors_to_geodataframe(receptors, sources=sources)
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        gdf.to_file(output_path, driver=driver)
+        _write_vector(gdf, output_path, driver)
         return output_path
 
     def export_concentrations(
@@ -779,7 +796,7 @@ class VectorExporter:
         else:
             gdf = self.factory.concentrations_to_geodataframe(df)
 
-        gdf.to_file(output_path, driver=driver)
+        _write_vector(gdf, output_path, driver)
         return output_path
 
     def export_all(
