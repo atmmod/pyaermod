@@ -24,15 +24,26 @@ from pathlib import Path
 import pytest
 
 from pyaermod.aermod_outputs import read_event_output
+from pyaermod.epa_testcases import aermod_binary_version
 from pyaermod.input_reader import parse_aermod_input
 
 AERMOD_EXE = shutil.which("aermod")
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "epa_official"
 DECK = FIXTURES / "events_generated.inp"
 
+#: The vendored meteorology is AERMET 26135 output, which writes four-digit
+#: years; AERMOD 24142 reads them as two-digit fields and runs on the wrong
+#: hours (it reports W497, "EVENT mismatch", for all four events: the group
+#: values come out 1.06, 25.1, 550.7 and 6011.5 against the deck's 52.3, 156.9,
+#: 5.3 and 16.5). Checked with both binaries, 2026-11-21.
+AERMOD_VERSION = aermod_binary_version(AERMOD_EXE) if AERMOD_EXE else None
+
 pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(AERMOD_EXE is None, reason="aermod not on PATH; build with scripts/build_aermod.sh"),
+    pytest.mark.skipif(
+        AERMOD_EXE is not None and AERMOD_VERSION != "26135",
+        reason=f"the vendored AERMET 26135 meteorology needs AERMOD 26135 (this is {AERMOD_VERSION})"),
 ]
 
 _FATAL_RE = re.compile(r"^\s*(CO|SO|ME|OU|EV|MX)\s+E(\d{3})\s+(.*)$", re.MULTILINE)
