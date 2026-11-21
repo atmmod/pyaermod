@@ -453,9 +453,12 @@ class Validator:
             values[name] = value
             if not low <= value <= high:
                 error(f"{name} = {token} is outside {low} to {high} (E380)")
-        if "FRANmin" in values and values["FRANmin"] > values["FRANmax"]:
+        # An unreadable FRANmax (E208) leaves AERMOD's default, 1.0, in force
+        # (coset.f 1557), which FRANmin cannot exceed once it is in range.
+        franmax = values.get("FRANmax", 1.0)
+        if "FRANmin" in values and values["FRANmin"] > franmax:
             error(f"FRANmin ({values['FRANmin']}) is above FRANmax "
-                  f"({values['FRANmax']}) (E426)")
+                  f"({franmax}) (E426)")
 
     @classmethod
     def _validate_dfault_terrain(cls, control, result: ValidationResult):

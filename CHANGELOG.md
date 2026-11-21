@@ -100,6 +100,9 @@ out of it; each has a test that failed before the fix.
 
 ### Fixed
 
+- **`CO LOW_WIND` with an unreadable FRANmax and a FRANmin** (`0.3 0.5 abc 0.02 24 0.3`) raised
+  `KeyError` in the validator. It now reports E208, as AERMOD v24142 and v26135 do.
+
 **Validator: accepts what AERMOD accepts.** All 160 EPA test decks the
 reader parses now write with `validate=True`; 72 did not.
 
