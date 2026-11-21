@@ -54,7 +54,13 @@ git push origin --delete \
   claude/fix-output-mtime-race
 ```
 
-`claude/fix-plot-export-crashes` (#96, merged at 39479a1) also belongs in this list. So does `claude/simplify-output-parser` (#85, merged at 054c87b).
+Merged after that command was written, and safe to delete in the same way:
+
+```bash
+git push origin --delete \
+  claude/fix-plot-export-crashes claude/simplify-output-parser claude/add-handoff-docs \
+  claude/ci-name-a-hung-test claude/shapefile-per-geometry-kind claude/mypy-clean claude/handoff-update
+```
 
 ## Do not delete without a decision
 
