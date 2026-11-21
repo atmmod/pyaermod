@@ -1,0 +1,40 @@
+name: fortran-read (temporary)
+on:
+  push:
+    branches: [claude/fortran-read]
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      URL: "https://gaftp.epa.gov/Air/aqmg/SCRAM/models/preferred/aermod/aermod_source.zip"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the Fortran
+        run: |
+          bash scripts/fetch_epa_source.sh "$URL" /tmp/src.zip
+          mkdir /tmp/src && unzip -q /tmp/src.zip -d /tmp/src
+          cd "$(dirname "$(find /tmp/src -iname 'aermod.f' | head -1)")"
+          ls
+          sub() {  # print one subroutine with file:line
+            awk -v name="$1" 'BEGIN{IGNORECASE=1}
+              $1=="SUBROUTINE" && toupper($2) ~ "^"name"(\\(|$)" {p=1}
+              p && $1=="SUBROUTINE" && toupper($2) !~ "^"name"(\\(|$)" {exit}
+              p {print FILENAME":"FNR": "$0}' *.f | grep -v ':[ ]*[Cc!\*]---\|: *$' | head -n "${2:-250}"
+          }
+          echo "=====PSTFIL"; sub PSTFIL 260
+          echo "=====AVER"; sub AVER 160
+          echo "=====HRLOOP calm/missing/postfile"
+          grep -n -i -B3 -A8 "CLMHR\|MSGHR" aermod.f | grep -n -i -B0 -A0 "" | head -n 420
+          echo "=====PSTFIL callers"
+          grep -n -i -B6 -A3 "CALL PSTFIL" *.f | head -n 120
+          echo "=====KURDAT / hour"
+          grep -n -i "KURDAT *=\|FULLDATE *=\|IHOUR *=\|JDAY *=" *.f | head -n 80
+          echo "=====units"
+          grep -n -i "EMIFAC *(\{0,1\}.*=\|EMILBL.*=\|OUTLBL.*=\|PERLBL.*=\|1\.0D\+\{0,1\}0\{0,1\}6\|MICROGRAMS" *.f | head -n 120
+          echo "=====LST"
+          grep -n -i "local standard\|\bLST\b\|hour ending\|hour-ending\|ending hour" *.f | head -n 60
+          echo "=====BACKGRND/O3 units"
+          grep -n -i "BGUNITS\|BackUnits\|OzoneUnits\|O3CONC *=\|PPB\b" *.f | head -n 80
