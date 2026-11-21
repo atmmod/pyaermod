@@ -19,12 +19,13 @@ jobs:
           cd "$(dirname "$(find /tmp/src -iname 'aermod.f' | head -1)")"
           ls
           n() { awk -v a="$2" -v b="$3" 'FNR>=a && FNR<=b {print FILENAME":"FNR": "$0}' "$1"; }
-          echo "=====subroutines"; grep -n -i "^ *SUBROUTINE" output.f calc2.f | cut -c1-70
-          echo "=====postfile unit"; grep -n -i "IPSUNT\|PSTFRM\|IPSFRM" *.f | head -n 80
-          echo "=====postfile writes"; grep -n -i -B45 -A14 "WRITE *(IPSUNT" output.f | head -n 420
-          echo "=====HRLOOP"; n aermod.f 1160 1480
-          echo "=====metext kurdat"; n metext.f 1380 1432
-          echo "=====clm/msg set"; grep -n -i -B4 -A10 "CLMHR *=\|MSGHR *=" metext.f | head -n 220
-          echo "=====AVER"; grep -n -i -A75 "^ *SUBROUTINE AVER" calc2.f | head -n 110
-          echo "=====ppb"; grep -n -i "O3_PPB\|NO2_PPB\|SO2_PPB\|CO_PPB\|O3_PPM" modules.f | head -n 20
-          echo "=====hour convention"; grep -n -i "hour.\{0,12\}end\|LST\|standard time\|time zone" metext.f meset.f | head -n 40
+          echo "=====POSTFL"; n calc2.f 2916 3012
+          echo "=====header"; n ouset.f 1676 1730
+          echo "=====PERAVE"; n output.f 1 63
+          echo "=====SUMVAL"; n calc2.f 2114 2251
+          echo "=====BGVAL"; n calc2.f 150 210
+          echo "=====yearend metext"; n metext.f 700 740
+          echo "=====yearend meset"; n meset.f 1105 1140
+          echo "=====CHK_ENDYR"; grep -n -i -A70 "^ *SUBROUTINE CHK_ENDYR" aermod.f | grep -v "^[0-9]*-[Cc]\*\*\*" | head -n 110
+          echo "=====surface read"; grep -n -i -B3 -A12 "READ *( *MFUNIT\|READ( MFUNIT" metext.f | head -n 90
+          echo "=====messages"; grep -n -i "'440'\|'460'\|ECD.*\(Calm\|Missing\) Hour\|Number of .* Hours" modules.f output.f | head -n 20
