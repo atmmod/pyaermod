@@ -80,6 +80,10 @@ def test_valid_low_wind_fields_pass_with_alpha(option):
     ("0.3 0.5 1.0 0.02 0.1", "E380"),      # BigT below 0.5
     ("0.3 0.5 1.0 0.02 60", "E380"),       # BigT above 48
     ("0.3 0.5 0.5 0.02 24 0.8", "E426"),   # FRANmin above FRANmax
+    # FRANmax unreadable (E208) but FRANmin given: this raised KeyError. AERMOD
+    # compares FRANmin with its default FRANmax (1.0) and reports only E208
+    # (real v24142 and v26135 runs, 2026-11-21).
+    ("0.3 0.5 abc 0.02 24 0.3", "E208"),
     ("0.3 0.5 1.0 0.02 24 0.0 YES", "E203"),
     ("0.3 0.5 1.0 0.02 24 0.0 PBAL 1", "E202"),
 ])
